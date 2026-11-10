@@ -103,8 +103,6 @@ export const viewSettings = {
   lineBlame: viewSetting("med:line-blame", "on", ["on", "off"]),
   /** The preview beside Find file's results. */
   filePreview: viewSetting("med:picker-preview", "on", ["on", "off"]),
-  /** The work of finished turns in a session, folded into one row or shown. */
-  work: viewSetting("med:work", "folded", ["folded", "shown"]),
   /** The session rail beside a thread, which shows in a wide pane unless closed. */
   sessionPanel: viewSetting("med:session-panel", "auto", ["auto", "closed"]),
   /** What ⌘↩ does with a message while the agent works: send it now, at the

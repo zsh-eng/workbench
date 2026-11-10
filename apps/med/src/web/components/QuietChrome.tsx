@@ -169,6 +169,11 @@ function rowRoom(row: HTMLElement, slot: HTMLElement) {
       }
       if (display === "none" || position === "absolute" || position === "fixed") continue;
       items++;
+      // A part that gives way first, such as the review's name, at its least width.
+      if (child.hasAttribute("data-row-yields")) {
+        used += parseFloat(getComputedStyle(child).minWidth) || 0;
+        continue;
+      }
       used += (parseFloat(marginLeft) || 0) + (parseFloat(marginRight) || 0);
       used += wholeWidth(child, row.clientWidth);
     }

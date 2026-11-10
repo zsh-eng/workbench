@@ -265,11 +265,7 @@ const shown = () =>
 /** The review's header: in its pane, or, where the review fills the window,
  * the title band, which is then the review's one row. */
 const row = () =>
-  shown()?.querySelector<HTMLElement>('header[aria-label="Review header"]') ??
-  document
-    .querySelector('header[aria-label="Workspace"] [aria-label="Review header"]')
-    ?.closest<HTMLElement>('header[aria-label="Workspace"]') ??
-  undefined;
+  shown()?.querySelector<HTMLElement>('header[aria-label="Review header"]') ?? undefined;
 /** What the diff shows: in Changes the comparison (atop the page's sidebar,
  * or in the header while it hides), in Review the checkout, when it has
  * several. */
@@ -281,12 +277,23 @@ const comparison = () =>
       '[aria-label="Comparison"], [aria-label="Review checkout"]',
     )) ||
   null;
-const openThread = async (title: string) => {
+/** Opens a thread from the sidebar. It opens on its session alone; with
+ * `review`, its first page in the title band opens the review beside it. */
+const openThread = async (title: string, { review = true } = {}) => {
   const sidebar = page.getByRole("navigation", { name: "Sessions" });
   if (!sidebar.query()) await page.getByRole("button", { name: "Show sidebar" }).click();
+  const before = shown();
   await page.getByRole("button", { name: new RegExp(`^${title}`) }).click();
-  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  // The workspace before stays on screen until the thread's is ready.
+  await expect.poll(() => shown() !== before && shown()?.dataset.reviewStatus).toBe("ready");
+  if (!review || reviewPane()) return;
+  await page.getByRole("group", { name: "Review tools" }).getByRole("radio").first().click();
+  await expect.poll(reviewPane).toBeTruthy();
 };
+const reviewPane = () =>
+  [...document.querySelectorAll<HTMLElement>('[data-pane="review"]')].find((element) =>
+    element.checkVisibility(),
+  );
 const frame = () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve)));
 /** The middle of an element's box, from the window's top. */
 const middle = (element: Element) => {
@@ -446,8 +453,9 @@ test("the tabs keep their places as you switch between Review, Changes, and Comm
   // Beside the session, at a width with room for the header's pages.
   for (const width of [1440]) {
     await page.viewport(width, 800);
-    const seen: string[][] = [];
-    for (const name of [...names, "Review"]) {
+    // The thread opened Review; Review again would hide the review.
+    const seen: string[][] = [boxes()];
+    for (const name of ["Changes", "Commit", "Review"]) {
       await page.getByRole("radio", { name, exact: true }).click();
       await expect.poll(() => tab(name).getAttribute("aria-checked")).toBe("true");
       await frame();
@@ -535,7 +543,7 @@ test("a hidden session pane comes back by its button where it was, and ⌘K hide
   await expect.poll(() => side()?.getAttribute("aria-pressed")).toBe("false");
   expect(localStorage.getItem("med:session-panel")).toBe("closed");
 
-  await page.getByRole("button", { name: /^Hide the session pane/ }).click();
+  await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
   await expect.poll(session).toBeUndefined();
   await expect.element(showSession).toBeVisible();
   expect(row()!.querySelector('[data-pane-show="session"]')).toBe(showSession.element());
@@ -546,63 +554,78 @@ test("a hidden session pane comes back by its button where it was, and ⌘K hide
   expect(showSession.query()).toBeNull();
 });
 
-test("the review has Expand and Hide in its header, in ⋯ when the row is narrow, and comes back by Restore", async () => {
+test("a thread opens on its session; the band's pages show and hide the review, and ⌘E expands it", async () => {
   await page.viewport(1600, 900);
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  // Alone, the review has neither: it is the whole workspace, and stays.
+  // Alone, the review has no Expand: it is the whole workspace, and stays.
   expect(page.getByRole("button", { name: "Expand review" }).query()).toBeNull();
-  expect(page.getByRole("button", { name: "Hide the review" }).query()).toBeNull();
-  await openThread("A thread about the export");
+  await openThread("A thread about the export", { review: false });
   await page.getByRole("button", { name: "Hide sidebar" }).click();
-  const review = () => visible('[data-pane="review"]');
   const session = () => visible('[data-pane="session"]');
   await expect.poll(session).toBeTruthy();
+  expect(reviewPane()).toBeUndefined();
+  // The session has no Expand or Hide of its own.
+  expect(
+    page.getByRole("button", { name: /^Expand session|^Hide the session/ }).query(),
+  ).toBeNull();
 
-  // Beside the session, Expand fills the workspace and Restore gives the
-  // session its place back.
-  await page.getByRole("button", { name: "Expand review" }).click();
-  await expect
-    .poll(() => document.querySelector<HTMLElement>('[data-pane="session"]')!.inert)
-    .toBe(true);
-  await page.getByRole("button", { name: "Restore the other panes" }).click();
-  await expect
-    .poll(() => document.querySelector<HTMLElement>('[data-pane="session"]')!.inert)
-    .toBe(false);
+  // The band's pages, with the review's actions and Display, show while the
+  // review hides. A page opens it beside the thread, and the page on screen,
+  // clicked again, hides it.
+  const tools = page.getByRole("group", { name: "Review tools" });
+  await expect.element(tools.getByRole("button", { name: "Display" })).toBeVisible();
+  const reviewPage = tools.getByRole("radio", { name: "Review" });
+  await expect.element(reviewPage).toHaveAttribute("aria-checked", "false");
+  await reviewPage.click();
+  await expect.poll(reviewPane).toBeTruthy();
+  await expect.element(reviewPage).toHaveAttribute("aria-checked", "true");
+  await reviewPage.click();
+  await expect.poll(reviewPane).toBeUndefined();
+  await expect.poll(session).toBeTruthy();
 
-  // Hide leaves the session, whose header shows the review again.
-  await page.getByRole("button", { name: "Hide the review" }).click();
-  await expect.poll(review).toBeUndefined();
-  const showReview = page.getByRole("button", { name: "Show the review" });
-  await showReview.click();
-  await expect.poll(review).toBeTruthy();
+  // ⌘E opens the hidden review expanded, and restores the thread beside it.
+  const sessionInert = () => document.querySelector<HTMLElement>('[data-pane="session"]')!.inert;
+  await userEvent.keyboard("{Meta>}e{/Meta}");
+  await expect.poll(reviewPane).toBeTruthy();
+  await expect.poll(sessionInert).toBe(true);
+  await userEvent.keyboard("{Meta>}e{/Meta}");
+  await expect.poll(sessionInert).toBe(false);
 
-  // While the review hides, the session is the whole workspace: its header
-  // has Restore, which shows the review, and no Hide. ⌘⇧B hides it and shows
-  // the review, so the workspace keeps a pane.
-  await page.getByRole("button", { name: "Hide the review" }).click();
-  await expect.poll(review).toBeUndefined();
-  await expect.element(showReview).toBeVisible();
-  expect(page.getByRole("button", { name: /^Hide the session pane/ }).query()).toBeNull();
-  await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
-  await expect.poll(review).toBeTruthy();
-  await expect.poll(session).toBeUndefined();
+  // Beside the session, Expand ends the review's own row, which has no
+  // pages and no Hide: the band holds the pages.
+  const expand = page.getByRole("button", { name: "Expand review" });
+  await expect.element(expand).toBeVisible();
+  expect(row()!.contains(expand.element())).toBe(true);
+  expect(row()!.querySelector('[role="radiogroup"][aria-label="Page"]')).toBeNull();
   expect(page.getByRole("button", { name: "Hide the review" }).query()).toBeNull();
+  await expand.click();
+  await expect.poll(sessionInert).toBe(true);
+  await page.getByRole("button", { name: "Restore the other panes" }).click();
+  await expect.poll(sessionInert).toBe(false);
+
+  // ⌘K hides it too. While the review hides, ⌘⇧B hides the session and
+  // shows the review, so the workspace keeps a pane.
+  await userEvent.keyboard("{Control>}k{/Control}");
+  await page.getByRole("combobox", { name: "Search commands" }).fill("Hide review");
+  await page.getByRole("option", { name: /^Hide review/ }).click();
+  await expect.poll(reviewPane).toBeUndefined();
+  await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
+  await expect.poll(reviewPane).toBeTruthy();
+  await expect.poll(session).toBeUndefined();
   await page.getByRole("button", { name: "Show agent session" }).click();
   await expect.poll(session).toBeTruthy();
 
-  // A narrow row keeps its tabs and puts Expand and Hide in ⋯.
+  // A narrow row puts Expand in ⋯, with no Hide.
   await page.viewport(700, 800);
   await expect
-    .poll(() => row()!.querySelector('[aria-label="Hide the review"]')?.checkVisibility())
+    .poll(() => document.querySelector('[aria-label="Expand review"]')?.checkVisibility() ?? false)
     .toBe(false);
   const more = [...row()!.querySelectorAll<HTMLElement>('[aria-label="More actions"]')].at(-1)!;
   more.click();
   await expect.element(page.getByRole("menuitem", { name: /^Expand review/ })).toBeVisible();
-  await page.getByRole("menuitem", { name: "Hide review" }).click();
-  await expect.poll(review).toBeUndefined();
-  await showReview.click();
-  await expect.poll(review).toBeTruthy();
+  expect(page.getByRole("menuitem", { name: "Hide review" }).query()).toBeNull();
+  await userEvent.keyboard("{Escape}");
 });
 
 /**

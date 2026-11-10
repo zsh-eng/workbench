@@ -445,43 +445,40 @@ test("a GitHub comment shows its Markdown: code, lists, task lists, quotes, and 
   expect(element.textContent).not.toContain("```");
 });
 
-test("a pull request is the thread's title in the window's band, before its checkout; the review alone has its header in the band", async () => {
+test("a pull request names the review in its row, with its state and author; the band keeps the checkout and the comments", async () => {
   pullTitle = `Rename the export ${"and every caller of it ".repeat(12)}`;
   await openChanges();
   const link = page.getByRole("link", { name: /^Open pull request #7: Rename the export/ });
   await expect.element(link).toBeVisible();
   expect(link.element().getAttribute("href")).toBe(pullUrl);
   expect(link.element().getAttribute("target")).toBe("_blank");
-  // The window's title band leads with the pull request: its number and
-  // title, its state, and its author; the checkout follows it.
-  const band = link.element().closest<HTMLElement>('header[aria-label="Workspace"]')!;
-  expect(band).not.toBeNull();
-  await expect.poll(() => band.textContent).toMatch(/#7\s*Rename the export.*Open\s*mira/);
-  const checkout = page.getByRole("button", { name: "fixture. Copy the path", exact: true });
-  await expect.element(checkout).toBeVisible();
-  expect(
-    link.element().compareDocumentPosition(checkout.element()) & Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
+  // The review's own row, under the title band, leads with the pull
+  // request: its number and title, its state, and its author.
+  const row = link.element().closest<HTMLElement>('header[aria-label="Review header"]')!;
+  expect(row).not.toBeNull();
+  expect(row.closest('[data-pane="review"]')).not.toBeNull();
+  await expect.poll(() => row.textContent).toMatch(/#7\s*Rename the export.*Open\s*mira/);
   // One row: the title gives way, cut at its end; the state and author stay.
   expect(
-    band.querySelector('[title="Opened by mira"]')!.getBoundingClientRect().width,
+    row.querySelector('[title="Opened by mira"]')!.getBoundingClientRect().width,
   ).toBeGreaterThan(0);
-  expect(band.getBoundingClientRect().height).toBeLessThanOrEqual(40);
+  expect(row.getBoundingClientRect().height).toBeLessThanOrEqual(44);
   const title = [...link.element().querySelectorAll("span")].at(-1)!;
   expect(title.scrollWidth).toBeGreaterThan(title.clientWidth);
-  // The comments count is at the band's end.
+  // The band names the checkout, and the comments count is at its end, with
+  // the pages; it holds no review header.
+  const band = document.querySelector<HTMLElement>('header[aria-label="Workspace"]')!;
+  const checkout = page.getByRole("button", { name: "fixture. Copy the path", exact: true });
+  await expect.element(checkout).toBeVisible();
+  expect(band.contains(checkout.element())).toBe(true);
   const comments = page.getByRole("button", { name: "5 pull request comments" });
   await expect.element(comments).toHaveTextContent("5 comments");
   expect(band.contains(comments.element())).toBe(true);
-  // The band moves the window; its link and buttons take clicks.
+  expect(band.querySelector('[aria-label="Review header"]')).toBeNull();
+  // The band moves the window; its buttons take clicks.
   const region = (element: Element) => getComputedStyle(element).getPropertyValue("app-region");
   expect(region(band)).toBe("drag");
-  expect(region(link.element())).toBe("no-drag");
   expect(region(comments.element())).toBe("no-drag");
-  // The review fills the window, so its header is the band's one row.
-  const review = document.querySelector<HTMLElement>('[data-pane="review"]')!;
-  expect(band.querySelector('[aria-label="Review header"]')).not.toBeNull();
-  expect(review.querySelector('header[aria-label="Review header"]')).toBeNull();
 });
 
 /** The thread's Pull request tab, once its review shows. */

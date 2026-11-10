@@ -267,13 +267,14 @@ background shells and agents. It follows the session live.
   **Copy** and **Full screen** at its corner, as in a Markdown file
   ([Copy](markdown.md#copy)).
 
-- The session's menu has the agent's name, such as **Claude**. It holds the
-  review's sessions and **Show work**. **New thread** (`⌥N`, or `⌘N` in the
-  installed app) starts another session.
-- **Hide**, at the pane's top right, hides the pane (`⌘⇧B`). It does not stop
-  or close the session: the agent keeps working, and its row in the sidebar
-  shows its state. The review's **Restore**, at its top right where
-  **Expand** was, `⌘K`, or `⌘⇧B` again, shows the pane.
+- The thread has no header of its own: the title band names it, and the
+  band's end holds the session's controls, the review's pages, and Display
+  ([Layout](layout.md#the-title-band-and-the-reviews-header)). Where a review
+  has several sessions, a menu there named for the agent chooses one. **New
+  thread** (`⌥N`, or `⌘N` in the installed app) starts another session.
+- `⌘⇧B` hides the session pane. It does not stop or close the session: the
+  agent keeps working, and its row in the sidebar shows its state. The
+  review's **Restore**, `⌘K`, or `⌘⇧B` again, shows the pane.
 - A long session opens on its latest work. Scroll up for earlier work, or go
   to a prompt from the prompt rail.
 - The **prompt rail** at the thread's right edge has a dash for each prompt,
@@ -291,8 +292,7 @@ background shells and agents. It follows the session live.
   cache. The new thread opens in front and shows that history until you send
   its first message; the thread that you forked stays as it is.
 - A finished turn shows its prompt and final reply; its other work folds into
-  one **Worked for** row. Click the row to open that turn, or **Show work** to
-  open every turn.
+  one **Worked for** row. Click the row to open that turn.
 - **Times** show only the digits that change as often as Med updates them. A
   running turn's status line has the one clock: from 1 s it counts whole
   seconds ("42s", "1m 05s"), from 10 minutes whole minutes ("12 min"), and

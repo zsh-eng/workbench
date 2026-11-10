@@ -293,13 +293,17 @@ export function usePaneTree({
     openNow.current = open;
   });
   const show = useCallback(
-    (id: string, place: { near?: string; side?: Side; share?: number; quiet?: boolean } = {}) => {
+    (
+      id: string,
+      place: { near?: string; side?: Side; share?: number; quiet?: boolean; zoom?: boolean } = {},
+    ) => {
       const open = openNow.current;
       update(({ root, zoom }) => {
-        if (has(root, id)) return { zoom: zoom && zoom !== id ? null : zoom };
+        if (has(root, id)) return { zoom: place.zoom ? id : zoom && zoom !== id ? null : zoom };
         // A quiet show, such as a pane that follows the main view, takes only free room.
         if (place.quiet && leaves(root).length >= 3) return {};
-        return { root: insert(root, id, place), zoom: null };
+        // `zoom`: it opens expanded, as ⌘E does for the review while it hides.
+        return { root: insert(root, id, place), zoom: place.zoom ? id : null };
       });
       if (!open.includes(id) && !(place.quiet && open.length >= 3)) view.set({ entering: id });
       if (!place.quiet) view.set({ focused: id });
@@ -580,10 +584,15 @@ export function PaneTree({
   state,
   panes,
   label = "Panes",
+  expand,
 }: {
   state: PaneTreeState;
   panes: PaneSpec[];
   label?: string;
+  /** The one pane that ⌘E expands and restores, wherever the focus is, such
+   * as the review beside its thread; `onHidden` runs while it hides. Without
+   * it, ⌘E expands the focused pane. */
+  expand?: { id: string; onHidden(): void };
 }) {
   const [element, setElement] = useState<HTMLDivElement | null>(null);
   const box = useBox(element);
@@ -655,9 +664,14 @@ export function PaneTree({
     scope.addEventListener("keydown", keydown);
     return () => scope.removeEventListener("keydown", keydown);
   }, [element, state]);
-  // ⌘E expands the focused pane, and restores the others, wherever the focus
-  // is: in a pane, a text field, the editor, the title band, or the sidebar.
-  // It goes to the workspace on screen, before the focused element's own keys.
+  // ⌘E expands the review (`expand`), or else the focused pane, and restores
+  // the others, wherever the focus is: in a pane, a text field, the editor,
+  // the title band, or the sidebar. It goes to the workspace on screen,
+  // before the focused element's own keys.
+  const expandLatest = useRef(expand);
+  useLayoutEffect(() => {
+    expandLatest.current = expand;
+  });
   useEffect(() => {
     if (!element) return;
     const keydown = (key: KeyboardEvent) => {
@@ -669,10 +683,17 @@ export function PaneTree({
       // A dialog over the workspace keeps its keys; a hidden workspace has none.
       if (!element.offsetParent || target?.closest?.('[role="dialog"], [role="alertdialog"]'))
         return;
+      const only = expandLatest.current;
+      if (only && !state.open.includes(only.id)) {
+        key.preventDefault();
+        key.stopPropagation();
+        only.onHidden();
+        return;
+      }
       if (state.open.length < 2) return;
       key.preventDefault();
       key.stopPropagation();
-      state.toggleZoom(state.zoom ?? state.focused());
+      state.toggleZoom(only ? only.id : (state.zoom ?? state.focused()));
     };
     window.addEventListener("keydown", keydown, true);
     return () => window.removeEventListener("keydown", keydown, true);

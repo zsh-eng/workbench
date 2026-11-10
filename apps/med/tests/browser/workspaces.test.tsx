@@ -934,17 +934,34 @@ test("the review's header names the review, keeps its actions in ⌘K, and there
   const statusBar = () =>
     [...document.querySelectorAll("[data-connection]")].some((dot) => dot.checkVisibility());
 
-  // The band's start names the branch; above the review, the band holds the
-  // review's title row; the session's header names only its agent. No
-  // toolbar or status bar.
+  // The thread opens on its session alone. The band's start names the
+  // branch, and its end holds the review's pages and Display while the
+  // review hides; the session has no header of its own. No toolbar or
+  // status bar.
   await expect.element(band.getByRole("button", { name: "fixture. Copy the path" })).toBeVisible();
   await expect
     .element(band.getByRole("button", { name: "main. Copy the branch name" }))
     .toBeVisible();
-  await expect
-    .element(band.getByRole("heading", { level: 2, name: "Talk review", exact: true }))
-    .toBeVisible();
-  await expect.element(session.getByText("Talk review")).not.toBeInTheDocument();
+  const tools = band.getByRole("group", { name: "Review tools" });
+  const reviewPage = tools.getByRole("radio", { name: "Review" });
+  await expect.element(reviewPage).toHaveAttribute("aria-checked", "false");
+  await expect.element(tools.getByRole("button", { name: "Display" })).toBeVisible();
+  const reviewPane = () => document.querySelector<HTMLElement>('[data-pane="review"]');
+  expect(reviewPane()?.checkVisibility() ?? false).toBe(false);
+  expect(session.getByRole("button", { name: /session menu/ }).query()).toBeNull();
+  expect(session.getByRole("heading", { name: "Talk review" }).query()).toBeNull();
+  // A page opens the review beside the thread; its row, under the band,
+  // names it. The page on screen, clicked again, hides it.
+  await reviewPage.click();
+  await expect.element(reviewPage).toHaveAttribute("aria-checked", "true");
+  const title = page.getByRole("heading", { level: 2, name: "Talk review", exact: true });
+  await expect.element(title).toBeVisible();
+  expect(band.element().contains(title.element())).toBe(false);
+  expect(reviewPane()!.contains(title.element())).toBe(true);
+  await reviewPage.click();
+  await expect.poll(() => reviewPane()?.checkVisibility() ?? false).toBe(false);
+  await reviewPage.click();
+  await expect.element(title).toBeVisible();
   expect(page.getByRole("button", { name: "View options", exact: true }).query()).toBeNull();
   expect(statusBar()).toBe(false);
   // No Send: comments go to the agent from its session. ⌘K has the review's
@@ -964,12 +981,10 @@ test("the review's header names the review, keeps its actions in ⌘K, and there
   await search.fill("chrome");
   await expect.element(page.getByRole("option", { name: /full chrome/ })).not.toBeInTheDocument();
   await userEvent.keyboard("{Escape}");
-  // The review's title row names the thread, so the band names it once,
-  // with the sidebar hidden or shown.
+  // With the sidebar hidden, the band names the thread.
   await userEvent.keyboard("{Control>}b{/Control}");
   await expect.element(band.getByText("Talk review", { exact: true })).toBeVisible();
   await userEvent.keyboard("{Control>}b{/Control}");
-  await expect.element(band.getByText("Talk review", { exact: true })).toBeVisible();
 });
 
 test("a tab closes by ×, ⌘⌥W, or the palette; Undo and ⌘⌥T bring it back; ⌃Tab finds it archived", async () => {

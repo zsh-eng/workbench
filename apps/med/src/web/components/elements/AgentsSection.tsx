@@ -37,7 +37,6 @@ function RunningSession({ preset }: { preset: AgentPreset }) {
         fetcher={agent.fetcher}
         inbox={inbox}
         onOpenPath={() => {}}
-        onClose={() => {}}
       />
     </div>
   );
@@ -132,7 +131,6 @@ function LongSession() {
         sessions={[long.session]}
         fetcher={long.fetcher}
         onOpenPath={() => {}}
-        onClose={() => {}}
       />
     </div>
   );

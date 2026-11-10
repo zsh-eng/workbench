@@ -27,7 +27,7 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | New thread (`⌘N` in the installed app) | `⌥N` or `⌘N`    |
 | Focus the next pane                    | `⌘⌥←`           |
 | Move the focused pane                  | `⌘⌥⇧←`          |
-| Zoom the focused pane, from anywhere   | `⌘E`            |
+| Expand the review, from anywhere       | `⌘E`            |
 | Balance the panes                      | `⌘⌃=`           |
 | Review / Changes / Commit page         | `1` / `2` / `3` |
 | Comment on selected lines              | `c`             |

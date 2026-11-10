@@ -309,6 +309,8 @@ interface TitleBand {
   lead: HTMLElement | null;
   trail: HTMLElement | null;
   cover: HTMLElement | null;
+  session: HTMLElement | null;
+  tools: HTMLElement | null;
   workspace: string | null;
   /** The workspace's title leads the band, or a pane's row covers its end,
    * until the returned function runs. */
@@ -328,10 +330,16 @@ export function InTitleBand({
   lead,
   trail,
   cover,
+  session,
+  tools,
 }: {
   lead?: ReactNode;
   trail?: ReactNode;
   cover?: ReactNode;
+  /** The session's own controls, at the band's end before `tools`. */
+  session?: ReactNode;
+  /** The workspace's pages and what acts on all of it, at the band's end. */
+  tools?: ReactNode;
 }) {
   const band = use(Band);
   const id = use(Current);
@@ -345,6 +353,8 @@ export function InTitleBand({
       {lead && band.lead && createPortal(lead, band.lead)}
       {trail && band.trail && createPortal(trail, band.trail)}
       {cover && band.cover && createPortal(cover, band.cover)}
+      {session && band.session && createPortal(session, band.session)}
+      {tools && band.tools && createPortal(tools, band.tools)}
     </>
   );
 }
@@ -356,24 +366,38 @@ export function useInTitleBand() {
   return !!band?.workspace && band.workspace === id;
 }
 
+/** Whether the window has a title band, as the shell has, for any workspace:
+ * without one, as in a test, a pane holds what the band would. */
+export function useHasTitleBand() {
+  return !!use(Band);
+}
+
 /** The title band's slots, and whether a workspace's title leads it or a
  * pane's row covers its end. */
 function useTitleBand(workspace: string | null) {
   const [lead, setLead] = useState<HTMLElement | null>(null);
   const [trail, setTrail] = useState<HTMLElement | null>(null);
   const [cover, setCover] = useState<HTMLElement | null>(null);
+  const [session, setSession] = useState<HTMLElement | null>(null);
+  const [tools, setTools] = useState<HTMLElement | null>(null);
   const [claims, setClaims] = useState({ lead: 0, cover: 0 });
   const claim = useCallback((kind: "lead" | "cover") => {
     setClaims((count) => ({ ...count, [kind]: count[kind] + 1 }));
     return () => setClaims((count) => ({ ...count, [kind]: count[kind] - 1 }));
   }, []);
   const value = useMemo(
-    () => ({ lead, trail, cover, workspace, claim }),
-    [lead, trail, cover, workspace, claim],
+    () => ({ lead, trail, cover, session, tools, workspace, claim }),
+    [lead, trail, cover, session, tools, workspace, claim],
   );
   return {
     value,
-    slots: { lead: setLead, trail: setTrail, cover: setCover },
+    slots: {
+      lead: setLead,
+      trail: setTrail,
+      cover: setCover,
+      session: setSession,
+      tools: setTools,
+    },
     titled: claims.lead > 0,
     covered: claims.cover > 0,
   };

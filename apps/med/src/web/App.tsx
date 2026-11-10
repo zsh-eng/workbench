@@ -47,11 +47,9 @@ import { ActionMenu, ChoiceSelect, CommandDialog, type ReviewCommand } from "./c
 import { ChangeTotals } from "./components/ChangeTotals";
 import { DiffStat } from "./components/DiffStat";
 import {
-  ReviewActions,
-  ReviewBar,
   ReviewHeader,
   ReviewTitle,
-  ReviewTitleRow,
+  ReviewTools,
   type DisplayOptions,
   type ReviewPage,
 } from "./components/ReviewHeader";
@@ -75,7 +73,7 @@ import { ThemePicker } from "./components/ThemePicker";
 import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTabs";
 import {
   InTitleBand,
-  useInTitleBand,
+  useHasTitleBand,
   useDisposeOnClose,
   useWindowDrafts,
   useShell,
@@ -107,13 +105,7 @@ import { useMentionSources } from "./data/mentions";
 import { isBrowseFile, type FileRead } from "../shared/local-file";
 import { createFileWorkspace, sourceKey, useFileWorkspace } from "./data/file-workspace";
 import { RepositoryFiles } from "./components/RepositoryFiles";
-import {
-  PANE_GAP,
-  PaneTree,
-  usePaneTree,
-  type PanePlace,
-  type PaneSpec,
-} from "./components/PaneTree";
+import { PaneTree, usePaneTree, type PaneSpec } from "./components/PaneTree";
 import type { PaneNode, Side } from "./data/pane-tree";
 import { FilePicker } from "./components/FilePicker";
 import { SEARCH_OPEN_EVENT, SearchView, type SearchOpen } from "./components/SearchView";
@@ -267,12 +259,6 @@ function preloadPanes() {
 /** The Session pane hides: its agent keeps working, and ⌘⇧B shows it again. */
 /** The review hides while the session shows beside it; its pages, a file,
  * or Show review bring it back. */
-const REVIEW_HIDE = { label: "Hide the review", icon: "minimize" } as const;
-const SESSION_HIDE = {
-  label: "Hide the session pane. The agent keeps working.",
-  icon: "minimize",
-  shortcut: "Mod+Shift+B",
-} as const;
 const SessionPanel = lazy(() =>
   import("./components/session/SessionPanel").then((module) => ({
     default: module.SessionPanel,
@@ -450,8 +436,8 @@ export function App({
   const theme = activeTheme.appearance;
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const shell = useShell();
-  // The window's title band shows this workspace: the review's title can go up into it.
-  const bandShown = useInTitleBand();
+  // Without the window's title band, as in a test, the review's row holds its pages.
+  const hasBand = useHasTitleBand();
   // The workspace's panes: the review, its thread, the file trees, and the
   // preview, tiled as the reader leaves them. Each workspace keeps its own.
   const entry = useWorkspaceEntry();
@@ -471,16 +457,20 @@ export function App({
   const tabCommands = useTabCommands();
   // A tab closes with "Close tab"; "Close workspace" is for the others.
   const isTab = tabCommands.some((command) => command.id === "close-tab" && !command.disabled);
+  // A thread opens on its session alone: the pages in the title band show
+  // the review beside it. A pull request opens with both.
   const initialPanes = useCallback(
     (): PaneNode =>
-      threadLayout
+      entry?.kind === "pull"
         ? {
             axis: "row",
             children: [{ id: "session" }, { id: "review" }],
             sizes: [0.5, 0.5],
           }
-        : { id: "review" },
-    [threadLayout],
+        : threadLayout
+          ? { id: "session" }
+          : { id: "review" },
+    [threadLayout, entry?.kind],
   );
   const panes = usePaneTree({ key: layoutKey, initial: initialPanes });
   const filesVisible = panes.isOpen("files");
@@ -997,7 +987,7 @@ export function App({
   }, []);
   const { close: closePane, show: showInTree } = panes;
   const showPane = useCallback(
-    (id: string, options: { quiet?: boolean } = {}) =>
+    (id: string, options: { quiet?: boolean; zoom?: boolean } = {}) =>
       showInTree(id, { ...PANE_PLACES[id], ...options }),
     [showInTree],
   );
@@ -1030,20 +1020,6 @@ export function App({
     () => (reviewVisible ? sessionVisible && closePane("review") : showPane("review")),
     [reviewVisible, sessionVisible, closePane, showPane],
   );
-  /** The session's header. While the review is hidden, the session is the
-   * whole workspace: it has Restore, which shows the review again, and no
-   * Hide, which would only show the review in its place. */
-  const withShowReview = (controls: ReactNode) =>
-    reviewVisible ? (
-      controls
-    ) : (
-      <ToolButton
-        label="Show the review"
-        icon="restore"
-        data-pane-show="review"
-        onClick={() => showPane("review")}
-      />
-    );
   useEffect(() => {
     if (!workspaceId) return;
     const take = () => {
@@ -2164,11 +2140,15 @@ export function App({
     },
     [hasGuide, openGuide, guideScope, fileWorkspace, controller, reviewVisible, showPane],
   );
-  // A page or a file that opens while the review is hidden shows the review.
+  // A file, or Commit, that opens while the review is hidden shows the
+  // review. Review (or its Guide) and Changes take each other's place as a
+  // saved review loads, which leaves the thread alone; their pages show it
+  // themselves.
   const revealedTab = useRef(fileState.active);
   useEffect(() => {
     if (revealedTab.current === fileState.active) return;
     revealedTab.current = fileState.active;
+    if (["review", "changes", "guide"].includes(fileState.active)) return;
     if (!reviewVisible) showPane("review");
   }, [fileState.active, reviewVisible, showPane]);
   /** q: open the Commit tab, or go back to the tab that showed before it,
@@ -3974,6 +3954,7 @@ export function App({
   });
   const reviewTurn = () => {
     recap.see();
+    if (!reviewVisible) showPane("review");
     // The review's keys, such as j and k in the Guide, go to the review.
     const active = document.activeElement;
     if (active instanceof HTMLElement && active.closest("[data-session-panel]")) active.blur();
@@ -4287,7 +4268,10 @@ export function App({
           {
             id: "guide",
             label: "Open the guide",
-            run: () => openGuide({ kind: "overview" }),
+            run: () => {
+              showPane("review");
+              openGuide({ kind: "overview" });
+            },
           },
           ...(savedGuide
             ? [
@@ -5668,7 +5652,6 @@ export function App({
           label: "review",
           zoomed: panes.zoom === "review",
           zoom: panes.open.length > 1 ? () => panes.toggleZoom("review") : undefined,
-          hide: sessionVisible ? () => closePane("review") : undefined,
         },
   });
   const quietFolded = quietSections.some((section) => section.length > 0);
@@ -5783,94 +5766,50 @@ export function App({
       }
     />
   );
-  // The review's title row goes up into the window's title band where the
-  // review reaches the band: over the band's end beside another pane, when
-  // its column has room for the row, or leading the band alone. Elsewhere it
-  // is the header's first row.
-  const mainHeader = (controls: ReactNode, place: PanePlace | null) => {
-    const band =
-      bandShown && place?.top && place.right
-        ? place.left
-          ? "lead"
-          : place.treeWidth - place.x >= BAND_ROW_MIN
-            ? "cover"
-            : null
-        : null;
-    return (
-      <>
-        {band === "lead" && (
-          <InTitleBand
-            lead={
-              <>
-                {leading}
-                {reviewName}
-              </>
-            }
-            trail={
-              <ReviewBar
-                inBand
-                {...barProps(controls)}
-                actions={<ReviewActions actions={reviewActions} display={display} />}
-              />
-            }
-          />
-        )}
-        {band === "cover" && place && (
-          <InTitleBand
-            cover={
-              <ReviewTitleRow
-                name={reviewName}
-                pages={pageSwitch}
-                actions={reviewActions}
-                display={display}
-                width={place.treeWidth - place.x + PANE_GAP}
-              />
-            }
-          />
-        )}
-        {band !== "lead" && mainHeaderRows(controls, band === null)}
-        {fileTabs}
-      </>
-    );
+  // The pages, and what acts on the whole review, at the title band's end:
+  // they show whether or not the review does. A page opens the review beside
+  // the thread, and the page on screen, clicked again, hides it, so the
+  // thread fills the workspace again.
+  const choosePage = (value: string) => {
+    if (reviewVisible && value === shownPage && sessionVisible && (hasSessions || found))
+      closePane("review");
+    else selectTab(value);
   };
-  // The pages, in the title row; where the review fills the window, in the band's one row.
-  const pageSwitch = { pages: plainHeader ? [] : reviewPages, page: shownPage, onPage: selectTab };
-  // The second row's parts, also where the review's one row ends the band.
-  const barProps = (controls: ReactNode) => ({
-    lead: leading,
-    tools: pageTools,
-    more: rowMore,
-    ...pageSwitch,
-    controls: (
-      <span
-        ref={setPaneSlot}
-        {...stylex.props(styles.rowPane, !paneControlsFit && styles.hiddenSurface)}
-      >
-        {controls}
-      </span>
-    ),
-  });
-  const mainHeaderRows = (controls: ReactNode, titled: boolean) => (
+  const reviewTools = (
+    <ReviewTools
+      pages={{
+        pages: plainHeader ? [] : reviewPages,
+        page: reviewVisible ? shownPage : null,
+        onPage: choosePage,
+      }}
+      actions={reviewActions}
+      display={display}
+    />
+  );
+  // The review's one row: its name, the page's own controls, and Expand at
+  // its end. Without the title band, its end holds the pages too.
+  const mainHeader = (controls: ReactNode) => (
     <>
       <ReviewHeader
-        {...barProps(controls)}
-        identity={
-          titled && (
-            <ReviewTitleRow
-              name={reviewName}
-              pages={pageSwitch}
-              branch={
-                identityShown
-                  ? undefined
-                  : (threadTarget?.branch ?? state.activeBranch ?? undefined)
-              }
-              actions={reviewActions}
-              display={display}
-            />
-          )
-        }
+        lead={leading}
+        name={reviewName}
+        tools={pageTools}
+        more={rowMore}
+        end={!hasBand && reviewTools}
+        controls={paneEnd(controls)}
       />
+      {fileTabs}
     </>
+  );
+  // The pane's own control, Expand, at the row's end. The review has no Hide
+  // button: its page in the title band, clicked again, hides it, as ⌘K does.
+  const paneEnd = (controls: ReactNode) => (
+    <span
+      ref={setPaneSlot}
+      {...stylex.props(styles.rowPane, !paneControlsFit && styles.hiddenSurface)}
+    >
+      {controls}
+    </span>
   );
   const fileTabs = (
     <>
@@ -6023,6 +5962,9 @@ export function App({
         ]
       : []),
   ];
+  // The session's controls are at the title band's end while it shows and
+  // the review does not fill the workspace.
+  const sessionBandTools = sessionVisible && panes.zoom !== "review";
   const sidePanes: PaneSpec[] = [
     ...(state.savedReview
       ? [
@@ -6031,10 +5973,9 @@ export function App({
             label: "Session",
             ariaLabel: "Agent session",
             icon: leadIcon,
-            hide: SESSION_HIDE,
             onClose: hideSession,
             preload: sessionReady && hasSessions,
-            render: (controls: ReactNode) => (
+            render: () => (
               <Suspense
                 fallback={
                   // While its code loads, the session still leads the workspace.
@@ -6046,7 +5987,6 @@ export function App({
                 {agentSessions.length === 0 ? (
                   <SessionStart
                     starter={sessionStarter}
-                    controls={withShowReview(controls)}
                     repo={state.review?.repo}
                     detail={shell ? undefined : threadPlace}
                   />
@@ -6065,9 +6005,8 @@ export function App({
                     onOpenPath={openFromPane}
                     onOpenComment={openComment}
                     fileRefs={fileRefs}
-                    onClose={hideSession}
                     onSideRoom={setSessionSideRoom}
-                    controls={withShowReview(controls)}
+                    bandTools={sessionBandTools}
                     lead={sessionVisible}
                     mentions={mentionSources}
                     onMentionsWanted={wantMentions}
@@ -6098,20 +6037,18 @@ export function App({
             label: "Session",
             ariaLabel: "Agent session",
             icon: found.agent,
-            hide: SESSION_HIDE,
             onClose: hideSession,
             preload: true,
-            render: (controls: ReactNode) => (
+            render: () => (
               <Suspense fallback={null}>
                 <FoundSessionPane
                   key={found.id}
                   session={found}
                   root={state.review?.repo}
                   fetcher={sessionFetch}
-                  controls={withShowReview(controls)}
+                  bandTools={sessionBandTools}
                   onOpenPath={openFromPane}
                   fileRefs={fileRefs}
-                  onClose={hideSession}
                   onSideRoom={setSessionSideRoom}
                   openAgent={openAgent}
                 />
@@ -6209,7 +6146,6 @@ export function App({
       ariaLabel: "Review",
       icon: "diff",
       fixed: true,
-      hide: REVIEW_HIDE,
       // While the session hides, the review's Expand is Restore, which shows it.
       ...(!sessionVisible &&
         (state.savedReview || found) && {
@@ -6220,12 +6156,10 @@ export function App({
             pane: "session",
           },
         }),
-      // The review hides only beside another pane.
-      ...(sessionVisible && { onClose: () => closePane("review") }),
-      render: (controls: ReactNode, place: PanePlace | null) => (
+      render: (controls: ReactNode) => (
         <main ref={setMainElement} {...stylex.props(styles.main)} aria-label="Continuous review">
           {linkError}
-          {mainHeader(controls, place)}
+          {mainHeader(controls)}
           {state.status === "loading" && (
             <span role="presentation" {...stylex.props(styles.loadingTrack, styles.rowLoading)}>
               <span {...stylex.props(styles.loadingBar)} />
@@ -6766,19 +6700,7 @@ export function App({
       >
         {!workspace && <BranchStrip model={branches} />}
         {branchPicker}
-        {/* While the review hides, the band still names its pull request (a
-            stack's: the shown layer's); otherwise its title row does. */}
-        {!reviewVisible && pullName && (
-          <InTitleBand
-            lead={pullName}
-            trail={
-              !shownLayer?.pullRequestUrl &&
-              state.savedReview?.pullRequestUrl && (
-                <PullRequestPanel state={pullRequest} placement={pullRequestThreads.placement} />
-              )
-            }
-          />
-        )}
+        <InTitleBand tools={reviewTools} />
         <ThemePicker open={themePickerOpen} onOpenChange={setThemePickerOpen} />
         {definitions && (
           <SymbolPicker
@@ -6870,7 +6792,18 @@ export function App({
           role="tabpanel"
           aria-label={`${state.activeBranch ?? "Workspace"} review`}
         >
-          <PaneTree state={panes} panes={workspacePanes} label="Workspace panes" />
+          <PaneTree
+            state={panes}
+            panes={workspacePanes}
+            label="Workspace panes"
+            // ⌘E expands the review, and opens it expanded while it hides;
+            // the thread has no Expand.
+            expand={
+              threadLayout
+                ? { id: "review", onHidden: () => showPane("review", { zoom: true }) }
+                : undefined
+            }
+          />
           <ConnectionNotice connection={state.connection} />
         </div>
         <CommandDialog
@@ -6927,10 +6860,6 @@ const toastRise = stylex.keyframes({
   from: { opacity: 0, transform: "translate(-50%, 8px)" },
   to: { opacity: 1, transform: "translate(-50%, 0)" },
 });
-/** The narrowest review column whose title row goes up into the title band:
- * room for its actions, and window controls at the band's end. */
-const BAND_ROW_MIN = 360;
-
 /** Abbreviate object IDs; keep symbolic endpoints such as "worktree" whole. */
 function shortRevision(revision: string) {
   return /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(revision) ? revision.slice(0, 7) : revision;

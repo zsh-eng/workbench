@@ -338,7 +338,7 @@ those messages as another session's, not as the user's.
   opens the row, as in Claude Desktop. A finished turn's work (the units
   between its prompt and its final reply, except errors) folds into one
   "Worked for" unit (`fold` in `thread-model.ts`). The unit opens its turn in
-  place; **Show work** in the Session pane opens every turn. The turn that
+  place. The turn that
   runs does not fold. A turn can have more than one final reply
   (`finalReplies`): the last reply before the next prompt, the reply before
   the agent runs `med review wait` (in older sessions), and each reply that ended the agent's

@@ -98,7 +98,15 @@ export function WorkspaceBar({
   /** Where the workspace on screen puts its own title (InTitleBand): `lead`
    * before the checkout, `trail` at the band's end, and `cover`, a pane's own
    * row over the band's end, above the pane. */
-  slots?: { lead: Ref<HTMLSpanElement>; trail: Ref<HTMLSpanElement>; cover: Ref<HTMLSpanElement> };
+  slots?: {
+    lead: Ref<HTMLSpanElement>;
+    trail: Ref<HTMLSpanElement>;
+    cover: Ref<HTMLSpanElement>;
+    /** The session's controls, then the workspace's pages and tools, at the
+     * band's end, in every workspace's band the same place. */
+    session?: Ref<HTMLSpanElement>;
+    tools?: Ref<HTMLSpanElement>;
+  };
   /** The workspace's own title leads the band, such as a thread's pull
    * request: the checkout follows it, quieter, and goes in a narrow band. */
   titled?: boolean;
@@ -150,6 +158,10 @@ export function WorkspaceBar({
       )}
       <span ref={slots?.trail} {...stylex.props(styles.trail, !titled && styles.empty)} />
       <span ref={slots?.cover} {...stylex.props(styles.cover, !covered && styles.empty)} />
+      <span {...stylex.props(styles.ends)}>
+        <span ref={slots?.session} {...stylex.props(styles.endSlot)} />
+        <span ref={slots?.tools} {...stylex.props(styles.endSlot)} />
+      </span>
     </header>
   );
 }
@@ -310,6 +322,16 @@ const styles = stylex.create({
     marginInlineStart: "auto",
   },
   empty: { display: "none" },
+  // The band's end: the session's controls, then the pages and tools.
+  ends: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 0,
+    marginInlineStart: "auto",
+    paddingInlineStart: 8,
+  },
+  endSlot: { display: { default: "flex", ":empty": "none" }, alignItems: "center", gap: 6 },
   name: { color: tokens.text, fontWeight: 500 },
   // After the thread's title, the repository is secondary.
   nameAfter: { color: tokens.muted },

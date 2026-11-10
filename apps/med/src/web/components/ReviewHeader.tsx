@@ -1,6 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { Popover } from "@base-ui/react/popover";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { CODE_SIZES, type CodeSize } from "../data/view-settings";
 import { themeController, useTheme, type ThemeMode } from "../themes";
 import { openSettings } from "./settings/settings-commands";
@@ -25,75 +25,76 @@ export interface DisplayOptions {
   size: { value: CodeSize; set(size: CodeSize): void };
 }
 
-/** What the review's second row holds; in the title band, all of one row. */
-export interface ReviewBarProps {
-  /** The review's sidebar's toggle, while the sidebar hides. */
-  lead?: ReactNode;
-  /** The pages, which the title row holds; the band's one row, where the
-   * review fills the window. */
+/** The review's pages: the switch, the page on screen, and the choice. */
+export interface ReviewPages {
   pages: readonly ReviewPage[];
-  /** The page on screen; null while a file shows. */
+  /** The page on screen; null while a file shows or the review hides. */
   page: string | null;
   onPage(value: string): void;
-  /** The page's own controls, after the toggles. */
-  tools?: ReactNode;
-  /** ⋯, with what the row folds away when narrow, before the pages. */
-  more?: ReactNode;
-  /** The pane's own controls, at the row's end. */
-  controls?: ReactNode;
 }
 
 /**
- * The review's header, in two rows. The title row names the review and holds
- * its pages and what acts on all of it: Copy comments, ⋯, and Display
- * (ReviewTitleRow). Where the review reaches the window's top right, that row
- * is in the title band above it, and this header is the second row only: the
- * toggles of the session and the review's sidebar and the page's own
- * controls, then the pane's controls at its end, where they keep their places.
+ * The review pane's one row: its name, the page's own controls (such as the
+ * line totals), ⋯ with what a narrow row folds away, and the pane's Expand
+ * at its end. The pages and what acts on the whole review are at the title
+ * band's end (ReviewTools); without the band, as in a test, `end` puts them
+ * in this row.
  */
 export function ReviewHeader({
-  identity,
-  ...bar
-}: ReviewBarProps & {
-  /** The title row, when the title band does not hold it. */
-  identity?: ReactNode;
+  lead,
+  name,
+  tools,
+  more,
+  end,
+  controls,
+}: {
+  /** The review's sidebar's toggle, while the sidebar hides. */
+  lead?: ReactNode;
+  name: ReactNode;
+  /** The page's own controls, after the name. */
+  tools?: ReactNode;
+  /** ⋯, with what the row folds away when narrow. */
+  more?: ReactNode;
+  /** The pages and the review's actions, where the title band does not hold them. */
+  end?: ReactNode;
+  /** The pane's own control, Expand, at the row's end. */
+  controls?: ReactNode;
 }) {
   return (
     <header aria-label="Review header" {...paneHandle} {...stylex.props(styles.header)}>
-      {identity}
-      <ReviewBar {...bar} />
+      {lead}
+      <span data-row-yields="" {...stylex.props(styles.nameBox)}>
+        {name}
+      </span>
+      {tools}
+      <span data-row-grow="" {...stylex.props(styles.grow)} />
+      {more}
+      {end}
+      {controls}
     </header>
   );
 }
 
 /**
- * The second row's parts. In the title band, where the review fills the
- * window, they end the band's one row, with the pages (`actions` after them).
+ * The workspace's pages, then what acts on the whole review (the pull
+ * request's comments, Copy comments) and Display: at the title band's end,
+ * whether or not the review shows. A page opens the review beside the
+ * thread.
  */
-export function ReviewBar({
-  lead,
+export function ReviewTools({
   pages,
-  page,
-  onPage,
-  tools,
-  more,
-  controls,
   actions,
-  inBand = false,
-}: ReviewBarProps & { actions?: ReactNode; inBand?: boolean }) {
+  display,
+}: {
+  pages: ReviewPages;
+  actions?: ReactNode;
+  display?: DisplayOptions;
+}) {
   return (
-    <div
-      {...(inBand && { role: "group", "aria-label": "Review header" })}
-      {...stylex.props(inBand ? styles.barInBand : styles.bar)}
-    >
-      {!inBand && lead}
-      {tools}
-      <span data-row-grow="" {...stylex.props(styles.grow)} />
-      {more}
-      {inBand && <PageSwitch pages={pages} page={page} onPage={onPage} />}
-      {actions}
-      {controls}
-    </div>
+    <span role="group" aria-label="Review tools" {...stylex.props(styles.actions)}>
+      <PageSwitch {...pages} />
+      <ReviewActions actions={actions} display={display} />
+    </span>
   );
 }
 
@@ -102,11 +103,7 @@ export function ReviewBar({
  * signpost (its Guide walks through the change), Changes' plus and minus,
  * and Commit's Git mark. A tooltip names each, with its number key.
  */
-export function PageSwitch({
-  pages,
-  page,
-  onPage,
-}: Pick<ReviewBarProps, "pages" | "page" | "onPage">) {
+export function PageSwitch({ pages, page, onPage }: ReviewPages) {
   if (pages.length < 2) return null;
   return (
     <div role="radiogroup" aria-label="Page" {...stylex.props(styles.pages)}>
@@ -174,44 +171,6 @@ export function ReviewActions({
   );
 }
 
-/**
- * The review's title row: its title, its branch, then its pages and
- * ReviewActions. In the title band it covers the band above the review,
- * `width` wide, with the line between the panes running up its start; in the
- * pane it is the header's first row.
- */
-export function ReviewTitleRow({
-  name,
-  branch,
-  pages,
-  actions,
-  display,
-  width,
-}: {
-  name: ReactNode;
-  branch?: string;
-  pages?: Pick<ReviewBarProps, "pages" | "page" | "onPage">;
-  actions?: ReactNode;
-  display?: DisplayOptions;
-  /** In the title band: the width it covers, from the line between the panes. */
-  width?: number;
-}) {
-  return (
-    <div
-      {...stylex.props(
-        styles.titleRow,
-        width === undefined ? styles.inPane : [styles.inBand, styles.width(width)],
-      )}
-    >
-      {name}
-      {branch && <BranchLabel branch={branch} />}
-      <span {...stylex.props(styles.grow)} />
-      {pages && <PageSwitch {...pages} />}
-      <ReviewActions actions={actions} display={display} />
-    </div>
-  );
-}
-
 /** Med's mark: two offset half-discs in the accent. */
 export function MedMark({ size = 15 }: { size?: number }) {
   return (
@@ -225,33 +184,6 @@ export function MedMark({ size = 15 }: { size?: number }) {
       <path d="M14 30A15 15 0 0 1 44 30Z" fill="var(--med-accent)" />
       <path d="M20 34A15 15 0 0 0 50 34Z" fill="var(--med-accent)" fillOpacity="0.5" />
     </svg>
-  );
-}
-
-/** The branch in a quiet mono label; a click copies its name. */
-function BranchLabel({ branch }: { branch: string }) {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 1400);
-    return () => clearTimeout(timer);
-  }, [copied]);
-  return (
-    <button
-      type="button"
-      aria-label={`Branch ${branch}. Copy its name`}
-      {...tooltip(copied ? "Copied" : "Copy the branch name")}
-      onClick={() =>
-        void navigator.clipboard.writeText(branch).then(
-          () => setCopied(true),
-          () => {},
-        )
-      }
-      {...stylex.props(ui.button, styles.branch)}
-    >
-      <Icon name="branch" size={12} />
-      <span {...stylex.props(styles.name)}>{branch}</span>
-    </button>
   );
 }
 
@@ -438,8 +370,7 @@ function Toggle({
 }
 
 const styles = stylex.create({
-  header: { display: "flex", flexDirection: "column", flex: "none", minWidth: 0 },
-  bar: {
+  header: {
     display: "flex",
     alignItems: "center",
     flex: "none",
@@ -450,46 +381,12 @@ const styles = stylex.create({
     boxShadow: `inset 0 -1px 0 ${tokens.line}`,
     color: tokens.text,
   },
-  // In the title band: the band's height and line, its end after the
-  // checkout, so the page's tools follow the title and the pages end it.
-  barInBand: {
-    display: "flex",
-    alignItems: "center",
-    flex: "1",
-    gap: 2,
-    minWidth: 0,
-    height: "100%",
-    color: tokens.text,
-  },
-  // A narrow row hides the branch (styles.branch).
-  titleRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 2,
-    minWidth: 0,
-    color: tokens.text,
-    containerType: "inline-size",
-  },
-  // As tall as the title band, so the rows line up across the panes.
-  inPane: {
-    flex: "none",
-    height: "var(--med-top-row)",
-    paddingInline: 8,
-    boxShadow: `inset 0 -1px 0 ${tokens.line}`,
-  },
-  // It ends where window controls at the band's end start, as on Windows and
-  // Linux (the band keeps their room); the line between the panes runs up
-  // its start.
-  inBand: {
-    flexShrink: 0,
-    boxSizing: "border-box",
-    height: "100%",
-    paddingInlineStart: 8,
-    paddingInlineEnd: "max(calc(8px - var(--med-titlebar-right)), 4px)",
-    boxShadow: `inset 1px 0 0 ${tokens.line}`,
-  },
-  width: (width: number) => ({ width: `calc(${width}px - var(--med-titlebar-right))` }),
   actions: { display: "flex", alignItems: "center", flexShrink: 0, gap: 2 },
+  // The name gives way first, down to Med's mark: the row's optional
+  // controls, such as what the diff compares, count it at this least width
+  // (QuietChrome's rowRoom), and it takes the room they leave. It shrinks
+  // far ahead of the comparison, which shrinks ahead of the rest.
+  nameBox: { display: "flex", alignItems: "center", flexShrink: 100000, minWidth: 34 },
   // The branch hides first, then the title shortens, so the row never
   // overflows. No cap in percent: in the title band its box is its own size.
   title: {
@@ -507,17 +404,6 @@ const styles = stylex.create({
   // The title keeps Med's mark.
   marked: { minWidth: 34 },
   name: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  branch: {
-    display: { default: "inline-flex", "@container (max-width: 440px)": "none" },
-    gap: 5,
-    minWidth: 0,
-    maxWidth: 260,
-    height: 24,
-    paddingInline: 6,
-    color: { default: tokens.faint, ":hover": tokens.muted },
-    fontFamily: tokens.code,
-    fontSize: 12,
-  },
   grow: { flex: "1", minWidth: 0 },
   display: { width: 28, height: 28, marginInlineEnd: 6, color: tokens.muted },
   // Icons, so the pages keep their width; the title gives way first.

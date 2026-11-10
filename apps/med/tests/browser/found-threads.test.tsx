@@ -352,12 +352,14 @@ test("a found session lists as a thread, opens on its checkout with its session,
     repo: "/test/glossary",
     comparison: { kind: "working", base: "main" },
   });
-  // Until the agent shows a Review, the pages are Changes and Commit.
+  // Until the agent shows a Review, the pages are Changes and Commit. The
+  // thread opens on its session; Changes opens beside it.
   const tabs = page.getByRole("radiogroup", { name: "Page" });
-  await expect
-    .element(tabs.getByRole("radio", { name: "Changes" }))
-    .toHaveAttribute("aria-checked", "true");
+  const changes = tabs.getByRole("radio", { name: "Changes" });
+  await expect.element(changes).toHaveAttribute("aria-checked", "false");
   expect(tabs.getByRole("radio", { name: "Review" }).query()).toBeNull();
+  await changes.click();
+  await expect.element(changes).toHaveAttribute("aria-checked", "true");
   expect(document.body.textContent).not.toContain("Return to review");
 });
 
@@ -438,6 +440,7 @@ test("a kept thread on a shared checkout shows its Changes, keeps its session's 
   expect(host.reviews.at(-1)).toEqual({ repo: "/test/repo", comparison: { kind: "working" } });
   const tabs = page.getByRole("radiogroup", { name: "Page" });
   expect(tabs.getByRole("radio", { name: "Review" }).query()).toBeNull();
+  await tabs.getByRole("radio", { name: "Changes" }).click();
   const select = page.getByRole("combobox", { name: "Comparison" });
   const choose = async (name: RegExp) => {
     await select.click();
@@ -524,7 +527,13 @@ test("a thread's Comparison menu keeps a base for its Changes and moves the thre
     await expect
       .poll(() => host.reviews.at(-1))
       .toEqual({ repo: "/test/glossary", comparison: { kind: "working", base: "main" } });
-    // The control names the checkout's branch and its base.
+    // The control names the checkout's branch and its base, in Changes,
+    // which opens beside the thread's session.
+    await expect.element(page.getByRole("region", { name: "Claude session" })).toBeVisible();
+    // The thread keeps its layout from the test before, with Changes open;
+    // clicked again, the page would hide it.
+    const changes = page.getByRole("radio", { name: "Changes" });
+    if (changes.element().getAttribute("aria-checked") !== "true") await changes.click();
     const select = page.getByRole("combobox", { name: "Comparison" });
     await expect.element(select).toHaveTextContent("glossary since main");
     await select.click();

@@ -4136,18 +4136,15 @@ describe("agent session", () => {
     await page.getByRole("button", { name: "Show agent session" }).click();
     const panel = page.getByRole("region", { name: "Agent session" });
     await expect.element(panel.getByText(/Rename the export in/)).toBeVisible();
-    // The finished turn's work folds into one row; Show work opens it, and stays on.
-    await expect
-      .element(panel.getByRole("button", { name: "Worked for 2s · 1 tool call" }))
-      .toBeVisible();
+    // The finished turn's work folds into one row, which opens it in place.
+    // The pane has no menu or status of its own: the title band names the thread.
+    const worked = panel.getByRole("button", { name: "Worked for 2s · 1 tool call" });
+    await expect.element(worked).toBeVisible();
     expect(panel.getByRole("button", { name: /Run the tests/ }).query()).toBeNull();
-    // The session's menu, named for its agent, holds Show work.
-    await panel.getByRole("button", { name: "Claude session menu" }).click();
-    await page.getByRole("menuitemcheckbox", { name: "Show work" }).click();
-    await userEvent.keyboard("{Escape}");
+    await worked.click();
     await expect.element(panel.getByRole("button", { name: /Run the tests/ })).toBeVisible();
-    expect(localStorage.getItem("med:work")).toBe("shown");
-    await expect.element(panel.getByText("Idle")).toBeVisible();
+    expect(panel.getByRole("button", { name: /session menu|sessions$/ }).query()).toBeNull();
+    expect(panel.getByText("Idle", { exact: true }).query()).toBeNull();
 
     // Each reference to a file of the checkout is a link with the file's name
     // and lines: a Markdown link, inline code, an absolute path, and a path in
@@ -4186,10 +4183,8 @@ describe("agent session", () => {
     await expect
       .element(page.getByRole("radio", { name: "Review", exact: true }))
       .toHaveAttribute("aria-checked", "true");
-    // Hiding the pane leaves the agent at work; the toolbar shows it again.
-    await panel
-      .getByRole("button", { name: "Hide the session pane. The agent keeps working." })
-      .click();
+    // Hiding the pane (⌘⇧B) leaves the agent at work; the review's Restore shows it again.
+    await userEvent.keyboard("{Control>}{Shift>}B{/Shift}{/Control}");
     await expect.element(panel).not.toBeInTheDocument();
     await page.getByRole("button", { name: "Show agent session" }).click();
     await expect.element(panel).toBeVisible();
@@ -4298,7 +4293,7 @@ describe("agent session", () => {
       .not.toBeInTheDocument();
 
     // The prompt rail at the thread's edge lists the prompts, the first at
-    // the top, and goes to one; the session menu has no list of its own.
+    // the top, and goes to one.
     const rail = panel.getByRole("navigation", { name: "Prompts" });
     await rail.getByRole("button", { name: "2 prompts" }).click();
     const first = rail.getByRole("button", { name: /^First prompt/ });
@@ -4318,10 +4313,6 @@ describe("agent session", () => {
     await expect.poll(current).toContain("Second prompt");
     await userEvent.keyboard("{{");
     await expect.poll(current).toContain("First prompt");
-    await panel.getByRole("button", { name: "Claude session menu" }).click();
-    await expect.element(page.getByRole("menuitemcheckbox", { name: "Show work" })).toBeVisible();
-    expect(page.getByRole("menuitem").elements()).toHaveLength(0);
-    await userEvent.keyboard("{Escape}");
   });
 
   test("the header shows the thread's context and spend, and a click shows where they come from", async () => {
@@ -4932,7 +4923,6 @@ describe("agent session", () => {
     });
     const ask = page.getByRole("group", { name: "Permission request" });
     await expect.element(ask.getByText("src/alpha.ts")).toBeVisible();
-    await expect.element(page.getByText("Needs you")).toBeVisible();
     await userEvent.click(ask.getByRole("button", { name: "Allow", exact: true }));
     await expect.element(ask).not.toBeInTheDocument();
     expect(ownedActions).toContainEqual({

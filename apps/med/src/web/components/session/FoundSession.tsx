@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { foundSessionThread, keepFoundThread } from "../../data/found-threads";
 import { forkSession } from "../../data/owned-session";
 import { resumeCommand, type WorkspaceSession } from "../../data/workspaces";
@@ -23,10 +23,9 @@ export function FoundSessionPane({
   session,
   root,
   fetcher,
-  controls,
+  bandTools,
   onOpenPath,
   fileRefs,
-  onClose,
   onSideRoom,
   openAgent,
 }: {
@@ -36,10 +35,10 @@ export function FoundSessionPane({
   /** The checkout's path, to open absolute links to its files. */
   root?: string;
   fetcher?: typeof fetch;
-  controls?: ReactNode;
+  /** Whether its controls show at the title band's end (SessionPanel). */
+  bandTools?: boolean;
   onOpenPath(path: string, line?: number): void;
   fileRefs?: FileRefs;
-  onClose(): void;
   /** Whether the pane has room for the side panel (SessionPanel). */
   onSideRoom?(room: boolean): void;
 }) {
@@ -81,10 +80,9 @@ export function FoundSessionPane({
       {...(place ? { detail: place } : {})}
       root={root}
       fetcher={fetcher}
-      controls={controls}
+      {...(bandTools !== undefined && { bandTools })}
       onOpenPath={onOpenPath}
       {...(fileRefs && { fileRefs })}
-      onClose={onClose}
       {...(onSideRoom && { onSideRoom })}
       {...(openAgent && { openAgent })}
       {...(checkout && { onFork: fork })}

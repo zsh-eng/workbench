@@ -41,6 +41,7 @@ import { tooltip } from "../ToolButton";
 import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
 import { paneHandle } from "../PaneTree";
+import { InTitleBand, useHasTitleBand } from "../Workspaces";
 import { SessionComposer, type ComposerAttachment } from "./SessionComposer";
 import { UsageChip, type ShownContext } from "./ThreadUsage";
 import {
@@ -53,7 +54,7 @@ import { TurnMark } from "./SessionNotice";
 import { ReplyActionsContext, SessionThread, type ReplyActions } from "./SessionThread";
 import { FileRefsContext, type FileRefs } from "../FileRefs";
 import type { TurnRecapProps } from "./TurnRecap";
-import { useViewSetting, useViewSwitch, viewSettings } from "../../data/view-settings";
+import { useViewSetting, viewSettings } from "../../data/view-settings";
 import { column } from "./session-styles";
 
 type PinSource = NonNullable<Extract<PinMutation, { add: unknown }>["add"]["source"]>;
@@ -89,70 +90,52 @@ const turnTime = (at: number) =>
   new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 /**
- * The session's menu, named for its agent, in place of a row of icons: the
- * review's sessions and Show work. ⌘N starts a new session, and the prompt
- * rail at the thread's edge goes to a prompt (PromptRail).
+ * The review's sessions, where it has more than one: a menu named for the
+ * session on screen, in the title band. ⌘N starts a new thread, and the
+ * prompt rail at the thread's edge goes to a prompt (PromptRail).
  */
-function SessionMenu({
+function SessionPicker({
   agent,
   sessions,
   current,
   onChoose,
-  showWork,
-  onToggleWork,
 }: {
   agent: string;
   sessions: AgentSession[];
   current: string;
   onChoose(id: string): void;
-  showWork: boolean;
-  onToggleWork(): void;
 }) {
   const item = (state: { highlighted: boolean }) =>
     stylex.props(ui.menuItem, styles.menuItem, state.highlighted && [ui.menuHighlighted, picked])
       .className;
-  const check = (indicator: ReactNode) => <span {...stylex.props(styles.check)}>{indicator}</span>;
   const [open, setOpen] = useState(false);
   return (
     <QuietMenuRoot open={open} onOpenChange={setOpen} look={agent}>
       <Menu.Trigger
-        aria-label={`${agent} session menu`}
-        {...tooltip(sessions.length > 1 ? "Sessions and work" : "Show work")}
-        {...stylex.props(ui.button, ui.pressable, styles.menuTrigger, styles.leadTrigger)}
+        aria-label={`${agent} sessions`}
+        {...tooltip("The review's sessions")}
+        {...stylex.props(ui.button, ui.pressable, styles.menuTrigger)}
       >
         {agent}
         <Icon name="chevron" size={12} />
       </Menu.Trigger>
       <Menu.Portal>
-        <Menu.Positioner align="start" sideOffset={6} {...stylex.props(styles.menuPositioner)}>
+        <Menu.Positioner align="end" sideOffset={6} {...stylex.props(styles.menuPositioner)}>
           <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.menu)}>
-            {sessions.length > 1 && (
-              <>
-                <Menu.RadioGroup value={current} onValueChange={(id) => onChoose(String(id))}>
-                  {[...sessions].reverse().map((entry, index) => (
-                    <Menu.RadioItem key={entry.id} value={entry.id} className={item}>
-                      {check(
-                        <Menu.RadioItemIndicator {...stylex.props(styles.indicator)}>
-                          <Icon name="check" size={14} />
-                        </Menu.RadioItemIndicator>,
-                      )}
-                      <span {...stylex.props(styles.menuLabel)}>
-                        {agentName(entry)} {index === 0 ? "· latest" : `· ${entry.id.slice(0, 8)}`}
-                      </span>
-                    </Menu.RadioItem>
-                  ))}
-                </Menu.RadioGroup>
-                <Menu.Separator {...stylex.props(ui.separator)} />
-              </>
-            )}
-            <Menu.CheckboxItem checked={showWork} onCheckedChange={onToggleWork} className={item}>
-              {check(
-                <Menu.CheckboxItemIndicator {...stylex.props(styles.indicator)}>
-                  <Icon name="check" size={14} />
-                </Menu.CheckboxItemIndicator>,
-              )}
-              <span {...stylex.props(styles.menuLabel)}>Show work</span>
-            </Menu.CheckboxItem>
+            <Menu.RadioGroup value={current} onValueChange={(id) => onChoose(String(id))}>
+              {[...sessions].reverse().map((entry, index) => (
+                <Menu.RadioItem key={entry.id} value={entry.id} className={item}>
+                  <span {...stylex.props(styles.check)}>
+                    <Menu.RadioItemIndicator {...stylex.props(styles.indicator)}>
+                      <Icon name="check" size={14} />
+                    </Menu.RadioItemIndicator>
+                  </span>
+                  <span {...stylex.props(styles.menuLabel)}>
+                    {agentName(entry)} {index === 0 ? "· latest" : `· ${entry.id.slice(0, 8)}`}
+                  </span>
+                </Menu.RadioItem>
+              ))}
+            </Menu.RadioGroup>
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>
@@ -277,14 +260,13 @@ export function SessionPanel({
   onOpenPath,
   onOpenComment,
   fileRefs,
-  onClose,
   onSideRoom,
   fetcher,
   inbox,
   attachments = [],
   onRemoveAttachment,
   pins,
-  controls,
+  bandTools = true,
   lead,
   mentions,
   onMentionsWanted,
@@ -322,8 +304,9 @@ export function SessionPanel({
   /** The pane is on screen, so a new workspace shows once this has its
    * thread, before its review loads (see WorkspaceViews). */
   lead?: boolean;
-  /** The column's pane controls, in place of the close button. */
-  controls?: ReactNode;
+  /** Whether its own controls show at the title band's end: false while the
+   * pane hides or another pane fills the workspace. */
+  bandTools?: boolean;
   /** Without it, replies have no Pin to review. */
   pins?: SessionPins;
   fetcher?: typeof fetch;
@@ -340,7 +323,6 @@ export function SessionPanel({
   onOpenComment?(id: string): void;
   /** The checkout's files: paths in prompts and replies that name one link to it. */
   fileRefs?: FileRefs;
-  onClose(): void;
   /** Whether the pane has room for the side panel, for its ⌘K command. */
   onSideRoom?(room: boolean): void;
 }) {
@@ -389,9 +371,6 @@ export function SessionPanel({
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [earlierFailed, setEarlierFailed] = useState(false);
   const [reveal, setReveal] = useState<{ id: string; nonce: number } | undefined>();
-  // Finished turns fold their work into one row; the switch shows it in each.
-  const [showWork, setShowWork] = useViewSwitch(viewSettings.work, "shown", "folded");
-  const toggleWork = () => setShowWork(!showWork);
   const start =
     loaded && loaded.generation === state.generation ? loaded.start : (state.start ?? 0);
   const pageable = session.agent !== "acp" && state.status === "live";
@@ -704,7 +683,6 @@ export function SessionPanel({
     presence,
     takesMidTurn,
   ]);
-  const needsYou = !!ownedState?.permission;
   // Asked again as the transcript grows, at a turn's end, and now and then
   // while subagents work, whose transcripts the thread does not follow.
   const usage = useThreadUsage(
@@ -743,6 +721,7 @@ export function SessionPanel({
     return () => observer.disconnect();
   }, []);
   const sideChoice = useViewSetting(viewSettings.sessionPanel);
+  const inBand = useHasTitleBand();
   const [background, setBackground] = useState<HTMLDivElement | null>(null);
   const [agentsSlot, setAgentsSlot] = useState<HTMLDivElement | null>(null);
   const turnRecap = useMemo(
@@ -786,38 +765,31 @@ export function SessionPanel({
   };
   // The first view has not come, and no earlier thread stays meanwhile.
   const loading = state.status === "connecting" && !snapshot.items.length;
-  const status = runner
-    ? halt
-      ? halt.kind === "interrupted"
-        ? "Interrupted"
-        : "Stopped"
-      : needsYou
-        ? "Needs you"
-        : runner.status === "starting"
-          ? "Starting"
-          : runner.status === "working"
-            ? "Working"
-            : runner.status === "exited"
-              ? "Stopped"
-              : "Idle"
-    : state.status === "connecting"
-      ? "Connecting"
-      : state.status === "error"
-        ? "Reconnecting"
-        : state.status === "missing"
-          ? "Unavailable"
-          : running
-            ? "Working"
-            : "Idle";
-  const menu = (
-    <SessionMenu
-      agent={agent}
-      sessions={sessions}
-      current={session.id}
-      onChoose={setChosen}
-      showWork={showWork}
-      onToggleWork={toggleWork}
-    />
+  // The session's own controls, at the title band's end: the review's
+  // sessions where it has several, how full the context is, and the session
+  // rail's toggle. The band names the thread, and the thread its agent.
+  const sessionTools = bandTools && (
+    <>
+      {sessions.length > 1 && (
+        <SessionPicker
+          agent={agent}
+          sessions={sessions}
+          current={session.id}
+          onChoose={setChosen}
+        />
+      )}
+      {!side && <UsageChip usage={usage} context={shownContext} />}
+      {roomy && (
+        <ToolButton
+          icon="sessionRail"
+          label={side ? "Hide session rail" : "Show session rail"}
+          shortcut="Mod+Alt+Shift+B"
+          aria-pressed={side}
+          data-session-rail-toggle=""
+          onClick={() => viewSettings.sessionPanel.set(side ? "closed" : "auto")}
+        />
+      )}
+    </>
   );
 
   // The message box, or what stands in its place, at the pane's foot: over
@@ -879,41 +851,17 @@ export function SessionPanel({
       data-lead={lead || undefined}
       {...stylex.props(styles.panel)}
     >
-      {/* The sidebar or the title band names the thread; the agent's menu
-          names the pane. */}
-      <header {...paneHandle} {...stylex.props(styles.header, styles.quietHeader)}>
-        {menu}
-        <span {...stylex.props(styles.status)}>
-          <span
-            {...stylex.props(
-              styles.dot,
-              running && !needsYou && styles.dotLive,
-              needsYou && styles.dotWaiting,
-            )}
-          />
-          {status}
-        </span>
-        <span {...stylex.props(styles.grow)} />
-        {!side && <UsageChip usage={usage} context={shownContext} />}
-        {roomy && (
-          <ToolButton
-            icon="sessionRail"
-            label={side ? "Hide session rail" : "Show session rail"}
-            shortcut="Mod+Alt+Shift+B"
-            aria-pressed={side}
-            data-session-rail-toggle=""
-            onClick={() => viewSettings.sessionPanel.set(side ? "closed" : "auto")}
-          />
-        )}
-        {controls ?? (
-          <ToolButton
-            icon="minimize"
-            label="Hide the session pane. The agent keeps working."
-            shortcut="Mod+Shift+B"
-            onClick={onClose}
-          />
-        )}
-      </header>
+      {/* Without the window's title band, as in a test, a row holds them. */}
+      {inBand ? (
+        <InTitleBand session={sessionTools} />
+      ) : (
+        sessionTools && (
+          <header {...paneHandle} {...stylex.props(styles.header)}>
+            <span {...stylex.props(styles.grow)} />
+            {sessionTools}
+          </header>
+        )
+      )}
       <div {...stylex.props(styles.split)}>
         <div {...stylex.props(styles.main)}>
           {state.status === "missing" && !ownedState ? (
@@ -928,7 +876,6 @@ export function SessionPanel({
                     earlier={earlier}
                     reveal={reveal}
                     openAgent={openAgent}
-                    showWork={showWork}
                     turns={indexed}
                     onTurn={(turn) => void showTurn(turn).catch(() => {})}
                     recap={turnRecap}
@@ -990,15 +937,7 @@ const styles = stylex.create({
     color: tokens.muted,
     boxShadow: `inset 0 -1px 0 ${tokens.line}`,
   },
-  // The menu's label starts under the checkout's name in the title band, at
-  // the thread's text edge.
-  quietHeader: { gap: 6, paddingInlineStart: 14 },
   grow: { flex: "1" },
-  leadTrigger: {
-    color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
-    fontSize: 12.5,
-    fontWeight: 500,
-  },
   title: {
     flex: "1",
     minWidth: 0,
@@ -1010,19 +949,6 @@ const styles = stylex.create({
     fontWeight: 500,
   },
   detail: { marginInlineStart: 8, color: tokens.faint, fontWeight: 400, fontSize: 12 },
-  // One line high, so its text sits on the menu label's baseline and the dot
-  // at its middle.
-  status: {
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    fontSize: 11.5,
-    lineHeight: 1,
-    color: tokens.faint,
-  },
-  dot: { width: 6, height: 6, borderRadius: "50%", backgroundColor: tokens.lineStrong },
-  dotLive: { backgroundColor: tokens.green },
-  dotWaiting: { backgroundColor: tokens.accent },
   thread: { flex: "1", minHeight: 0 },
   // The thread and its message box, beside the side panel when it shows.
   split: { display: "flex", flex: "1", minHeight: 0, minWidth: 0 },
