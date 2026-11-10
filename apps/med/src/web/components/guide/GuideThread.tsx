@@ -55,6 +55,7 @@ export function GuideThread({
               ...(note.endLine ? { endLine: note.endLine } : {}),
             }}
             guideComment={{ id: note.id, author: agent.name, text: note.body }}
+            sendable
             {...box.composer}
           />
         </ReplyRail>

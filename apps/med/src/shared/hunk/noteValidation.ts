@@ -32,5 +32,27 @@ export function validateReviewNoteInput(
 
 export function validateReviewNoteRemoval(id: string, notes: readonly Note[]): void {
   if (!notes.some((note) => note.id === id)) throw new Error('This note no longer exists.');
-  if (notes.some((note) => note.parentId === id)) throw new Error('Remove replies before removing their parent note.');
+}
+
+/** What a removal takes: the note, and the replies under it, the agent's too,
+ * so a thread goes in one step. */
+export function reviewNoteThread(id: string, notes: readonly Note[]): Set<string> {
+  const gone = new Set([id]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const note of notes)
+      if (note.parentId && gone.has(note.parentId) && !gone.has(note.id)) {
+        gone.add(note.id);
+        grew = true;
+      }
+  }
+  return gone;
+}
+
+/** Removes a note with its replies, in place. */
+export function removeReviewNote(id: string, notes: Note[]): void {
+  validateReviewNoteRemoval(id, notes);
+  const gone = reviewNoteThread(id, notes);
+  for (let index = notes.length - 1; index >= 0; index--)
+    if (gone.has(notes[index]!.id)) notes.splice(index, 1);
 }

@@ -419,7 +419,7 @@ describe("saved review storage boundaries", () => {
     expect(await readFile(path, "utf8")).toBe("broken bytes");
   });
 
-  it("keeps reply parents intact and rejects cross-target replies", async () => {
+  it("removes a comment with its replies and rejects cross-target replies", async () => {
     const store = new SavedReviewStore(directory);
     const saved = await store.create(
       {
@@ -440,8 +440,18 @@ describe("saved review storage boundaries", () => {
       type: "add",
       note: { ...note().note, parentId: parent.id },
     });
+    await store.reply(saved.id, parent.id, "The agent's answer.", {
+      agent: "claude",
+      sessionId: "s1",
+    });
+    const other = (await store.mutate(saved.id, a.id, 3, note())).notes.at(-1)!;
+    expect((await store.notes(saved.id, a.id)).notes).toHaveLength(4);
+    // The thread goes in one step: the comment, the user's reply and the agent's.
+    const left = await store.mutate(saved.id, a.id, 4, { type: "remove", id: parent.id });
+    expect(left.notes.map((entry) => entry.id)).toEqual([other.id]);
+    expect((await store.get(saved.id)).commentCount).toBe(1);
     await expect(
-      store.mutate(saved.id, a.id, 2, { type: "remove", id: parent.id }),
+      store.mutate(saved.id, a.id, 5, { type: "remove", id: parent.id }),
     ).rejects.toMatchObject({ code: "invalid-note" });
   });
 });

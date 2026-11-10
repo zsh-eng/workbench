@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Note, NoteMutation, NoteState } from "../shared/protocol";
 import {
   validateReviewNoteInput,
-  validateReviewNoteRemoval,
+  removeReviewNote,
   validateReviewNoteText,
 } from "../shared/hunk/noteValidation";
 import { ReviewService } from "./repository/review";
@@ -135,11 +135,7 @@ export class NoteService {
         note.text = mutation.text;
         note.updatedAt = new Date().toISOString();
       } else {
-        validateReviewNoteRemoval(mutation.id, notes);
-        notes.splice(
-          notes.findIndex((note) => note.id === mutation.id),
-          1,
-        );
+        removeReviewNote(mutation.id, notes);
       }
     } catch (error) {
       if (error instanceof HostError) throw error;

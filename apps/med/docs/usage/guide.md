@@ -15,7 +15,9 @@ request split into small ones.
   comments on their lines. Comments on whole files, and on lines the diff does
   not show, follow the summary. **Reply** on a comment on lines adds your note
   under it, in its card, on a line down the card's side. The agent gets your
-  reply with the words that it answers.
+  reply with the words that it answers, at once while **Send to Claude now**
+  is ticked. When the agent answers your reply, **Reply** on its answer goes
+  on in that thread.
 - **The rail.** The Guide's parts are in the rail at the left, which hides in
   a narrow window. **Next** at the end of a segment, or `j`, opens the next
   one. Where the rail hides, as beside the session, the review's header steps

@@ -126,6 +126,14 @@ async function drain() {
           if (/^(https?:|mailto:)/i.test(href)) {
             node.properties.target = "_blank";
             node.properties.rel = ["noopener", "noreferrer"];
+            // A link that is one word, as a pasted address, is one line that
+            // ends in an ellipsis where the column does; it names where it
+            // goes on hover.
+            const label = textOf(node);
+            if (task.webLinks && label && !/\s/.test(label)) {
+              node.properties.dataOneWord = "";
+              node.properties.title = href;
+            }
             // The icon is one that Med holds; it fetches none.
             const icon = task.webLinks ? siteIcon(href) : undefined;
             if (icon) {

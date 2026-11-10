@@ -3416,6 +3416,54 @@ describe("review guide comments", () => {
     await expect.element(asked.getByRole("button", { name: "Send to Claude" })).toBeInTheDocument();
   });
 
+  test("a reply to the agent's answer goes to the agent with its thread", async () => {
+    await page.viewport(1280, 800);
+    const comment = {
+      path: "src/alpha.ts",
+      side: "new" as const,
+      line: 2,
+      createdAt: "2026-09-19T00:00:00Z",
+      updatedAt: "2026-09-19T00:00:00Z",
+      resolution: "active" as const,
+    };
+    const { agentMessages, controller } = await mountApp({
+      savedReview: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      guide,
+      notes: [
+        { ...comment, id: "ask", text: "Why rename it here?" },
+        {
+          ...comment,
+          id: "answer",
+          parentId: "ask",
+          text: "The old name hid that it retries.",
+          author: { agent: "claude", sessionId: "s1" },
+        },
+      ],
+      inbox: { messages: [], owned: ["s1"], drafts: [] },
+    });
+    await userEvent.keyboard("j");
+    const asked = page.getByRole("article", { name: "Comment thread at line R2" });
+    await asked.getByText("The old name hid that it retries.").hover();
+    // The answer takes a reply, and the box sends it as it saves.
+    await userEvent.click(asked.getByRole("button", { name: "Reply", exact: true }).last());
+    await expect.element(asked.getByRole("checkbox", { name: "Send to Claude now" })).toBeChecked();
+    await asked.getByRole("textbox", { name: "Reply text" }).fill("Then name it fetchWithRetry.");
+    await asked.getByRole("button", { name: "Reply", exact: true }).click();
+    await expect
+      .poll(() =>
+        controller.getSnapshot().notes?.notes.find((note) => note.text.startsWith("Then name")),
+      )
+      .toMatchObject({ parentId: "ask" });
+    // The thread goes by its first comment, with the reply in it.
+    await expect
+      .poll(() => agentMessages.at(-1))
+      .toMatchObject({ sessionId: "s1", text: "", noteIds: ["ask"] });
+    await expect.element(asked.getByText("· Sent to Claude")).toBeVisible();
+    const text = asked.element().textContent!;
+    expect(text.indexOf("Sent to Claude")).toBeGreaterThan(text.indexOf("Then name it"));
+  });
+
   test("a new comment goes to Claude as it is saved while Send to Claude now is ticked", async () => {
     await page.viewport(1280, 800);
     const { agentMessages, controller } = await mountApp({

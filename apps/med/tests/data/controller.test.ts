@@ -663,7 +663,7 @@ describe("notes and source ownership", () => {
     controller.dispose();
   });
 
-  test("rejects invalid text and parent removal before changing the visible comments", async () => {
+  test("rejects invalid text before changing the visible comments", async () => {
     const note = {
       id: "parent",
       path: "a.ts",
@@ -679,16 +679,58 @@ describe("notes and source ownership", () => {
     });
     await controller.initialize();
     await vi.waitFor(() => expect(controller.getSnapshot().notes).not.toBeNull());
-    await expect(controller.mutateNote({ type: "remove", id: "parent" })).rejects.toThrow(
-      "Remove replies",
-    );
     await expect(controller.mutateNote({ type: "edit", id: "reply", text: " " })).rejects.toThrow(
       "contain text",
+    );
+    await expect(controller.mutateNote({ type: "remove", id: "gone" })).rejects.toThrow(
+      "no longer exists",
     );
     expect(controller.getSnapshot().notes?.notes).toEqual([note, reply]);
     expect(calls.some((call) => call.url === "/api/notes" && call.init?.method === "POST")).toBe(
       false,
     );
+    controller.dispose();
+  });
+
+  test("removing a comment takes its replies, the agent's too, as the thread goes", async () => {
+    const removed = deferred<Response>();
+    const note = {
+      id: "parent",
+      path: "a.ts",
+      side: "new" as const,
+      line: 1,
+      text: "Parent",
+      createdAt: "now",
+      updatedAt: "now",
+    };
+    const reply = { ...note, id: "reply", parentId: "parent", text: "Reply" };
+    const answer = {
+      ...note,
+      id: "answer",
+      parentId: "parent",
+      text: "Answer",
+      author: { agent: "claude" as const, sessionId: "s1" },
+    };
+    const other = { ...note, id: "other", text: "Other" };
+    const { controller, calls } = fixture({
+      notes: async (id, init) =>
+        init?.method === "POST"
+          ? removed.promise
+          : json({ reviewId: id, revision: 0, notes: [note, reply, answer, other] }),
+    });
+    await controller.initialize();
+    await vi.waitFor(() => expect(controller.getSnapshot().notes).not.toBeNull());
+    const remove = controller.mutateNote({ type: "remove", id: "parent" });
+    // The thread leaves at once, before Med answers.
+    expect(controller.getSnapshot().notes!.notes.map((entry) => entry.id)).toEqual(["other"]);
+    const posted = calls.find((call) => call.url === "/api/notes" && call.init?.method === "POST");
+    expect(JSON.parse(String(posted?.init?.body)).mutation).toEqual({
+      type: "remove",
+      id: "parent",
+    });
+    removed.resolve(json({ reviewId: "working", revision: 1, notes: [other] }));
+    await remove;
+    expect(controller.getSnapshot().notes!.notes.map((entry) => entry.id)).toEqual(["other"]);
     controller.dispose();
   });
 

@@ -4,7 +4,7 @@ import { lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode
 import { CommentRefsContext, FileRefsContext } from "./FileRefs";
 import type { GuideCommentRef, Note, NoteInput, NoteMutation } from "../../shared/protocol";
 import { onGitHub, PendingReviewContext } from "../data/pending-review";
-import { CommentAgentContext, noteAuthor } from "../data/comment-agent";
+import { CommentAgentContext, noteAuthor, type CommentAgent } from "../data/comment-agent";
 import { relativeTime } from "../data/relative-time";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
@@ -206,8 +206,8 @@ export function NoteComposer({
   initialText?: string;
   initialError?: string;
   closeOnSave?: boolean;
-  /** A new comment whose save sends it to the agent that Med runs while
-   * "Send to … now" is ticked; the box shows the checkbox. */
+  /** A comment, or a reply, whose save sends its thread to the agent that
+   * Med runs while "Send to … now" is ticked; the box shows the checkbox. */
   sendable?: boolean;
   onSave(note: NoteInput): Promise<void>;
   onCancel(): void;
@@ -220,7 +220,7 @@ export function NoteComposer({
         label={reply ? "Reply text" : "Review note text"}
         formLabel={reply ? "Reply" : `Local comment on ${lineLabel(target)}`}
         submitLabel={reply ? "Reply" : "Save note"}
-        sendTo={sendable && !reply && agent ? agent.name : undefined}
+        sendTo={sendable && agent ? agent.name : undefined}
         initialText={initialText}
         initialError={initialError}
         closeOnSave={closeOnSave}
@@ -307,15 +307,28 @@ export function PassageComposer({
   );
 }
 
+/** The thread as it goes to the agent: by the reader's latest message in it. */
+interface ThreadSend {
+  name: string;
+  mark: CommentAgent["mark"];
+  sent: boolean;
+  send(): Promise<void>;
+}
+
 function ThreadMessage({
   note,
   reply = false,
+  replies = 0,
+  toAgent,
   onReply,
   onMutate,
   onOpenLink,
 }: {
   note: Note;
   reply?: boolean;
+  /** The replies under it, which a delete takes with it. */
+  replies?: number;
+  toAgent?: ThreadSend | null;
   onReply?: () => void;
   onMutate(mutation: NoteMutation): Promise<void>;
   onOpenLink?(href: string): void;
@@ -324,24 +337,23 @@ function ThreadMessage({
   const [editText, setEditText] = useState(note.text);
   const editSession = useRef(0);
   const removeInFlight = useRef(false);
+  // A thread goes after a second click on its Delete, which says so.
+  const [asking, setAsking] = useState(false);
   const [error, setError] = useState("");
   // A comment on a saved version can go into the reader's pending review on
   // GitHub, when the review has a pull request.
   const github = useContext(PendingReviewContext);
   const [sending, setSending] = useState<"posting" | "posted" | null>(null);
   const posted = onGitHub(github?.comments, note) ? "posted" : sending;
-  // The agent that Med runs takes the comment from here. A reply goes with
-  // its thread.
-  const agent = useContext(CommentAgentContext);
-  const toAgent = agent && !reply && !note.parentId && !note.author ? agent : null;
+  // The agent that Med runs takes the thread from here.
   const [handing, setHanding] = useState(false);
-  const handed = !!toAgent?.sent(note.id);
+  const handed = !!toAgent?.sent;
   const sendToAgent = async () => {
     if (!toAgent || handing || handed) return;
     setHanding(true);
     setError("");
     try {
-      await toAgent.send(note.id);
+      await toAgent.send();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : `${toAgent.name} did not get the comment.`);
     } finally {
@@ -368,9 +380,11 @@ function ThreadMessage({
           }
         }
       : undefined;
+  const thread = replies > 0;
   const remove = async () => {
     if (removeInFlight.current) return;
     removeInFlight.current = true;
+    setAsking(false);
     setError("");
     try {
       await onMutate({ type: "remove", id: note.id });
@@ -492,12 +506,46 @@ function ThreadMessage({
               )}
               <button
                 type="button"
-                title="Delete"
-                {...stylex.props(ui.button, ui.iconButton, styles.tool, styles.danger)}
-                aria-label={reply ? "Delete reply" : "Delete review note"}
-                onClick={() => void remove()}
+                title={
+                  !thread
+                    ? "Delete"
+                    : asking
+                      ? `Delete the comment and its ${replies === 1 ? "reply" : `${replies} replies`}`
+                      : "Delete thread"
+                }
+                {...stylex.props(
+                  ui.button,
+                  !asking && ui.iconButton,
+                  styles.tool,
+                  styles.danger,
+                  asking && styles.asking,
+                )}
+                aria-label={
+                  reply
+                    ? "Delete reply"
+                    : !thread
+                      ? "Delete review note"
+                      : asking
+                        ? "Confirm delete thread"
+                        : "Delete thread"
+                }
+                onClick={(event) => {
+                  if (!thread || asking) return void remove();
+                  // Safari does not focus a button that it clicks; the
+                  // question goes when the focus does.
+                  event.currentTarget.focus();
+                  setAsking(true);
+                }}
+                onBlur={() => setAsking(false)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape" && asking) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setAsking(false);
+                  }
+                }}
               >
-                <Icon name="trash" size={14} />
+                {asking ? "Delete thread" : <Icon name="trash" size={14} />}
               </button>
             </span>
           </div>
@@ -532,6 +580,22 @@ export function NoteCard({
 }) {
   const box = useReplyBox(onMutate);
   const answered = note.guideComment;
+  // The thread goes to the agent as one, with its replies: its Send and its
+  // "Sent" sit by the reader's latest message in it.
+  const agent = useContext(CommentAgentContext);
+  const mine = [note, ...replies].filter((item) => !item.author).at(-1);
+  const toAgent: ThreadSend | null =
+    agent && !note.author && !note.parentId
+      ? {
+          name: agent.name,
+          mark: agent.mark,
+          sent: agent.sent(note.id),
+          send: () => agent.send(note.id),
+        }
+      : null;
+  // Any message of the thread takes a reply, the agent's too; it goes under
+  // the thread's last. A comment on a passage takes none.
+  const onReply = box.replying || label ? undefined : box.open;
   return (
     <article
       data-comment-card
@@ -562,22 +626,26 @@ export function NoteCard({
       <ThreadMessage
         key={note.id}
         note={note}
+        replies={replies.length}
+        toAgent={mine === note ? toAgent : null}
         onMutate={onMutate}
         onOpenLink={onOpenLink}
-        onReply={box.replying || label || embedded ? undefined : box.open}
+        onReply={onReply}
       />
       {replies.map((reply) => (
         <ThreadMessage
           key={reply.id}
           note={reply}
           reply
+          toAgent={mine === reply ? toAgent : null}
           onMutate={onMutate}
           onOpenLink={onOpenLink}
+          onReply={onReply}
         />
       ))}
       {box.replying && (
         <ReplyRail>
-          <NoteComposer target={note} parentId={note.id} {...box.composer} />
+          <NoteComposer target={note} parentId={note.id} sendable={!!toAgent} {...box.composer} />
         </ReplyRail>
       )}
     </article>
@@ -661,6 +729,15 @@ const styles = stylex.create({
   },
   tool: { width: 26, minWidth: 26, minHeight: 26, color: tokens.faint },
   danger: { color: { default: tokens.faint, ":hover": tokens.red } },
+  // The second click on a thread's Delete: what it does, in words.
+  asking: {
+    width: "auto",
+    paddingInline: 8,
+    color: { default: tokens.red, ":hover": tokens.red },
+    fontSize: 12,
+    fontWeight: 550,
+    whiteSpace: "nowrap",
+  },
   smallButton: { minHeight: 26, paddingBlock: 2, fontSize: 12 },
   submit: {
     minHeight: 26,

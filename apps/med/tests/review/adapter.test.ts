@@ -9,6 +9,7 @@ import type { ReviewResponse } from "../../src/shared/protocol";
 import {
   reviewSourceLineCount,
   validateReviewNoteInput,
+  removeReviewNote,
   validateReviewNoteRemoval,
 } from "../../src/shared/hunk/noteValidation";
 
@@ -95,7 +96,7 @@ describe("authoritative note validation", () => {
     ).toThrow("outside");
   });
 
-  test("rejects cross-file replies, whitespace-only text and deleting a parent with replies", () => {
+  test("rejects cross-file replies and whitespace-only text; a removal takes the replies", () => {
     const parent = {
       id: "parent",
       path: "other",
@@ -118,9 +119,15 @@ describe("authoritative note validation", () => {
         { old: "", new: "a" },
       ),
     ).toThrow("contain text");
-    expect(() =>
-      validateReviewNoteRemoval("parent", [parent, { ...parent, id: "reply", parentId: "parent" }]),
-    ).toThrow("replies");
+    expect(() => validateReviewNoteRemoval("gone", [parent])).toThrow("no longer exists");
+    const notes = [
+      parent,
+      { ...parent, id: "reply", parentId: "parent" },
+      { ...parent, id: "nested", parentId: "reply" },
+      { ...parent, id: "other" },
+    ];
+    removeReviewNote("parent", notes);
+    expect(notes.map((note) => note.id)).toEqual(["other"]);
   });
 });
 

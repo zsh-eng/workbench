@@ -32,6 +32,7 @@ import {
   type Comparison,
   type Note,
   type NoteInput,
+  type NoteMutation,
   type PullRequestThread,
   type SourceResponse,
 } from "../shared/protocol";
@@ -1374,31 +1375,42 @@ export function App({
       },
     };
   }, [leadSession, replyAgent, inboxState, sendAgentMessage]);
-  /** Saves a new comment on lines, and sends it to the agent that Med runs
-   * while "Send to … now" is ticked (SendNow). A send that fails leaves the
-   * comment saved, to send from the message box, and says why. */
+  /** Saves a new comment on lines, or a reply, and sends its thread to the
+   * agent that Med runs while "Send to … now" is ticked (SendNow). A send
+   * that fails leaves the comment saved, to send from the message box, and
+   * says why. */
   const addNote = useCallback(
     async (note: NoteInput) => {
       const before = new Set(controller.getSnapshot().notes?.notes.map((entry) => entry.id));
       await controller.mutateNote({ type: "add", note });
       if (!commentAgent || !sendsNow()) return;
-      const added = controller
-        .getSnapshot()
-        .notes?.notes.find(
-          (entry) => !before.has(entry.id) && !entry.parentId && entry.text === note.text,
-        );
-      if (!added) return;
+      // A reply goes as its thread, by the thread's first comment.
+      const thread =
+        note.parentId ??
+        controller
+          .getSnapshot()
+          .notes?.notes.find(
+            (entry) => !before.has(entry.id) && !entry.parentId && entry.text === note.text,
+          )?.id;
+      if (!thread) return;
       await commentAgent
-        .send(added.id)
+        .send(thread)
         .catch((error: unknown) =>
           setContextError(
-            `The comment is saved, but did not reach ${commentAgent.name}: ${
+            `The ${note.parentId ? "reply" : "comment"} is saved, but did not reach ${commentAgent.name}: ${
               error instanceof Error ? error.message : "the send failed"
             }. Send it from the message box.`,
           ),
         );
     },
     [controller, commentAgent],
+  );
+  /** A change to the review's comments; a new one, or a reply, goes as
+   * `addNote` sends it. */
+  const mutateNote = useCallback(
+    (mutation: NoteMutation) =>
+      mutation.type === "add" ? addNote(mutation.note) : controller.mutateNote(mutation),
+    [addNote, controller],
   );
   // An agent's reply changes the review where the page does not write: the
   // inbox says so, and the page reads the comments again.
@@ -5132,18 +5144,18 @@ export function App({
           note={annotation.metadata.guide}
           agent={guideAgent}
           notes={notes}
-          onMutate={(mutation) => controller.mutateNote(mutation)}
+          onMutate={mutateNote}
           onOpenLink={openCommentLink}
         />
       ) : annotation.metadata?.note ? (
         <NoteCard
           note={annotation.metadata.note}
           replies={notes.filter((note) => note.parentId === annotation.metadata?.note?.id)}
-          onMutate={(mutation) => controller.mutateNote(mutation)}
+          onMutate={mutateNote}
           onOpenLink={openCommentLink}
         />
       ) : null,
-    [pendingDraft, reviewId, notes, controller, addNote, guideAgent, openCommentLink],
+    [pendingDraft, reviewId, notes, addNote, mutateNote, guideAgent, openCommentLink],
   );
   // The Guide's segment or commit heads the stream and ends it with the next part.
   const guideStray = useMemo(() => {
@@ -5339,7 +5351,7 @@ export function App({
           stray={guideStray}
           notes={notes}
           repo={state.review?.repo}
-          onMutate={(mutation) => controller.mutateNote(mutation)}
+          onMutate={mutateNote}
           onOpenLink={openGuideLink}
         />
       );
@@ -5364,7 +5376,7 @@ export function App({
     guideAgent,
     guideStray,
     notes,
-    controller,
+    mutateNote,
     openGuideLink,
     rangeCommit,
     commitIndex,
@@ -6376,7 +6388,7 @@ export function App({
                           key={note.id}
                           note={note}
                           replies={notes.filter((reply) => reply.parentId === note.id)}
-                          onMutate={(mutation) => controller.mutateNote(mutation)}
+                          onMutate={mutateNote}
                           onOpenLink={openCommentLink}
                         />
                       ))}
@@ -6554,14 +6566,7 @@ export function App({
                       readFile={readCheckoutFile}
                       onCopy={copyNotes}
                       notes={notes}
-                      onMutateNote={(mutation) =>
-                        // A new comment on an excerpt, which its box can send.
-                        mutation.type === "add" &&
-                        !mutation.note.parentId &&
-                        !mutation.note.guideComment
-                          ? addNote(mutation.note)
-                          : controller.mutateNote(mutation)
-                      }
+                      onMutateNote={mutateNote}
                       comments={briefComments}
                       onCommentBrief={(mutation) => controller.commentBrief(mutation)}
                       prDraft={prDraft}

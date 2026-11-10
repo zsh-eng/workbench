@@ -34,7 +34,7 @@ import {
 } from "../shared/protocol";
 import {
   validateReviewNoteInput,
-  validateReviewNoteRemoval,
+  removeReviewNote,
   validateReviewNoteText,
 } from "../shared/hunk/noteValidation";
 import { HostError } from "./runtime/errors";
@@ -2052,11 +2052,7 @@ export class SavedReviewStore {
           note.text = mutation.text;
           note.updatedAt = new Date().toISOString();
         } else {
-          validateReviewNoteRemoval(mutation.id, notes);
-          notes.splice(
-            notes.findIndex((item) => item.id === mutation.id),
-            1,
-          );
+          removeReviewNote(mutation.id, notes);
         }
       } catch (error) {
         if (error instanceof HostError) throw error;

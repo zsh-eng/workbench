@@ -20,6 +20,7 @@ import {
 import { changesBase, comparisonKey } from "../../shared/protocol";
 import type { PendingReviewInput } from "./pending-review";
 import {
+  reviewNoteThread,
   validateReviewNoteRemoval,
   validateReviewNoteText,
 } from "../../shared/hunk/noteValidation";
@@ -1914,7 +1915,8 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
             : note,
         );
       } else {
-        notes = notes.filter((note) => note.id !== mutation.id);
+        const gone = reviewNoteThread(mutation.id, notes);
+        notes = notes.filter((note) => !gone.has(note.id));
       }
     }
     return {

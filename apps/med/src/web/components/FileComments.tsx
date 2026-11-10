@@ -271,7 +271,20 @@ export function FileCommentThread({
             label="Reply text"
             formLabel="Reply"
             submitLabel="Reply"
-            onSave={(text) => onMutate({ reply: { id: comment.id, text } })}
+            sendTo={agent?.name}
+            onSave={async (text) => {
+              await onMutate({ reply: { id: comment.id, text } });
+              // A reply changes the thread; ticked, the thread goes now. A
+              // send that fails leaves the reply saved, with its Send.
+              if (agent && sendsNow())
+                await onSend().catch((cause: unknown) =>
+                  setError(
+                    `The reply is saved, but did not reach ${agent.name}: ${
+                      cause instanceof Error ? cause.message : "the send failed"
+                    }.`,
+                  ),
+                );
+            }}
             onCancel={() => setReplying(false)}
           />
         </div>
@@ -371,7 +384,8 @@ const styles = stylex.create({
     borderRadius: `calc(8px * ${tokens.round})`,
     backgroundColor: tokens.raised,
   },
-  message: { display: "grid", gap: 2 },
+  // A long link ends in an ellipsis, so it gives way to the card's width.
+  message: { display: "grid", gap: 2, minWidth: 0 },
   byline: {
     display: "flex",
     alignItems: "center",
@@ -388,6 +402,7 @@ const styles = stylex.create({
   reply: {
     display: "grid",
     gap: 2,
+    minWidth: 0,
     paddingInlineStart: 12,
     borderInlineStartWidth: 2,
     borderInlineStartStyle: "solid",

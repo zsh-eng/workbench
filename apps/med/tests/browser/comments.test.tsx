@@ -5,6 +5,8 @@ import { useState } from "react";
 import { FileDiff } from "@pierre/diffs/react";
 import { parsePatchFiles } from "@pierre/diffs";
 import { NoteCard, NoteComposer } from "../../src/web/components/NoteCard";
+import { FileCommentThread } from "../../src/web/components/FileComments";
+import { CommentAgentContext, type CommentAgent } from "../../src/web/data/comment-agent";
 import "../../src/web/pierre-theme";
 import type { Note, NoteInput, NoteMutation } from "../../src/shared/protocol";
 
@@ -276,7 +278,9 @@ test("a saved reply replaces its composer while the save promise is still pendin
   await expect.element(page.getByRole("textbox", { name: "Reply text" })).not.toBeInTheDocument();
   await expect.element(page.getByText("Keep this reply", { exact: true })).toBeVisible();
   finish?.();
-  await expect.element(page.getByRole("button", { name: "Reply", exact: true })).toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Reply", exact: true }).first())
+    .toBeVisible();
 });
 
 test("failed optimistic edits reopen the submitted text and failed deletes restore the card", async () => {
@@ -365,10 +369,169 @@ test("failed optimistic replies reopen their text without blocking a newer reply
   await expect.element(page.getByRole("alert")).toHaveTextContent("Storage unavailable");
   await page.getByRole("button", { name: "Reply", exact: true }).click();
   await expect.element(page.getByRole("textbox", { name: "Reply text" })).not.toBeInTheDocument();
-  await page.getByRole("button", { name: "Reply", exact: true }).click();
+  // The reply in flight takes a reply too; either opens the thread's box.
+  await page.getByRole("button", { name: "Reply", exact: true }).first().click();
   await page.getByRole("textbox", { name: "Reply text" }).fill("A newer reply draft");
   fail?.(new Error("Storage unavailable"));
   await expect
     .element(page.getByRole("textbox", { name: "Reply text" }))
     .toHaveValue("A newer reply draft");
+});
+
+const longLink =
+  "https://github.com/zsh-eng/workbench/pull/123456/files#diff-9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8bR139";
+
+test("a long link ends in an ellipsis inside the card, on a line and on a file", async () => {
+  render(
+    <div style={{ width: 360 }}>
+      <NoteCard
+        note={{ ...note, text: `Is this the same as ${longLink} ?` }}
+        replies={[]}
+        onMutate={async () => {}}
+      />
+      <FileCommentThread
+        comment={{
+          id: "file",
+          source: { kind: "worktree", repo: "/repo" },
+          path: "review.ts",
+          line: 3,
+          quote: "const total = 0;",
+          text: `See ${longLink}`,
+          createdAt: "2026-09-19T00:00:00Z",
+          updatedAt: "2026-09-19T00:00:00Z",
+          replies: [],
+        }}
+        agent={null}
+        unsent={false}
+        onMutate={async () => {}}
+        onSend={async () => {}}
+      />
+    </div>,
+  );
+  await expect.poll(() => mount!.querySelectorAll("[data-comment-card]").length).toBe(2);
+  const cards = [...mount!.querySelectorAll<HTMLElement>("[data-comment-card]")];
+  for (const card of cards) {
+    await expect
+      .poll(() => card.querySelector("a[data-one-word]"), { timeout: 10_000 })
+      .toBeTruthy();
+    const link = card.querySelector<HTMLAnchorElement>("a[data-one-word]")!;
+    expect(link.title).toBe(longLink);
+    expect(getComputedStyle(link).textOverflow).toBe("ellipsis");
+    // The link is cut, not the card: it ends inside the card's text.
+    expect(link.scrollWidth).toBeGreaterThan(link.clientWidth);
+    expect(link.getBoundingClientRect().right).toBeLessThanOrEqual(
+      card.getBoundingClientRect().right,
+    );
+    expect(card.getBoundingClientRect().right).toBeLessThanOrEqual(
+      mount!.getBoundingClientRect().left + 360,
+    );
+  }
+});
+
+test("any message takes a reply, and the thread goes to the agent from the reader's latest one", async () => {
+  const sends: string[] = [];
+  const answer: Note = {
+    ...note,
+    id: "answer",
+    parentId: note.id,
+    text: "It returns the count.",
+    author: { agent: "claude", sessionId: "s1" },
+  };
+  function Thread() {
+    const [replies, setReplies] = useState<Note[]>([answer]);
+    // The version of the thread that the agent has, as Med's inbox says.
+    const [version, setVersion] = useState(0);
+    const [sentVersion, setSentVersion] = useState<number | null>(null);
+    const agent: CommentAgent = {
+      name: "Claude",
+      mark: "claude",
+      sent: () => sentVersion === version,
+      send: async (id) => {
+        sends.push(id);
+        setSentVersion(version);
+      },
+    };
+    return (
+      <CommentAgentContext.Provider value={agent}>
+        <NoteCard
+          note={note}
+          replies={replies}
+          onMutate={async (mutation) => {
+            if (mutation.type !== "add") return;
+            // A reply is a change of the thread: it waits to be sent again.
+            setReplies((current) => [...current, { ...note, ...mutation.note, id: "mine" }]);
+            setVersion((value) => value + 1);
+          }}
+        />
+      </CommentAgentContext.Provider>
+    );
+  }
+  render(<Thread />);
+  const card = page.getByRole("article");
+  // The agent's answer takes a reply too.
+  await expect
+    .poll(() => card.getByRole("button", { name: "Reply", exact: true }).elements().length)
+    .toBe(2);
+  // Before a reply, Send sits by the comment, the reader's only message.
+  const messages = () => [...card.element().querySelectorAll(":scope > div")];
+  expect(messages()[0]!.querySelector('[aria-label="Send to Claude"]')).not.toBeNull();
+  await card.getByRole("button", { name: "Reply", exact: true }).last().click();
+  // The reply box can send it now, as a new comment's can.
+  await expect.element(card.getByRole("checkbox", { name: "Send to Claude now" })).toBeVisible();
+  await card.getByRole("textbox", { name: "Reply text" }).fill("Then test the count.");
+  await card.getByRole("button", { name: "Reply", exact: true }).click();
+  await expect.element(card.getByText("Then test the count.", { exact: true })).toBeVisible();
+  // Now Send sits by the reply, and the comment has none.
+  expect(card.getByRole("button", { name: "Send to Claude" }).elements()).toHaveLength(1);
+  const latest = messages().at(-1)!;
+  expect(latest.textContent).toContain("Then test the count.");
+  expect(latest.querySelector('[aria-label="Send to Claude"]')).not.toBeNull();
+  await card.getByRole("button", { name: "Send to Claude" }).click();
+  expect(sends).toEqual([note.id]);
+  await expect.element(card.getByText("· Sent to Claude")).toBeVisible();
+  expect(latest.textContent).toContain("Sent to Claude");
+});
+
+test("a thread goes in one delete, after a second click that says so", async () => {
+  const mutations: NoteMutation[] = [];
+  const answer: Note = {
+    ...note,
+    id: "answer",
+    parentId: note.id,
+    text: "It returns the count.",
+    author: { agent: "claude", sessionId: "s1" },
+  };
+  function Thread() {
+    const [gone, setGone] = useState(false);
+    return gone ? (
+      <p>Thread removed</p>
+    ) : (
+      <NoteCard
+        note={note}
+        replies={[answer]}
+        onMutate={async (mutation) => {
+          mutations.push(mutation);
+          if (mutation.type === "remove") setGone(true);
+        }}
+      />
+    );
+  }
+  render(<Thread />);
+  await page.getByRole("button", { name: "Delete thread", exact: true }).click();
+  expect(mutations).toEqual([]);
+  // Escape keeps it.
+  await expect
+    .element(page.getByRole("button", { name: "Confirm delete thread" }))
+    .toHaveTextContent("Delete thread");
+  page
+    .getByRole("button", { name: "Confirm delete thread" })
+    .element()
+    .dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  await expect
+    .element(page.getByRole("button", { name: "Delete thread", exact: true }))
+    .toBeInTheDocument();
+  await page.getByRole("button", { name: "Delete thread", exact: true }).click();
+  await page.getByRole("button", { name: "Confirm delete thread" }).click();
+  expect(mutations).toEqual([{ type: "remove", id: note.id }]);
+  await expect.element(page.getByText("Thread removed", { exact: true })).toBeVisible();
 });

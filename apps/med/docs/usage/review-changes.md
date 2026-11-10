@@ -78,7 +78,12 @@ from the file tree, and **Changes**, are live.
 - **Comment.** Select lines in the diff. The card shows the lines, **L** for
   the old side and **R** for the new. Write, then press **Comment** or `⌘↵`;
   **Cancel** or Escape closes the draft. Saved comments have **Reply**,
-  **Edit**, and **Delete**. Med shows each change at once and saves it in the
+  **Edit**, and **Delete**. Every message in a thread has **Reply**, the
+  agent's too; a reply goes at the thread's end. **Delete** on a thread's first
+  comment says **Delete thread**, and a second click deletes the comment with
+  all its replies; Escape keeps them. A link that is one long word, such as a
+  pasted GitHub address, keeps to one line and ends in an ellipsis; hover it
+  for the whole address. Med shows each change at once and saves it in the
   background; if a save fails, Med restores the comment, reports the error, and
   keeps your text.
 - **Copy comments** copies, as Markdown, the comments on every comparison that
@@ -118,9 +123,10 @@ them on their own, and the comment count opens the list, where a checkbox
 chooses which, and a comment's file and text show it at its line in Changes. A GitHub comment's reply button, or **Add all to**
 the agent in the pull request panel, adds GitHub comments. Press `⌘↵` or **Send**.
 
-When Med runs the session, a new comment's box has **Send to Claude now**
-(the agent's name). Ticked, **Comment** saves the comment and sends it at
-once, at the agent's next step while it works. Not ticked, the comment waits
+When Med runs the session, a new comment's box, and a reply's, has **Send to
+Claude now** (the agent's name). Ticked, **Comment** saves the comment and
+sends it at once, at the agent's next step while it works; **Reply** saves the
+reply and sends its thread. Not ticked, the comment waits
 in the message box until you send it. Med keeps the choice for every box
 (`comments.sendNow`, also in Settings); it is ticked at first.
 
@@ -129,7 +135,9 @@ the pointer over it and select the agent's mark (**Send to Claude**). The
 comment then says **Sent to Claude** until you change it or reply. The agent
 can answer a comment in its thread (`med reply <id>`): its answer shows
 under your comment with the agent's name, and leaves the comment sent. Reply
-to it as to any comment; your reply makes the thread unsent again.
+to it as to any comment; your reply makes the thread unsent again. A thread
+goes to the agent whole, with its replies, so its **Send to Claude** and
+**Sent to Claude** sit by your latest message in it.
 
 Med sends only to a session that it runs:
 
@@ -160,7 +168,7 @@ In a thread, you can comment on any file that you open, not only on the
 change: press `gc` on a line, or on lines selected in Visual mode, or click
 the **+** beside a line. A plain box opens under the lines. **Comment** (`⌘↵`)
 saves it, and **Send to Claude now** decides where it goes, as for a comment
-on the diff ([Send comments to the agent](#send-comments-to-the-agent)).
+on the diff, and as for a reply ([Send comments to the agent](#send-comments-to-the-agent)).
 **Cancel** or `Esc` closes the box. The comment
 stays under its last line, as on a page that people comment on together; its
 **Reply**, **Resolve**, and **Delete** show when the pointer is on it. The agent gets the file's path, the lines

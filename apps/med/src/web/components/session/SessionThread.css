@@ -98,6 +98,23 @@
   border-radius: 0;
   object-fit: contain;
 }
+/* A link that is one word, as a pasted address, keeps to one line and ends
+   in an ellipsis where the column does (render.worker.ts). Its box sits on
+   the line's text: a box that hides what overflows has its baseline at its
+   bottom, and a pill's padding goes over the lines around it, as it does
+   inline. */
+.med-session-prose a[data-one-word] {
+  display: inline-block;
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.med-session-prose a[data-one-word].med-web-link {
+  margin-block: -0.1em;
+}
 /* A black icon shows in white on a dark theme. */
 :root[data-appearance="dark"] .med-session-prose .med-web-link-icon[data-site-icon="dark"] {
   filter: invert(1);
