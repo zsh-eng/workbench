@@ -79,7 +79,12 @@ export function units(items: SessionItem[]): Unit[] {
       continue;
     }
     flush();
-    result.push({ key: item.id, item });
+    // A message sent from Med keeps its row from the moment it is sent:
+    // Med's copy, and the transcript's when it comes, share its ID.
+    result.push({
+      key: item.kind === "user" && item.sent ? `med-${item.sent.id}` : item.id,
+      item,
+    });
   }
   flush();
   return result;

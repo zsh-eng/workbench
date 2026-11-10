@@ -554,7 +554,7 @@ test("a hidden session pane comes back by its button where it was, and ⌘K hide
   expect(showSession.query()).toBeNull();
 });
 
-test("a thread opens on its session; the band's pages show and hide the review, and ⌘E expands it", async () => {
+test("a thread opens on its session; the band's pages show and hide the review, and ⌘E expands it or the session", async () => {
   await page.viewport(1600, 900);
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
@@ -591,6 +591,25 @@ test("a thread opens on its session; the band's pages show and hide the review, 
   await expect.poll(sessionInert).toBe(true);
   await userEvent.keyboard("{Meta>}e{/Meta}");
   await expect.poll(sessionInert).toBe(false);
+
+  // In the session beside the review, ⌘E expands the session instead, and
+  // restores the review. While it hides behind the session, no page is on
+  // screen, and a page shows the review again.
+  const reviewInert = () => document.querySelector<HTMLElement>('[data-pane="review"]')!.inert;
+  session()!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+  await userEvent.keyboard("{Meta>}e{/Meta}");
+  await expect.poll(reviewInert).toBe(true);
+  expect(sessionInert()).toBe(false);
+  await userEvent.keyboard("{Meta>}e{/Meta}");
+  await expect.poll(reviewInert).toBe(false);
+  session()!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+  await userEvent.keyboard("{Meta>}e{/Meta}");
+  await expect.poll(reviewInert).toBe(true);
+  await expect.element(reviewPage).toHaveAttribute("aria-checked", "false");
+  await reviewPage.click();
+  await expect.poll(reviewInert).toBe(false);
+  await expect.element(reviewPage).toHaveAttribute("aria-checked", "true");
+  expect(sessionInert()).toBe(false);
 
   // Beside the session, Expand ends the review's own row, which has no
   // pages and no Hide: the band holds the pages.

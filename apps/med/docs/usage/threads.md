@@ -367,8 +367,9 @@ shows how full
 the context is and what the thread has spent, subagents included; click it
 for where autocompact starts and each model's tokens. A pane with room beside
 its thread shows the session rail instead: the context, the spend, the background
-tasks, the subagents, links to the thread's Review, Changes, and pull request,
-and where the agent works. There the subagents are a list, with each one's
+tasks, the subagents, links to the thread's Review, Changes, and pull request
+(its **Pull request** page in Med, which links to GitHub), and where the
+agent works. There the subagents are a list, with each one's
 state, in place of the tabs over the thread. Its list button in the header, `⌘⌥⇧B`, or `⌘K` hides or shows it.
 
 - **Mode** shows the mode that Claude Code reports, also after an approved

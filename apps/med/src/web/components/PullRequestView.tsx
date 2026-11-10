@@ -56,6 +56,12 @@ const STATE_WORDS: Record<LivePullRequest["state"], string> = {
   merged: "Merged",
   closed: "Closed",
 };
+const STATE_ICONS: Record<LivePullRequest["state"], IconName> = {
+  open: "pullRequest",
+  draft: "draft",
+  merged: "merged",
+  closed: "pullRequest",
+};
 
 const OUTCOMES: Record<
   PullRequestCheck["outcome"],
@@ -474,13 +480,19 @@ export default function PullRequestView({
     refresh();
   }, [refreshes, refresh]);
   const shownTitle = pull?.title ?? comments.data?.pull?.title ?? title;
+  // The number follows the title, as on GitHub. The link holds it before
+  // GitHub answers, so the title does not move when the answer comes.
+  const number = pull?.number ?? /\/pull\/(\d+)/.exec(url)?.[1];
   return (
     <section aria-label="Pull request" {...stylex.props(styles.root)}>
       <div className="med-md-scroll med-pull-scroll">
         <div className="med-pull">
           <header className="med-pull-head">
             <div {...stylex.props(styles.titleRow)}>
-              <h1 className="med-pull-title">{shownTitle}</h1>
+              <h1 className="med-pull-title">
+                {shownTitle}
+                {number && <span className="med-pull-number"> #{number}</span>}
+              </h1>
               <span {...stylex.props(styles.actions)}>
                 {onShowDraft && (
                   <button type="button" {...stylex.props(ui.button)} onClick={onShowDraft}>
@@ -501,14 +513,14 @@ export default function PullRequestView({
             {pull && (
               <p {...stylex.props(styles.meta)}>
                 <span {...stylex.props(styles.pullState, states[pull.state])}>
+                  <Icon name={STATE_ICONS[pull.state]} size={13} />
                   {STATE_WORDS[pull.state]}
                 </span>
                 <span>
-                  {pull.author} {MERGE_VERBS[pull.state]}{" "}
-                  <code {...stylex.props(styles.refs)}>{pull.head}</code> into{" "}
-                  <code {...stylex.props(styles.refs)}>{pull.base}</code>
+                  <span {...stylex.props(styles.author)}>{pull.author}</span>{" "}
+                  {MERGE_VERBS[pull.state]} <code {...stylex.props(styles.refs)}>{pull.head}</code>{" "}
+                  into <code {...stylex.props(styles.refs)}>{pull.base}</code>
                 </span>
-                <span {...stylex.props(styles.number)}>#{pull.number}</span>
               </p>
             )}
             {error && (
@@ -634,7 +646,6 @@ const styles = stylex.create({
     marginTop: 16,
     marginInlineStart: "auto",
   },
-  number: { color: tokens.faint, fontVariantNumeric: "tabular-nums" },
   retry: {
     padding: 0,
     borderWidth: 0,
@@ -677,21 +688,39 @@ const styles = stylex.create({
     display: "flex",
     flexWrap: "wrap",
     alignItems: "center",
-    columnGap: 10,
-    rowGap: 4,
+    columnGap: 12,
+    rowGap: 6,
+    marginTop: 12,
+    marginBottom: 6,
     color: tokens.muted,
-    fontSize: 12.5,
-    lineHeight: 1.5,
+    fontSize: 13,
+    lineHeight: 1.6,
   },
+  // The state as GitHub shows it: a pill with its mark, in its colour.
   pullState: {
-    paddingInline: 6,
+    display: "inline-flex",
+    alignItems: "center",
+    flexShrink: 0,
+    gap: 5,
+    height: 24,
+    paddingInlineStart: 8,
+    paddingInlineEnd: 10,
+    borderRadius: 999,
+    backgroundColor: "color-mix(in srgb, currentColor 13%, transparent)",
+    fontSize: 12,
+    fontWeight: 600,
+  },
+  author: { color: tokens.text, fontWeight: 550 },
+  refs: {
+    paddingInline: 5,
+    paddingBlock: 1,
     borderRadius: `calc(4px * ${tokens.round})`,
     backgroundColor: tokens.fill,
-    fontSize: 11.5,
-    fontWeight: 550,
-    lineHeight: "20px",
+    color: tokens.text,
+    fontFamily: tokens.code,
+    fontSize: 12,
+    overflowWrap: "anywhere",
   },
-  refs: { fontFamily: tokens.code, fontSize: 12, overflowWrap: "anywhere" },
   dot: { flexShrink: 0, width: 7, height: 7, borderRadius: "50%" },
   problem: { marginBlock: 8, color: tokens.red, fontSize: 12.5, lineHeight: 1.5 },
   note: { marginBlock: 6, color: tokens.muted, fontSize: 12.5, lineHeight: 1.5 },

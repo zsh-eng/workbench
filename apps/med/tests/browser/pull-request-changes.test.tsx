@@ -511,11 +511,14 @@ test("the Pull request tab shows the pull request as GitHub has it", async () =>
   mount?.remove();
 
   const view = await openPullTab();
-  await expect.element(view.getByRole("heading", { name: "Rename the export" })).toBeVisible();
-  // One line says who wants to merge which branch into which; no labels.
+  // The number follows the title, as on GitHub.
+  await expect
+    .element(view.getByRole("heading", { name: "Rename the export #7", exact: true }))
+    .toBeVisible();
+  // One line: the state, then who wants to merge which branch into which; no labels.
   await expect
     .poll(() => view.element().querySelector("header p")?.textContent)
-    .toMatch(/wants to merge feature into main#7$/);
+    .toBe("Openmira wants to merge feature into main");
   expect(view.getByText("bug", { exact: true }).query()).toBeNull();
   await expect
     .element(view.getByRole("link", { name: "Open on GitHub" }).first())
@@ -657,7 +660,7 @@ test("a failed read says why and leaves the way to GitHub open", async () => {
   await expect
     .poll(() => view.getByRole("alert").query()?.textContent)
     .toContain("502 Bad Gateway");
-  await expect.element(view.getByRole("heading", { name: "Rename the export" })).toBeVisible();
+  await expect.element(view.getByRole("heading", { name: "Rename the export #7" })).toBeVisible();
   await expect
     .element(view.getByRole("link", { name: "Open on GitHub" }).first())
     .toHaveAttribute("href", pullUrl);

@@ -30,14 +30,22 @@
 .med-pull-title {
   flex: 1;
   min-width: 0;
-  margin: 10px 0 8px;
+  margin: 8px 0;
   font-family: var(--med-font-headings);
-  font-size: clamp(1.5em, 3.4cqw, 2em);
+  font-size: clamp(1.375em, 3cqw, 1.75em);
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.25;
   letter-spacing: var(--med-headings-tracking, -0.035em);
   overflow-wrap: anywhere;
   text-wrap: balance;
+}
+/* The number after the title, quiet, as GitHub sets it. */
+.med-pull-number {
+  color: var(--med-faint);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: normal;
+  white-space: nowrap;
 }
 /* The description is the page's prose, without a page's own margins. */
 .med-pull-prose.med-md-prose {

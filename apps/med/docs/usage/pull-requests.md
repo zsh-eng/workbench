@@ -92,9 +92,9 @@ each layer has its own pull request, and the band links to it.
 
 The page is one column.
 
-- **The title**, with **Open on GitHub** beside it, then one line: the state
-  (Draft, Open, Merged, or Closed), who wants to merge which branch into
-  which, and the number.
+- **The title** and its number, with **Open on GitHub** beside it, then one
+  line: the state (Draft, Open, Merged, or Closed) in its colour, with its
+  mark, then who wants to merge which branch into which.
 - **One status box** shows only what stands between the pull request and
   merging. First what stops it, in words: conflicts, how many commits it is
   behind its base, a review that it needs, or failed checks. The count comes

@@ -1324,11 +1324,15 @@ export function SessionThread({
   const [appended, setAppended] = useState<ReadonlySet<string>>(() => new Set());
   if (previous !== all) {
     setPrevious(all);
-    const known = new Set(previous.map((unit) => unit.key));
+    // A unit that was there under another key, as a message that Med learns
+    // it sent, is not new.
+    const known = new Set(
+      previous.flatMap((unit) => ("item" in unit ? [unit.key, unit.item.id] : [unit.key])),
+    );
+    const seen = (unit: Unit) => known.has(unit.key) || ("item" in unit && known.has(unit.item.id));
     const next = new Set<string>();
     if (previous.length)
-      for (let at = all.length - 1; at >= 0 && !known.has(all[at]!.key); at--)
-        next.add(all[at]!.key);
+      for (let at = all.length - 1; at >= 0 && !seen(all[at]!); at--) next.add(all[at]!.key);
     setAppended(next);
   }
 

@@ -342,12 +342,11 @@ export function InTitleBand({
   tools?: ReactNode;
 }) {
   const band = use(Band);
-  const id = use(Current);
-  const shown = !!band?.workspace && band.workspace === id;
+  const shown = useInTitleBand();
   const claim = band?.claim;
   const kind = cover ? "cover" : lead ? "lead" : null;
   useLayoutEffect(() => (shown && claim && kind ? claim(kind) : undefined), [shown, claim, kind]);
-  if (!shown) return null;
+  if (!shown || !band) return null;
   return (
     <>
       {lead && band.lead && createPortal(lead, band.lead)}
@@ -359,11 +358,14 @@ export function InTitleBand({
   );
 }
 
-/** Whether the title band shows this workspace: InTitleBand's portals render. */
+/** Whether the title band shows this workspace: InTitleBand's portals render.
+ * While the next workspace prepares out of sight, the band stays with the one
+ * on screen, so the band and the view swap in one frame. */
 export function useInTitleBand() {
   const band = use(Band);
   const id = use(Current);
-  return !!band?.workspace && band.workspace === id;
+  const inView = use(InView);
+  return !!band?.workspace && (inView ?? band.workspace === id);
 }
 
 /** The title band's slots, and whether a workspace's title leads it or a
@@ -400,6 +402,9 @@ function useTitleBand(workspace: string | null) {
 /** Whether this workspace is the one on screen. One that renders out of
  * sight runs its effects but takes no keys. */
 const ShownCheck = createContext<() => boolean>(() => true);
+/** Whether a slot's workspace is the one in view: the last one while the
+ * next prepares out of sight. Null outside WorkspaceViews. */
+const InView = createContext<boolean | null>(null);
 /** The workspace that a slot renders, also for a thread not open yet. */
 const Entry = createContext<Workspace | null>(null);
 
@@ -2374,11 +2379,13 @@ export function WorkspaceViews({
         <Current value={id}>
           <Entry value={workspace}>
             <ShownCheck value={screen.check(id)}>
-              <Lifetime value={disposers}>
-                <KeepScroll id={id} preparing={outOfSight} showing={id === preparing}>
-                  {render(controller)}
-                </KeepScroll>
-              </Lifetime>
+              <InView value={id === visible}>
+                <Lifetime value={disposers}>
+                  <KeepScroll id={id} preparing={outOfSight} showing={id === preparing}>
+                    {render(controller)}
+                  </KeepScroll>
+                </Lifetime>
+              </InView>
             </ShownCheck>
           </Entry>
         </Current>

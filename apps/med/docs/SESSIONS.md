@@ -370,7 +370,10 @@ those messages as another session's, not as the user's.
   state. Its first visit then shows that slot at once, as a revisit does
   (35 to 65 ms from the key to the painted thread on an M1 Pro, with real
   threads). The swap commits in the frame's `requestAnimationFrame`, so it
-  paints in that frame. A workspace out of sight runs its effects but takes
+  paints in that frame. The title band swaps in that frame too: until then
+  it keeps the pages and session controls of the workspace on screen, which
+  keeps its own layout, rather than those of the one out of sight
+  (`useInTitleBand`). A workspace out of sight runs its effects but takes
   no keys (`useWorkspaceShown`). The stream's own first view replaces the
   thread in one step. The
   view follows new items while the reader is at the bottom; only

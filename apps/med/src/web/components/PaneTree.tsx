@@ -589,10 +589,11 @@ export function PaneTree({
   state: PaneTreeState;
   panes: PaneSpec[];
   label?: string;
-  /** The one pane that ⌘E expands and restores, wherever the focus is, such
-   * as the review beside its thread; `onHidden` runs while it hides. Without
-   * it, ⌘E expands the focused pane. */
-  expand?: { id: string; onHidden(): void };
+  /** The pane that ⌘E expands and restores, wherever the focus is, such as
+   * the review beside its thread; `onHidden` runs while it hides. `own`
+   * names panes that ⌘E expands instead while they are in use, such as the
+   * thread. Without it, ⌘E expands the focused pane. */
+  expand?: { id: string; own?: readonly string[]; onHidden(): void };
 }) {
   const [element, setElement] = useState<HTMLDivElement | null>(null);
   const box = useBox(element);
@@ -664,10 +665,11 @@ export function PaneTree({
     scope.addEventListener("keydown", keydown);
     return () => scope.removeEventListener("keydown", keydown);
   }, [element, state]);
-  // ⌘E expands the review (`expand`), or else the focused pane, and restores
-  // the others, wherever the focus is: in a pane, a text field, the editor,
-  // the title band, or the sidebar. It goes to the workspace on screen,
-  // before the focused element's own keys.
+  // ⌘E expands the review (`expand`), or the pane in use that `expand.own`
+  // names, or else the focused pane, and restores the others, wherever the
+  // focus is: in a pane, a text field, the editor, the title band, or the
+  // sidebar. It goes to the workspace on screen, before the focused
+  // element's own keys.
   const expandLatest = useRef(expand);
   useLayoutEffect(() => {
     expandLatest.current = expand;
@@ -693,7 +695,15 @@ export function PaneTree({
       if (state.open.length < 2) return;
       key.preventDefault();
       key.stopPropagation();
-      state.toggleZoom(only ? only.id : (state.zoom ?? state.focused()));
+      // The pane in use: the one that holds the focus, else the one last
+      // pointed at or focused.
+      const holder = target?.closest?.("[data-pane]");
+      const inUse =
+        holder && element.contains(holder)
+          ? holder.getAttribute("data-pane")
+          : state.view.get().focused;
+      const own = only && inUse && only.own?.includes(inUse) && state.open.includes(inUse);
+      state.toggleZoom(state.zoom ?? (only ? (own ? inUse : only.id) : state.focused()));
     };
     window.addEventListener("keydown", keydown, true);
     return () => window.removeEventListener("keydown", keydown, true);

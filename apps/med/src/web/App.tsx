@@ -385,6 +385,9 @@ const PANE_PLACES: Record<string, { near?: string; side: Side; share: number }> 
   // so that an answer has room to read.
 };
 
+/** The panes that ⌘E expands while they are in use, beside the review. */
+const SESSION_PANES = ["session"];
+
 /** The narrowest review pane that shows a split diff, in pixels. */
 const SPLIT_MIN_WIDTH = 760;
 /** The narrowest review pane that shows the Guide's rail on "auto"; the
@@ -477,7 +480,9 @@ export function App({
   const panes = usePaneTree({ key: layoutKey, initial: initialPanes });
   const filesVisible = panes.isOpen("files");
   const sessionVisible = panes.isOpen("session");
-  const reviewVisible = panes.isOpen("review");
+  // A review behind a pane that fills the room, as an expanded thread, is
+  // not on screen: a page shows it again.
+  const reviewVisible = panes.isOpen("review") && (!panes.zoom || panes.zoom === "review");
   // Markdown files now read rendered or show their source in the file view
   // (FullFileView), so a saved layout's Preview pane has nothing to show;
   // the changed files are the Changes page's sidebar, not a pane.
@@ -5970,7 +5975,15 @@ export function App({
             icon: "pullRequest" as const,
             label: state.savedReview.pullRequestTitle ?? "Pull request",
             ...(pullNumber ? { detail: `#${pullNumber}` } : {}),
-            href: state.savedReview.pullRequestUrl,
+            // Med's Pull request page, which links to GitHub; else GitHub.
+            ...(hasPullTab
+              ? {
+                  onOpen: () => {
+                    revealPane("review");
+                    selectTab("brief");
+                  },
+                }
+              : { href: state.savedReview.pullRequestUrl }),
           },
         ]
       : []),
@@ -6803,10 +6816,15 @@ export function App({
             panes={workspacePanes}
             label="Workspace panes"
             // ⌘E expands the review, and opens it expanded while it hides;
-            // the thread has no Expand.
+            // in the thread beside the review, it expands the thread. The
+            // thread has no Expand.
             expand={
               threadLayout
-                ? { id: "review", onHidden: () => showPane("review", { zoom: true }) }
+                ? {
+                    id: "review",
+                    own: SESSION_PANES,
+                    onHidden: () => showPane("review", { zoom: true }),
+                  }
                 : undefined
             }
           />

@@ -10,7 +10,8 @@ A thread opens on its session alone, which fills the workspace. The pages at
 the title band's top right, **Review**, **Changes**, and **Commit**, open the
 review beside it; the page on screen, clicked again, hides the review. `⌘E`
 expands the review to the whole workspace, opening it if it hides, and
-restores it. The session has no Expand or Hide of its own. A thread without
+restores it; in the session beside the review, it expands the session
+instead. The session has no Expand or Hide of its own. A thread without
 an agent session opens on its review, and a pull request on both.
 
 Each page of the review has its own sidebar: Review's guide, and Changes' changed
@@ -72,9 +73,11 @@ list back: it hides the tasks until one starts or fails.
   arrow keys. Double-click a gap, or press `⌘⌃=`, to give the panes equal room.
 - `⌘E` expands the review to the whole workspace, wherever the focus is: in
   a pane, a text field, the editor, the title band, or the sidebar. While the
-  review hides, it opens it expanded. Press it again, or click **Restore the
-  other panes** at the review's row's end, to show the others. In a
-  workspace without a session, it zooms the focused pane.
+  review hides, it opens it expanded. In the session, or after a click in it,
+  while the review shows beside it, `⌘E` expands the session instead. Press
+  it again, or click **Restore the other panes** at the review's row's end,
+  to show the others; a page in the title band shows the review again too.
+  In a workspace without a session, it zooms the focused pane.
   Opening a file shows the others too, so the file shows in the review.
 - A pane does not get narrower than 220 pixels or lower than 120. When the
   window is too small for all of them, Med hides panes until the rest fit, and

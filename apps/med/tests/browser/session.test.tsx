@@ -1103,6 +1103,76 @@ test("a message from Med joins the thread where the agent took it, so the turn b
   await expect.element(page.getByText("Waiting for Claude to take it")).not.toBeInTheDocument();
 });
 
+test("a message sent from Med keeps its row when the transcript has it, and rises in once", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  const text = (sessionUpdate: string, value: string, at: number, messageId?: string) => ({
+    at,
+    update: {
+      sessionUpdate,
+      ...(messageId ? { messageId } : {}),
+      content: { type: "text", text: value },
+    },
+  });
+  store.applyAll([
+    text("user_message_chunk", "Fix the export.", 0),
+    text("agent_message_chunk", "Done.", 1000, "a"),
+  ] as Parameters<typeof store.applyAll>[0]);
+  const sent: SentMessage = {
+    id: "m1",
+    sessionId: "s1",
+    agent: "claude",
+    text: "Also check the import.",
+    noteIds: [],
+    attachmentCount: 0,
+    createdAt: new Date(4000).toISOString(),
+    delivery: "sending",
+  };
+  const render = (message: SentMessage) => {
+    const snapshot = store.getSnapshot();
+    root!.render(
+      <SessionThread
+        snapshot={{ ...snapshot, items: withSentMessages(snapshot.items, [message]) }}
+      />,
+    );
+  };
+  const row = () =>
+    page.getByText("Also check the import.").element().closest<HTMLElement>("[data-unit]")!;
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  await expect.element(page.getByText("Done.")).toBeVisible();
+  render(sent);
+  await expect.element(page.getByText("Also check the import.")).toBeVisible();
+  const first = row();
+  // It rises in as it is sent, once.
+  expect(first.dataset.rise).toBe("");
+  const rising = new Set(first.getAnimations());
+  expect(rising.size).toBe(1);
+  // Med has it, then the transcript does: the same row, and no second rise.
+  await expect.element(page.getByText("Sending…")).toBeVisible();
+  render({ ...sent, delivery: "delivered", deliveredAt: new Date(4100).toISOString() });
+  await expect.element(page.getByText("Sending…")).not.toBeInTheDocument();
+  expect(row()).toBe(first);
+  expect(first.dataset.rise).toBeUndefined();
+  store.applyAll([text("user_message_chunk", "Also check the import.", 4200)] as Parameters<
+    typeof store.applyAll
+  >[0]);
+  render({ ...sent, delivery: "delivered", deliveredAt: new Date(4100).toISOString() });
+  // The transcript's copy carries Med's message: the row's time is the
+  // transcript's now.
+  const frames = () =>
+    new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+  await frames();
+  expect(page.getByText("Also check the import.").elements()).toHaveLength(1);
+  expect(row()).toBe(first);
+  expect(first.isConnected).toBe(true);
+  expect(first.dataset.rise).toBeUndefined();
+  // No animation but the first rise.
+  expect(
+    first.getAnimations({ subtree: true }).filter((animation) => !rising.has(animation)),
+  ).toEqual([]);
+});
+
 test("the units in view keep their place as earlier work loads above them", async () => {
   await page.viewport(1280, 900);
   initializeTheme();

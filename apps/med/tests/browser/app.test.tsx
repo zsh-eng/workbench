@@ -4451,6 +4451,14 @@ describe("agent session", () => {
     await mountApp({
       savedReview: true,
       session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      pullRequest: {
+        url: "https://github.com/acme/med/pull/7",
+        head: firstCommit,
+        fetchedAt: Date.now(),
+        threads: [],
+        conversation: [],
+        reviews: [],
+      },
       usage: {
         context: {
           sessionId: "s1",
@@ -4529,11 +4537,13 @@ describe("agent session", () => {
     await expect.element(spend.getByText("41k in · 690k out", { exact: false })).toBeVisible();
     await spend.getByRole("button", { name: "Spend" }).click();
     await expect.element(spend.getByText("Opus 5.5")).not.toBeInTheDocument();
+    const links = side.getByRole("region", { name: "Reviews" });
+    await expect.element(links.getByRole("button", { name: /Changes/ })).toBeVisible();
+    // The pull request's row opens its page in Med, which links to GitHub.
+    await links.getByRole("button", { name: /^Read pull request threads/ }).click();
     await expect
-      .element(
-        side.getByRole("region", { name: "Reviews" }).getByRole("button", { name: /Changes/ }),
-      )
-      .toBeVisible();
+      .element(page.getByRole("radio", { name: "Pull request" }))
+      .toHaveAttribute("aria-checked", "true");
     await expect
       .element(side.getByRole("region", { name: "Environment" }))
       .toMatchTextContent(/Claude/);
@@ -4680,6 +4690,14 @@ describe("agent session", () => {
     await expect.element(panel.getByText("Not sent: The host is busy.")).toBeVisible();
     await panel.getByRole("button", { name: "Retry" }).click();
     await expect.poll(() => agentAnswers.length).toBe(1);
+    // The message keeps its row as the host takes it.
+    const row = () => panel.getByText("Use minutes.").element().closest<HTMLElement>("[data-unit]");
+    const sending = row();
+    let left = false;
+    const watch = new MutationObserver(() => {
+      if (!sending?.isConnected) left = true;
+    });
+    watch.observe(panel.element(), { childList: true, subtree: true });
     agentAnswers.shift()!();
     await expect
       .poll(() => agentMessages)
@@ -4697,6 +4715,10 @@ describe("agent session", () => {
     await expect.element(panel.getByText("Sending…")).not.toBeInTheDocument();
     await expect.element(panel.getByText("Not sent", { exact: false })).not.toBeInTheDocument();
     expect(panel.getByText("Use minutes.").elements()).toHaveLength(1);
+    watch.disconnect();
+    expect(left).toBe(false);
+    expect(row()).toBe(sending);
+    expect(sending!.dataset.rise).toBeUndefined();
 
     // The comment left over goes on its own, from its line.
     await panel.getByRole("button", { name: "Send 1 comment" }).click();
