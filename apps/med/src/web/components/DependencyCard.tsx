@@ -73,7 +73,11 @@ export function DependencyCard({
             {manifest.path}
           </button>
           {manifest.state === "loading" ? (
-            <p {...stylex.props(styles.note)}>Reading the manifest…</p>
+            // A review that opens waits out of sight for its table, rather
+            // than show the line and push the diffs down when the table comes.
+            <p data-pending="" {...stylex.props(styles.note)}>
+              Reading the manifest…
+            </p>
           ) : manifest.state === "unavailable" ? (
             <p {...stylex.props(styles.note)}>The manifest's two sides are not readable.</p>
           ) : manifest.state.length === 0 ? (

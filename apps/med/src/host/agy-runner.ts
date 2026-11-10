@@ -31,7 +31,7 @@ import {
 } from "./owned-sessions";
 import { HostError } from "./runtime/errors";
 import { userHome } from "./service/discover";
-import { HEAD_BYTES, readEdge } from "./found-sessions";
+import { HEAD_BYTES, readEdge } from "./session-index";
 
 // Antigravity's CLI, `agy`, in headless stream-json mode: one process keeps
 // a conversation open and runs a turn for each line on its input

@@ -31,14 +31,14 @@ export type BarContext =
 export function barContext(
   workspace: Workspace | undefined,
   list: ThreadList | null,
-  /** The session's name, which stands for any of its reviews. */
+  /** The thread's name. */
   name?: string,
 ) {
   if (!workspace) return undefined;
   if (workspace.kind === "vault")
     return { kind: "label", icon: "vault", text: workspace.title ?? "Vault" } as const;
-  if (workspace.kind === "review") {
-    const thread = list?.threads.find((entry) => entry.id === workspace.reviewId);
+  if (workspace.kind === "thread") {
+    const thread = list?.threads.find((entry) => entry.id === workspace.threadId);
     if (!thread?.checkout) return undefined;
     return {
       kind: "checkout",
@@ -61,8 +61,6 @@ export function barContext(
     branch: workspace.branch,
     path: workspace.path,
     linked: !!workspace.worktree,
-    // A session that Med found is a thread, and its workspace has its title.
-    title: workspace.found ? workspace.title : undefined,
   } as const;
 }
 

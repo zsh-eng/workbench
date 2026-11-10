@@ -3,14 +3,14 @@
 // script records it (apps/med-site/scripts/screenshots/capture.ts).
 //
 // Reads replay the recorded answers. Event streams send what they recorded
-// and stay open. Writes that change comments, pins, messages, or Git state
+// and stay open. Writes that change comments, messages, or Git state
 // change a copy of that state in memory, and Med reads the copy back; other
 // writes succeed and change nothing. The clock starts at the time of the
 // recording, so relative times read as they did then. The layout is the
 // recorded one, and the theme follows the visitor's light or dark setting.
 //
 // `?scene=` picks the view, one for each window on the website: the review,
-// the brief, a comment, the agent's session, the commit, or the notes vault.
+// the guide, a comment, the agent's session, the commit, or the notes vault.
 // Med's Screens page (/screens) uses the same scenes, and its own, on the
 // recordings that `?recording=` names.
 // The review plays its recording on a timeline: the reviewer sends a comment,
@@ -20,12 +20,12 @@
 import type { AgentInboxState, AgentMessage } from "../shared/agent-inbox";
 import type { AgentStatus } from "../shared/agent-status";
 import type { Note, NoteMutation, NoteState, RegisteredRepository } from "../shared/protocol";
-import type { SavedReview } from "../shared/saved-review";
+import type { AgentSession, FileComment, SavedReview } from "../shared/saved-review";
 import type { BrowseRead } from "../shared/browse";
 import type { SymbolHoverRequest } from "../shared/symbols";
 import { definitionText } from "../shared/definition-text";
 import type { PullInbox, PullInboxRow } from "../shared/pull-inbox";
-import type { ThreadList } from "../shared/threads";
+import { parseSessionKey, sessionKey, threadOfReview, type ThreadList } from "../shared/threads";
 import type { WorkingStatus } from "../shared/git-actions";
 
 interface Chunk {
@@ -71,8 +71,55 @@ const file =
 const recording: Recording = await fetch(new URL(file, document.baseURI)).then((response) =>
   response.json(),
 );
+modernize(recording);
 if (scene === "replies") answerComment(recording);
 if (scene === "files" || scene === "comments") commentedFile(recording);
+
+/**
+ * The recordings are of the Med before a session was its own thread: a saved
+ * review listed its sessions, and their routes went by the review. They read
+ * as today's routes: a review names its one session, and the session's
+ * transcript, Med's run of it, and its agent's inbox go by its key.
+ */
+function modernize(recording: Recording) {
+  const sessions = new Map<string, AgentSession>();
+  const threads = new Map<string, string>();
+  for (const entry of recording.entries) {
+    if (entry.method !== "GET" || !/^\/api\/reviews\/r_[a-f0-9]+$/.test(entry.url)) continue;
+    const { sessions: list = [], ...review } = JSON.parse(entry.text) as SavedReview & {
+      sessions?: AgentSession[];
+    };
+    for (const session of list) sessions.set(session.id, session);
+    const session = list.at(-1);
+    if (session) review.session = session;
+    entry.text = JSON.stringify(review);
+    threads.set(review.id, threadOfReview(review));
+  }
+  const keyOf = (id: string) => sessionKey(sessions.get(id) ?? { agent: "claude", id });
+  for (const entry of recording.entries)
+    entry.url = entry.url
+      .replace(
+        /^\/api\/reviews\/r_[a-f0-9]+\/sessions\/([^/?]+)/,
+        (_, id) => `/api/sessions/${keyOf(id)}`,
+      )
+      .replace(
+        /^\/api\/reviews\/r_[a-f0-9]+\/owned\/([^/?]+)/,
+        (_, id) => `/api/sessions/${keyOf(id)}/owned`,
+      )
+      .replace(
+        /^\/api\/reviews\/(r_[a-f0-9]+)\/agent/,
+        (_, id) => `/api/sessions/${threads.get(id) ?? id}/agent`,
+      );
+}
+
+/** The recorded review, which the recording's path opens. */
+const recordedReview = (recording: Recording) => {
+  const id = /^\/review\/([^/?]+)/.exec(recording.path)?.[1];
+  const entry = recording.entries.find(
+    (other) => other.method === "GET" && other.url === `/api/reviews/${id}`,
+  );
+  return entry ? (JSON.parse(entry.text) as SavedReview) : undefined;
+};
 
 /** Med runs the thread's session, so a comment goes to it from the comment. */
 function ownSessions(recording: Recording) {
@@ -86,15 +133,12 @@ function ownSessions(recording: Recording) {
     if (entry.method !== "GET") continue;
     const path = entry.url.split("?")[0]!;
     if (!/\/agent(\/events)?$/.test(path)) continue;
+    const session = recordedReview(recording)?.session;
     const own = (state: AgentInboxState) => {
-      const review = recording.entries.find(
-        (other) => other.method === "GET" && /^\/api\/reviews\/r_[a-f0-9]+$/.test(other.url),
-      );
-      const sessions = review ? (JSON.parse(review.text) as SavedReview).sessions : undefined;
       state.owned = [
         ...new Set([
           ...state.messages.map((message) => message.sessionId),
-          ...(sessions ?? []).map((session) => session.id),
+          ...(session ? [session.id] : []),
         ]),
       ];
     };
@@ -115,36 +159,39 @@ function ownSessions(recording: Recording) {
  */
 function commentedFile(recording: Recording) {
   ownSessions(recording);
+  const saved = recordedReview(recording);
+  if (!saved) return;
   const at = (minutes: number) => new Date(recording.recordedAt - minutes * 60_000).toISOString();
-  for (const entry of recording.entries) {
-    if (entry.method !== "GET" || !/^\/api\/reviews\/r_[a-f0-9]+$/.test(entry.url)) continue;
-    const saved = JSON.parse(entry.text) as SavedReview;
-    saved.fileComments = [
-      {
-        id: "f11e0c00-0000-4000-8000-000000000001",
-        source: { kind: "worktree", repo: "/work/trailhead" },
-        path: "src/search/query.ts",
-        line: 18,
-        endLine: 22,
-        quote:
-          '  return value\n    .normalize("NFD")\n    .replace(/[\\u0300-\\u036f]/g, "")\n    .toLowerCase()\n    .trim();',
-        text: "This runs on every keystroke for every trail. Normalize the names once, when the trails load.",
-        createdAt: at(14),
-        updatedAt: at(14),
-        replies: [
-          {
-            id: "f11e0c00-0000-4000-8000-000000000002",
-            text: "Done: the index keeps each trail's normalized name, built once in `loadTrails`, and the search compares against it. The 2,400-trail fixture filters in 3 ms instead of 41.",
-            author: { agent: "claude" },
-            createdAt: at(9),
-          },
-        ],
-        resolved: { at: at(9), by: { agent: "claude" } },
-      },
-    ];
-    saved.commentCount += 2;
-    entry.text = JSON.stringify(saved);
-  }
+  const comments: FileComment[] = [
+    {
+      id: "f11e0c00-0000-4000-8000-000000000001",
+      source: { kind: "worktree", repo: "/work/trailhead" },
+      path: "src/search/query.ts",
+      line: 18,
+      endLine: 22,
+      quote:
+        '  return value\n    .normalize("NFD")\n    .replace(/[\\u0300-\\u036f]/g, "")\n    .toLowerCase()\n    .trim();',
+      text: "This runs on every keystroke for every trail. Normalize the names once, when the trails load.",
+      createdAt: at(14),
+      updatedAt: at(14),
+      replies: [
+        {
+          id: "f11e0c00-0000-4000-8000-000000000002",
+          text: "Done: the index keeps each trail's normalized name, built once in `loadTrails`, and the search compares against it. The 2,400-trail fixture filters in 3 ms instead of 41.",
+          author: { agent: "claude" },
+          createdAt: at(9),
+        },
+      ],
+      resolved: { at: at(9), by: { agent: "claude" } },
+    },
+  ];
+  recording.entries.push({
+    method: "GET",
+    url: `/api/threads/${threadOfReview(saved)}/file-comments`,
+    status: 200,
+    type: "application/json",
+    text: JSON.stringify({ comments }),
+  });
 }
 
 /**
@@ -357,9 +404,15 @@ function streamed<T>(path: string): T | undefined {
   return data ? (JSON.parse(data) as T) : undefined;
 }
 
-/** The agent's inbox: the messages sent from Med, and the comments not sent yet. */
-function inbox(id: string): AgentInboxState {
-  const path = `/api/reviews/${id}/agent`;
+/** The thread of a saved review: its session's, or its own. */
+function threadOf(reviewId: string) {
+  const saved = read<SavedReview>(`/api/reviews/${reviewId}`);
+  return saved ? threadOfReview(saved) : reviewId;
+}
+
+/** A session's agent inbox: the messages sent from Med, and the comments not sent yet. */
+function inbox(thread: string): AgentInboxState {
+  const path = `/api/sessions/${thread}/agent`;
   if (kept.has(key("GET", path))) return read<AgentInboxState>(path)!;
   return (
     streamed<AgentInboxState>(`${path}/events`) ??
@@ -373,8 +426,8 @@ function inbox(id: string): AgentInboxState {
   );
 }
 
-/** The sidebar's threads: the recorded review is the one thread, with its
- * agent's state at this moment of the recording. */
+/** The sidebar's threads: the recorded review's session, with its agent's
+ * state at this moment of the recording. */
 function threadList(): ThreadList {
   const repositories = (
     read<{ repositories: RegisteredRepository[] }>("/api/repositories")?.repositories ?? []
@@ -387,56 +440,70 @@ function threadList(): ThreadList {
   const status = streamed<{ statuses: AgentStatus[] }>("/api/agent-status/events")?.statuses.find(
     (entry) => entry.reviewId === saved.id,
   );
-  const thread: ThreadList["threads"][number] = {
-    id: saved.id,
-    title: saved.title,
-    createdAt: saved.createdAt,
-    updatedAt: status?.updatedAt ?? Date.parse(saved.createdAt),
+  const changes = saved.totals && {
+    files: saved.totals.files,
+    additions: saved.totals.additions,
+    deletions: saved.totals.deletions,
+  };
+  const place = {
     ...(repository && { repository }),
     ...(target && { checkout: target.repo }),
     ...(target?.branch && { branch: target.branch }),
-    ...(status && { agent: status.agent, state: status.state }),
-    ...(saved.sessions && { sessions: saved.sessions }),
-    ...(saved.totals && {
-      changes: {
-        files: saved.totals.files,
-        additions: saved.totals.additions,
-        deletions: saved.totals.deletions,
-      },
-    }),
   };
+  const reviews: ThreadList["threads"][number]["reviews"] = [
+    {
+      id: saved.id,
+      title: saved.title,
+      createdAt: saved.createdAt,
+      updatedAt: status?.updatedAt ?? Date.parse(saved.createdAt),
+      ...(target && { repo: target.repo }),
+      ...(target?.branch && { branch: target.branch }),
+      ...(changes && { changes }),
+    },
+  ];
   // In the session scene the agent also handed off an earlier review, so the
-  // side panel's Reviews lists two and the sidebar shows the session once.
-  const earlier: ThreadList["threads"][number] | undefined =
-    scene === "session" && saved.sessions
-      ? {
-          id: "r_demo_parser",
-          title: "Parse trail filters",
-          createdAt: saved.createdAt,
-          updatedAt: Date.parse(saved.createdAt) - 50 * 60_000,
-          ...(repository && { repository }),
-          ...(target && { checkout: target.repo }),
-          ...(target?.branch && { branch: target.branch }),
-          sessions: saved.sessions,
-        }
-      : undefined;
-  // In the superagent scene, the Superagent's thread is on top of the sidebar.
+  // side panel's Reviews lists two.
+  if (scene === "session" && saved.session)
+    reviews.push({
+      id: "r_000000000000000000de0001",
+      title: "Parse trail filters",
+      createdAt: saved.createdAt,
+      updatedAt: Date.parse(saved.createdAt) - 50 * 60_000,
+      ...(target && { repo: target.repo }),
+      ...(target?.branch && { branch: target.branch }),
+    });
+  const thread: ThreadList["threads"][number] = {
+    id: threadOfReview(saved),
+    kind: saved.session ? "session" : "review",
+    title: saved.title,
+    createdAt: saved.createdAt,
+    updatedAt: reviews[0]!.updatedAt,
+    ...place,
+    ...(status && { agent: status.agent, state: status.state }),
+    ...(saved.session && { session: saved.session }),
+    reviews,
+    ...(changes && { changes }),
+    open: true,
+  };
+  // In the superagent scene, the Superagent's session is pinned on top of
+  // the sidebar.
   const superagent: ThreadList["threads"][number] | undefined =
     scene === "superagent"
       ? {
-          id: "r_demo_superagent",
+          id: "claude-demo-superagent",
+          kind: "session",
           title: "Superagent",
           createdAt: saved.createdAt,
           updatedAt: Date.parse(saved.createdAt) + 60_000,
-          superagent: true,
+          session: { agent: "claude", id: "demo-superagent", cwd: "/work" },
+          reviews: [],
+          pinned: 1,
           agent: "claude",
           state: "idle",
+          open: true,
         }
       : undefined;
-  return {
-    threads: [...(superagent ? [superagent] : []), thread, ...(earlier ? [earlier] : [])],
-    repositories,
-  };
+  return { threads: [...(superagent ? [superagent] : []), thread], repositories };
 }
 
 /** The thread list's stream: the list now, and again when the agent's state
@@ -461,9 +528,9 @@ function threadStream(): Response {
   });
   return new Response(body, { headers: { "content-type": "text/event-stream" } });
 }
-function setInbox(id: string, state: AgentInboxState) {
-  keep(`/api/reviews/${id}/agent`, state);
-  send(`/api/reviews/${id}/agent/events`, `event: state\ndata: ${JSON.stringify(state)}\n\n`);
+function setInbox(thread: string, state: AgentInboxState) {
+  keep(`/api/sessions/${thread}/agent`, state);
+  send(`/api/sessions/${thread}/agent/events`, `event: state\ndata: ${JSON.stringify(state)}\n\n`);
 }
 
 /** Adds, edits, or removes a comment, as the host does. */
@@ -504,7 +571,8 @@ function mutateNotes(
   if (savedId) {
     if (count) changeReview(savedId, (saved) => (saved.commentCount += count));
     // A top-level comment that changed is a draft for the agent again.
-    const state = inbox(savedId);
+    const thread = threadOf(savedId);
+    const state = inbox(thread);
     const drafts = state.drafts.filter((draft) => !("id" in mutation) || draft.id !== mutation.id);
     const changed =
       mutation.type === "add"
@@ -521,7 +589,7 @@ function mutateNotes(
         text: changed.text,
         replies: 0,
       });
-    setInbox(savedId, { ...state, drafts });
+    setInbox(thread, { ...state, drafts });
   }
   return next;
 }
@@ -718,73 +786,11 @@ const handlers: [method: string, path: RegExp, handler: Handler][] = [
     "POST",
     /^\/api\/reviews\/([^/]+)\/clear$/,
     (_url, _body, [, id]) => {
-      const saved = changeReview(id!, (saved) => {
-        saved.commentCount = 0;
-        delete saved.briefComments;
-      });
+      const saved = changeReview(id!, (saved) => (saved.commentCount = 0));
       for (const { path, state } of savedNotes(saved))
         keep(path, { ...state, revision: state.revision + 1, notes: [] });
-      setInbox(id!, { ...inbox(id!), drafts: [] });
-      return saved;
-    },
-  ],
-  [
-    "POST",
-    /^\/api\/reviews\/([^/]+)\/pins$/,
-    (_url, body, [, id]) =>
-      changeReview(id!, (saved) => {
-        const owner = saved.iterations?.at(-1) ?? saved;
-        if ("add" in body)
-          owner.pins = [
-            ...(owner.pins ?? []),
-            {
-              id: `p_${hex(12)}`,
-              text: body.add.text,
-              createdAt: new Date().toISOString(),
-              ...(body.add.source ? { source: body.add.source } : {}),
-            },
-          ];
-        else
-          for (const entry of [saved, ...(saved.iterations ?? [])])
-            entry.pins = entry.pins?.filter((pin) => pin.id !== body.remove);
-      }),
-  ],
-  [
-    "POST",
-    /^\/api\/reviews\/([^/]+)\/brief-comments$/,
-    (_url, body, [, id]) => {
-      const now = new Date().toISOString();
-      const saved = changeReview(id!, (saved) => {
-        const comments = saved.briefComments ?? [];
-        if ("add" in body) {
-          comments.push({ ...body.add, id: `c_${hex(12)}`, createdAt: now, updatedAt: now });
-          saved.commentCount += 1;
-        } else if ("edit" in body) {
-          const comment = comments.find((item) => item.id === body.edit.id);
-          if (comment) Object.assign(comment, { text: body.edit.text, updatedAt: now });
-        } else {
-          comments.splice(
-            comments.findIndex((item) => item.id === body.remove),
-            1,
-          );
-          saved.commentCount -= 1;
-        }
-        saved.briefComments = comments;
-      });
-      const state = inbox(id!);
-      setInbox(id!, {
-        ...state,
-        drafts: [
-          ...state.drafts.filter((draft) => draft.path !== "Notes"),
-          ...(saved.briefComments ?? []).map((comment) => ({
-            id: comment.id,
-            path: "Notes",
-            quote: comment.quote,
-            text: comment.text,
-            replies: 0,
-          })),
-        ],
-      });
+      const thread = threadOfReview(saved);
+      setInbox(thread, { ...inbox(thread), drafts: [] });
       return saved;
     },
   ],
@@ -828,57 +834,52 @@ const handlers: [method: string, path: RegExp, handler: Handler][] = [
       return { ...body, definitions: [], more: 0 };
     },
   ],
+  // Comments on lines of a file belong to the thread.
   [
     "POST",
-    /^\/api\/reviews\/([^/]+)\/file-comments$/,
-    (_url, body, [, id]) => {
+    /^\/api\/threads\/([^/]+)\/file-comments$/,
+    (_url, body, [, thread]) => {
       const now = new Date().toISOString();
-      const saved = changeReview(id!, (saved) => {
-        const comments = saved.fileComments ?? [];
-        const find = (target: string) => comments.find((item) => item.id === target);
-        if ("add" in body) {
-          comments.push({
-            ...body.add,
-            id: crypto.randomUUID(),
-            createdAt: now,
-            updatedAt: now,
-            replies: [],
-          });
-          saved.commentCount += 1;
-        } else if ("edit" in body) {
-          const comment = find(body.edit.id);
-          if (comment) Object.assign(comment, { text: body.edit.text, updatedAt: now });
-        } else if ("reply" in body) {
-          const comment = find(body.reply.id);
-          comment?.replies.push({ id: crypto.randomUUID(), text: body.reply.text, createdAt: now });
-          if (comment) {
-            comment.updatedAt = now;
-            delete comment.resolved;
-          }
-          saved.commentCount += 1;
-        } else if ("resolve" in body) {
-          const comment = find(body.resolve);
-          if (comment) comment.resolved = { at: now };
-        } else if ("reopen" in body) {
-          const comment = find(body.reopen);
-          if (comment) delete comment.resolved;
-        } else {
-          const index = comments.findIndex((item) => item.id === body.remove);
-          if (index >= 0) {
-            saved.commentCount -= 1 + comments[index]!.replies.length;
-            comments.splice(index, 1);
-          }
+      const path = `/api/threads/${thread}/file-comments`;
+      const comments = read<{ comments: FileComment[] }>(path)?.comments ?? [];
+      const find = (target: string) => comments.find((item) => item.id === target);
+      if ("add" in body) {
+        comments.push({
+          ...body.add,
+          id: crypto.randomUUID(),
+          createdAt: now,
+          updatedAt: now,
+          replies: [],
+        });
+      } else if ("edit" in body) {
+        const comment = find(body.edit.id);
+        if (comment) Object.assign(comment, { text: body.edit.text, updatedAt: now });
+      } else if ("reply" in body) {
+        const comment = find(body.reply.id);
+        comment?.replies.push({ id: crypto.randomUUID(), text: body.reply.text, createdAt: now });
+        if (comment) {
+          comment.updatedAt = now;
+          delete comment.resolved;
         }
-        saved.fileComments = comments;
-      });
-      const state = inbox(id!);
-      const files = new Set((saved.fileComments ?? []).map((comment) => comment.id));
+      } else if ("resolve" in body) {
+        const comment = find(body.resolve);
+        if (comment) comment.resolved = { at: now };
+      } else if ("reopen" in body) {
+        const comment = find(body.reopen);
+        if (comment) delete comment.resolved;
+      } else {
+        const index = comments.findIndex((item) => item.id === body.remove);
+        if (index >= 0) comments.splice(index, 1);
+      }
+      keep(path, { comments });
+      const state = inbox(thread!);
+      const files = new Set(comments.map((comment) => comment.id));
       const sent = new Set(state.messages.flatMap((message) => message.noteIds));
-      setInbox(id!, {
+      setInbox(thread!, {
         ...state,
         drafts: [
           ...state.drafts.filter((draft) => !files.has(draft.id)),
-          ...(saved.fileComments ?? [])
+          ...comments
             .filter((comment) => !comment.resolved && !sent.has(comment.id))
             .map((comment) => ({
               id: comment.id,
@@ -890,29 +891,24 @@ const handlers: [method: string, path: RegExp, handler: Handler][] = [
             })),
         ],
       });
-      return saved;
+      return { comments };
     },
   ],
+  ["GET", /^\/api\/threads\/[^/]+\/file-comments$/, () => ({ comments: [] })],
   [
     "GET",
     /^\/api\/reviews\/([^/]+)\/feedback$/,
     (_url, _body, [, id]) => {
       const saved = read<SavedReview>(`/api/reviews/${id}`);
       if (!saved) throw new DemoError("This review is not in the demo.");
-      const comments = [
-        ...savedNotes(saved).flatMap(({ state }) =>
-          state.notes
-            .filter((note) => !note.parentId)
-            .map(
-              (note) =>
-                `File: ${note.path}\nLines: ${note.line}${note.endLine ? `-${note.endLine}` : ""}\n\nComment:\n${note.text}`,
-            ),
-        ),
-        ...(saved.briefComments ?? []).map(
-          (comment) =>
-            `On: the review's brief\n\nQuote:\n> ${comment.quote}\n\nComment:\n${comment.text}`,
-        ),
-      ];
+      const comments = savedNotes(saved).flatMap(({ state }) =>
+        state.notes
+          .filter((note) => !note.parentId)
+          .map(
+            (note) =>
+              `File: ${note.path}\nLines: ${note.line}${note.endLine ? `-${note.endLine}` : ""}\n\nComment:\n${note.text}`,
+          ),
+      );
       return {
         text: comments.join("\n\n---\n\n"),
         count: comments.length,
@@ -923,16 +919,17 @@ const handlers: [method: string, path: RegExp, handler: Handler][] = [
   ],
   [
     "POST",
-    /^\/api\/reviews\/([^/]+)\/agent\/messages$/,
-    (_url, body, [, id]) => {
-      const state = inbox(id!);
+    /^\/api\/sessions\/([^/]+)\/agent\/messages$/,
+    (_url, body, [, thread]) => {
+      const session = parseSessionKey(thread!);
+      if (!session) throw new DemoError("This session is not in the demo.");
+      const state = inbox(thread!);
       const noteIds: string[] = body.noteIds ?? [];
       const sent = state.drafts.filter((draft) => noteIds.includes(draft.id));
-      const saved = read<SavedReview>(`/api/reviews/${id}`);
       const message: AgentMessage = {
         id: crypto.randomUUID(),
-        sessionId: body.sessionId,
-        agent: saved?.sessions?.find((session) => session.id === body.sessionId)?.agent ?? "claude",
+        sessionId: session.id,
+        agent: session.agent,
         text: body.text?.trim() ?? "",
         noteIds,
         ...(sent.length
@@ -948,7 +945,7 @@ const handlers: [method: string, path: RegExp, handler: Handler][] = [
         messages: [...state.messages, message],
         drafts: state.drafts.filter((draft) => !noteIds.includes(draft.id)),
       };
-      setInbox(id!, next);
+      setInbox(thread!, next);
       return { message, state: next };
     },
   ],

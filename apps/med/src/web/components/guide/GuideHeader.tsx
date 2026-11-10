@@ -194,7 +194,6 @@ function Elsewhere({ count, where, onWhole }: { count: number; where: string; on
 }
 
 const BASIS: Record<Since["basis"], string> = {
-  approved: "you approved it",
   commented: "you commented",
   viewed: "you last looked",
   previous: "the hand-off before",

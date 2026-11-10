@@ -46,6 +46,26 @@ interface Payload {
  * only for later updates, so a click after a read ahead, or a revisit, does
  * not take and build the first view again. */
 const held = new WeakMap<SessionStore, { feed: string; count: number; size: number }>();
+/** Counts each kept thread's first views. A stream that resumes the thread
+ * keeps its count, and with it the earlier pages that the thread loaded. */
+const views = new WeakMap<SessionStore, number>();
+
+/** Where each kept thread's earlier pages start, and the first view that
+ * they belong to: a thread that mounts again keeps reading from there. */
+const pages = new WeakMap<SessionStore, { generation: number; start: number }>();
+
+/** Puts an earlier page before a kept thread's updates. The page is not the
+ * follower's, so a stream that opens later still resumes the thread. */
+export function prependPage(store: SessionStore, page: { events: SessionEvent[]; start: number }) {
+  const mark = held.get(store);
+  const resumable = mark?.size === store.size();
+  store.prepend(page.events);
+  if (mark && resumable) held.set(store, { ...mark, size: store.size() });
+  pages.set(store, { generation: views.get(store) ?? 0, start: page.start });
+}
+
+/** The earlier pages that a kept thread holds, as `prependPage` left them. */
+export const keptPages = (store: SessionStore) => pages.get(store) ?? null;
 
 export const sessionRunning = (state: SessionStreamState, now = Date.now()) =>
   state.status === "live" && !state.idle && now - (state.modifiedAt ?? 0) < STALE_MS;
@@ -56,8 +76,7 @@ export const sessionRunning = (state: SessionStreamState, now = Date.now()) =>
  * replaces the thread rather than adding to it.
  */
 export async function followSession(
-  reviewId: string,
-  sessionId: string,
+  threadId: string,
   store: SessionStore,
   onState: (state: SessionStreamState) => void,
   signal: AbortSignal,
@@ -80,7 +99,7 @@ export async function followSession(
     const resume = has?.size === store.size() ? has : undefined;
     try {
       const response = await api.stream(
-        `/api/reviews/${encodeURIComponent(reviewId)}/sessions/${encodeURIComponent(sessionId)}/events${
+        `/api/sessions/${encodeURIComponent(threadId)}/events${
           resume
             ? `?${new URLSearchParams({ feed: resume.feed, count: String(resume.count) })}`
             : ""
@@ -128,7 +147,10 @@ export async function followSession(
             first = undefined;
             const resumed = reset.resumed && resume;
             if (resumed) store.applyAll(events);
-            else store.replace(events);
+            else {
+              store.replace(events);
+              views.set(store, (views.get(store) ?? 0) + 1);
+            }
             if (reset.feed)
               held.set(store, {
                 feed: reset.feed,
@@ -138,7 +160,7 @@ export async function followSession(
             else held.delete(store);
             set({
               status: "live",
-              generation: (state.generation ?? 0) + 1,
+              generation: views.get(store) ?? 0,
               truncated: reset.truncated ?? false,
               ...(reset.start !== undefined ? { start: reset.start } : {}),
             });
@@ -166,15 +188,14 @@ const reading = new Map<string, Promise<void>>();
 
 /** Resolves when a read ahead of the session ends. A stream that waits for
  * it then asks only for the updates after the read's first view. */
-export function readAhead(reviewId: string, sessionId: string) {
-  return reading.get(`${reviewId}\0${sessionId}`) ?? Promise.resolve();
+export function readAhead(threadId: string) {
+  return reading.get(threadId) ?? Promise.resolve();
 }
 
-export function keptSessionStore(reviewId: string, sessionId: string) {
-  const key = `${reviewId}\0${sessionId}`;
-  const store = kept.get(key) ?? createSessionStore();
-  kept.delete(key);
-  kept.set(key, store);
+export function keptSessionStore(threadId: string) {
+  const store = kept.get(threadId) ?? createSessionStore();
+  kept.delete(threadId);
+  kept.set(threadId, store);
   if (kept.size > KEPT) kept.delete(kept.keys().next().value!);
   return store;
 }
@@ -185,18 +206,15 @@ export function keptSessionStore(reviewId: string, sessionId: string) {
  * the newest replies' Markdown ahead. Resolves when the read ends.
  */
 export async function prefetchSession(
-  reviewId: string,
-  sessionId: string,
+  threadId: string,
   onReady?: (store: SessionStore) => void,
   fetcher: typeof fetch = browserFetch,
 ) {
-  const key = `${reviewId}\0${sessionId}`;
-  const store = keptSessionStore(reviewId, sessionId);
-  if (store.getSnapshot().items.length || reading.has(key)) return;
+  const store = keptSessionStore(threadId);
+  if (store.getSnapshot().items.length || reading.has(threadId)) return;
   const controller = new AbortController();
   const read = followSession(
-    reviewId,
-    sessionId,
+    threadId,
     store,
     (state) => {
       if (state.status === "connecting" || controller.signal.aborted) return;
@@ -205,32 +223,27 @@ export async function prefetchSession(
     },
     controller.signal,
     fetcher,
-  ).finally(() => reading.delete(key));
-  reading.set(key, read);
+  ).finally(() => reading.delete(threadId));
+  reading.set(threadId, read);
   await read;
 }
 
 /** The updates before byte offset `before`, and where they start. */
 export async function loadSessionPage(
-  reviewId: string,
-  sessionId: string,
+  threadId: string,
   before: number,
   fetcher: typeof fetch = browserFetch,
 ) {
   return createApi(fetcher, readBrowserToken()).json(
-    `/api/reviews/${encodeURIComponent(reviewId)}/sessions/${encodeURIComponent(sessionId)}/page?before=${before}`,
+    `/api/sessions/${encodeURIComponent(threadId)}/page?before=${before}`,
     z.object({ events: z.array(z.custom<SessionEvent>()), start: z.number() }),
   );
 }
 
 /** The session's prompts, with the byte offsets of their lines. */
-export async function loadSessionTurns(
-  reviewId: string,
-  sessionId: string,
-  fetcher: typeof fetch = browserFetch,
-) {
+export async function loadSessionTurns(threadId: string, fetcher: typeof fetch = browserFetch) {
   const result = await createApi(fetcher, readBrowserToken()).json(
-    `/api/reviews/${encodeURIComponent(reviewId)}/sessions/${encodeURIComponent(sessionId)}/turns`,
+    `/api/sessions/${encodeURIComponent(threadId)}/turns`,
     z.object({
       turns: z.array(z.object({ offset: z.number(), at: z.number(), text: z.string() })),
     }),

@@ -9,21 +9,19 @@ import { browserFetch } from "./live";
 // a working agent still asks at most every few seconds.
 
 const PAUSE = 4000;
-/** The last answer for each thread and session, so a revisit shows it at once. */
+/** The last answer for each thread, so a revisit shows it at once. */
 const kept = new Map<string, ThreadUsage>();
 
 /**
- * The spend of a review's thread and the context of `sessionId`, asked
- * again when `version` changes, such as when the thread gains an update.
- * Null until the host answers.
+ * The spend of a session's thread and its context, asked again when
+ * `version` changes, such as when the thread gains an update. Null until the
+ * host answers.
  */
 export function useThreadUsage(
-  reviewId: string,
-  sessionId: string,
+  key: string,
   version: string,
   fetcher: typeof fetch = browserFetch,
 ): ThreadUsage | null {
-  const key = `${reviewId}/${sessionId}`;
   const [usage, setUsage] = useState<{ key: string; value: ThreadUsage } | null>(null);
   const last = useRef<{ key: string; at: number } | null>(null);
   useEffect(() => {
@@ -31,9 +29,9 @@ export function useThreadUsage(
     const wait = last.current?.key === key ? Math.max(0, last.current.at + PAUSE - Date.now()) : 0;
     const timer = setTimeout(() => {
       last.current = { key, at: Date.now() };
-      // An answer for another session waits in `kept`, and shows on a revisit.
+      // An answer for another thread waits in `kept`, and shows on a revisit.
       createApi(fetcher, readBrowserToken())
-        .call(usageRoutes.thread, { id: reviewId, session: sessionId })
+        .call(usageRoutes.thread, { id: key })
         .then((value) => {
           kept.set(key, value);
           setUsage({ key, value });
@@ -41,6 +39,6 @@ export function useThreadUsage(
         .catch(() => {});
     }, wait);
     return () => clearTimeout(timer);
-  }, [key, version, reviewId, sessionId, fetcher]);
+  }, [key, version, fetcher]);
   return usage?.key === key ? usage.value : (kept.get(key) ?? null);
 }

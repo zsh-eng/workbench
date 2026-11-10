@@ -197,7 +197,7 @@ function createWorker() {
         blocks: [],
         headings: [],
         milliseconds: 0,
-        error: "The brief could not render. Reload the review to retry.",
+        error: "This text could not render. Reload the review to retry.",
       });
     replies.clear();
     instance.terminate();

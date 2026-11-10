@@ -138,7 +138,7 @@ const saved = (): SavedReview => ({
   commentCount: 0,
   targets: [target],
   iterations: [{ number: 1, createdAt: "2026-10-26T00:00:00Z", targetIds: ["t1"] }],
-  sessions: [{ agent: "claude", id: "s1", cwd: "/code/tide" }],
+  session: { agent: "claude", id: "s1", cwd: "/code/tide" },
 });
 /** The manifest's two sides: a minor bump, a major one, and a new dev dependency. */
 const manifest = {

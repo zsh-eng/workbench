@@ -38,12 +38,11 @@ med review create --key <branch> --title "Fetch retries" --repo <root> --base ma
   comparison, a title, files that this session did not edit, a guide that
   leaves files out. Do what it says. Its commands carry any `--port` and
   `--state-dir` (or `MED_PORT` and `MED_STATE_DIR`), so run them as printed.
-- Several stacked branches or pull requests: see "Stacks and sets".
-  Several repositories: see "Several repositories".
+- Several repositories: see "Several repositories".
 - Put the printed Markdown link in your final message. Never invent a link
   or print Med's token.
-- A pull request: draft it in Med (see "Draft a pull request"); the user
-  opens it. One that is open already: `med review update --key <task> --pr <url>`.
+- A pull request, when the user asks: see "Open a pull request". One that
+  is open already: `med review update --key <task> --pr <url>`.
 - To get the user's comments back: see "Comments from the user".
 
 ## Write a guide
@@ -96,25 +95,6 @@ A guide splits the change into segments that the user reads one at a time.
 - A tool's output that Med does not know as generated, such as a code
   generator's: name it with `--generated <path|glob>...` (quote globs).
 
-## Stacks and sets
-
-Related branches or pull requests are one review, not one each. Name them
-bottom first; each layer is diffed against the layer below.
-
-```sh
-med review create --key <task> --title "Parser rewrite" --repo <root> --stack parse-tokens build-ast typecheck --base main
-med review create --key <task> --title "Parser rewrite" --repo <root> --stack 101 102 103
-```
-
-- Pull requests (a number or URL) are read with `gh`; a missing head is
-  fetched, never checked out.
-- `--base` is the bottom branch's base (default: the repository's base
-  branch).
-- `--set a b` makes independent parts, each against its own base.
-- `--guide` then takes a JSON array: one guide, or `null`, per part.
-- To hand off one part again, use its branch or PR URL as `--key`;
-  `med review update --key <that key> --guide -` sets its guide.
-
 ## Several repositories
 
 One task that changed several repositories is one review. Pass a manifest
@@ -137,25 +117,19 @@ MANIFEST
 Comparison kinds: `commit`, `range`, `working`, `staged`, `unstaged`. Choose
 each repository's base on its own.
 
-## Draft a pull request
+## Open a pull request
+
+Only when the user asks for one:
 
 ```sh
-med pr template --repo <root>             # the repository's templates
-med pr draft --key <task> --file pr.md    # attach the draft; again for each revision
+med pr template --repo <root>                      # the repository's templates
+gh pr create --title "<title>" --body-file pr.md   # from the pushed branch
+med review update --key <task> --pr <url>          # link it to the review
 ```
 
 - Fill the template; without one, say why, what changed, and how you
-  checked it. The file's first line, `# <title>`, is the title (or
-  `--title`). `--base <branch>` is the branch to merge into.
-- Images: local PNG, JPEG, GIF, or WebP files relative to the file, or
-  https links. Med keeps a copy of each local one (up to 8, 5 MB each).
-- The user comments on the draft in Med; the comments come back under the
-  heading `On the pull request draft`. Revise the file and run `med pr draft`
-  again.
-- Never run `gh pr create`: the user opens the pull request with Create in
-  Med, from the checkout's branch once it is pushed.
-- Once it is open, the tab shows the pull request live. A later draft stays
-  one click away; Med does not change the pull request's description.
+  checked it.
+- Once it is linked, the thread shows the pull request live.
 
 ## Comments from the user
 
@@ -177,22 +151,23 @@ message the same way, until the user says the task is done.
 
 ## Threads and earlier sessions
 
-The threads the user has open are tabs in Med; the others are archived. Only
-act on threads the user names.
+A thread is an agent session, wherever it works: its Changes follow the
+checkout it works in now, and its reviews are the ones it handed off. A
+review that no session handed off is a thread of its own. The threads the
+user has open are tabs in Med; the others are archived. Only act on threads
+the user names.
 
 ```sh
 med thread list [--archived] [--json]    # ID, state, repository/branch, title
 med thread open <id> | close <id>        # close keeps the agent running
 med thread send <id> "<message>"         # to a thread's agent; --after-turn waits
 med thread find tide prediction          # sessions of any age, newest first
-med thread adopt claude:<session-id>     # make a session a thread; prints its link
-med thread show --paths src/a.ts --guide -   # add a version to your session's thread
+med thread adopt claude:<session-id>     # keep a session in Med; prints its link
 ```
 
-- `adopt` takes an ID, its first 6+ characters, or a transcript path; add
-  `--repo <checkout>` when the session's folder is not registered.
-- `thread show` takes `--paths`, `--base <ref>`, `--commit`, `--working`,
-  `--manifest`, `--guide` and `--brief`.
+- `adopt` takes an ID, its first 6+ characters, or a transcript path.
+- To show the user your work, hand it off with `med review create`: the
+  review joins your session's thread.
 - `thread send` labels a message from another Med thread with its name, such
   as `From the Superagent (an agent in Med, not the user):`; a thread cannot
   send to itself. Send only what the user asked to pass on.

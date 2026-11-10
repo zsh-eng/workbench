@@ -317,15 +317,25 @@ Commit tab's `q`, and a full row's eviction all use that order.
 
 ### Threads
 
-A thread is a saved review, or a session that Med found
-([found sessions](docs/SESSIONS.md#found-sessions)). The threads that the user
-has open are tabs; the others are history. `src/host/thread-tabs.ts` keeps
-which threads are tabs, their order, when each closed, and the name that the
-user gave a thread (`POST /api/threads/:id/name`), in `tabs.json` in the
-state directory. A name shows as `title`, with the agent's title in
+A thread is an agent session, keyed `<agent>-<session id>`, with the reviews
+that it handed off; a review that no session handed off is a thread of its
+own, keyed by the review's ID (`threadOfReview` in `src/shared/threads.ts`).
+A session is not tied to a folder: its thread's place is the checkout where
+it works now, the newest of its transcript's folders in a registered
+checkout, so Changes follow it. The sidebar lists the sessions that Med
+started or the user kept, the sessions that handed off a review, and those
+that worked in a registered repository in the last 7 days
+(`src/host/session-index.ts`, [found sessions](docs/SESSIONS.md#found-sessions)).
+The threads that the user has open are tabs; the others are history.
+`src/host/thread-store.ts` keeps, by thread ID, which threads are tabs, when
+each closed, the name that the user gave it (`POST /api/threads/:id/name`),
+its chosen base (`POST /api/threads/:id/base`), the pins, and the seen marks,
+with a short record of the session and its last place, in `threads.json` in
+the state directory. A first start reads the `tabs.json` of a Med before it
+(`src/host/thread-migration.ts`) and renames it `tabs.json.before-sessions`. A name shows as `title`, with the agent's title in
 `agentTitle`; a hand-off that changes the review's title leaves it. `src/host/thread-service.ts` builds the lists:
 
-- `GET /api/threads/events` sends the tabs, in order, with the registered
+- `GET /api/threads/events` sends the tabs with the registered
   repositories, and sends them again when they change. One read serves all
   windows (`src/host/thread-feed.ts`): every 1.5 seconds while a window
   listens, which reads file times only, and at once when a tab opens, closes,
@@ -334,13 +344,19 @@ state directory. A name shows as `title`, with the agent's title in
   `checkout-work.ts`, and its Claude subagents from `thread-subagents.ts`
   (`<session>/subagents/agent-<id>.jsonl` and its `.meta.json`, which names
   the task and the tool call that started it).
-- `GET /api/threads/history` lists the closed threads, the found sessions that
-  are not tabs, and the records of pruned threads, newest first. The host reads
+- `GET /api/threads/history` lists the closed threads and the found sessions
+  that are not tabs, newest first. The host reads
   no agent state for history; it reads each first prompt once, for search.
-- `POST /api/threads/:id/open` (with `restore` for its old place),
-  `/close` (with `removeWorktree`), `/delete`, `POST /api/threads/reopen`, and
-  `POST /api/threads/order` change the tabs. `med thread` uses the same routes.
-  `/archive`, from before tabs, closes or opens.
+- `POST /api/threads/:id/open`, `/close` (with `removeWorktree`), `/delete`,
+  and `POST /api/threads/reopen` change the tabs. `med thread` uses the same
+  routes. `/archive`, from before tabs, closes or opens. A session's routes
+  are `/api/sessions/:key/…`: its transcript, turns, agent inbox, fork, and
+  the session that Med runs.
+
+The thread list reads the checks of each session's last turn (`turn.checks`,
+`src/host/session-checks.ts`): the test, lint, type-check, and build commands
+in its tool calls, cached by transcript size and time, which the turn recap
+shows.
 
 A new thread, a hand-off, an adopted session, and Keep in Med open as tabs. A
 found session opens as a tab once, when Med first sees it work. The browser
@@ -355,40 +371,19 @@ A window holds the shared Web Lock `med:looking` while it is visible or
 focused. The window that holds the lock `med:notifier` sends the opt-in
 notifications, and only when no window holds `med:looking`.
 
-The first start with tabs makes them from the saved reviews: an archived
-review closes at `archivedAt`; of the others, the 8 newest that changed in the
-last 7 days (`FOUND_DAYS`) open, newest first; the others close. At start and once a day, the host prunes
-history: 30 days after the close it replaces the saved review with a short
-record (title, repository, branch, sessions), which opens as its newest
-session's found thread; after 180 days it deletes the record. The captures
-that go are the thread's Review versions; a thread without a Review keeps its
-`checkout` in the short record. Over the 512 MiB storage budget, the reviews
-that closed first give up their captures first.
+At start and once a day, the host prunes history: 180 days after the close it
+deletes the thread with its reviews. Over the 512 MiB storage budget, the
+reviews that closed first give up their captures first.
 
 `POST /api/threads` starts a thread. With a worktree, the default, the host
 names a branch for the task (with `-2`, `-3`, … when the name is taken), adds a
 linked worktree for it in the state directory
-(`worktrees/<repository>-<id>/<branch>`), saves the review on its working
-changes, and starts the agent there on the task. `POST /api/threads/:id/close`
+(`worktrees/<repository>-<id>/<branch>`), and starts the agent there on the
+task. The thread is the new session; it has no review until the agent hands
+one off. `POST /api/threads/:id/close`
 with `removeWorktree` also runs `git worktree remove` without force, so Git
 keeps a worktree with changes and the host returns 409; it refuses a worktree
 that another tab uses. The branch stays.
-
-**Attempts.** A start with `group: { id, attempt }` is one attempt at a task
-that several agents do. It needs a worktree; its branch is the task's name
-with the attempt's letter (`-a`, `-b`, `-c`). The saved review keeps the group,
-and the thread list carries it, so the sidebar shows the group as one row.
-`src/host/attempts.ts` serves `/api/attempts`: the compare reads each open
-attempt's diff against the attempts' common ancestor (`git merge-base
---octopus`), with untracked files, and each lead session's agent, model, time,
-checks (test, lint, type-check, and build commands in its tool calls,
-`src/host/session-checks.ts`), and last message, cached by transcript size and
-time. The thread list reads the same checks for each lead's last turn
-(`turn.checks`), which the turn recap shows. Keep stops the other
-attempts' agents, saves their changes as a commit on their branches (no hooks,
-no signing), removes their worktrees without force, and closes them. Undo,
-kept in host memory, adds each worktree back from its branch and resets the
-saved commit, so the work is uncommitted again.
 
 ### Panes
 

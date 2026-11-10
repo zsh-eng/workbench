@@ -8,11 +8,13 @@ import {
 } from "../../src/shared/threads";
 
 const thread = (patch: Partial<Thread> = {}): Thread => ({
-  id: "r_000000000000000000000001",
+  id: "claude-glossary",
+  kind: "session",
   title: "Glossary",
   createdAt: "2026-11-09T00:00:00.000Z",
   updatedAt: 2_000,
   seen: 2_000,
+  reviews: [],
   ...patch,
 });
 

@@ -108,7 +108,13 @@ async function open(server) {
   const page = context.pages()[0] ?? (await context.newPage());
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto(`${server.origin}/review/${reviewId}${server.hash}`);
-  await page.locator("[data-diff-type]").first().waitFor();
+  // The review's link opens its session's thread, on the session alone
+  // until the Review page shows the review beside it; a restart keeps it.
+  await page.getByRole("radiogroup", { name: "Page" }).waitFor();
+  await page.waitForTimeout(800);
+  const review = page.getByRole("radio", { name: "Review", exact: true });
+  if ((await review.getAttribute("aria-checked")) !== "true") await review.click();
+  await page.locator("[data-diff-type]:visible").first().waitFor();
   await page.waitForTimeout(500);
   return page;
 }
@@ -146,7 +152,7 @@ const closeMenus = async (page) => {
 const sidebar = (page) => page.locator('nav[aria-label="Sessions"]');
 const sessionPane = (page) => page.locator("[data-session-panel]").filter({ visible: true });
 const filesRail = (page) => page.getByRole("navigation", { name: "Files and commits" });
-const sideDetails = (page) => page.getByRole("complementary", { name: "Session details" });
+const sideDetails = (page) => page.getByRole("complementary", { name: "Session rail" });
 const theme = (page) => page.evaluate(() => document.documentElement.dataset.theme);
 const resizer = (page, name) =>
   page.getByRole("separator", { name }).filter({ visible: true }).first();
@@ -290,12 +296,12 @@ try {
     sidebarWidth + 48,
   );
   // More choices for the next restart: the rail beside the diff, the session's
-  // side panel, and the session pane.
+  // rail, and the session pane.
   await filesRail(page).waitFor();
   await page.keyboard.press("ControlOrMeta+Alt+b");
   await filesRail(page).waitFor({ state: "detached" });
   await sideDetails(page).waitFor();
-  await page.getByRole("button", { name: "Hide the side panel" }).click();
+  await page.getByRole("button", { name: "Hide session rail" }).click();
   await sideDetails(page).waitFor({ state: "detached" });
   await page.keyboard.press("ControlOrMeta+Shift+b");
   await sessionPane(page).waitFor({ state: "hidden" });
@@ -305,10 +311,10 @@ try {
   // 3. Opened again: the session pane stays hidden.
   page = await open(server);
   assert.equal(await sessionPane(page).count(), 0);
-  // The rail stays hidden, and the session pane, shown, has no side panel.
+  // The files rail stays hidden, and the session pane, shown, has no session rail.
   assert.equal(await filesRail(page).count(), 0);
   await page.keyboard.press("ControlOrMeta+Shift+b");
-  await page.getByRole("button", { name: "Show the side panel" }).waitFor();
+  await page.getByRole("button", { name: "Show session rail" }).waitFor();
   assert.equal(await sideDetails(page).count(), 0);
   await sidebar(page).waitFor();
   assert.deepEqual(await diffView(page), { layout: "unified", wrap: true });
@@ -319,7 +325,7 @@ try {
   console.log(
     JSON.stringify({
       checks:
-        "defaults in a new profile; a second window follows wrap, layout and comments at once and keeps its own sidebar; diff wrap, layout, comments, theme, sidebar hidden and width, and pane share after closing the browser and restarting Med; the files rail hidden, the session's side panel closed, and the session pane hidden after a second restart",
+        "defaults in a new profile; a second window follows wrap, layout and comments at once and keeps its own sidebar; diff wrap, layout, comments, theme, sidebar hidden and width, and pane share after closing the browser and restarting Med; the files rail hidden, the session rail closed, and the session pane hidden after a second restart",
       restarts: 2,
       pageErrors,
     }),

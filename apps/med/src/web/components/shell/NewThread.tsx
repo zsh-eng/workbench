@@ -1,7 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { z } from "zod";
-import { savedReviewSchema, type SavedReview } from "../../../shared/saved-review";
 import { threadSlug, threadTitle, type Thread, type ThreadList } from "../../../shared/threads";
 import { createApi } from "../../data/api";
 import { readBrowserToken } from "../../data/auth";
@@ -102,7 +101,8 @@ export function NewThread({
   fetcher: typeof fetch;
   /** The repository of the workspace on screen, if any. */
   repositoryId?: string;
-  onStarted(review: SavedReview): void;
+  /** The new session's thread. */
+  onStarted(thread: string): void;
   onCancel(): void;
 }) {
   const [choice, setChoice] = useState(readChoice);
@@ -225,7 +225,7 @@ export function NewThread({
     try {
       const result = await createApi(fetcher, readBrowserToken()).json(
         "/api/threads",
-        z.object({ review: savedReviewSchema }),
+        z.object({ thread: z.string() }),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -240,7 +240,7 @@ export function NewThread({
           }),
         },
       );
-      onStarted(result.review);
+      onStarted(result.thread);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Med could not start the thread.");
       setBusy(false);

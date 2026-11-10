@@ -8,18 +8,15 @@ import {
   reviewKeySchema,
   savedReviewCreateSchema,
   savedReviewSchema,
-  threadCheckout,
+  reviewCheckout as savedCheckout,
   type AgentSession,
-  type PartShape,
-  type SavedReviewCreate,
 } from "../shared/saved-review";
 import { baseOf, type RegisteredRepository } from "../shared/protocol";
-import { resolveParts } from "./review-parts";
 import { apiErrorMessage } from "../shared/protocol";
 import { checkGuide, guideCheckText } from "../shared/guide-paths";
 import { guideError, reviewGuideSchema, type ReviewGuide } from "../shared/review-guide";
 import { readReviewOutput } from "../shared/review-output";
-import { agentSessions } from "./agent-sessions";
+import { agentSession } from "./agent-sessions";
 import {
   DEFAULT_PORT,
   clientPort,
@@ -45,7 +42,6 @@ import {
   sessionScope,
   shellWord,
   titleProblem,
-  usualBase,
 } from "./review-checks";
 import { NotFoundError, UsageError } from "./exit-status";
 import { HostError } from "../host/runtime/errors";
@@ -56,8 +52,6 @@ export type ReviewManifest = z.infer<typeof reviewManifestSchema>;
 export const reviewHelp = `Usage: med review create --title <title> --repo <path> --base <ref> --head <ref>
        med review create --title <title> --repo <path> --working [--paths <path>...]
        med review create --manifest <json-path>
-       med review create --stack <pr|branch>... [--base <ref>] [--repo <path>] [--title <title>]
-       med review create --set <pr|branch>... [--base <ref>] [--repo <path>] [--title <title>]
        med review update --key <key> [--pr <https-url>] [--title <title>] [--guide <path|->] [--session <agent:id>] [--paths <path>...]
        med review reply <id> [<text>]   (or med reply <id> [<text>])
        med review repos [--repo <path>] [--json]
@@ -77,25 +71,23 @@ Examples:
   med review create --key feat/retry --repo . --base main --head feat/retry \\
     --guide guide.json
 
---key <key> names your task, such as its branch. Create with the same key again to add a version to that review: its workspace stays, earlier briefs and comments stay, and the new comparison and brief become current. Without --key, create uses the branch's name when the branch is not the repository's base branch. update also takes the review's ID (r_…) as --key.
+--key <key> names your task, such as its branch. Create with the same key again to add a version to that review: earlier versions and comments stay, and the new comparison and guide become current. Without --key, create uses the branch's name when the branch is not the repository's base branch. update also takes the review's ID (r_…) as --key.
 update sets the title or the PR link of the review with that key, such as after you open the PR. With --paths, it adds a version that shows those files' uncommitted changes.
---paths <path>... keeps only these files or folders, relative to this directory. In a checkout that other sessions or people also change, such as a shared main checkout, show only your own files with --paths. med thread show --paths <path>... does the same for your session's thread.
+--paths <path>... keeps only these files or folders, relative to this directory. In a checkout that other sessions or people also change, such as a shared main checkout, show only your own files with --paths.
 --working shows the checkout's uncommitted changes: with --paths, only those files; without it, all of them, including changes that were there before you started.
-reply answers the comment with that ID (the user's message gives each comment's ID, such as 6f1c9e) in its thread, where the user reads it, as your session. The answer is the words after the ID, or standard input: med reply 6f1c9e <<'END' … END. Use it for a question the user asked on a line, or to say why you left a change out; your final message still says what you did. Med finds the review by the comment; --key names the review when the ID is in more than one. A comment on a passage of the guide or the pull request draft takes no reply.
+reply answers the comment with that ID (the user's message gives each comment's ID, such as 6f1c9e) in its thread, where the user reads it, as your session. The answer is the words after the ID, or standard input: med reply 6f1c9e <<'END' … END. Use it for a question the user asked on a line, or to say why you left a change out; your final message still says what you did. Med finds the review by the comment; --key names the review when the ID is in more than one.
 repos prints one line for each registered repository: its name, path, main branch, and number of worktrees. --repo <path> says whether Med knows the checkout that holds <path>; --json prints every branch and worktree.
-A Claude Code session that runs the command is recorded with the review, so Med can copy its resume command; --session codex:<id> or claude:<id> adds others, and --no-session records none. A subagent has its parent's session ID, so in a subagent, or when Med cannot tell, Med records no session and says why.
+The Claude Code or Codex session that runs the command is linked to the review, so the review shows in that session's thread; --session codex:<id> or claude:<id> links another, and --no-session links none. A subagent has its parent's session ID, so in a subagent, or when Med cannot tell, Med links no session and says why.
 Without --port and --state-dir, MED_PORT and MED_STATE_DIR choose the host; Med sets them in a session that it started. In a thread, MED_THREAD_KEY and MED_THREAD_REPO give the default --key and --repo, so "create --working --guide -" hands off the thread's worktree to its Review.
 
 --title names the review in the workspace list and the browser tab. Use 2–4 words, such as "Commit tab search". Without it, use the matching PR title or a comparison label. Once the review has a PR, its header shows the PR title, read with gh.
 --pr <https-url> adds a clickable GitHub PR link. A matching PR is inferred for a single GitHub origin repository when gh is available; --no-pr skips lookup.
 --merge-base compares the common ancestor of --base and --head with --head (for pull requests and stacked branches). When --base has commits that --head does not have, create uses the merge base by itself and says so; --no-merge-base compares the two tips.
---brief <path|-> attaches a Markdown explanation; - reads standard input. Links such as [App.tsx:42](src/App.tsx:42) open the cited lines.
 --guide <path|-> attaches a JSON guide: a summary and segments to review one at a time, each with a title, a summary, its files, and your comments on lines. See med docs agents.
 --generated <path|glob>... marks files that a tool wrote, such as a client from a code generator, with create or update --paths. Med folds them with lockfiles and build output, after the other files and out of the line totals. Name files, folders (ending in /), or globs, as a guide does; quote globs. A file that Git attributes unmark (-linguist-generated) stays unmarked.
 Open Med windows add each new review to their workspaces, marked unread. --open also shows it in the window used last, or opens a browser when no window is open.
 Options: --port <port> (default ${DEFAULT_PORT}), --state-dir <path> (or MED_STATE_DIR)
 The running host must already have the target repositories registered.
---stack <pr|branch>... makes one thread of related changes, bottom first: each pull request (a number or URL) or branch is a layer, and each layer's diff starts at the layer below. A pull request is its own diff, read with gh; a missing head is fetched, never checked out. --base names the bottom branch's base (default: the repository's base branch). --set makes a thread of independent parts, each since its own base. --guide then takes a JSON array with one guide, or null, for each part. A later create with the same --key, or with --stack and the same parts, adds a version; create --key <a part's PR URL or branch> replaces that part only.
 A manifest is {"title":"Review title","targets":[{"repo":"/absolute/path","comparison":{"kind":"range","base":"<ref>","head":"<ref>"}}]}. --manifest - reads it from standard input.
 The create command prints a Markdown review link without an access token.`;
 
@@ -209,7 +201,7 @@ export interface ReviewCommand {
     key: string;
     title?: string;
     pullRequestUrl?: string;
-    sessions?: AgentSession[];
+    session?: AgentSession;
     guide?: ReviewGuide;
     paths?: string[];
     repo?: string;
@@ -219,17 +211,6 @@ export interface ReviewCommand {
   port: number;
   stateDir: string;
   manifest?: ReviewManifest;
-  /** create --stack or --set: the items to resolve with gh and Git. */
-  parts?: {
-    shape: PartShape;
-    items: string[];
-    repo: string;
-    base?: string;
-    guides?: (ReviewGuide | null)[];
-    /** Files of each part that a tool wrote. */
-    generated?: string[];
-    manifest: Omit<ReviewManifest, "targets" | "parts" | "title"> & { title?: string };
-  };
   keepTitle?: boolean;
   inferPullRequest?: boolean;
   /** Show the review now, not only add it to open windows. */
@@ -270,45 +251,6 @@ export async function readGuide(source: string): Promise<ReviewGuide> {
   return parsed.data;
 }
 
-/** Read a brief file, or standard input for "-". */
-async function readBrief(source: string) {
-  try {
-    return source === "-" ? await readStandardInput() : await readFile(resolve(source), "utf8");
-  } catch {
-    throw new Error(
-      "Could not read the brief. Supply a readable Markdown file, or - for standard input.",
-    );
-  }
-}
-
-/** A stack's or a set's guides: a JSON array with a guide, or null, for each part. */
-export async function readGuides(source: string, count: number) {
-  let text: string;
-  try {
-    text = source === "-" ? await readStandardInput() : await readFile(resolve(source), "utf8");
-  } catch {
-    throw new Error(
-      "Could not read the guides. Supply a readable JSON file, or - for standard input.",
-    );
-  }
-  let data: unknown;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error("The guides are not valid JSON.");
-  }
-  if (!Array.isArray(data) || data.length !== count)
-    throw new Error(
-      `With --stack or --set, --guide takes a JSON array of ${count} guides, one (or null) for each part, in order.`,
-    );
-  return data.map((entry, index) => {
-    if (entry === null) return null;
-    const parsed = reviewGuideSchema.safeParse(entry);
-    if (!parsed.success) throw new Error(`Part ${index + 1}: ${guideError(parsed.error)}`);
-    return parsed.data;
-  });
-}
-
 export async function readStandardInput() {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
@@ -319,16 +261,11 @@ export async function parseReviewCommand(
   given: string[],
   sessionOptions: { environment?: NodeJS.ProcessEnv; home?: string; cwd?: string } = {},
 ): Promise<ReviewCommand> {
-  const stacked = takeWords(given, "--stack");
-  const set = takeWords(stacked.args, "--set");
-  const declared = takeWords(set.args, "--generated");
+  const declared = takeWords(given, "--generated");
   const { args, paths } = takePaths(declared.args);
   const generated = declared.words;
   if (generated && !generated.length)
     throw new UsageError("Name one or more files, folders, or globs after --generated.");
-  if (stacked.words && set.words) throw new UsageError("Use --stack or --set, not both.");
-  const partItems = stacked.words ?? set.words;
-  const shape: PartShape = stacked.words ? "stack" : "set";
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
@@ -346,11 +283,10 @@ export async function parseReviewCommand(
       "merge-base": { type: "boolean" },
       "no-merge-base": { type: "boolean" },
       manifest: { type: "string" },
-      brief: { type: "string" },
       guide: { type: "string" },
       open: { type: "boolean" },
       key: { type: "string" },
-      session: { type: "string", multiple: true },
+      session: { type: "string" },
       "no-session": { type: "boolean" },
       json: { type: "boolean" },
       comment: { type: "string" },
@@ -360,8 +296,8 @@ export async function parseReviewCommand(
   });
   // The Claude Code session that runs this command, and why Med left it out.
   const caller: ReviewCommand["caller"] = {};
-  const sessions = async () => {
-    const found = await agentSessions(values.session, {
+  const linkedSession = async () => {
+    const found = await agentSession(values.session, {
       ...sessionOptions,
       detect: !values["no-session"],
       command: `review ${positionals[0] ?? ""}`,
@@ -369,7 +305,7 @@ export async function parseReviewCommand(
     if (found.detected) caller.detected = found.detected;
     if (found.note) caller.note = found.note;
     if (found.note && found.caller) caller.left = found.caller;
-    return found.sessions;
+    return found.session;
   };
   // A session that Med started for a thread knows the thread from its environment.
   const environment = sessionOptions.environment ?? process.env;
@@ -420,7 +356,7 @@ export async function parseReviewCommand(
       key = parsed.data;
     }
     const threadKey = givenKey === undefined ? values.key : undefined;
-    const session = (await sessions())[0];
+    const session = await linkedSession();
     return {
       ...common,
       kind: "reply",
@@ -437,18 +373,12 @@ export async function parseReviewCommand(
   if (positionals[0] === "update") {
     if (!values.key)
       throw new UsageError("Use update with --key, the key the review was created with.");
-    if (
-      !values.pr &&
-      !values.title &&
-      !values.session?.length &&
-      values.guide === undefined &&
-      !paths
-    )
+    if (!values.pr && !values.title && !values.session && values.guide === undefined && !paths)
       throw new UsageError("Supply --pr, --title, --guide, --session, or --paths.");
     const key = reviewKeySchema.safeParse(values.key);
     if (!key.success) throw new Error(key.error.issues[0]!.message);
     const guide = values.guide === undefined ? undefined : await readGuide(values.guide);
-    const found = await sessions();
+    const found = await linkedSession();
     const repo = values.repo ?? (environment.MED_THREAD_REPO || undefined);
     return {
       ...common,
@@ -457,7 +387,7 @@ export async function parseReviewCommand(
         key: key.data,
         ...(values.title ? { title: values.title } : {}),
         ...(values.pr ? { pullRequestUrl: values.pr } : {}),
-        ...(found.length ? { sessions: found } : {}),
+        ...(found ? { session: found } : {}),
         ...(guide ? { guide } : {}),
         // Paths stay relative to this directory until the checkout is known.
         ...(paths && {
@@ -481,7 +411,6 @@ export async function parseReviewCommand(
     if (
       values["no-pr"] !== undefined ||
       values.manifest !== undefined ||
-      values.brief !== undefined ||
       values.guide !== undefined ||
       values.key !== undefined ||
       targetOptions.some((value) => value !== undefined && value !== values.repo)
@@ -498,63 +427,6 @@ export async function parseReviewCommand(
       },
     };
   }
-  if (partItems) {
-    if (positionals[0] !== "create") throw new UsageError(`Use --${shape} with create.`);
-    if (
-      values.manifest !== undefined ||
-      values.head !== undefined ||
-      values.working ||
-      values["merge-base"] ||
-      values["no-merge-base"] ||
-      values.pr !== undefined ||
-      paths
-    )
-      throw new Error(
-        `Use --${shape} without --manifest, --head, --working, --merge-base, --pr, or --paths.`,
-      );
-    if (partItems.length < 2)
-      throw new UsageError(`Name two or more pull requests or branches after --${shape}.`);
-    const repo = await repositoryRoot(
-      values.repo ??
-        (environment.MED_THREAD_REPO || undefined) ??
-        sessionOptions.cwd ??
-        process.cwd(),
-    );
-    let guides: (ReviewGuide | null)[] | undefined;
-    if (values.guide !== undefined) {
-      if (values.guide === "-" && values.brief === "-")
-        throw new UsageError("Only one of --brief and --guide can read standard input.");
-      guides = await readGuides(values.guide, partItems.length);
-    }
-    let brief: string | undefined;
-    if (values.brief !== undefined) brief = await readBrief(values.brief);
-    if (values.key !== undefined) {
-      const key = reviewKeySchema.safeParse(values.key);
-      if (!key.success) throw new Error(`Invalid key: ${key.error.issues[0]!.message}`);
-    }
-    const found = await sessions();
-    return {
-      ...common,
-      kind: "create",
-      parts: {
-        shape,
-        items: partItems,
-        repo: resolve(repo),
-        ...(values.base ? { base: values.base } : {}),
-        ...(guides ? { guides } : {}),
-        ...(generated && { generated }),
-        manifest: {
-          ...(values.title ? { title: values.title } : {}),
-          ...(values.key ? { key: values.key } : {}),
-          ...(brief ? { brief } : {}),
-          ...(found.length ? { sessions: found } : {}),
-        },
-      },
-      keepTitle: values.title !== undefined,
-      inferPullRequest: false,
-      open: !!values.open,
-    };
-  }
   let input: unknown;
   if (values["merge-base"] && values["no-merge-base"])
     throw new UsageError("Use --merge-base or --no-merge-base, not both.");
@@ -563,9 +435,9 @@ export async function parseReviewCommand(
       throw new Error(
         "Use --manifest without --title, --repo, --base, --head, --working, or --paths.",
       );
-    if (values.manifest === "-" && (values.guide === "-" || values.brief === "-"))
+    if (values.manifest === "-" && values.guide === "-")
       throw new Error(
-        'Only one of --manifest, --brief, and --guide can read standard input. Put the guide in the manifest as "guide".',
+        'Only one of --manifest and --guide can read standard input. Put the guide in the manifest as "guide".',
       );
     try {
       input = JSON.parse(
@@ -623,20 +495,11 @@ export async function parseReviewCommand(
       ],
     };
   }
-  if (values.brief !== undefined)
-    input = { ...(input as object), brief: await readBrief(values.brief) };
-  if (values.guide !== undefined) {
-    if (values.guide === "-" && values.brief === "-")
-      throw new UsageError("Only one of --brief and --guide can read standard input.");
+  if (values.guide !== undefined)
     input = { ...(input as object), guide: await readGuide(values.guide) };
-  }
   if (values.key !== undefined) input = { ...(input as object), key: values.key };
-  const found = await sessions();
-  if (found.length)
-    input = {
-      ...(input as object),
-      sessions: [...((input as { sessions?: unknown[] }).sessions ?? []), ...found],
-    };
+  const found = await linkedSession();
+  if (found) input = { ...(input as object), session: found };
   const result = reviewManifestSchema.safeParse(input);
   if (!result.success)
     throw new Error(
@@ -648,14 +511,11 @@ export async function parseReviewCommand(
                 .map((issue) => ({ ...issue, path: issue.path.slice(1) })),
             ),
           )
-        : result.error.issues.some((issue) => issue.path[0] === "brief")
-          ? `Invalid brief: ${result.error.issues.find((issue) => issue.path[0] === "brief")!.message}`
-          : result.error.issues.some((issue) => issue.path[0] === "key")
-            ? `Invalid key: ${result.error.issues.find((issue) => issue.path[0] === "key")!.message}`
-            : "Invalid review manifest. Supply a title and 1–16 targets, each with repo and a Git comparison.",
+        : result.error.issues.some((issue) => issue.path[0] === "key")
+          ? `Invalid key: ${result.error.issues.find((issue) => issue.path[0] === "key")!.message}`
+          : "Invalid review manifest. Supply a title and 1–16 targets, each with repo and a Git comparison.",
     );
-  // A brief can name generated files too (docs/PRACTICES.md): they join --generated.
-  const named = [...(generated ?? []), ...readReviewOutput([result.data.brief]).generated];
+  const named = generated ?? [];
   const manifest = {
     ...result.data,
     targets: await Promise.all(
@@ -757,7 +617,7 @@ export async function runReviewCommand(
       guide && !paths
         ? await staleCapture(connection, found.id, key, fetcher, instance)
         : undefined;
-    if (details.title || details.pullRequestUrl || details.sessions?.length)
+    if (details.title || details.pullRequestUrl || details.session)
       await request(connection, `/api/reviews/${found.id}/details`, fetcher, {
         ...details,
         ...(title ? { pullRequestTitle: title } : {}),
@@ -776,8 +636,7 @@ export async function runReviewCommand(
         ...(guide ? { guide } : {}),
       });
     } else if (guide)
-      // In a stack or a set, the key names the part that the guide is for.
-      await request(connection, `/api/reviews/${found.id}/guide`, fetcher, { guide, part: key });
+      await request(connection, `/api/reviews/${found.id}/guide`, fetcher, { guide });
     await showReview(connection, found.id, false, fetcher, options.openUrl, true);
     print(`[Review changes here](${connection.origin}/review/${found.id})`);
     if (guide) await printGuideCheck(connection, found.id, guide, key, fetcher, print, instance);
@@ -790,7 +649,7 @@ export async function runReviewCommand(
     return;
   }
   await requireRegistered(
-    command.parts ? [command.parts.repo] : command.manifest!.targets.map((target) => target.repo),
+    command.manifest!.targets.map((target) => target.repo),
     repositories,
     instance,
   );
@@ -813,21 +672,19 @@ export async function runReviewCommand(
       command.manifest.key = defaultKey;
     }
   }
-  const manifest = command.parts
-    ? await partsManifest(command.parts, repositories)
-    : await reviewMetadata(command.manifest!, !!command.keepTitle, !!command.inferPullRequest);
+  const manifest = await reviewMetadata(
+    command.manifest!,
+    !!command.keepTitle,
+    !!command.inferPullRequest,
+  );
   // Off unless a repository opts in: then a practice is a check, before Med captures.
   const checks = await optInChecks(manifest.targets.map((target) => target.repo));
   if (checks.size) {
-    const summaries = [
-      manifest.guide?.summary,
-      ...(manifest.parts?.items.map((part) => part.guide?.summary) ?? []),
-    ];
-    const output = readReviewOutput([...summaries, manifest.brief]);
+    const output = readReviewOutput([manifest.guide?.summary]);
     // A guide's summary is its explainer, however short.
     const problem = optInProblem(checks, {
       ...output,
-      explainer: output.explainer ?? summaries.find(Boolean),
+      explainer: output.explainer ?? manifest.guide?.summary,
     });
     if (problem) throw new Error(problem);
   }
@@ -837,31 +694,21 @@ export async function runReviewCommand(
       id: z.string().regex(/^[A-Za-z0-9_-]+$/),
       title: z.string().optional(),
       iterations: z.array(z.object({ number: z.number() })).optional(),
-      joined: z.object({ layer: z.number(), of: z.number() }).optional(),
     })
     .safeParse(result);
   if (!parsed.success) throw new Error("Med returned an invalid review ID.");
   const iteration = parsed.data.iterations?.at(-1)?.number ?? 1;
-  const joined = parsed.data.joined;
   await showReview(
     connection,
     parsed.data.id,
     !!command.open,
     fetcher,
     options.openUrl,
-    iteration > 1 || !!joined,
+    iteration > 1,
   );
   const url = `${connection.origin}/review/${parsed.data.id}`;
   if (!report) print(`[Review changes here](${url})`);
-  if (joined)
-    say(
-      `Added layer ${joined.layer} of ${joined.of} to the stack "${parsed.data.title ?? ""}": its base is the head of the layer below. Ungroup it in Med to make it a thread of its own.`,
-    );
-  else if (iteration > 1) say(`Added iteration ${iteration} to the review with this key.`);
-  if (manifest.parts)
-    say(
-      `${manifest.parts.items.length} ${manifest.parts.shape === "stack" ? "layers, bottom first" : "parts"}: ${manifest.parts.items.map((part) => part.title).join(" · ")}`,
-    );
+  if (iteration > 1) say(`Added iteration ${iteration} to the review with this key.`);
   if (manifest.guide)
     await printGuideCheck(
       connection,
@@ -880,23 +727,21 @@ export async function runReviewCommand(
     tell(
       `Key: ${defaultKey}, from the branch. Hand off each later round of this task with the same key: ${medCommand(instance, `review create --key ${shellWord(defaultKey)}`, "…")}`,
     );
-  if (!manifest.parts) {
-    const repos = manifest.targets.map((target) => target.repo);
-    const problem = command.titleGiven
-      ? titleProblem(manifest.title, repos)
-      : manifest.pullRequestTitle
-        ? undefined
-        : "is not set";
-    if (problem)
-      tell(
-        `Title check: the title ${problem}. Use 2–4 words that name what the task builds, without the repository's name or words such as "review" and "changes": ${update('--title "<2-4 words>"')}`,
-      );
-    const scope = await sharedCheckout(connection, parsed.data.id, manifest, fetcher, options.home);
-    if (scope)
-      tell(
-        `Shared checkout: ${listed(scope.others)} changed, but this session did not edit ${scope.others.length === 1 ? "it" : "them"}. If ${scope.others.length === 1 ? "it is" : "they are"} not part of your task, hand off only your files: ${update(`--paths ${scope.own.map((path) => shellWord(join(manifest.targets[0]!.repo, path))).join(" ")}`)}`,
-      );
-  }
+  const repos = manifest.targets.map((target) => target.repo);
+  const problem = command.titleGiven
+    ? titleProblem(manifest.title, repos)
+    : manifest.pullRequestTitle
+      ? undefined
+      : "is not set";
+  if (problem)
+    tell(
+      `Title check: the title ${problem}. Use 2–4 words that name what the task builds, without the repository's name or words such as "review" and "changes": ${update('--title "<2-4 words>"')}`,
+    );
+  const scope = await sharedCheckout(connection, parsed.data.id, manifest, fetcher, options.home);
+  if (scope)
+    tell(
+      `Shared checkout: ${listed(scope.others)} changed, but this session did not edit ${scope.others.length === 1 ? "it" : "them"}. If ${scope.others.length === 1 ? "it is" : "they are"} not part of your task, hand off only your files: ${update(`--paths ${scope.own.map((path) => shellWord(join(manifest.targets[0]!.repo, path))).join(" ")}`)}`,
+    );
   if (report)
     print(
       JSON.stringify(
@@ -906,7 +751,6 @@ export async function runReviewCommand(
           version: iteration,
           url,
           title: parsed.data.title ?? manifest.title,
-          ...(joined && { layer: joined }),
           notes: report.notes,
           advice: report.advice,
         },
@@ -1006,10 +850,9 @@ async function keyElsewhere(
   );
 }
 
-/** A review by its key, or by its ID (r_…) when no review has that key. */
 /**
  * `med reply`: answers a comment in the review that --key names, or else in
- * the thread's review, or else in the one review that has the comment.
+ * the thread's review, or else wherever Med finds the comment.
  */
 async function replyToComment(
   reply: NonNullable<ReviewCommand["reply"]>,
@@ -1017,41 +860,29 @@ async function replyToComment(
   fetcher: typeof fetch,
 ) {
   const { key, threadKey, commentId, text, session, resolve } = reply;
-  const send = (id: string) =>
-    request(connection, `/api/reviews/${id}/agent/reply`, fetcher, {
-      commentId,
+  const send = (review?: string) =>
+    request(connection, `/api/comments/${encodeURIComponent(commentId)}/reply`, fetcher, {
       text,
+      ...(review && { key: review }),
       ...(session && { session: { agent: session.agent, id: session.id } }),
       ...(resolve && { resolve: true }),
     });
   if (key) {
-    await send((await reviewByKey(connection, key, fetcher)).id);
+    await send(key);
     return;
   }
+  // The comment can come from another review, pasted into this thread.
   if (threadKey) {
-    // The comment can come from another review, pasted into this thread.
-    const done = await reviewByKey(connection, threadKey, fetcher)
-      .then((found) => send(found.id))
-      .then(
-        () => true,
-        (error: unknown) => (error instanceof NotFoundError ? false : Promise.reject(error)),
-      );
+    const done = await send(threadKey).then(
+      () => true,
+      (error: unknown) => (error instanceof NotFoundError ? false : Promise.reject(error)),
+    );
     if (done) return;
   }
-  const { reviews } = z
-    .object({
-      reviews: z.array(z.object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/), title: z.string() })),
-    })
-    .parse(await request(connection, `/api/comments/${commentId}`, fetcher));
-  if (!reviews.length)
-    throw new NotFoundError(`No review in Med has a comment with ID ${commentId}.`);
-  if (reviews.length > 1)
-    throw new UsageError(
-      `Comments in ${reviews.length} reviews have an ID that starts with ${commentId}: ${reviews.map((review) => `"${review.title}" (--key ${review.id})`).join(", ")}. Add --key with the review's ID.`,
-    );
-  await send(reviews[0]!.id);
+  await send();
 }
 
+/** A review by its key, or by its ID (r_…) when no review has that key. */
 async function reviewByKey(connection: RunningConnection, key: string, fetcher: typeof fetch) {
   const shape = z.object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) });
   try {
@@ -1170,7 +1001,7 @@ async function sharedCheckout(
   home?: string,
 ) {
   const target = manifest.targets[0];
-  const found = manifest.sessions?.find((entry) => entry.agent !== "acp");
+  const found = manifest.session?.agent === "acp" ? undefined : manifest.session;
   const session = found && { agent: found.agent as "claude" | "codex", id: found.id };
   if (
     manifest.targets.length !== 1 ||
@@ -1247,7 +1078,7 @@ async function staleCapture(
     const targets = saved.targets.filter((target) =>
       version ? version.targetIds.includes(target.id) : !target.commentReviewId,
     );
-    if (!targets.length || saved.parts) return undefined;
+    if (!targets.length) return undefined;
     const changed: string[] = [];
     for (const target of targets) {
       if (target.captured) {
@@ -1283,61 +1114,6 @@ async function staleCapture(
   }
 }
 
-/** The manifest of `create --stack` or `--set`: each item read with gh or Git. */
-async function partsManifest(
-  wanted: NonNullable<ReviewCommand["parts"]>,
-  repositories: unknown,
-): Promise<SavedReviewCreate> {
-  const known = z
-    .object({
-      repositories: z.array(
-        z.object({
-          path: z.string(),
-          worktrees: z.array(
-            z.object({
-              path: z.string(),
-              branch: z.string().optional(),
-              linked: z.boolean().optional(),
-            }),
-          ),
-        }),
-      ),
-    })
-    .safeParse(repositories);
-  const family = known.data?.repositories.find(
-    (entry) =>
-      entry.path === wanted.repo || entry.worktrees.some((tree) => tree.path === wanted.repo),
-  );
-  let base =
-    wanted.base ?? baseOf(family as Pick<RegisteredRepository, "path" | "worktrees"> | undefined);
-  // The main checkout can be on a branch of the stack, which is then no base.
-  if (!wanted.base && (!base || wanted.items.includes(base)))
-    base = (await usualBase(wanted.repo, wanted.items)) ?? base ?? "main";
-  const { targets, parts } = await resolveParts(wanted.repo, wanted.shape, wanted.items, base!);
-  // A part without changes cannot be reviewed: its base is wrong.
-  for (const [index, target] of targets.entries())
-    if (await comparisonEmpty(target.repo, target.comparison))
-      throw new Error(
-        `Part ${index + 1} (${parts[index]!.title ?? wanted.items[index]}) has no changes since ${parts[index]!.base ?? base}, so there is nothing to review. Name the bottom branch's base with --base <branch>, such as --base main.`,
-      );
-  const items = parts.map((part, index) => {
-    const guide = wanted.guides?.[index];
-    return guide ? { ...part, guide } : part;
-  });
-  const bottom = items[0]!.title;
-  return {
-    ...wanted.manifest,
-    title: (
-      wanted.manifest.title ??
-      `${bottom} · ${items.length} ${wanted.shape === "stack" ? "layers" : "parts"}`
-    ).slice(0, 200),
-    targets: wanted.generated
-      ? targets.map((target) => ({ ...target, generated: wanted.generated }))
-      : targets,
-    parts: { shape: wanted.shape, items },
-  };
-}
-
 /** The checkout that a thread works in. */
 export async function reviewCheckout(
   connection: RunningConnection,
@@ -1345,7 +1121,7 @@ export async function reviewCheckout(
   fetcher: typeof fetch,
 ) {
   const saved = savedReviewSchema.parse(await request(connection, `/api/reviews/${id}`, fetcher));
-  const checkout = threadCheckout(saved)?.repo;
+  const checkout = savedCheckout(saved)?.repo;
   if (!checkout) throw new Error("The thread names no checkout. Supply --repo <path>.");
   return checkout;
 }

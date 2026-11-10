@@ -204,7 +204,7 @@ test("a review whose worktree changes after the capture offers a refresh", async
     timeout: 10_000,
   });
   // A refresh captures the worktree again, as a new iteration that matches it.
-  const iteration = await controller.startNotes();
+  const iteration = await controller.refreshReview();
   await controller.selectSavedTarget(iteration!.targetIds[0]!);
   await vi.waitFor(() => expect(controller.getSnapshot().savedDrift).toBeNull());
 });

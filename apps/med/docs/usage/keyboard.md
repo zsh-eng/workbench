@@ -19,7 +19,6 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Next tab that needs you, or new        | `⌘0`            |
 | Close tab / reopen closed tab          | `⌘⌥W` / `⌘⌥T`   |
 | Move the focused tab                   | `⌥↑` / `⌥↓`     |
-| Layer above / below in a stack         | `⌥↑` / `⌥↓`     |
 | Switch, or search archived threads     | `⌃Tab`          |
 | Toggle the sidebar / session           | `⌘B` / `⌘⇧B`    |
 | Toggle a page's sidebar / session rail | `⌘⌥B` / `⌘⌥⇧B`  |
@@ -45,5 +44,5 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Close other files                      | `⌥⇧O`           |
 
 Close actions keep the Changes tab and other workspaces. Tab numbers count the
-Review, Notes, Changes, Commit, and Search tabs with the file tabs. A browser can take some
+Review, Changes, Commit, and Search tabs with the file tabs. A browser can take some
 shortcuts first; the command palette has the same actions.

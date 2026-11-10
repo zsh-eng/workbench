@@ -150,20 +150,6 @@ export async function headBranch(repo: string, comparison: { kind: string; head?
   return undefined;
 }
 
-/** The repository's usual base branch: the remote's default, or main, master,
- * trunk, or develop, the first that exists and is not one of `except`. */
-export async function usualBase(repo: string, except: readonly string[] = []) {
-  const remote = (
-    await git(repo, "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD")
-  )?.replace(/^origin\//, "");
-  for (const name of [remote, "main", "master", "trunk", "develop"]) {
-    if (!name || except.includes(name)) continue;
-    if (await gitSucceeds(repo, "show-ref", "--verify", "--quiet", `refs/heads/${name}`))
-      return name;
-  }
-  return undefined;
-}
-
 /** A key from a branch name, when the branch name makes a valid key. */
 export const keyFromBranch = (branch: string | undefined) =>
   branch && reviewKeySchema.safeParse(branch).success ? branch : undefined;
@@ -281,11 +267,11 @@ export function optInProblem(checks: Map<OptInCheck, string[]>, output: ReviewOu
   const missing: string[] = [];
   if (checks.has("proof") && !output.proof?.checks.length)
     missing.push(
-      "a Proof section in the brief: each check that you ran, as a command in backticks with its result (med skills suggest proof-first shows the format)",
+      "a Proof section in the guide's summary: each check that you ran, as a command in backticks with its result (med skills suggest proof-first shows the format)",
     );
   if (checks.has("explainer") && !output.explainer)
     missing.push(
-      "an explainer: why the change exists and what to read first, in the guide's summary or the brief (med skills suggest explain-first)",
+      "an explainer: why the change exists and what to read first, in the guide's summary (med skills suggest explain-first)",
     );
   const open = output.findings.filter(
     (finding) => finding.severity === "important" && isOpenFinding(finding),

@@ -22,7 +22,7 @@ import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { runAgentsCommand } from "../../src/cli/agents";
 import { readServerEvents } from "../../src/web/data/sse";
-import { claudeProjectFolder } from "../../src/host/found-sessions";
+import { claudeProjectFolder } from "../../src/host/session-index";
 import { longProcess, processStart, writeProcessRecord } from "../fixtures/terminal-claude";
 import { removeFolder } from "./remove-folder";
 
@@ -149,12 +149,15 @@ async function fixture({ key, agy = true }: { key?: string; agy?: boolean } = {}
       targets: [{ repo, comparison: { kind: "working" } }],
     })
   ).data;
-  /** The session's thread, as the browser reads it. */
-  const thread = async (sessionId: string, reviewId = review.id) => {
-    const response = await fetch(
-      `http://127.0.0.1:${host.port}/api/reviews/${reviewId}/sessions/${sessionId}/events`,
-      { headers: { authorization: `Bearer ${host.token}` } },
-    );
+  /** The threads of the sessions that `start` started, by session ID. */
+  const keys = new Map<string, string>();
+  /** The session's transcript, as the browser reads it: by its thread's key,
+   * or by the ID of a session that `start` started. */
+  const thread = async (session: string) => {
+    const key = keys.get(session) ?? session;
+    const response = await fetch(`http://127.0.0.1:${host.port}/api/sessions/${key}/events`, {
+      headers: { authorization: `Bearer ${host.token}` },
+    });
     expect(response.status).toBe(200);
     const events: SessionEvent[] = [];
     const controller = new AbortController();
@@ -181,14 +184,17 @@ async function fixture({ key, agy = true }: { key?: string; agy?: boolean } = {}
       { events },
     );
   };
+  /** Starts an agent on the review: the review becomes the new session's. */
   const start = async (preset: string, choices?: { model?: string; effort?: string }) => {
-    const started = await api<{ review: SavedReview; state: OwnedState }>(
-      `/api/reviews/${review.id}/owned`,
+    const started = await api<{ thread: string; state: OwnedState }>(
+      `/api/reviews/${review.id}/start`,
       { preset, choices },
     );
     expect(started.status).toBe(200);
     const id = started.data.state.sessionId;
-    const path = `/api/reviews/${review.id}/owned/${id}`;
+    const threadId = started.data.thread;
+    keys.set(id, threadId);
+    const path = `/api/sessions/${threadId}/owned`;
     const state = async () => (await api<OwnedState>(path)).data;
     const until = (check: (state: OwnedState) => boolean) =>
       vi.waitFor(
@@ -215,7 +221,8 @@ async function fixture({ key, agy = true }: { key?: string; agy?: boolean } = {}
       ).catch(() => {});
       return seen;
     };
-    return { id, review: started.data.review, state, until, act, follow };
+    const saved = (await api<SavedReview>(`/api/reviews/${review.id}`)).data;
+    return { id, thread: threadId, review: saved, state, until, act, follow };
   };
   /** The thread list's stream, with each thread's lead session state. */
   const threads = async () => {
@@ -278,7 +285,7 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
     },
     expect.objectContaining({ id: "missing", available: false }),
   ]);
-  expect((await api(`/api/reviews/${review.id}/owned`, { preset: "missing" })).status).toBe(404);
+  expect((await api(`/api/reviews/${review.id}/start`, { preset: "missing" })).status).toBe(404);
 
   // Before a session starts, Claude Code tells its models and efforts; Med
   // chooses Opus at medium effort.
@@ -293,7 +300,8 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
   });
 
   const session = await start("claude");
-  expect(session.review.sessions).toMatchObject([{ agent: "claude", id: session.id }]);
+  expect(session.review.session).toMatchObject({ agent: "claude", id: session.id });
+  expect(session.thread).toBe(`claude-${session.id}`);
   const ready = await session.until(
     (state) => state.status === "idle" && state.settings.length > 0,
   );
@@ -310,8 +318,8 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
   // The thread waits for the transcript, which the first turn writes.
   const replies = await thread(session.id);
   const sent = await api<{ message: { delivery: string } }>(
-    `/api/reviews/${review.id}/agent/messages`,
-    { sessionId: session.id, text: "Format the durations.", noteIds: [] },
+    `/api/sessions/${session.thread}/agent/messages`,
+    { text: "Format the durations.", noteIds: [] },
   );
   expect(sent.data.message.delivery).toBe("delivered");
   await vi.waitFor(() =>
@@ -374,8 +382,7 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
   await session.until((state) => state.status === "idle");
 
   // Images go with the message, as image blocks before its text.
-  await api(`/api/reviews/${review.id}/agent/messages`, {
-    sessionId: session.id,
+  await api(`/api/sessions/${session.thread}/agent/messages`, {
     text: "Why does this differ?",
     noteIds: [],
     images: [{ mimeType: "image/png", data: PNG }],
@@ -388,8 +395,8 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
   expect((await session.act({ action: "prompt", text: "Again." })).status).toBe(409);
   // A session that the user stopped takes no message from the review either.
   const stopped = await api<{ error: { code: string } }>(
-    `/api/reviews/${review.id}/agent/messages`,
-    { sessionId: session.id, text: "Compare with this.", noteIds: [] },
+    `/api/sessions/${session.thread}/agent/messages`,
+    { text: "Compare with this.", noteIds: [] },
   );
   expect(stopped.status).toBe(409);
   expect(stopped.data.error.code).toBe("session-stopped");
@@ -582,7 +589,7 @@ test("a new Claude Code session starts in Auto, and a new session of the thread 
 });
 
 test("agents keep working through a host restart; after a reboot, Claude Code resumes and others stay stopped", async () => {
-  const { api, home, review, thread, start, restart } = await fixture();
+  const { api, home, thread, start, restart } = await fixture();
   const kept = await start("claude");
   await kept.until((state) => state.status === "idle" && state.settings.length > 0);
   await kept.act({ action: "setting", id: "effort", value: "high" });
@@ -640,10 +647,10 @@ test("agents keep working through a host restart; after a reboot, Claude Code re
   // know where it is open.
   const send = (text: string) =>
     api<{ message: { delivery: string; error?: string }; state: AgentInboxState }>(
-      `/api/reviews/${review.id}/agent/messages`,
-      { sessionId: kept.id, text, noteIds: [] },
+      `/api/sessions/${kept.thread}/agent/messages`,
+      { text, noteIds: [] },
     );
-  const inbox = async () => (await api<AgentInboxState>(`/api/reviews/${review.id}/agent`)).data;
+  const inbox = async () => (await api<AgentInboxState>(`/api/sessions/${kept.thread}/agent`)).data;
   const other = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)", "claude", kept.id]);
   const exited = once(other, "exit");
   await once(other, "spawn");
@@ -672,7 +679,7 @@ test("agents keep working through a host restart; after a reboot, Claude Code re
 });
 
 test("a turn goes on through a host restart; one that a reboot cuts waits as Interrupted: Continue asks the agent to go on, and Dismiss clears it", async () => {
-  const { review, thread, start, threads, restart } = await fixture();
+  const { thread, start, threads, restart } = await fixture();
   const session = await start("claude");
   await session.until((state) => state.status === "idle" && state.settings.length > 0);
   await session.act({ action: "prompt", text: "Wait for the build." });
@@ -688,7 +695,7 @@ test("a turn goes on through a host restart; one that a reboot cuts waits as Int
   expect(cut).toMatchObject({ status: "idle", halt: { kind: "interrupted" } });
   const latest = await threads();
   await vi.waitFor(() =>
-    expect(latest.value.find((entry) => entry.id === review.id)).toMatchObject({
+    expect(latest.value.find((entry) => entry.id === session.thread)).toMatchObject({
       state: "idle",
       halt: { kind: "interrupted" },
     }),
@@ -715,17 +722,16 @@ test("a turn goes on through a host restart; one that a reboot cuts waits as Int
 
 test("a message sent while Claude Code works waits for its next step: it comes back until then, outlasts a host restart, and joins the turn when a tool runs", async () => {
   vi.stubEnv("MED_FAKE_TOOL_MS", "1500");
-  const { api, review, thread, start, restart } = await fixture();
+  const { api, thread, start, restart } = await fixture();
   const session = await start("claude");
   await session.until((state) => state.status === "idle" && state.settings.length > 0);
   const send = (text: string) =>
-    api<{ message: AgentMessage }>(`/api/reviews/${review.id}/agent/messages`, {
-      sessionId: session.id,
+    api<{ message: AgentMessage }>(`/api/sessions/${session.thread}/agent/messages`, {
       text,
       noteIds: [],
     });
   const messages = async () =>
-    (await api<AgentInboxState>(`/api/reviews/${review.id}/agent`)).data.messages;
+    (await api<AgentInboxState>(`/api/sessions/${session.thread}/agent`)).data.messages;
 
   // A turn that runs no tool: a message waits for its end.
   await session.act({ action: "prompt", text: "Wait for the build." });
@@ -733,7 +739,7 @@ test("a message sent while Claude Code works waits for its next step: it comes b
   const first = await send("Use two spaces.");
   expect(first.data.message).toMatchObject({ delivery: "pending", queued: true });
   // Until the agent has it, the user can take it back, to edit it or drop it.
-  const taken = await api<{ message: AgentMessage }>(`/api/reviews/${review.id}/agent/take`, {
+  const taken = await api<{ message: AgentMessage }>(`/api/sessions/${session.thread}/agent/take`, {
     id: first.data.message.id,
   });
   expect(taken.data.message).toMatchObject({ text: "Use two spaces." });
@@ -755,7 +761,8 @@ test("a message sent while Claude Code works waits for its next step: it comes b
   expect((await messages())[0]!.queued).toBeUndefined();
   // A message that went cannot come back.
   expect(
-    (await api(`/api/reviews/${review.id}/agent/take`, { id: second.data.message.id })).status,
+    (await api(`/api/sessions/${session.thread}/agent/take`, { id: second.data.message.id }))
+      .status,
   ).toBe(409);
 
   // A turn that runs a tool: Claude Code reads the message when the tool
@@ -777,18 +784,17 @@ test("a message sent while Claude Code works waits for its next step: it comes b
 
 test("Queue keeps a message for the turn's end past a tool step and a host restart; Send now gives it to Claude Code at its next step", async () => {
   vi.stubEnv("MED_FAKE_TOOL_MS", "4000");
-  const { api, review, thread, start, restart } = await fixture();
+  const { api, thread, start, restart } = await fixture();
   const session = await start("claude");
   await session.until((state) => state.status === "idle" && state.settings.length > 0);
   const send = (text: string, afterTurn = false) =>
-    api<{ message: AgentMessage }>(`/api/reviews/${review.id}/agent/messages`, {
-      sessionId: session.id,
+    api<{ message: AgentMessage }>(`/api/sessions/${session.thread}/agent/messages`, {
       text,
       noteIds: [],
       afterTurn,
     });
   const messages = async () =>
-    (await api<AgentInboxState>(`/api/reviews/${review.id}/agent`)).data.messages;
+    (await api<AgentInboxState>(`/api/sessions/${session.thread}/agent`)).data.messages;
   await send("Work on the check.");
   await session.until((state) => state.status === "working");
   const later = await send("Then update the docs.", true);
@@ -798,7 +804,7 @@ test("Queue keeps a message for the turn's end past a tool step and a host resta
   await restart();
   expect((await messages()).at(-1)).toMatchObject({ delivery: "pending", afterTurn: true });
   const replies = await thread(session.id);
-  const now = await api(`/api/reviews/${review.id}/agent/send-now`, {
+  const now = await api(`/api/sessions/${session.thread}/agent/send-now`, {
     id: later.data.message.id,
   });
   expect(now.status).toBe(200);
@@ -809,7 +815,8 @@ test("Queue keeps a message for the turn's end past a tool step and a host resta
   expect((await messages()).at(-1)).toMatchObject({ delivery: "delivered" });
   // A message that went has nothing to send now.
   expect(
-    (await api(`/api/reviews/${review.id}/agent/send-now`, { id: later.data.message.id })).status,
+    (await api(`/api/sessions/${session.thread}/agent/send-now`, { id: later.data.message.id }))
+      .status,
   ).toBe(409);
 });
 
@@ -859,7 +866,7 @@ test("med agents lists the agents that keep working; one that it stops resumes w
 
 test("a closed tab's agent stops once its turn ends, and the next message resumes it", async () => {
   vi.stubEnv("MED_AGENT_RELEASE_MS", "0");
-  const { api, review, stateDir, thread, start } = await fixture();
+  const { api, stateDir, thread, start } = await fixture();
   const session = await start("claude");
   await session.until((state) => state.status === "idle" && state.settings.length > 0);
   const holder = JSON.parse(
@@ -868,7 +875,7 @@ test("a closed tab's agent stops once its turn ends, and the next message resume
   await session.act({ action: "prompt", text: "Wait for the build." });
   await session.until((state) => state.status === "working");
 
-  await api(`/api/threads/${review.id}/close`, {});
+  await api(`/api/threads/${session.thread}/close`, {});
   // The turn goes on without its tab.
   await new Promise((done) => setTimeout(done, 300));
   expect(alive(holder.pid)).toBe(true);
@@ -878,7 +885,7 @@ test("a closed tab's agent stops once its turn ends, and the next message resume
   expect((await session.state()).halt).toBeUndefined();
 
   // The tab opens again, and a message resumes the session in a new holder.
-  await api(`/api/threads/${review.id}/open`, { restore: true });
+  await api(`/api/threads/${session.thread}/open`, { restore: true });
   const replies = await thread(session.id);
   await session.act({ action: "prompt", text: "Are you back?" });
   await vi.waitFor(() => expect(replies().at(-1)).toMatch(/: Are you back\?$/), {
@@ -893,7 +900,7 @@ test("a closed tab's agent stops once its turn ends, and the next message resume
 });
 
 test("an agent that exits says why; Restart and a message each resume its session", async () => {
-  const { api, home, review, thread, start, threads } = await fixture();
+  const { api, home, thread, start, threads } = await fixture();
   const session = await start("claude");
   await session.until((state) => state.status === "idle" && state.settings.length > 0);
   await session.act({ action: "prompt", text: "Crash during the build." });
@@ -905,7 +912,7 @@ test("an agent that exits says why; Restart and a message each resume its sessio
   expect(stopped.halt!.lines).toContain("FATAL ERROR: the fake ran out of memory");
   const latest = await threads();
   await vi.waitFor(() =>
-    expect(latest.value.find((entry) => entry.id === review.id)?.halt).toEqual({
+    expect(latest.value.find((entry) => entry.id === session.thread)?.halt).toEqual({
       kind: "stopped",
       detail: "Exited with code 1",
     }),
@@ -924,8 +931,8 @@ test("an agent that exits says why; Restart and a message each resume its sessio
   await session.until((state) => state.halt?.kind === "stopped");
   const replies = await thread(session.id);
   const sent = await api<{ message: { delivery: string } }>(
-    `/api/reviews/${review.id}/agent/messages`,
-    { sessionId: session.id, text: "Are you back?", noteIds: [] },
+    `/api/sessions/${session.thread}/agent/messages`,
+    { text: "Are you back?", noteIds: [] },
   );
   expect(sent.data.message.delivery).toBe("delivered");
   await vi.waitFor(() => expect(replies().at(-1)).toMatch(/: Are you back\?$/), {
@@ -960,13 +967,11 @@ test("a session record that Med cannot read costs only itself, and the file keep
 });
 
 test("Med runs an ACP agent and keeps its thread", async () => {
-  const { api, review, stateDir, thread, start } = await fixture();
+  const { api, stateDir, thread, start } = await fixture();
   // An ACP agent tells its models only in a session.
   expect((await api<AgentOptions>("/api/agents/fake/choices")).data).toEqual({});
   const session = await start("fake");
-  expect(session.review.sessions).toMatchObject([
-    { agent: "acp", name: "Fake ACP", id: session.id },
-  ]);
+  expect(session.review.session).toMatchObject({ agent: "acp", name: "Fake ACP", id: session.id });
   const ready = await session.until(
     (state) => state.status === "idle" && state.commands.length > 0,
   );
@@ -985,8 +990,7 @@ test("Med runs an ACP agent and keeps its thread", async () => {
   await chosen.act({ action: "stop" });
 
   const replies = await thread(session.id);
-  await api(`/api/reviews/${review.id}/agent/messages`, {
-    sessionId: session.id,
+  await api(`/api/sessions/${session.thread}/agent/messages`, {
     text: "Format the durations.",
     noteIds: [],
   });
@@ -1045,8 +1049,7 @@ test("Med runs an ACP agent and keeps its thread", async () => {
 
   // An agent that takes images gets them before the text, and the thread keeps them.
   expect(ready.images).toBe(true);
-  await api(`/api/reviews/${review.id}/agent/messages`, {
-    sessionId: session.id,
+  await api(`/api/sessions/${session.thread}/agent/messages`, {
     text: "Look.",
     noteIds: [],
     images: [{ mimeType: "image/png", data: PNG }],
@@ -1152,7 +1155,7 @@ test("an ACP agent keeps its question and its turn through a host restart, and i
 });
 
 test("the thread list follows each thread's lead session: working, needs you, and idle", async () => {
-  const { api, repo, home, review, start, threads } = await fixture();
+  const { api, repo, home, start, threads } = await fixture();
   // A Claude session that another app runs: Med reads its transcript.
   const attached = "5f0c2a8e-1111-4222-8333-944455556666";
   const project = join(home, ".claude", "projects", "-work-repo");
@@ -1167,33 +1170,31 @@ test("the thread list follows each thread's lead session: working, needs you, an
       message: { role: "user", content: "Format the durations." },
     }),
   );
-  const other = (
-    await api<SavedReview>("/api/reviews", {
-      title: "Durations in the export",
-      targets: [{ repo, comparison: { kind: "working" } }],
-      sessions: [{ agent: "claude", id: attached, cwd: repo }],
-    })
-  ).data;
+  await api<SavedReview>("/api/reviews", {
+    title: "Durations in the export",
+    targets: [{ repo, comparison: { kind: "working" } }],
+    session: { agent: "claude", id: attached, cwd: repo },
+  });
   const session = await start("fake");
   await session.until((state) => state.status === "idle");
 
   const latest = await threads();
   const of = (id: string) => latest.value.find((entry) => entry.id === id);
   await vi.waitFor(() => {
-    expect(of(other.id)).toMatchObject({ agent: "claude", state: "working" });
-    expect(of(review.id)).toMatchObject({ agent: "acp", state: "idle" });
+    expect(of(`claude-${attached}`)).toMatchObject({ agent: "claude", state: "working" });
+    expect(of(session.thread)).toMatchObject({ agent: "acp", state: "idle" });
   });
-  expect(of(other.id)!.sessions).toEqual([{ agent: "claude", id: attached, cwd: repo }]);
+  expect(of(`claude-${attached}`)!.session).toEqual({ agent: "claude", id: attached, cwd: repo });
 
   // A permission request needs the user; the answer lets the turn finish.
   await session.act({ action: "prompt", text: "Edit summary.ts." });
-  await vi.waitFor(() => expect(of(review.id)?.state).toBe("waiting"), { timeout: 5000 });
+  await vi.waitFor(() => expect(of(session.thread)?.state).toBe("waiting"), { timeout: 5000 });
   const asked = await session.until((state) => state.permission !== undefined);
   await session.act({ action: "permission", id: asked.permission!.id, option: "allow" });
-  await vi.waitFor(() => expect(of(review.id)?.state).toBe("idle"), { timeout: 5000 });
+  await vi.waitFor(() => expect(of(session.thread)?.state).toBe("idle"), { timeout: 5000 });
 
   // The attached session ends its turn when its transcript says so.
-  const before = of(other.id)!.updatedAt;
+  const before = of(`claude-${attached}`)!.updatedAt;
   await appendFile(
     transcript,
     line({
@@ -1210,8 +1211,8 @@ test("the thread list follows each thread's lead session: working, needs you, an
   );
   await vi.waitFor(
     () => {
-      expect(of(other.id)?.state).toBe("idle");
-      expect(of(other.id)!.updatedAt).toBeGreaterThanOrEqual(before);
+      expect(of(`claude-${attached}`)?.state).toBe("idle");
+      expect(of(`claude-${attached}`)!.updatedAt).toBeGreaterThanOrEqual(before);
     },
     { timeout: 5000 },
   );
@@ -1219,13 +1220,12 @@ test("the thread list follows each thread's lead session: working, needs you, an
 
 test("Claude Code that Med runs streams its reply after it thinks; a turn that another process runs on the session works until it ends", async () => {
   vi.stubEnv("MED_FAKE_WORD_MS", "60");
-  const { api, home, review, thread, start, threads } = await fixture();
+  const { api, home, thread, start, threads } = await fixture();
   const session = await start("claude");
   await session.until((state) => state.status === "idle");
   const states = await session.follow();
   const replies = await thread(session.id);
-  await api(`/api/reviews/${review.id}/agent/messages`, {
-    sessionId: session.id,
+  await api(`/api/sessions/${session.thread}/agent/messages`, {
     text: "Think it over: should the station keep its own time?",
     noteIds: [],
   });
@@ -1246,7 +1246,7 @@ test("Claude Code that Med runs streams its reply after it thinks; a turn that a
   // Another process, such as Claude Code in a terminal, runs a turn on the
   // session while Med's runner waits. The transcript tells the turn's state.
   const latest = await threads();
-  const lead = () => latest.value.find((entry) => entry.id === review.id);
+  const lead = () => latest.value.find((entry) => entry.id === session.thread);
   await vi.waitFor(() => expect(lead()?.state).toBe("idle"));
   const transcript = join(home, ".claude", "projects", "-fake-repo", `${session.id}.jsonl`);
   const line = (entry: object) =>
@@ -1273,7 +1273,7 @@ test("Claude Code that Med runs streams its reply after it thinks; a turn that a
 
 test("Med runs Codex through its app-server: a card asks, Send now steers, a subagent nests, and Stop ends the turn", async () => {
   // The fake replays a recorded Codex 0.160 session (codex-app-server.jsonl).
-  const { api, review, thread, start } = await fixture();
+  const { api, thread, start } = await fixture();
   // model/list gives the choices before a thread starts; no turn runs.
   expect((await api<AgentOptions>("/api/agents/codex/choices")).data).toMatchObject({
     model: {
@@ -1285,7 +1285,7 @@ test("Med runs Codex through its app-server: a card asks, Send now steers, a sub
   // Codex names the thread. The review keeps it as a Codex session, whose
   // rollout the thread reads, as for a session that Med finds.
   expect(session.id).toBe("01a189a8-50ca-72c2-b4ab-e477ea3036c6");
-  expect(session.review.sessions).toMatchObject([{ agent: "codex", id: session.id }]);
+  expect(session.review.session).toMatchObject({ agent: "codex", id: session.id });
   const ready = await session.until((state) => state.status === "idle");
   expect(ready.capabilities).toMatchObject({ steer: true, interrupt: true, approvals: "ask" });
   expect(ready.settings.map((setting) => [setting.id, setting.value])).toEqual([
@@ -1295,8 +1295,7 @@ test("Med runs Codex through its app-server: a card asks, Send now steers, a sub
   ]);
   const replies = await thread(session.id);
   const send = (text: string) =>
-    api<{ message: AgentMessage }>(`/api/reviews/${review.id}/agent/messages`, {
-      sessionId: session.id,
+    api<{ message: AgentMessage }>(`/api/sessions/${session.thread}/agent/messages`, {
       text,
       noteIds: [],
     });
@@ -1312,15 +1311,18 @@ test("Med runs Codex through its app-server: a card asks, Send now steers, a sub
   await session.act({ action: "permission", id: asked.permission!.id, option: "accept" });
   // A message queued during the turn waits for its end; Send now steers it
   // into the turn.
-  const queued = await api<{ message: AgentMessage }>(`/api/reviews/${review.id}/agent/messages`, {
-    sessionId: session.id,
-    text: "Also end your reply with the word steered.",
-    noteIds: [],
-    afterTurn: true,
-  });
+  const queued = await api<{ message: AgentMessage }>(
+    `/api/sessions/${session.thread}/agent/messages`,
+    {
+      text: "Also end your reply with the word steered.",
+      noteIds: [],
+      afterTurn: true,
+    },
+  );
   expect(queued.data.message).toMatchObject({ delivery: "pending", queued: true, afterTurn: true });
   expect(
-    (await api(`/api/reviews/${review.id}/agent/send-now`, { id: queued.data.message.id })).status,
+    (await api(`/api/sessions/${session.thread}/agent/send-now`, { id: queued.data.message.id }))
+      .status,
   ).toBe(200);
   await vi.waitFor(() =>
     expect(replies()).toEqual([
@@ -1369,11 +1371,13 @@ test("Med runs Codex through its app-server: a card asks, Send now steers, a sub
 
 test("Med runs agy in stream-json: refused actions say why, queued messages wait for the turn, a subagent nests, and Stop ends the process until the next message resumes it", async () => {
   // The fake replays a recorded agy 1.4.10 session (agy-stream.jsonl).
-  const { api, home, review, thread, start } = await fixture();
+  const { api, home, thread, start } = await fixture();
   const session = await start("agy");
-  expect(session.review.sessions).toMatchObject([
-    { agent: "acp", name: "Antigravity", id: session.id },
-  ]);
+  expect(session.review.session).toMatchObject({
+    agent: "acp",
+    name: "Antigravity",
+    id: session.id,
+  });
   const ready = await session.until((state) => state.status === "idle");
   expect(ready.capabilities).toMatchObject({ steer: false, approvals: "rules" });
   expect(ready.settings.find((setting) => setting.id === "mode")?.value).toBe("accept-edits");
@@ -1383,8 +1387,7 @@ test("Med runs agy in stream-json: refused actions say why, queued messages wait
       event.update.sessionUpdate === "notice" ? [event.update.title] : [],
     );
   const send = (text: string) =>
-    api<{ message: AgentMessage }>(`/api/reviews/${review.id}/agent/messages`, {
-      sessionId: session.id,
+    api<{ message: AgentMessage }>(`/api/sessions/${session.thread}/agent/messages`, {
       text,
       noteIds: [],
     });
@@ -1410,7 +1413,8 @@ test("Med runs agy in stream-json: refused actions say why, queued messages wait
   const queued = await send("After that, also say the word queued.");
   expect(queued.data.message).toMatchObject({ queued: true, delivery: "pending" });
   expect(
-    (await api(`/api/reviews/${review.id}/agent/send-now`, { id: queued.data.message.id })).status,
+    (await api(`/api/sessions/${session.thread}/agent/send-now`, { id: queued.data.message.id }))
+      .status,
   ).toBe(409);
   await vi.waitFor(() => expect(replies()).toContain("queued"), { timeout: 5000 });
   // The subagent's transcript nests in its call.
@@ -1476,7 +1480,7 @@ async function holdOpen(cwd: string, paths: string[]) {
 }
 
 test("an agy conversation continues in Med once its process ends, from its history", async () => {
-  const { api, home, repo, review, start, thread } = await fixture();
+  const { api, home, repo, start, thread } = await fixture();
   const lines = (entries: object[]) =>
     entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
   const ends: (() => Promise<void>)[] = [];
@@ -1601,8 +1605,7 @@ test("an agy conversation continues in Med once its process ends, from its histo
     // Codex in Med, at work on a turn: its card waits.
     const owned = await start("codex", { model: "gpt-6-luna" });
     await owned.until((state) => state.status === "idle");
-    await api(`/api/reviews/${review.id}/agent/messages`, {
-      sessionId: owned.id,
+    await api(`/api/sessions/${owned.thread}/agent/messages`, {
       text: "Run ls -1, then name the files.",
       noteIds: [],
     });
@@ -1619,17 +1622,15 @@ test("an agy conversation continues in Med once its process ends, from its histo
       });
     const adopted = await adopt();
     expect(adopted.data).toMatchObject({ created: true });
-    const saved = await api<{ sessions: { id: string; agent: string; name?: string }[] }>(
-      `/api/reviews/${adopted.data.id}`,
-    );
-    const [session] = saved.data.sessions;
-    expect(session).toMatchObject({ agent: "acp", name: "Antigravity" });
+    const listed = await api<ThreadList>("/api/threads");
+    const row = listed.data.threads.find((each) => each.id === adopted.data.id);
+    expect(row?.session).toMatchObject({ agent: "acp", name: "Antigravity" });
+    const session = { thread: adopted.data.id };
     expect((await adopt()).data).toMatchObject({ id: adopted.data.id, created: false });
-    const replies = await thread(session!.id, adopted.data.id);
+    const replies = await thread(adopted.data.id);
     await vi.waitFor(() => expect(replies()).toEqual(["There is one: summary.ts."]));
     const send = (text: string) =>
-      api<{ message: AgentMessage }>(`/api/reviews/${adopted.data.id}/agent/messages`, {
-        sessionId: session!.id,
+      api<{ message: AgentMessage }>(`/api/sessions/${session.thread}/agent/messages`, {
         text,
         noteIds: [],
       });
@@ -1661,7 +1662,7 @@ test("Antigravity is off until the user turns it on: Med does not offer it or co
   try {
     const agents = await api<{ agents: { id: string }[] }>("/api/agents");
     expect(agents.data.agents.map((agent) => agent.id)).not.toContain("agy");
-    expect((await api(`/api/reviews/${review.id}/owned`, { preset: "agy" })).status).toBe(404);
+    expect((await api(`/api/reviews/${review.id}/start`, { preset: "agy" })).status).toBe(404);
     expect((await api("/api/agents/agy/choices")).status).toBe(404);
     const adopt = await api("/api/sessions/adopt", { agent: "agy", session: agy, repo });
     expect(adopt.status).toBe(404);

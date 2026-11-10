@@ -1,4 +1,4 @@
-import type { Thread } from "../../shared/threads";
+import type { Thread, ThreadReview } from "../../shared/threads";
 import { openSettings } from "./settings/settings-commands";
 import * as stylex from "@stylexjs/stylex";
 import { createPortal, flushSync } from "react-dom";
@@ -29,7 +29,8 @@ import {
   workspaceUrl,
   type PullWorkspace,
   type RepositoryWorkspace,
-  type ReviewWorkspace,
+  threadWorkspaceId,
+  type ThreadWorkspace,
   type Workspace,
   type WorkspaceInput,
   type WorkspacePatch,
@@ -44,7 +45,7 @@ import { createWindowDrafts, type WindowDrafts } from "../data/editor-drafts";
 import { browserFetch } from "../data/live";
 import { readBrowserToken } from "../data/auth";
 import { readServerEvents } from "../data/sse";
-import { renderBrief, renderBriefs } from "../markdown/brief-render";
+import { renderBriefs } from "../markdown/brief-render";
 import { endReplies } from "./session/thread-model";
 import { themeController } from "../themes";
 import { parsePullUrl } from "../../shared/pull-workspace";
@@ -56,21 +57,14 @@ import {
   matches,
   needsYou,
   NO_THREADS,
-  sessionGroups,
-  sessionRows,
   shortAge,
   tabOrder,
   threadFields,
-  useThreads,
-  type SessionRow,
-} from "../data/threads";
-import {
-  isFoundThread,
   threadInput,
-  threadWorkspaceId,
+  useThreads,
   workspaceThread,
-} from "../data/found-threads";
-import { foundThreadId } from "../../shared/found-sessions";
+} from "../data/threads";
+import { REVIEW_ID } from "../../shared/threads";
 import {
   closeThread,
   deleteThread,
@@ -215,7 +209,7 @@ const Drafts = createContext<WindowDrafts | null>(null);
  * tabs do, up to TABS_MOUNTED, until they close. History is never loaded
  * ahead. */
 interface WarmThreads {
-  threads: { workspace: ReviewWorkspace | RepositoryWorkspace; session?: string }[];
+  threads: { workspace: ThreadWorkspace; session?: string }[];
   next: string | null;
   active: ReadonlySet<string>;
 }
@@ -427,27 +421,11 @@ export function useThread(id: string | undefined) {
   return useSyncExternalStore(store.subscribe, () => store.get().get(id ?? ""));
 }
 
-/** The reviews that this thread's agent session handed off, itself among
- * them, newest first: the threads that share one of its sessions. */
-export function useSessionReviews(id: string | undefined): readonly Thread[] {
-  const store = use(Threads);
-  // A key of what the list shows, so the reader renders again only when it changes.
-  const key = useSyncExternalStore(store.subscribe, () => {
-    const group = sessionGroups(store.list()).find((each) =>
-      each.some((thread) => thread.id === id),
-    );
-    return group && group.length > 1
-      ? JSON.stringify(group.map((thread) => [thread.id, thread.title, thread.branch]))
-      : "";
-  });
-  return useMemo(() => {
-    if (!key) return [];
-    const threads = store.get();
-    return (JSON.parse(key) as [string][]).flatMap(([each]) => {
-      const thread = threads.get(each);
-      return thread ? [thread] : [];
-    });
-  }, [key, store]);
+const NO_REVIEWS: readonly ThreadReview[] = [];
+/** The reviews of a thread, newest first: the ones its session handed off,
+ * or a lone review itself. */
+export function useThreadReviews(id: string | undefined): readonly ThreadReview[] {
+  return useThread(id)?.reviews ?? NO_REVIEWS;
 }
 
 /** Reads the window's threads, the most recently changed first, when called.
@@ -557,20 +535,14 @@ function writeStored(key: string, value: string) {
 
 /** The lock and broadcast channel that share the host's window channel. */
 const WINDOW_CHANNEL = "med:windows";
+/** A review that an agent handed off, or a thread that `med thread adopt --open` shows. */
 const reviewEvent = z.object({
-  id: z.string(),
+  /** The review; none for a thread alone. */
+  id: z.string().optional(),
+  thread: z.string(),
   title: z.string(),
   open: z.boolean(),
   updated: z.boolean().default(false),
-  // A terminal resumes Claude and Codex sessions; Med keeps ACP sessions itself.
-  sessions: z
-    .array(z.object({ agent: z.enum(["claude", "codex", "acp"]), id: z.string(), cwd: z.string() }))
-    .default([])
-    .transform((list) =>
-      list.flatMap((session) =>
-        session.agent === "acp" ? [] : [{ ...session, agent: session.agent }],
-      ),
-    ),
 });
 
 type ReviewEvent = z.infer<typeof reviewEvent>;
@@ -652,26 +624,24 @@ const reason = (result: PromiseSettledResult<unknown>) =>
   result.status === "rejected" ? errorText(result.reason, "") : "";
 
 /** The workspace that a tab mounts with before it opens. It keeps one object
- * while the tab's title and checkout stay. A found session without a
- * checkout has nothing to load. */
+ * while the tab's title and place stay. A session that works in no checkout
+ * and has handed off no review has nothing to load. */
 function warmWorkspace(
   thread: Thread,
-  cache: Map<string, ReviewWorkspace | RepositoryWorkspace>,
-): ReviewWorkspace | RepositoryWorkspace | undefined {
+  cache: Map<string, ThreadWorkspace>,
+): ThreadWorkspace | undefined {
+  if (!thread.checkout && !thread.reviews.length) return undefined;
   const input = threadInput(thread);
-  if (input.kind === "review" ? thread.found : input.kind !== "repository") return undefined;
-  const id = threadWorkspaceId(thread);
+  const id = threadWorkspaceId(thread.id);
   const cached = cache.get(id);
   if (
     cached &&
     cached.title === input.title &&
-    (input.kind !== "repository" ||
-      (cached.kind === "repository" &&
-        cached.path === input.path &&
-        cached.branch === input.branch))
+    cached.path === input.path &&
+    cached.branch === input.branch
   )
     return cached;
-  const workspace = { ...input, id } as ReviewWorkspace | RepositoryWorkspace;
+  const workspace: ThreadWorkspace = { ...input, id };
   cache.set(id, workspace);
   return workspace;
 }
@@ -904,21 +874,23 @@ export function WorkspaceHost({
   }, [windowId]);
   useEffect(() => {
     const stop = new AbortController();
-    const receive = ({ id, title, open, updated, sessions }: ReviewEvent) => {
-      // The host opened the review as a tab.
-      opening.current.add(id);
+    const receive = ({ id, thread, title, open, updated }: ReviewEvent) => {
+      // The host opened the thread as a tab.
+      opening.current.add(thread);
       const here = open && usedLast();
-      const known = store.match({ kind: "review", reviewId: id });
+      const known = store.match({ kind: "thread", threadId: thread });
+      // The thread shows the review that its agent just handed off.
       const workspace = store.open(
         {
-          kind: "review",
-          reviewId: id,
-          title,
+          kind: "thread",
+          threadId: thread,
+          ...(id && { reviewId: id }),
+          // Until the thread list names it.
+          ...(!known && { title }),
           ...((known && !updated) || here ? {} : { unread: true }),
         },
         false,
       );
-      store.update(workspace, { title, ...(sessions.length ? { sessions } : {}) });
       // A new iteration: the review marks itself unread again and reloads.
       if (known && updated) {
         if (!here && store.getSnapshot().active !== workspace) store.setUnread(workspace, true);
@@ -1190,8 +1162,8 @@ export function WorkspaceHost({
   const activeEntry = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
   // The thread on screen, which the title band names.
   const barId = workspaceThread(activeEntry);
-  // As its session's row: the session's name, which the band shows and renames.
-  const barThread = barId ? sessionRows(tabs, barId).find((row) => row.id === barId) : undefined;
+  // Its name, which the band shows and renames.
+  const barThread = barId ? tabs.find((thread) => thread.id === barId) : undefined;
   // The band names the workspace on screen; none while a page covers them.
   const covered = newThread || !!overlayAddress(pathname);
   const band = useTitleBand(covered ? null : (activeEntry?.id ?? null));
@@ -1223,12 +1195,12 @@ export function WorkspaceHost({
   // then it opens as any thread does.
   const startSuperagent = useCallback(async () => {
     try {
-      const { review } = await createApi(fetcher, readBrowserToken()).json(
+      const { thread } = await createApi(fetcher, readBrowserToken()).json(
         "/api/superagent",
-        z.object({ review: z.object({ id: z.string(), title: z.string() }) }),
+        z.object({ thread: z.string() }),
         { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
       );
-      actions.open({ kind: "review", reviewId: review.id, title: review.title });
+      actions.open({ kind: "thread", threadId: thread });
     } catch (reason) {
       setNotice({ problem: true, text: errorText(reason, "Med could not start the Superagent.") });
     }
@@ -1243,10 +1215,9 @@ export function WorkspaceHost({
   // workspace mounts: under the pointer, or at the key that opens it.
   const readThread = useCallback(
     (thread: Thread) => {
-      if (isFoundThread(thread)) return;
-      prefetchSavedReview(thread.id, fetcher);
-      const session = thread.sessions?.at(-1);
-      if (session) prefetchThreadSession(thread.id, session.id, fetcher);
+      const review = thread.reviews[0];
+      if (review) prefetchSavedReview(review.id, fetcher);
+      if (thread.session) prefetchThreadSession(thread.id, fetcher);
     },
     [fetcher],
   );
@@ -1356,13 +1327,9 @@ export function WorkspaceHost({
     async (thread: Thread) => {
       opening.current.add(thread.id);
       forget([thread]);
-      // A thread whose review Med pruned opens as its session's found thread,
-      // which the host names.
-      if (!thread.stub) openTab(thread);
+      openTab(thread);
       try {
-        const opened = await openThread(thread.id, false, fetcher);
-        if (opened.id !== thread.id) opening.current.add(opened.id);
-        if (thread.stub || opened.id !== thread.id) openTab(opened);
+        await openThread(thread.id, false, fetcher);
       } catch (error) {
         opening.current.delete(thread.id);
         setNotice({
@@ -1408,18 +1375,10 @@ export function WorkspaceHost({
   // while the sidebar hides.
   const [renaming, setRenaming] = useState<string | null>(null);
   if (renaming && !tabs.some((thread) => thread.id === renaming)) setRenaming(null);
-  // A session's name and pin are its owner's (sessionOwner), whichever of
-  // its reviews is on screen.
   const pinTo = useCallback(
-    async (thread: SessionRow, pinned: boolean, at?: number) => {
-      const owner = thread.owner ?? thread.id;
+    async (thread: Thread, pinned: boolean, at?: number) => {
       try {
-        // A session has one pin: another of its reviews that kept one, as an
-        // older Med pinned them, gives it up.
-        for (const id of thread.members ?? [])
-          if (id !== owner && tabsRef.current.find((entry) => entry.id === id)?.pinned)
-            await pinThread(id, false, fetcher);
-        await pinThread(owner, pinned, fetcher, at);
+        await pinThread(thread.id, pinned, fetcher, at);
       } catch (error) {
         setNotice({
           problem: true,
@@ -1432,8 +1391,8 @@ export function WorkspaceHost({
   /** Names a thread. An empty name, or its agent's own title, gives it its
    * agent's title again. */
   const renameTo = useCallback(
-    async (thread: SessionRow, value: string) => {
-      const owner = thread.owner ?? thread.id;
+    async (thread: Thread, value: string) => {
+      const owner = thread.id;
       const agent = thread.agentTitle ?? thread.title;
       const typed = value.trim();
       const name = typed === agent ? "" : typed;
@@ -1460,7 +1419,7 @@ export function WorkspaceHost({
    * this test chooses. False when there is none. */
   const nextTab = useCallback(
     (wanted: (thread: Thread) => boolean) => {
-      const list = tabOrder(tabsRef.current, currentRef.current);
+      const list = tabOrder(tabsRef.current);
       const start = list.findIndex((thread) => thread.id === currentRef.current);
       for (let step = 1; step <= list.length; step++) {
         const thread = list[(start + step) % list.length]!;
@@ -1521,7 +1480,7 @@ export function WorkspaceHost({
         return;
       }
       const digit = /^Digit([1-9])$/.exec(event.code)?.[1];
-      const thread = digit && tabOrder(tabsRef.current, currentRef.current)[Number(digit) - 1];
+      const thread = digit && tabOrder(tabsRef.current)[Number(digit) - 1];
       if (!thread) return;
       take();
       openTab(thread);
@@ -1553,21 +1512,17 @@ export function WorkspaceHost({
       if (next.has(id) || opening.current.has(id)) continue;
       const workspace = store.match(threadInput(thread));
       if (!workspace) continue;
-      // A saved thread that took a found session's place takes its workspace.
-      const heir = thread.found
-        ? threadList.threads.find(
-            (entry) =>
-              !entry.found &&
-              entry.sessions?.some(
-                (session) =>
-                  session.agent !== "acp" && foundThreadId(session.agent, session.id) === id,
-              ),
-          )
-        : undefined;
-      if (heir && store.getSnapshot().active === workspace) actions.open(threadInput(heir));
       actions.close(workspace);
     }
   }, [actions, store, threadList]);
+  // A link to a review that a session handed off opens the session's thread.
+  useEffect(() => {
+    const owners = new Map<string, string>();
+    for (const thread of threadList?.threads ?? [])
+      if (thread.kind === "session")
+        for (const review of thread.reviews) owners.set(review.id, thread.id);
+    store.setThreadOf((reviewId) => owners.get(reviewId));
+  }, [store, threadList]);
   // A thread that shows here without a tab, as from a link, opens as one.
   // A thread that the host just made, as with Keep in Med, is in its next list.
   useEffect(() => {
@@ -1669,7 +1624,7 @@ export function WorkspaceHost({
   const [pointed, setPointed] = useState<string | null>(null);
   // A tab loaded ahead keeps one workspace object while it stays the same, so
   // a list update or a switch does not render its view again.
-  const [warmWorkspaces] = useState(() => new Map<string, ReviewWorkspace | RepositoryWorkspace>());
+  const [warmWorkspaces] = useState(() => new Map<string, ThreadWorkspace>());
   const warm = useMemo<WarmThreads>(() => {
     const open = new Map(
       snapshot.workspaces.flatMap((entry) => {
@@ -1688,13 +1643,7 @@ export function WorkspaceHost({
       const workspace = warmWorkspace(thread, warmWorkspaces);
       if (!workspace) continue;
       active.add(workspace.id);
-      ahead.push({
-        workspace,
-        ...(!thread.found && thread.sessions?.length
-          ? { session: thread.sessions.at(-1)!.id }
-          : {}),
-        place,
-      });
+      ahead.push({ workspace, ...(thread.session && { session: thread.session.id }), place });
     }
     // The tabs next to the one on screen are the likeliest visits: nearest
     // first, the one below before the one above.
@@ -1713,12 +1662,12 @@ export function WorkspaceHost({
   const activeRepositoryId =
     activeEntry?.kind === "repository"
       ? activeEntry.repositoryId
-      : activeEntry?.kind === "review"
-        ? statuses.get(activeEntry.reviewId)?.repository?.id
+      : activeEntry?.kind === "thread"
+        ? statuses.get(activeEntry.threadId)?.repository?.id
         : undefined;
   // A press on a thread reads its session before the click renders the
   // workspace, so the session's code loads while the window is idle.
-  const hasSessions = tabs.some((thread) => thread.sessions?.length);
+  const hasSessions = tabs.some((thread) => thread.session);
   useEffect(() => {
     if (!hasSessions || sessionStream) return;
     return whenIdle(() => {
@@ -1841,7 +1790,7 @@ export function WorkspaceHost({
                               onDelete={confirmDelete}
                               onPrefetch={(thread) => {
                                 readThread(thread);
-                                setPointed(threadWorkspaceId(thread));
+                                setPointed(threadWorkspaceId(thread.id));
                               }}
                               onRenaming={(thread) => setRenaming(thread?.id ?? null)}
                               onRename={(thread, name) => void renameTo(thread, name)}
@@ -1942,14 +1891,10 @@ export function WorkspaceHost({
                               fetcher={fetcher}
                               repositoryId={activeRepositoryId}
                               onCancel={() => setNewThread(false)}
-                              onStarted={(review) => {
-                                opening.current.add(review.id);
+                              onStarted={(thread) => {
+                                opening.current.add(thread);
                                 setNewThread(false);
-                                actions.open({
-                                  kind: "review",
-                                  reviewId: review.id,
-                                  title: review.title,
-                                });
+                                actions.open({ kind: "thread", threadId: thread });
                               }}
                             />
                           )}
@@ -1996,11 +1941,19 @@ export function WorkspaceHost({
 /** One controller per mounted workspace, with the disposers of the objects
  * its review owns. Only the one on screen listens for changes; the rest catch
  * up when they are shown again. */
-function createControllerPool(options: ControllerOptions, createParser?: ParserFactory) {
+function createControllerPool(
+  options: ControllerOptions,
+  threads: ThreadStore,
+  createParser?: ParserFactory,
+) {
   const live = new Map<
     string,
     {
       controller: ReviewController;
+      /** The review that the controller shows, if any. */
+      reviewId?: string;
+      /** Whether the thread list had the thread when the controller started. */
+      listed: boolean;
       parser?: ReturnType<ParserFactory>;
       disposers: Set<() => void>;
     }
@@ -2013,24 +1966,66 @@ function createControllerPool(options: ControllerOptions, createParser?: ParserF
     for (const dispose of entry.disposers) dispose();
   };
   return {
-    get(workspace: RepositoryWorkspace | ReviewWorkspace) {
+    get(workspace: RepositoryWorkspace | ThreadWorkspace) {
+      const thread =
+        workspace.kind === "thread" ? threads.get().get(workspace.threadId) : undefined;
       let entry = live.get(workspace.id);
+      // A thread shows the review that the reader chose, else the one that it
+      // shows already while the thread still lists it, else its newest; a
+      // session that has handed off none shows its checkout's Changes.
+      const shown =
+        entry?.reviewId &&
+        (!thread || thread.reviews.some((review) => review.id === entry!.reviewId))
+          ? entry.reviewId
+          : undefined;
+      const reviewId =
+        workspace.kind === "thread"
+          ? (workspace.reviewId ??
+            shown ??
+            thread?.reviews[0]?.id ??
+            (REVIEW_ID.test(workspace.threadId) ? workspace.threadId : undefined))
+          : undefined;
+      // The thread's first hand-off joins the controller that shows its
+      // Changes, so the reader stays where they are. A thread that the list
+      // did not have yet, as one that opens again, starts on its review.
+      if (entry && !entry.reviewId && entry.listed && reviewId) {
+        entry.reviewId = reviewId;
+        void entry.controller.attachSavedReview(reviewId);
+      }
+      if (entry && entry.reviewId !== reviewId) {
+        end(workspace.id);
+        entry = undefined;
+      }
       if (!entry) {
         const parser = createParser?.();
         const own = parser ? { ...options, parsePatch: parser.parse } : options;
-        const controller = createReviewController(
-          workspace.kind === "review"
-            ? { ...own, savedReviewId: workspace.reviewId, lead: () => leadReady(workspace.id) }
-            : {
-                ...own,
-                start: {
-                  path: workspace.path,
-                  repositoryId: workspace.repositoryId,
-                  branch: workspace.branch,
+        const start = {
+          path: thread?.checkout ?? workspace.path,
+          repositoryId: thread?.repository?.id ?? workspace.repositoryId,
+          branch: workspace.kind === "repository" ? workspace.branch : undefined,
+        };
+        const controller = createReviewController({
+          ...own,
+          ...(workspace.kind === "thread"
+            ? {
+                thread: {
+                  id: workspace.threadId,
+                  ...(start.path && { path: start.path }),
+                  ...(start.repositoryId && { repositoryId: start.repositoryId }),
+                  ...(thread?.base && { base: thread.base }),
                 },
-              },
-        );
-        entry = { controller, parser, disposers: new Set(parser ? [parser.dispose] : []) };
+                lead: () => leadReady(workspace.id),
+              }
+            : {}),
+          ...(reviewId ? { savedReviewId: reviewId } : { start }),
+        });
+        entry = {
+          controller,
+          ...(reviewId && { reviewId }),
+          listed: !!thread,
+          parser,
+          disposers: new Set(parser ? [parser.dispose] : []),
+        };
         live.set(workspace.id, entry);
         void controller.initialize();
       }
@@ -2069,7 +2064,8 @@ export function WorkspaceViews({
   if (!snapshot) throw new Error("WorkspaceViews needs a WorkspaceHost.");
   const fetcher = use(HostFetch);
   const warm = use(Warm);
-  const [pool] = useState(() => createControllerPool(options, createParser));
+  const threadStore = use(Threads);
+  const [pool] = useState(() => createControllerPool(options, threadStore, createParser));
   const [mounted, setMounted] = useState<string[]>([]);
   const active = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
   const onScreen = active && active.kind !== "vault" ? active.id : null;
@@ -2095,6 +2091,17 @@ export function WorkspaceViews({
   if (next.length !== mounted.length || next.some((id, index) => id !== mounted[index]))
     setMounted(next);
 
+  // A thread shows its newest review once its agent hands one off.
+  useSyncExternalStore(threadStore.subscribe, () =>
+    mounted
+      .map((id) => {
+        const workspace = workspaceOf(id);
+        return workspace?.kind === "thread" && !workspace.reviewId
+          ? (threadStore.get().get(workspace.threadId)?.reviews[0]?.id ?? "")
+          : "";
+      })
+      .join(" "),
+  );
   useEffect(() => pool.retain(mounted), [pool, mounted]);
   useEffect(() => pool.focus(onScreen), [pool, onScreen, mounted]);
 
@@ -2180,13 +2187,13 @@ export function WorkspaceViews({
     ? []
     : next.filter(
         (id) =>
-          id !== onScreen && !seen.has(id) && !tried.has(id) && workspaceOf(id)?.kind === "review",
+          id !== onScreen && !seen.has(id) && !tried.has(id) && workspaceOf(id)?.kind === "thread",
       );
   const unsettledKey = unsettled.join(" ");
   useEffect(() => {
     if (!started || settling || !unsettledKey) return;
     const controllers = unsettledKey.split(" ").flatMap((id) => {
-      const workspace = workspaceOf(id) as ReviewWorkspace;
+      const workspace = workspaceOf(id) as ThreadWorkspace;
       // A thread settles after its session has read ahead.
       return id === reading ? [] : [{ id, controller: pool.get(workspace).controller }];
     });
@@ -2195,9 +2202,12 @@ export function WorkspaceViews({
       const loaded = controllers.find(
         // A thread with a session settles once it knows its review: its
         // session leads, and its diff waits for the session.
-        ({ controller }) => {
+        ({ id, controller }) => {
           const snapshot = controller.getSnapshot();
-          return snapshot.status !== "loading" || !!snapshot.savedReview?.sessions?.length;
+          const workspace = workspaceOf(id);
+          const session =
+            workspace?.kind === "thread" && threadStore.get().get(workspace.threadId)?.session;
+          return snapshot.status !== "loading" || (!!session && !!snapshot.savedReview);
         },
       );
       if (!loaded || cancel) return;
@@ -2209,7 +2219,7 @@ export function WorkspaceViews({
       for (const stop of stops) stop();
       cancel?.();
     };
-  }, [started, settling, unsettledKey, reading, workspaceOf, pool, busy]);
+  }, [started, settling, unsettledKey, reading, workspaceOf, pool, busy, threadStore]);
   useEffect(() => {
     if (!settling) return;
     tried.add(settling);
@@ -2302,32 +2312,6 @@ export function WorkspaceViews({
     };
   }, [started, cold, settling, reading, unsettledKey, mounted, pool, workspaceOf, busy]);
 
-  // A hidden workspace runs no effects, so its brief renders here, ahead of
-  // its first visit, with the briefs of its other iterations.
-  useEffect(() => {
-    const stops = mounted.flatMap((id) => {
-      const workspace = workspaceOf(id);
-      if (id === onScreen || workspace?.kind !== "review") return [];
-      const { controller } = pool.get(workspace);
-      let warmed: unknown;
-      const warm = () => {
-        const saved = controller.getSnapshot().savedReview;
-        if (!saved || saved === warmed) return;
-        warmed = saved;
-        const theme = themeController.getSnapshot().active.pierreTheme;
-        for (const brief of [
-          saved.brief,
-          ...(saved.iterations ?? []).toReversed().map((entry) => entry.brief),
-        ].slice(0, 7))
-          if (brief) renderBrief(theme, brief.text, false).catch(() => {});
-      };
-      warm();
-      return [controller.subscribe(warm)];
-    });
-    return () => {
-      for (const stop of stops) stop();
-    };
-  }, [mounted, onScreen, pool, workspaceOf]);
   // Its newest session reads ahead too, one at a time while the reader does
   // not act, so a first visit shows the thread with the review.
   useEffect(() => {
@@ -2335,21 +2319,31 @@ export function WorkspaceViews({
     const entry = mounted
       .map((id) => {
         const workspace = workspaceOf(id);
+        if (workspace?.kind !== "thread" || id === onScreen) return undefined;
         const session =
-          workspace?.sessions?.at(-1)?.id ??
+          threadStore.get().get(workspace.threadId)?.session?.id ??
           warm.threads.find((entry) => entry.workspace.id === id)?.session;
-        return id !== onScreen && workspace?.kind === "review" && session
-          ? { id, reviewId: workspace.reviewId, session, key: `${workspace.reviewId}\0${session}` }
-          : undefined;
+        return session ? { id, threadId: workspace.threadId } : undefined;
       })
-      .find((entry) => entry && !read.has(entry.key));
+      .find((entry) => entry && !read.has(entry.threadId));
     if (!entry) return;
     return whenFree(() => {
-      read.add(entry.key);
+      read.add(entry.threadId);
       setReading(entry.id);
-      prefetchThreadSession(entry.reviewId, entry.session, fetcher, () => setReading(null));
+      prefetchThreadSession(entry.threadId, fetcher, () => setReading(null));
     }, busy);
-  }, [started, reading, read, mounted, onScreen, workspaceOf, warm.threads, fetcher, busy]);
+  }, [
+    started,
+    reading,
+    read,
+    mounted,
+    onScreen,
+    workspaceOf,
+    warm.threads,
+    fetcher,
+    busy,
+    threadStore,
+  ]);
   useEffect(() => {
     const leave = () => pool.dispose();
     window.addEventListener("pagehide", leave, { once: true });
@@ -2443,16 +2437,10 @@ function PullView({ workspace }: { workspace: PullWorkspace }) {
 let sessionStream: typeof import("../data/session-stream") | undefined;
 /** A thread's session, read ahead with its newest replies' Markdown, so the
  * thread shows with the workspace's first frame. */
-function prefetchThreadSession(
-  reviewId: string,
-  sessionId: string,
-  fetcher: typeof fetch,
-  onDone?: () => void,
-) {
+function prefetchThreadSession(threadId: string, fetcher: typeof fetch, onDone?: () => void) {
   const read = ({ prefetchSession }: typeof import("../data/session-stream")) =>
     prefetchSession(
-      reviewId,
-      sessionId,
+      threadId,
       (store) => {
         // The replies that the thread shows first render in the worker
         // while the thread builds, so it shows when it is built.
@@ -2585,12 +2573,13 @@ function KeepScroll({
 }
 
 function iconFor(workspace: Workspace): IconName {
-  // An agent's review shows the agent that made it.
-  const agent = workspace.sessions?.at(-1)?.agent;
-  if (agent) return agent;
+  // A session's thread shows its agent.
+  const agent =
+    workspace.kind === "thread" ? /^(claude|codex)-/.exec(workspace.threadId)?.[1] : undefined;
+  if (agent) return agent as IconName;
   return workspace.kind === "vault"
     ? "vault"
-    : workspace.kind === "review" || workspace.kind === "pull"
+    : workspace.kind === "thread" || workspace.kind === "pull"
       ? "pullRequest"
       : workspace.branch
         ? "branch"
@@ -2599,7 +2588,7 @@ function iconFor(workspace: Workspace): IconName {
 function labelFor(workspace: Workspace) {
   if (workspace.title) return workspace.title;
   if (workspace.kind === "vault") return "Vault";
-  if (workspace.kind === "review") return "Saved review";
+  if (workspace.kind === "thread") return "Thread";
   if (workspace.kind === "pull") return "Pull request";
   return workspace.branch ?? "Working changes";
 }

@@ -8,8 +8,8 @@ import { fileURLToPath } from "node:url";
 import type { AgentInboxState, AgentMessage, SessionPlace } from "../../src/shared/agent-inbox";
 import type { OwnedState, SessionForked } from "../../src/shared/owned-session";
 import type { SessionEvent } from "../../src/shared/agent-session";
-import type { SavedReview } from "../../src/shared/saved-review";
-import { claudeProjectFolder } from "../../src/host/found-sessions";
+import type { ThreadList } from "../../src/shared/threads";
+import { claudeProjectFolder } from "../../src/host/session-index";
 import { startHost, type RunningHost } from "../../src/host/server";
 import {
   longProcess,
@@ -140,21 +140,25 @@ async function fixture(history: object[] = ONE_TURN) {
   };
   const adopted = await api<{ id: string }>("/api/sessions/adopt", { session });
   expect(adopted.status).toBe(200);
+  // The thread is the session's.
   const id = adopted.data.id;
-  const review = async () => (await api<SavedReview>(`/api/reviews/${id}`)).data;
-  const inbox = async () => (await api<AgentInboxState>(`/api/reviews/${id}/agent`)).data;
+  expect(id).toBe(`claude-${session}`);
+  /** The tabs, by ID. */
+  const tabs = async () =>
+    new Map((await api<ThreadList>("/api/threads")).data.threads.map((each) => [each.id, each]));
+  const inbox = async () => (await api<AgentInboxState>(`/api/sessions/${id}/agent`)).data;
+  /** Sends a message to a session's thread: this one's, or a fork's. */
   const send = async (text: string, sessionId = session) => {
     const sent = await api<{ message: AgentMessage; state: AgentInboxState }>(
-      `/api/reviews/${id}/agent/messages`,
-      { sessionId, text, noteIds: [] },
+      `/api/sessions/claude-${sessionId}/agent/messages`,
+      { text, noteIds: [] },
     );
     expect(sent.status).toBe(200);
     return sent.data;
   };
   /** A message that Med refuses, with its error. */
   const refused = async (text: string) =>
-    api<{ error: { code: string; message: string } }>(`/api/reviews/${id}/agent/messages`, {
-      sessionId: session,
+    api<{ error: { code: string; message: string } }>(`/api/sessions/${id}/agent/messages`, {
       text,
       noteIds: [],
     });
@@ -200,7 +204,7 @@ async function fixture(history: object[] = ONE_TURN) {
     home,
     id,
     original,
-    review,
+    tabs,
     inbox,
     send,
     refused,
@@ -298,33 +302,36 @@ test("Med does not send to a session that a terminal has open; once it closes, a
   expect(await args(session)).toEqual(expect.arrayContaining(["--resume", session]));
   await vi.waitFor(async () => expect(await prompts(session)).toEqual(["Check the summary."]));
   // Med runs the session now, as one that it started.
-  const owned = await api<OwnedState>(`/api/reviews/${id}/owned/${session}`);
+  const owned = await api<OwnedState>(`/api/sessions/${id}/owned`);
   expect(owned.status).toBe(200);
   expect((await inbox()).resumable).toEqual([]);
 
   // It stays Med's after a restart: it waits for its next prompt.
   await restart();
-  const back = await api<OwnedState>(`/api/reviews/${id}/owned/${session}`);
+  const back = await api<OwnedState>(`/api/sessions/${id}/owned`);
   expect(back.status).toBe(200);
   expect(back.data.status).toBe("idle");
 });
 
 test("Continue in Med forks the session; the thread follows the fork, which takes the next message", async () => {
-  const { api, id, original, send, inbox, review, args, prompts, started, terminal } =
-    await fixture();
+  const { api, id, original, send, tabs, args, prompts, started, terminal } = await fixture();
   const open = await terminal();
   const before = await readFile(original, "utf8");
+  expect((await api(`/api/threads/${id}/name`, { name: "Durations" })).status).toBe(200);
 
-  const continued = await api<{ review: SavedReview; state: OwnedState }>(
-    `/api/reviews/${id}/owned`,
-    { preset: "claude", fork: session },
+  const continued = await api<{ thread: string; state: OwnedState }>(
+    `/api/sessions/${id}/continue`,
+    {},
   );
   expect(continued.status).toBe(200);
   const fork = continued.data.state.sessionId;
   expect(fork).not.toBe(session);
-  // The thread lists the fork after the original, so the fork leads.
-  expect(continued.data.review.sessions?.map((entry) => entry.id)).toEqual([session, fork]);
-  expect((await review()).sessions?.at(-1)?.id).toBe(fork);
+  // The fork's thread takes the session's place, with its name.
+  expect(continued.data.thread).toBe(`claude-${fork}`);
+  expect((await tabs()).get(`claude-${fork}`)).toMatchObject({
+    title: "Durations",
+    session: { agent: "claude", id: fork },
+  });
   expect(await args(fork)).toEqual(
     expect.arrayContaining(["--resume", session, "--fork-session", "--session-id", fork]),
   );
@@ -336,17 +343,16 @@ test("Continue in Med forks the session; the thread follows the fork, which take
   // The terminal keeps its session as it was.
   expect(await readFile(original, "utf8")).toBe(before);
   expect(started(session)).toBe(false);
-  expect((await inbox()).elsewhere).toEqual({ [session]: "terminal" });
   await open.end();
 });
 
 /** The text of a session's first view, from its events stream. */
-async function firstView(port: number, token: string, reviewId: string, sessionId: string) {
+async function firstView(port: number, token: string, thread: string) {
   const controller = new AbortController();
-  const response = await fetch(
-    `http://127.0.0.1:${port}/api/reviews/${reviewId}/sessions/${sessionId}/events`,
-    { headers: { authorization: `Bearer ${token}` }, signal: controller.signal },
-  );
+  const response = await fetch(`http://127.0.0.1:${port}/api/sessions/${thread}/events`, {
+    headers: { authorization: `Bearer ${token}` },
+    signal: controller.signal,
+  });
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let text = "";
@@ -373,16 +379,14 @@ async function firstView(port: number, token: string, reviewId: string, sessionI
 }
 
 test("Fork from here makes a thread whose session starts from the history up to a reply, with that reply's model and effort", async () => {
-  const { api, id, original, args, prompts, started } = await fixture(TWO_TURNS);
+  const { api, id, original, tabs, args, prompts, started } = await fixture(TWO_TURNS);
   const before = await readFile(original, "utf8");
-  const forked = await api<SessionForked>(`/api/reviews/${id}/sessions/${session}/fork`, {
-    at: "a1",
-  });
+  const forked = await api<SessionForked>(`/api/sessions/${id}/fork`, { at: "a1" });
   expect(forked.status).toBe(200);
   expect(forked.data.title).toMatch(/ \(fork\)$/);
-  const thread = (await api<SavedReview>(`/api/reviews/${forked.data.id}`)).data;
-  const fork = thread.sessions![0]!.id;
-  expect(thread.sessions).toHaveLength(1);
+  // The fork is a thread of its own: its session's.
+  const fork = (await tabs()).get(forked.data.id)!.session!.id;
+  expect(forked.data.id).toBe(`claude-${fork}`);
   expect(fork).not.toBe(session);
   const forkArgs = await args(fork);
   expect(forkArgs).toEqual(
@@ -392,8 +396,15 @@ test("Fork from here makes a thread whose session starts from the history up to 
   expect(forkArgs[forkArgs.indexOf("--resume-session-at") + 1]).toBe("a1");
   expect(forkArgs[forkArgs.indexOf("--model") + 1]).toBe("claude-opus-5-5");
   expect(forkArgs[forkArgs.indexOf("--effort") + 1]).toBe("high");
-  // The message box shows them, also a model that Claude Code does not list.
-  const owned = (await api<OwnedState>(`/api/reviews/${forked.data.id}/owned/${fork}`)).data;
+  // The message box shows them, also a model that Claude Code does not list,
+  // once the fork's agent has answered.
+  const read = async () => (await api<OwnedState>(`/api/sessions/${forked.data.id}/owned`)).data;
+  await expect
+    .poll(
+      async () => (await read()).settings.find((setting) => setting.category === "model")?.value,
+    )
+    .toBe("claude-opus-5-5");
+  const owned = await read();
   const model = owned.settings.find((setting) => setting.category === "model");
   expect(model?.value).toBe("claude-opus-5-5");
   expect(model?.options.map((option) => option.value)).toContain("claude-opus-5-5");
@@ -401,15 +412,15 @@ test("Fork from here makes a thread whose session starts from the history up to 
 
   // Before its first prompt, the thread shows the history it starts from.
   const host = hosts.at(-1)!;
-  expect(await firstView(host.port, host.token, forked.data.id, fork)).toEqual([
+  expect(await firstView(host.port, host.token, forked.data.id)).toEqual([
     "Format the durations.",
     "The durations read in seconds now.",
   ]);
 
   // Its first message goes on from the reply, not from the turn after it.
   const sent = await api<{ message: AgentMessage }>(
-    `/api/reviews/${forked.data.id}/agent/messages`,
-    { sessionId: fork, text: "Show them as a table.", noteIds: [] },
+    `/api/sessions/${forked.data.id}/agent/messages`,
+    { text: "Show them as a table.", noteIds: [] },
   );
   expect(sent.data.message.delivery).toBe("delivered");
   await vi.waitFor(async () =>
@@ -418,14 +429,11 @@ test("Fork from here makes a thread whose session starts from the history up to 
   // The thread it forks stays as it is.
   expect(await readFile(original, "utf8")).toBe(before);
   expect(started(session)).toBe(false);
-  expect((await api<SavedReview>(`/api/reviews/${id}`)).data.sessions?.map((s) => s.id)).toEqual([
-    session,
-  ]);
+  expect((await tabs()).get(id)?.session?.id).toBe(session);
   // A message that the transcript does not have forks nothing.
-  const missing = await api<{ error: { code: string } }>(
-    `/api/reviews/${id}/sessions/${session}/fork`,
-    { at: "no-such-message" },
-  );
+  const missing = await api<{ error: { code: string } }>(`/api/sessions/${id}/fork`, {
+    at: "no-such-message",
+  });
   expect(missing.status).toBe(404);
   expect(missing.data.error.code).toBe("message-not-found");
 });
@@ -434,9 +442,9 @@ test("a kept session resumes with its last reply's model and effort, and Continu
   const { api, id, send, args, terminal } = await fixture(TWO_TURNS);
   const open = await terminal();
   // Continue in Med: the fork reads the session's prompt cache with its model.
-  const continued = await api<{ review: SavedReview; state: OwnedState }>(
-    `/api/reviews/${id}/owned`,
-    { preset: "claude", fork: session },
+  const continued = await api<{ thread: string; state: OwnedState }>(
+    `/api/sessions/${id}/continue`,
+    {},
   );
   const fork = continued.data.state.sessionId;
   const forkArgs = await args(fork);
@@ -450,7 +458,7 @@ test("a kept session resumes with its last reply's model and effort, and Continu
   const resumed = await args(session);
   expect(resumed[resumed.indexOf("--model") + 1]).toBe("claude-haiku-5-5");
   expect(resumed[resumed.indexOf("--effort") + 1]).toBe("low");
-  const owned = (await api<OwnedState>(`/api/reviews/${id}/owned/${session}`)).data;
+  const owned = (await api<OwnedState>(`/api/sessions/claude-${session}/owned`)).data;
   expect(owned.settings.find((setting) => setting.category === "model")?.value).toBe(
     "claude-haiku-5-5",
   );

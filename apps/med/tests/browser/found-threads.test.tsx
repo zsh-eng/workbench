@@ -1,18 +1,18 @@
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../../src/web/App";
 import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspaces";
 import { createBrowseApi } from "../../src/web/data/browse";
 import type { Comparison } from "../../src/shared/protocol";
-import type { SavedCheckout } from "../../src/shared/saved-review";
 import type { Thread } from "../../src/shared/threads";
 import { initializeTheme, themeController } from "../../src/web/themes";
 // The title band's sizes, which the review's title row in the band reads.
 import "../../src/web/components/TitleRow.css";
 
-// Sessions that Med found by itself (src/host/found-sessions.ts) list as
-// threads; one opens as a workspace on its checkout, with its session.
+// Sessions that Med found by itself (src/host/session-index.ts) list as
+// threads; one opens on the checkout where it works, with its session, and
+// the reviews that it hands off join its thread.
 
 const head = "a".repeat(40);
 const branches = [
@@ -58,8 +58,10 @@ const reviewFor = (repo: string, comparison: Comparison, id = `review-${repo}`) 
   metrics: { gitMs: 1, totalMs: 1, patchBytes: 1, cacheHit: false },
 });
 const glossarySession = { agent: "claude" as const, id: "5f0c2a8e-1111", cwd: "/test/glossary" };
+const FOUND = `claude-${glossarySession.id}`;
 const found = (patch: Partial<Thread> = {}): Thread => ({
-  id: `found-claude-${glossarySession.id}`,
+  id: FOUND,
+  kind: "session",
   title: "README glossary",
   createdAt: "2026-10-15T00:00:00Z",
   updatedAt: Date.now() - 20_000,
@@ -69,20 +71,20 @@ const found = (patch: Partial<Thread> = {}): Thread => ({
   branch: "glossary",
   agent: "claude",
   state: "working",
-  sessions: [glossarySession],
+  session: glossarySession,
+  reviews: [],
   changes: { files: 1, additions: 6, deletions: 0 },
-  found: true,
   ...patch,
 });
-/** A kept thread: it captured nothing, so it names only its checkout. Each
- * version is one comparison that the agent handed off. */
-const kept = (id: string, title: string, repo = "/test/glossary", versions = 0) => ({
-  id,
-  title,
-  sessions: [{ ...glossarySession, cwd: repo }],
+/** A review that the session handed off: one comparison for each version. */
+const kept = (repo: string, versions: number) => ({
+  id: "r_kept",
+  title: "README glossary",
+  session: { ...glossarySession, cwd: repo },
   createdAt: "2026-10-15T00:00:00Z",
   revision: versions,
   commentCount: 0,
+  key: "readme-glossary",
   targets: Array.from({ length: versions }, (_, index) => ({
     id: `v${index + 1}`,
     repositoryId: "repo-0",
@@ -94,22 +96,19 @@ const kept = (id: string, title: string, repo = "/test/glossary", versions = 0) 
     head: "working",
     captured: true,
   })),
-  ...(versions
-    ? {
-        key: "readme-glossary",
-        // The latest version is 5 minutes old, and each one before it 5 more.
-        iterations: Array.from({ length: versions }, (_, index) => ({
-          number: index + 1,
-          createdAt: new Date(Date.now() - (versions - index) * 5 * 60_000).toISOString(),
-          targetIds: [`v${index + 1}`],
-        })),
-      }
-    : {}),
-  checkout: {
-    repositoryId: "repo-0",
-    repo,
-    branch: repo === "/test/glossary" ? "glossary" : "main",
-  },
+  // The latest version is 5 minutes old, and each one before it 5 more.
+  iterations: Array.from({ length: versions }, (_, index) => ({
+    number: index + 1,
+    createdAt: new Date(Date.now() - (versions - index) * 5 * 60_000).toISOString(),
+    targetIds: [`v${index + 1}`],
+  })),
+});
+/** The review's line in its session's thread. */
+const handedOff = (updatedAt: number) => ({
+  id: "r_kept",
+  title: "README glossary",
+  createdAt: "2026-10-15T00:00:00Z",
+  updatedAt,
 });
 
 let root: Root | undefined;
@@ -150,11 +149,19 @@ const stream = (init: RequestInit | undefined, first?: string) =>
 
 /** A host with one repository and its glossary worktree. It lists the
  * threads that the test sets, and records the requests that change them. */
-function createHost(threads: Thread[]) {
+function createHost(initial: Thread[]) {
+  let threads = initial;
   const posts: { path: string; body: unknown }[] = [];
   const sessionStreams: string[] = [];
   const reviews: { repo: string; comparison: Comparison }[] = [];
-  let keptReview: ReturnType<typeof kept> = kept("r_kept", "README glossary");
+  let keptReview = kept("/test/repo", 0);
+  const listeners = new Set<ReadableStreamDefaultController<Uint8Array>>();
+  const frame = () =>
+    `event: state\ndata: ${JSON.stringify({
+      threads,
+      repositories: [{ id: "repo-0", name: "tide", path: "/test/repo" }],
+      found: { shown: true },
+    })}\n\n`;
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input), "http://localhost");
     const repo = url.searchParams.get("repo") || "/test/repo";
@@ -163,22 +170,7 @@ function createHost(threads: Thread[]) {
       posts.push({ path: url.pathname, body });
       return Response.json({ shown: true, hidden: [] });
     }
-    if (url.pathname === "/api/sessions/adopt" && init?.method === "POST") {
-      posts.push({ path: url.pathname, body });
-      return Response.json({
-        id: "r_kept",
-        title: "README glossary",
-        created: true,
-        session: {
-          ...glossarySession,
-          title: "README glossary",
-          path: "/test/transcript.jsonl",
-          createdAt: "2026-10-15T00:00:00Z",
-          updatedAt: "2026-10-15T00:00:00Z",
-        },
-      });
-    }
-    const tab = /^\/api\/threads\/([\w-]+)\/(open|close|delete)$/.exec(url.pathname);
+    const tab = /^\/api\/threads\/([\w-]+)\/(open|close|delete|base)$/.exec(url.pathname);
     if (tab && init?.method === "POST") {
       posts.push({ path: url.pathname, body });
       return Response.json(
@@ -186,10 +178,12 @@ function createHost(threads: Thread[]) {
           ? { closed: true }
           : tab[2] === "delete"
             ? { deleted: true }
-            : { thread: threads.find((thread) => thread.id === tab[1]) },
+            : tab[2] === "base"
+              ? {}
+              : { thread: threads.find((thread) => thread.id === tab[1]) },
       );
     }
-    const session = /^\/api\/reviews\/([\w-]+)\/sessions\/([\w-]+)\/events$/.exec(url.pathname);
+    const session = /^\/api\/sessions\/([\w-]+)\/events$/.exec(url.pathname);
     if (session) {
       sessionStreams.push(session[1]!);
       const reset = {
@@ -216,21 +210,20 @@ function createHost(threads: Thread[]) {
     if (target?.[3] === "notes")
       return Response.json({ reviewId: `${target[1]}-${target[2]}`, revision: 0, notes: [] });
     if (url.pathname === "/api/reviews/r_kept") return Response.json(keptReview);
-    if (url.pathname === "/api/reviews/r_kept/details" && init?.method === "POST") {
-      posts.push({ path: url.pathname, body });
-      const { checkout } = body as { checkout: SavedCheckout & { branch: string } };
-      keptReview = { ...keptReview, checkout };
-      return Response.json(keptReview);
-    }
     switch (url.pathname) {
       case "/api/threads/events":
-        return stream(
-          init,
-          `event: state\ndata: ${JSON.stringify({
-            threads,
-            repositories: [{ id: "repo-0", name: "tide", path: "/test/repo" }],
-            found: { shown: true },
-          })}\n\n`,
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              listeners.add(controller);
+              controller.enqueue(new TextEncoder().encode(frame()));
+              init?.signal?.addEventListener("abort", () => {
+                listeners.delete(controller);
+                controller.error(new DOMException("Aborted", "AbortError"));
+              });
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
         );
       case "/api/events":
       case "/api/windows":
@@ -280,7 +273,12 @@ function createHost(threads: Thread[]) {
     posts,
     sessionStreams,
     reviews,
-    /** The kept thread as the host reads it next, such as after a hand-off. */
+    /** The threads as the host lists them next. */
+    setThreads(next: Thread[]) {
+      threads = next;
+      for (const listener of listeners) listener.enqueue(new TextEncoder().encode(frame()));
+    },
+    /** The session's review as the host reads it next, such as after a hand-off. */
     setKept: (next: ReturnType<typeof kept>) => {
       keptReview = next;
     },
@@ -311,7 +309,7 @@ const shown = () =>
     element.checkVisibility({ visibilityProperty: true }),
   );
 
-test("a found session lists as a thread, opens on its checkout with its session, and Keep in Med saves it", async () => {
+test("a found session lists as a thread, and opens on the Changes where it works, beside its session", async () => {
   const host = createHost([found()]);
   render(host);
   const sidebar = page.getByRole("navigation", { name: "Sessions" });
@@ -319,57 +317,29 @@ test("a found session lists as a thread, opens on its checkout with its session,
   // One row, like any session's: its name, dimmed while its agent works.
   await expect.element(row).toHaveAttribute("aria-busy", "true");
 
-  // It opens on its checkout's live changes, with its session beside them.
+  // It opens on its checkout's live changes, with its session beside them:
+  // on a branch, its commits since main and its uncommitted changes.
   await row.click();
   await expect.poll(() => shown()?.dataset.selectedBranch).toBe("glossary");
   await expect.element(row).toHaveAttribute("aria-current", "page");
   const pane = page.getByRole("region", { name: "Claude session" });
   await expect.element(pane.getByText("Add a short glossary to the README.")).toBeVisible();
-  expect(host.sessionStreams).toContain(`found-claude-${glossarySession.id}`);
-  // No saved review to read: the session has no message box, only where it runs.
-  expect(host.sessionStreams.every((id) => id.startsWith("found-"))).toBe(true);
-  const bar = page.getByRole("group", { name: "Runs in Claude Code" });
-  await expect.element(bar.getByText(`claude --resume ${glossarySession.id}`)).toBeVisible();
-  const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
-  await bar.getByRole("button", { name: "Copy Claude Code resume command" }).click();
-  expect(copy).toHaveBeenCalledWith(`cd '/test/glossary' && claude --resume ${glossarySession.id}`);
-  await expect.element(bar.getByText("Copied")).toBeVisible();
-  copy.mockRestore();
-
-  // Keep in Med adopts the session on its checkout and captures nothing. The
-  // saved thread takes the workspace's place and shows the live Changes: on
-  // a branch, its commits since main and its uncommitted changes.
-  await bar.getByRole("button", { name: "Keep in Med" }).click();
-  await expect.poll(() => location.pathname).toBe("/review/r_kept");
-  expect(host.posts).toEqual([
-    {
-      path: "/api/sessions/adopt",
-      body: { session: glossarySession.id, repo: "/test/glossary", title: "README glossary" },
-    },
-  ]);
-  await expect.poll(() => shown()?.dataset.reviewId).toBe("review-/test/glossary");
-  expect(host.reviews.at(-1)).toEqual({
-    repo: "/test/glossary",
-    comparison: { kind: "working", base: "main" },
-  });
-  // Until the agent shows a Review, the pages are Changes and Commit. The
-  // thread opens on its session; Changes opens beside it.
+  expect(host.sessionStreams).toContain(FOUND);
+  await expect
+    .poll(() => host.reviews.at(-1))
+    .toEqual({ repo: "/test/glossary", comparison: { kind: "working", base: "main" } });
+  // Until the agent hands off a review, the pages are Changes and Commit.
   const tabs = page.getByRole("radiogroup", { name: "Page" });
-  const changes = tabs.getByRole("radio", { name: "Changes" });
-  await expect.element(changes).toHaveAttribute("aria-checked", "false");
   expect(tabs.getByRole("radio", { name: "Review" }).query()).toBeNull();
-  await changes.click();
-  await expect.element(changes).toHaveAttribute("aria-checked", "true");
-  expect(document.body.textContent).not.toContain("Return to review");
 });
 
 test("Close on a found tab sends it to history, Delete hides its session, and the palette hides all", async () => {
   const codex = found({
-    id: "found-codex-c1",
+    id: "codex-c1",
     title: "Readers in the US want heights in feet",
     agent: "codex",
     state: "idle",
-    sessions: [{ agent: "codex", id: "c1", cwd: "/test/glossary" }],
+    session: { agent: "codex", id: "c1", cwd: "/test/glossary" },
   });
   const host = createHost([found(), codex]);
   render(host);
@@ -379,7 +349,7 @@ test("Close on a found tab sends it to history, Delete hides its session, and th
   await page.getByRole("menuitem", { name: /^Archive/ }).click();
   await expect.element(row).not.toBeInTheDocument();
   expect(host.posts).toEqual([
-    { path: "/api/threads/found-codex-c1/close", body: { removeWorktree: false } },
+    { path: "/api/threads/codex-c1/close", body: { removeWorktree: false } },
   ]);
 
   // Delete asks first; the host hides the session, so it does not come back.
@@ -392,7 +362,7 @@ test("Close on a found tab sends it to history, Delete hides its session, and th
     .getByRole("button", { name: "Delete" })
     .click();
   await expect.element(glossary).not.toBeInTheDocument();
-  expect(host.posts.at(-1)?.path).toMatch(/^\/api\/threads\/found-claude-[\w-]+\/delete$/);
+  expect(host.posts.at(-1)?.path).toBe(`/api/threads/${FOUND}/delete`);
 
   await userEvent.keyboard("{Control>}k{/Control}");
   await page.getByRole("combobox", { name: "Search commands" }).fill("not kept in Med");
@@ -402,31 +372,23 @@ test("Close on a found tab sends it to history, Delete hides its session, and th
     .toEqual({ path: "/api/found", body: { shown: false } });
 });
 
-test("a kept thread on a shared checkout shows its Changes, keeps its session's files on request, and shows the latest Review that its agent hands off", async () => {
+test("a session on a shared checkout keeps its own files on request, and shows the latest Review that it hands off", async () => {
   // The Changes page's sidebar shows, with the comparison at its top.
   await page.viewport(1800, 800);
   localStorage.setItem("med:changes-rail", "open");
-  const thread: Thread = {
-    id: "r_kept",
-    title: "README glossary",
-    createdAt: "2026-10-15T00:00:00Z",
-    updatedAt: Date.now() - 20_000,
-    repository: { id: "repo-0", name: "tide", path: "/test/repo" },
+  const thread = found({
     checkout: "/test/repo",
+    linked: undefined,
     branch: "main",
-    agent: "claude",
     state: "idle",
-    sessions: [{ ...glossarySession, cwd: "/test/repo" }],
+    session: { ...glossarySession, cwd: "/test/repo" },
     // Another session works in the main checkout too.
     shared: true,
-  };
+  });
   const host = createHost([thread]);
-  host.setKept(kept("r_kept", "README glossary", "/test/repo"));
   render(host);
   await page.getByRole("button", { name: /^README glossary/ }).click();
-  await expect.poll(() => location.pathname).toBe("/review/r_kept");
-  // The main checkout's workspace shows the same working changes, and stays
-  // on screen until the thread is ready to take its place.
+  await expect.poll(() => location.pathname).toBe(`/review/${FOUND}`);
   await expect
     .element(
       page
@@ -458,9 +420,10 @@ test("a kept thread on a shared checkout shows its Changes, keeps its session's 
   await choose(/^Only this session's files, on/);
   await expect.poll(() => host.reviews.at(-1)?.comparison).toEqual({ kind: "staged" });
 
-  // The agent hands off a Review: the Review tab comes, and Changes stay.
-  host.setKept(kept("r_kept", "README glossary", "/test/repo", 1));
-  window.dispatchEvent(new CustomEvent("med:review-updated", { detail: { id: "r_kept" } }));
+  // The agent hands off a review: it joins the thread, the Review tab comes,
+  // and Changes stay.
+  host.setKept(kept("/test/repo", 1));
+  host.setThreads([{ ...thread, reviews: [handedOff(Date.now())] }]);
   const review = tabs.getByRole("radio", { name: "Review", exact: true });
   await expect.element(review).toBeVisible();
   await expect
@@ -474,9 +437,8 @@ test("a kept thread on a shared checkout shows its Changes, keeps its session's 
   expect(checkout.query()).toBeNull();
   expect(select.query()).toBeNull();
   expect(document.body.textContent).not.toMatch(/Version \d/);
-  // A new hand-off moves the Review to the latest one, with still nothing to
-  // choose: earlier hand-offs stay only as its snapshots.
-  host.setKept(kept("r_kept", "README glossary", "/test/repo", 2));
+  // A new hand-off moves the Review to the latest version.
+  host.setKept(kept("/test/repo", 2));
   window.dispatchEvent(new CustomEvent("med:review-updated", { detail: { id: "r_kept" } }));
   await expect.poll(() => shown()?.dataset.reviewId).toBe("r_kept-v2");
   await expect.element(review).toHaveAttribute("aria-checked", "true");
@@ -489,23 +451,11 @@ test("a kept thread on a shared checkout shows its Changes, keeps its session's 
   await userEvent.keyboard("{Escape}");
 });
 
-test("a thread's Comparison menu keeps a base for its Changes and moves the thread to another checkout", async () => {
+test("a thread's Comparison menu keeps a base for its Changes, and the thread follows its session", async () => {
   // The Changes page's sidebar shows, with the comparison at its top.
   await page.viewport(1800, 800);
   localStorage.setItem("med:changes-rail", "open");
-  const thread: Thread = {
-    id: "r_kept",
-    title: "README glossary",
-    createdAt: "2026-10-15T00:00:00Z",
-    updatedAt: Date.now() - 20_000,
-    repository: { id: "repo-0", name: "tide", path: "/test/repo" },
-    checkout: "/test/glossary",
-    linked: true,
-    branch: "glossary",
-    agent: "claude",
-    state: "idle",
-    sessions: [glossarySession],
-  };
+  const thread = found({ state: "idle" });
   const host = createHost([thread]);
   // The base branch menu reads the branches with the page's own fetch.
   const pageFetch = globalThis.fetch;
@@ -527,8 +477,6 @@ test("a thread's Comparison menu keeps a base for its Changes and moves the thre
     await expect
       .poll(() => host.reviews.at(-1))
       .toEqual({ repo: "/test/glossary", comparison: { kind: "working", base: "main" } });
-    // The control names the checkout's branch and its base, in Changes,
-    // which opens beside the thread's session.
     await expect.element(page.getByRole("region", { name: "Claude session" })).toBeVisible();
     // The thread keeps its layout from the test before, with Changes open;
     // clicked again, the page would hide it.
@@ -536,52 +484,35 @@ test("a thread's Comparison menu keeps a base for its Changes and moves the thre
     if (changes.element().getAttribute("aria-checked") !== "true") await changes.click();
     const select = page.getByRole("combobox", { name: "Comparison" });
     await expect.element(select).toHaveTextContent("glossary since main");
+    // A thread follows its session: the menu offers no checkout to move to.
     await select.click();
-    await expect
-      .element(page.getByRole("option", { name: /^Thread checkout…/ }))
-      .toHaveTextContent("Thread checkout…glossary");
+    expect(page.getByRole("option", { name: /^Thread checkout…/ }).query()).toBeNull();
     await page.getByRole("option", { name: /^Base branch…/ }).click();
     await page.getByRole("menuitem", { name: "stable" }).click();
     // The thread keeps the base, and its Changes keep the uncommitted ones.
-    const checkout = { repositoryId: "repo-0", repo: "/test/glossary", branch: "glossary" };
     await expect
       .poll(() => host.posts.at(-1))
-      .toEqual({
-        path: "/api/reviews/r_kept/details",
-        body: { checkout: { ...checkout, base: "stable" } },
-      });
+      .toEqual({ path: `/api/threads/${FOUND}/base`, body: { base: "stable" } });
     await expect
       .poll(() => host.reviews.at(-1))
       .toEqual({ repo: "/test/glossary", comparison: { kind: "working", base: "stable" } });
     await expect.element(select).toHaveTextContent("glossary since stable");
-    // The repository's usual base is not saved.
+    // The repository's usual base is not kept.
     await select.click();
     await page.getByRole("option", { name: /^Base branch…/ }).click();
     await page.getByRole("menuitem", { name: "main" }).click();
     await expect
       .poll(() => host.posts.at(-1))
-      .toEqual({ path: "/api/reviews/r_kept/details", body: { checkout } });
+      .toEqual({ path: `/api/threads/${FOUND}/base`, body: { base: null } });
     await expect.element(select).toHaveTextContent("glossary since main");
 
-    // Thread checkout… is ⌘⇧G in a thread: ↵ moves the thread, and its
-    // Changes show the new checkout.
-    await select.click();
-    await page.getByRole("option", { name: /^Thread checkout…/ }).click();
-    await expect.element(page.getByRole("dialog", { name: "Thread checkout" })).toBeVisible();
-    await page.getByRole("combobox", { name: "Search branches" }).fill("main");
-    await userEvent.keyboard("{Enter}");
-    await expect
-      .poll(() => host.posts.at(-1))
-      .toEqual({
-        path: "/api/reviews/r_kept/details",
-        body: { checkout: { repositoryId: "repo-0", repo: "/test/repo", branch: "main" } },
-      });
+    // The session moves to the main checkout: the thread's Changes follow it.
+    host.setThreads([{ ...thread, checkout: "/test/repo", linked: undefined, branch: "main" }]);
     await expect
       .poll(() => host.reviews.at(-1))
       .toEqual({ repo: "/test/repo", comparison: { kind: "working" } });
-    await expect.element(page.getByText("This thread shows main now.")).toBeVisible();
     await expect.element(select).toHaveTextContent("Working changes");
-    expect(location.pathname).toBe("/review/r_kept");
+    expect(location.pathname).toBe(`/review/${FOUND}`);
   } finally {
     globalThis.fetch = pageFetch;
   }

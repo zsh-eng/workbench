@@ -206,9 +206,19 @@ const savedReview = {
 const threads: Thread[] = [
   {
     id: "pull",
+    kind: "review",
     title: savedReview.title,
     createdAt: "2026-10-01T00:00:00Z",
     updatedAt: Date.now() - 60_000,
+    reviews: [
+      {
+        id: "pull",
+        title: savedReview.title,
+        createdAt: "2026-10-01T00:00:00Z",
+        updatedAt: Date.now() - 60_000,
+        pullRequestUrl: pullUrl,
+      },
+    ],
     repository: { id: "repo-0", name: "fixture", path: "/test/repo" },
     checkout: "/test/feature",
     linked: true,
@@ -445,7 +455,7 @@ test("a GitHub comment shows its Markdown: code, lists, task lists, quotes, and 
   expect(element.textContent).not.toContain("```");
 });
 
-test("a pull request names the review in its row, with its state and author; the band keeps the checkout and the comments", async () => {
+test("a pull request names the review in its row, quietly: its mark in its state's colour, its title, and its number; the band keeps the checkout and the comments", async () => {
   pullTitle = `Rename the export ${"and every caller of it ".repeat(12)}`;
   await openChanges();
   const link = page.getByRole("link", { name: /^Open pull request #7: Rename the export/ });
@@ -453,17 +463,19 @@ test("a pull request names the review in its row, with its state and author; the
   expect(link.element().getAttribute("href")).toBe(pullUrl);
   expect(link.element().getAttribute("target")).toBe("_blank");
   // The review's own row, under the title band, leads with the pull
-  // request: its number and title, its state, and its author.
+  // request: its mark in the colour of its state, its title, and its number.
+  // No badge or author: those are on the Pull request page.
   const row = link.element().closest<HTMLElement>('header[aria-label="Review header"]')!;
   expect(row).not.toBeNull();
   expect(row.closest('[data-pane="review"]')).not.toBeNull();
-  await expect.poll(() => row.textContent).toMatch(/#7\s*Rename the export.*Open\s*mira/);
-  // One row: the title gives way, cut at its end; the state and author stay.
-  expect(
-    row.querySelector('[title="Opened by mira"]')!.getBoundingClientRect().width,
-  ).toBeGreaterThan(0);
+  await expect.poll(() => row.querySelector('[data-state="open"]')).not.toBeNull();
+  expect(link.element().textContent).toMatch(/^Rename the export.*#7$/);
+  expect(row.textContent).not.toContain("mira");
+  // One row: the title gives way, cut at its end; the number stays.
   expect(row.getBoundingClientRect().height).toBeLessThanOrEqual(44);
-  const title = [...link.element().querySelectorAll("span")].at(-1)!;
+  const title = [...link.element().querySelectorAll("span")]
+    .filter((span) => span.textContent?.startsWith("Rename the export"))
+    .at(-1)!;
   expect(title.scrollWidth).toBeGreaterThan(title.clientWidth);
   // The band names the checkout, and the comments count is at its end, with
   // the pages; it holds no review header.
@@ -521,7 +533,7 @@ test("the Pull request tab shows the pull request as GitHub has it", async () =>
     .toBe("Openmira wants to merge feature into main");
   expect(view.getByText("bug", { exact: true }).query()).toBeNull();
   await expect
-    .element(view.getByRole("link", { name: "Open on GitHub" }).first())
+    .element(view.getByRole("link", { name: "#7", exact: true }))
     .toHaveAttribute("href", pullUrl);
   // What stops the merge, and how far behind, in words.
   const merge = view.getByRole("region", { name: "Merge" });
@@ -662,7 +674,7 @@ test("a failed read says why and leaves the way to GitHub open", async () => {
     .toContain("502 Bad Gateway");
   await expect.element(view.getByRole("heading", { name: "Rename the export #7" })).toBeVisible();
   await expect
-    .element(view.getByRole("link", { name: "Open on GitHub" }).first())
+    .element(view.getByRole("link", { name: "#7", exact: true }))
     .toHaveAttribute("href", pullUrl);
   // Refresh tries again, and the page fills in.
   liveFails = "";

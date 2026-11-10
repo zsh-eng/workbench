@@ -81,7 +81,6 @@ const KEYS = new Set([
   "fileOpen",
   "fileTab",
   "commitPick",
-  "layerSwitch",
 ]);
 
 /** Windows of one run, with periodic host work: a count can move by one period. */

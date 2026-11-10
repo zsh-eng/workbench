@@ -271,7 +271,21 @@ export function AddToReplyButton({ label, text }: { label: string; text: () => s
         setAdded(true);
       }}
     >
-      <Icon name={added ? "check" : "reply"} size={13} />
+      <Icon name={added ? "check" : "commentAdd"} size={13} />
+    </button>
+  );
+}
+
+/** A thread's one Reply, in words, at the end of its tools. */
+function ReplyButton({ label, onClick }: { label?: string; onClick(): void }) {
+  return (
+    <button
+      type="button"
+      {...(label && { "aria-label": label, title: label })}
+      {...stylex.props(ui.button, styles.tool, styles.word)}
+      onClick={onClick}
+    >
+      Reply
     </button>
   );
 }
@@ -410,26 +424,26 @@ export function PullRequestThreadCard({
         mark="github"
         tools={
           <>
-            {github && !replying && (
-              <button
-                type="button"
-                title="Reply on GitHub, in your pending review"
-                aria-label="Reply on GitHub"
-                {...stylex.props(ui.button, ui.iconButton, styles.tool)}
-                onClick={() => setReplying(true)}
-              >
-                <Icon name="edit" size={13} />
-              </button>
-            )}
             <AddToReplyButton label={threadLabel(thread)} text={() => threadText(thread)} />
             <CopyButton label="Copy thread" text={() => threadText(thread)} />
             <OpenButton url={first.url} />
+            {github && !replying && !replies.length && (
+              <ReplyButton label="Reply on GitHub" onClick={() => setReplying(true)} />
+            )}
           </>
         }
       />
-      {replies.map((reply) => (
+      {replies.map((reply, index) => (
         <div key={reply.id} {...stylex.props(styles.reply)}>
-          <Entry comment={reply} now={now} />
+          <Entry
+            comment={reply}
+            now={now}
+            tools={
+              github && !replying && index === replies.length - 1 ? (
+                <ReplyButton label="Reply on GitHub" onClick={() => setReplying(true)} />
+              ) : undefined
+            }
+          />
         </div>
       ))}
       {github && replying && (
@@ -1129,22 +1143,12 @@ export function GuideNoteCard({
         tag={guideTags[note.kind]}
         tools={
           <>
-            {onReply && (
-              <button
-                type="button"
-                title="Reply"
-                aria-label="Reply"
-                {...stylex.props(ui.button, ui.iconButton, styles.tool)}
-                onClick={onReply}
-              >
-                <Icon name="reply" size={14} />
-              </button>
-            )}
             <AddToReplyButton
               label={`${note.path.split("/").at(-1)}${note.line ? `:${guideLines(note)}` : ""}`}
               text={() => guideNoteText(note, author)}
             />
             <CopyButton label="Copy comment" text={() => guideNoteText(note, author)} />
+            {onReply && <ReplyButton onClick={onReply} />}
           </>
         }
       />
@@ -1358,15 +1362,14 @@ const styles = stylex.create({
   mark: { display: "inline-flex", color: tokens.muted, flexShrink: 0 },
   author: { fontSize: 12.5, fontWeight: 550, color: tokens.text },
   time: { color: tokens.faint, fontSize: 11, whiteSpace: "nowrap" },
+  // A state in a word, in its colour: no pill, so a row stays quiet.
   state: {
     flexShrink: 0,
     fontFamily: tokens.ui,
-    fontSize: 10.5,
+    fontSize: 11.5,
+    fontWeight: 500,
     lineHeight: "18px",
-    paddingInline: 6,
-    borderRadius: `calc(4px * ${tokens.round})`,
     color: tokens.muted,
-    backgroundColor: tokens.fill,
   },
   good: { color: tokens.green },
   bad: { color: tokens.red },
@@ -1424,12 +1427,16 @@ const styles = stylex.create({
     fontSize: 12,
     cursor: "pointer",
   },
-  reply: {
-    marginTop: 4,
-    paddingTop: 4,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: tokens.line,
+  // The next message of a thread: one under the other, on the same edge.
+  reply: { marginTop: 8 },
+  // A tool in words, such as the thread's Reply.
+  word: {
+    width: "auto",
+    paddingInline: 8,
+    color: { default: tokens.muted, ":hover": tokens.text },
+    fontSize: 12,
+    fontWeight: 550,
+    whiteSpace: "nowrap",
   },
   trigger: { flexShrink: 0, gap: 5 },
   count: { fontVariantNumeric: "tabular-nums" },

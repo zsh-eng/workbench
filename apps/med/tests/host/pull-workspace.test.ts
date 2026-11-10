@@ -8,6 +8,7 @@ import type { OwnedState } from "../../src/shared/owned-session";
 import type { RegisteredRepository } from "../../src/shared/protocol";
 import type { PullJob } from "../../src/shared/pull-workspace";
 import type { SavedReview } from "../../src/shared/saved-review";
+import { threadOfReview } from "../../src/shared/threads";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { readServerEvents } from "../../src/web/data/sse";
 import { removeFolder } from "./remove-folder";
@@ -143,7 +144,7 @@ test("a pasted pull request link opens in a worktree with its review and an agen
     title: "#7 Add durations",
     pullRequestUrl: "https://github.com/acme/trails/pull/7",
     targets: [{ repo: job.worktree, base, head }],
-    sessions: [{ agent: "claude", cwd: job.worktree }],
+    session: { agent: "claude", cwd: job.worktree },
   });
 
   // The same link again reuses the worktree and the review.
@@ -169,7 +170,7 @@ test("a pasted pull request link opens in a worktree with its review and an agen
   // checkout, and untracked files keep it.
   const remove = (path: string) =>
     api<{ removed?: true; error?: { message: string } }>("/api/worktrees/remove", { path });
-  const owned = `/api/reviews/${job.reviewId}/owned/${review.sessions![0]!.id}`;
+  const owned = `/api/sessions/${threadOfReview(review)}/owned`;
   const status = async () => (await api<OwnedState>(owned)).data.status;
   await api(owned, { action: "prompt", text: "Wait" });
   await vi.waitFor(async () => expect(await status()).toBe("working"));

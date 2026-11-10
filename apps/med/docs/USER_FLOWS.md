@@ -6,7 +6,7 @@ defines the words (thread, session, hand-off, review), and the pages under
 
 - [An agent changes code, and you review it](#an-agent-changes-code-and-you-review-it)
 - [Ask the agent for changes](#ask-the-agent-for-changes)
-- [One long thread, with stacked pull requests](#one-long-thread-with-stacked-pull-requests)
+- [One session, several reviews](#one-session-several-reviews)
 - [Ask about the code](#ask-about-the-code)
 - [Review a pull request](#review-a-pull-request)
 - [Look up a file or a note](#look-up-a-file-or-a-note)
@@ -53,32 +53,29 @@ Med sends only to a session that it runs. For a session that another app
 runs, **Copy comments** puts them on the clipboard as Markdown to paste there,
 or **Continue in Med** forks the session into Med.
 
-## One long thread, with stacked pull requests
+## One session, several reviews
 
-A thread is one intent. When a task grows into several pull requests, they
-stay one thread: each part is a layer of a stack, bottom first.
+A thread is an agent session, wherever it works. When a task grows into
+several pull requests, or the agent moves to another branch or repository,
+it stays one thread: each review that it hands off is listed in it.
 
 ```mermaid
-flowchart BT
-  main["main"] --> L1["Layer 1: the data model<br/>(PR #41)"]
-  L1 --> L2["Layer 2: the API<br/>(PR #42)"]
-  L2 --> L3["Layer 3: the screen<br/>(a branch, not yet a PR)"]
+flowchart LR
+  S["Session (one sidebar row)"] --> R1["Review: the data model<br/>(key feat/model, PR #41)"]
+  S --> R2["Review: the API<br/>(key feat/api, PR #42)"]
+  S --> C["Changes: the checkout<br/>where it works now"]
 ```
 
-1. The agent hands off each part. A hand-off whose base is the top layer's
-   head, from the same session, joins the thread as a new layer: the CLI says
-   "Added layer 3". **Ungroup** in the row's menu undoes it. An agent can also
-   make the stack at once with `med review create --stack 41 42 feat/screen`.
-2. The Review's rail lists the layers, with the base branch at the bottom.
-   **This layer** shows one layer's own diff; **Whole stack** shows them
-   together; shift-click picks a range. `⌥↑` and `⌥↓` move between layers.
-3. Comments belong to the layer that you wrote them on. The agent fixes a
-   layer and hands off again; only that layer changes.
-4. When a layer is ready, ask for its pull request. The agent writes a draft
-   with `med pr draft`, you comment on the draft in Med, and **Create** opens
-   it on GitHub. The band then shows the pull request's title and state.
-
-[Stacks and sets](STACKS.md) has the model.
+1. The agent hands off each part with its own `--key`, such as its branch.
+   Each key is a review of the thread; the same key again is that review's
+   next version.
+2. The session rail's **Reviews** lists them, newest first, and opens one.
+   Comments belong to the review and the version that you wrote them on.
+3. **Changes** follow the agent: when it moves to another branch, worktree,
+   or repository, the row and the title band show where it works now.
+4. When a part is ready, ask for its pull request. The agent opens it and
+   links it with `med review update --pr <url>`; the band then shows the
+   pull request's title and state.
 
 ## Ask about the code
 
@@ -172,7 +169,7 @@ sequenceDiagram
 - **One review per task.** The same `--key`, usually the branch, adds a
   version to the same thread. The agent picks the comparison: `--working`,
   `--base <commit> --head HEAD`, `--base main --head HEAD --merge-base`, or
-  `--stack` / `--set` for several pull requests.
+  `--manifest` for several repositories.
 - **A guide when the change has parts.** The guide is JSON: a summary, then
   segments of files, each with why, and comments where they save time. A
   small change is just the diff.
@@ -181,8 +178,8 @@ sequenceDiagram
 - **Comments come back as the next turn.** In a thread that Med runs, they
   arrive as a message; the agent answers each with `med reply <id>` and hands
   off again.
-- **Pull requests through Med.** Asked for a pull request, the agent writes it
-  with `med pr template` and `med pr draft`, never `gh pr create`; you open it
-  with **Create**.
+- **Pull requests when asked.** Asked for a pull request, the agent fills
+  the template that `med pr template` prints, opens it with `gh pr create`,
+  and links it with `med review update --pr <url>`.
 - **Threads.** `med thread list | open | close`, and `find` / `adopt` to bring
   an earlier session into Med.

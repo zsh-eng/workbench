@@ -39,13 +39,20 @@
   overflow-wrap: anywhere;
   text-wrap: balance;
 }
-/* The number after the title, quiet, as GitHub sets it. */
+/* The number after the title, quiet, as GitHub sets it; it goes to GitHub. */
 .med-pull-number {
   color: var(--med-faint);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
   letter-spacing: normal;
   white-space: nowrap;
+  text-decoration: none;
+}
+.med-pull-number:hover {
+  color: var(--med-muted);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
 }
 /* The description is the page's prose, without a page's own margins. */
 .med-pull-prose.med-md-prose {

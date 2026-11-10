@@ -15,15 +15,7 @@ import { viewSettings } from "../../src/web/data/view-settings";
 import type { BrowseSource } from "../../src/shared/browse";
 import type { AgentInboxState } from "../../src/shared/agent-inbox";
 import type { CodexReviewRun } from "../../src/shared/codex-review";
-import type {
-  AgentSession,
-  BriefComment,
-  BriefCommentMutation,
-  PinMutation,
-  SavedPin,
-  SavedPrDraft,
-  Since,
-} from "../../src/shared/saved-review";
+import type { AgentSession, Since } from "../../src/shared/saved-review";
 import {
   AGENT_CAPABILITIES,
   type AgentPreset,
@@ -146,14 +138,12 @@ async function mountApp(
     metadataFile?: boolean;
     branches?: boolean;
     savedReview?: boolean;
-    /** Markdown brief of the saved review. */
-    brief?: string;
     /** The agent's guide to the saved review. */
     guide?: ReviewGuide;
     readOnly?: boolean;
     noteMutation?: () => Promise<Response | undefined>;
-    /** One agent iteration per brief. The first and the last own the two saved targets. */
-    iterationBriefs?: string[];
+    /** How many versions the agent handed off. The first and the last own the two saved targets. */
+    versions?: number;
     /** The first target's worktree changed after its capture. */
     drift?: boolean;
     /** The first target is a range of the two fixture commits. */
@@ -201,8 +191,6 @@ async function mountApp(
     noteConflict?: boolean;
     /** The thread's spend and context, as the host reads them from transcripts. */
     usage?: ThreadUsage;
-    /** The agent's pull request draft. */
-    prDraft?: SavedPrDraft;
   } = {},
 ) {
   initializeTheme();
@@ -286,17 +274,14 @@ async function mountApp(
     ],
     worktrees: [{ path: target.repo, head: firstCommit, branch: target.branch }],
   }));
-  let brief = options.brief;
-  let pins: SavedPin[] = [];
-  let approvals: { version: number; at: string }[] = [];
   /** The versions the reader opened, as the host records them. */
   let readVersions: number[] = [];
-  let briefComments: BriefComment[] = [];
-  let prDraft = options.prDraft;
-  const prCreates: unknown[] = [];
-  let sessions: AgentSession[] = options.session
-    ? [{ agent: options.sessionAgent ?? "claude", id: "s1", cwd: "/test/repo" }]
-    : [];
+  /** The versions that a refresh captured. */
+  const refreshed: { number: number; createdAt: string; targetIds: string[] }[] = [];
+  // The session that handed off the review.
+  let session: AgentSession | undefined = options.session
+    ? { agent: options.sessionAgent ?? "claude", id: "s1", cwd: "/test/repo" }
+    : undefined;
   // The session that Med runs: its state streams to the page until the test changes it.
   let owned: OwnedState | undefined;
   const ownedActions: OwnedAction[] = [];
@@ -351,54 +336,41 @@ async function mountApp(
         })),
     ],
   });
-  // Notes that the reader started: each a new iteration of the latest comparison.
-  const startedNotes: {
-    number: number;
-    createdAt: string;
-    targetIds: string[];
-    fresh: true;
-  }[] = [];
   const savedBundle = () => ({
     id: "saved",
     title: "Agent review",
     createdAt: "2026-09-20T00:00:00Z",
     revision: 0,
-    commentCount: briefComments.length,
+    commentCount: 0,
     targets: savedTargets,
-    ...(sessions.length ? { sessions } : {}),
+    ...(session ? { session } : {}),
     ...(options.pullRequest
       ? {
           pullRequestUrl: options.pullRequest.url,
           pullRequestTitle: "Read pull request threads",
         }
       : {}),
-    ...(brief ? { brief: { text: brief, updatedAt: "2026-09-20T00:00:00Z" } } : {}),
     ...(options.guide ? { guide: { ...options.guide, updatedAt: "2026-09-20T00:00:00Z" } } : {}),
-    ...(pins.length ? { pins } : {}),
-    ...(briefComments.length ? { briefComments } : {}),
-    ...(prDraft ? { prDraft } : {}),
-    ...(prDraft?.pullRequestUrl ? { pullRequestUrl: prDraft.pullRequestUrl } : {}),
-    ...(approvals.length ? { approvals } : {}),
     ...(readVersions.length ? { readVersions } : {}),
-    ...(options.iterationBriefs
+    ...(options.versions
       ? {
           key: "feat/agent",
           iterations: [
-            ...options.iterationBriefs.map((text, index) => ({
+            ...Array.from({ length: options.versions }, (_, index) => ({
               number: index + 1,
               createdAt: new Date(Date.UTC(2026, 8, 20 + index)).toISOString(),
               targetIds:
                 index === 0
                   ? [savedTargets[0]!.id]
-                  : index === options.iterationBriefs!.length - 1
+                  : index === options.versions! - 1
                     ? [savedTargets[1]!.id]
                     : [],
-              brief: {
-                text,
-                updatedAt: new Date(Date.UTC(2026, 8, 20 + index)).toISOString(),
-              },
+              // The guide is the last version's.
+              ...(options.guide && index === options.versions! - 1
+                ? { guide: { ...options.guide, updatedAt: "2026-09-20T00:00:00Z" } }
+                : {}),
             })),
-            ...startedNotes,
+            ...refreshed,
           ],
         }
       : {}),
@@ -408,26 +380,14 @@ async function mountApp(
     if (options.savedReview) {
       if (url.pathname === "/api/reviews/saved") return Response.json(savedBundle());
       if (url.pathname === "/api/agents") return Response.json({ agents: options.agents ?? [] });
-      if (url.pathname === "/api/reviews/saved/owned" && init?.method === "POST") {
-        const { preset, fork } = JSON.parse(String(init.body)) as {
-          preset: string;
-          fork?: string;
-        };
-        ownedStarts.push({ preset, ...(fork ? { fork } : {}) });
+      if (url.pathname === "/api/reviews/saved/start" && init?.method === "POST") {
+        const { preset } = JSON.parse(String(init.body)) as { preset: string };
+        ownedStarts.push({ preset });
         // The session is of the preset's kind: Claude Code, Codex, or ACP.
         const kind = options.agents?.find((agent) => agent.id === preset)?.kind ?? "claude";
         ownedKind = kind === "codex" ? "codex" : kind === "claude" ? "claude" : "acp";
-        sessions = [...sessions, { agent: ownedKind, id: "o1", cwd: "/test/repo" }];
-        // Continue in Med: the messages that waited for the terminal go to the fork.
-        if (fork && inbox)
-          inbox = {
-            ...inbox,
-            messages: inbox.messages.map((message) =>
-              message.sessionId === fork && message.delivery === "pending"
-                ? { ...message, sessionId: "o1", delivery: "delivered" }
-                : message,
-            ),
-          };
+        // The host links the review to the new session.
+        session = { agent: ownedKind, id: "o1", cwd: "/test/repo" };
         owned = {
           sessionId: "o1",
           preset,
@@ -437,60 +397,99 @@ async function mountApp(
           commands: [],
           turns: 0,
         };
-        return Response.json({ review: savedBundle(), state: owned });
+        return Response.json({ thread: `${ownedKind}-o1`, state: owned });
       }
-      if (url.pathname === "/api/reviews/saved/owned/o1/events" && owned)
-        return eventStream(
-          () => `event: state\ndata: ${JSON.stringify(owned)}\n\n`,
-          (push) => {
-            ownedListeners.add(push);
-            return () => ownedListeners.delete(push);
-          },
-        );
-      if (url.pathname === "/api/reviews/saved/owned/o1" && init?.method === "POST") {
-        const action = JSON.parse(String(init.body)) as OwnedAction;
-        ownedActions.push(action);
-        if (action.action === "setting")
-          owned = {
-            ...owned!,
-            settings: owned!.settings.map((setting) =>
-              setting.id === action.id ? { ...setting, value: action.value } : setting,
-            ),
-          };
-        if (action.action === "permission") owned = { ...owned!, permission: undefined };
-        if (action.action === "interrupt") owned = { ...owned!, status: "idle" };
-        return Response.json(owned);
-      }
-      if (url.pathname === "/api/reviews/saved/sessions/o1/events")
-        return eventStream(
-          () => `event: reset\ndata: ${JSON.stringify(ownedTranscript)}\n\n`,
-          (push) => {
-            transcriptListeners.add(push);
-            return () => transcriptListeners.delete(push);
-          },
-        );
       if (url.pathname === "/api/thread-usage" && options.usage)
         return Response.json(options.usage);
-      if (url.pathname === "/api/reviews/saved/sessions/s1/events" && options.session)
-        return options.sessionPages
-          ? eventStream(() => options.session!)
-          : new Response(options.session, {
-              headers: { "content-type": "text/event-stream" },
-            });
-      if (url.pathname === "/api/reviews/saved/sessions/s1/page" && options.sessionPages) {
-        pageReads.push(url.searchParams.get("before")!);
-        return Response.json(options.sessionPages.page);
+      // A session's routes: the recorded session s1, or o1 that Med runs.
+      const sessionRoute = /^\/api\/sessions\/([a-z]+)-(s1|o1)\/(.+)$/.exec(url.pathname);
+      const sessionId = sessionRoute?.[2];
+      const sessionPart = sessionRoute?.[3];
+      if (sessionRoute && sessionId === "o1" && owned) {
+        if (sessionPart === "owned/events")
+          return eventStream(
+            () => `event: state\ndata: ${JSON.stringify(owned)}\n\n`,
+            (push) => {
+              ownedListeners.add(push);
+              return () => ownedListeners.delete(push);
+            },
+          );
+        if (sessionPart === "owned" && init?.method === "POST") {
+          const action = JSON.parse(String(init.body)) as OwnedAction;
+          ownedActions.push(action);
+          if (action.action === "setting")
+            owned = {
+              ...owned,
+              settings: owned.settings.map((setting) =>
+                setting.id === action.id ? { ...setting, value: action.value } : setting,
+              ),
+            };
+          if (action.action === "permission") owned = { ...owned, permission: undefined };
+          if (action.action === "interrupt") owned = { ...owned, status: "idle" };
+          return Response.json(owned);
+        }
+        if (sessionPart === "events")
+          return eventStream(
+            () => `event: reset\ndata: ${JSON.stringify(ownedTranscript)}\n\n`,
+            (push) => {
+              transcriptListeners.add(push);
+              return () => transcriptListeners.delete(push);
+            },
+          );
       }
-      if (url.pathname === "/api/reviews/saved/sessions/s1/turns" && options.sessionPages)
-        return Response.json({ turns: options.sessionPages.turns });
-      if (url.pathname === "/api/reviews/saved/agent/events" && inbox)
+      if (sessionRoute && sessionId === "s1" && options.session) {
+        if (sessionPart === "events")
+          return options.sessionPages
+            ? eventStream(() => options.session!)
+            : new Response(options.session, {
+                headers: { "content-type": "text/event-stream" },
+              });
+        if (sessionPart === "page" && options.sessionPages) {
+          pageReads.push(url.searchParams.get("before")!);
+          return Response.json(options.sessionPages.page);
+        }
+        if (sessionPart === "turns" && options.sessionPages)
+          return Response.json({ turns: options.sessionPages.turns });
+        if (sessionPart === "owned" || sessionPart === "owned/events")
+          return Response.json(
+            { error: { code: "session-not-owned", message: "Med does not run this session." } },
+            { status: 404 },
+          );
+        if (sessionPart === "continue" && init?.method === "POST") {
+          // Continue in Med: a fork that Med runs takes the session's place,
+          // with the messages that waited for the terminal.
+          ownedStarts.push({ preset: "claude", fork: "s1" });
+          ownedKind = "claude";
+          session = { agent: "claude", id: "o1", cwd: "/test/repo" };
+          if (inbox)
+            inbox = {
+              ...inbox,
+              elsewhere: {},
+              messages: inbox.messages.map((message) =>
+                message.sessionId === "s1" && message.delivery === "pending"
+                  ? { ...message, sessionId: "o1", delivery: "delivered" }
+                  : message,
+              ),
+            };
+          owned = {
+            sessionId: "o1",
+            preset: "claude",
+            name: "Claude Code",
+            status: "starting",
+            settings: [],
+            commands: [],
+            turns: 0,
+          };
+          return Response.json({ thread: "claude-o1", state: owned });
+        }
+      }
+      if (sessionRoute && sessionPart === "agent/events" && inbox)
         return new Response(`event: state\ndata: ${JSON.stringify(inboxState())}\n\n`, {
           headers: { "content-type": "text/event-stream" },
         });
-      if (url.pathname === "/api/reviews/saved/agent/messages" && inbox) {
+      if (sessionRoute && sessionPart === "agent/messages" && inbox) {
         const input = JSON.parse(String(init?.body)) as {
           id?: string;
-          sessionId?: string;
           text: string;
           noteIds: string[];
           images?: unknown[];
@@ -504,17 +503,18 @@ async function mountApp(
           if (error)
             return Response.json({ error: { code: "busy", message: error } }, { status: 503 });
         }
-        agentMessages.push(input);
+        const thread = `${sessionRoute[1]}-${sessionId}`;
+        agentMessages.push({ thread, ...input });
         const comments = inboxState()
           .drafts.filter((draft) => input.noteIds.includes(draft.id))
           .map(({ id: _id, replies: _replies, ...comment }) => comment);
         for (const id of input.noteIds) sentNotes.add(id);
         // A session that Med runs and that works takes the message at its next step.
-        const queued = input.sessionId === "o1" && owned?.status === "working";
+        const queued = sessionId === "o1" && owned?.status === "working";
         const message: AgentInboxState["messages"][number] = {
           id: input.id ?? `m${agentMessages.length}`,
-          sessionId: input.sessionId === "o1" ? "o1" : "s1",
-          agent: input.sessionId === "o1" ? ownedKind : "claude",
+          sessionId: sessionId!,
+          agent: sessionId === "o1" ? ownedKind : "claude",
           text: input.text,
           noteIds: input.noteIds,
           comments,
@@ -533,7 +533,7 @@ async function mountApp(
         };
         return Response.json({ message, state: inboxState() });
       }
-      if (url.pathname === "/api/reviews/saved/agent/send-now" && inbox) {
+      if (sessionRoute && sessionPart === "agent/send-now" && inbox) {
         // The message goes at the agent's next step, not its turn's end.
         const { id } = JSON.parse(String(init?.body)) as { id: string };
         steered.push(id);
@@ -547,7 +547,7 @@ async function mountApp(
         };
         return Response.json({ state: inboxState() });
       }
-      if (url.pathname === "/api/reviews/saved/agent/take" && inbox) {
+      if (sessionRoute && sessionPart === "agent/take" && inbox) {
         const { id } = JSON.parse(String(init?.body)) as { id: string };
         const message = inbox.messages.find((entry) => entry.id === id && entry.queued);
         // The agent's next step took it just before.
@@ -573,17 +573,6 @@ async function mountApp(
       }
       if (url.pathname === "/api/reviews/saved/since")
         return Response.json({ since: options.since ?? null });
-      if (url.pathname === "/api/reviews/saved/approval" && init?.method === "POST") {
-        const { version, approved } = JSON.parse(String(init.body)) as {
-          version: number;
-          approved: boolean;
-        };
-        approvals = [
-          ...approvals.filter((entry) => entry.version !== version),
-          ...(approved ? [{ version, at: "2026-10-27T00:00:00Z" }] : []),
-        ];
-        return Response.json(savedBundle());
-      }
       if (url.pathname === "/api/reviews/saved/read" && init?.method === "POST") {
         const { version } = JSON.parse(String(init.body)) as { version: number };
         readVersions = [...new Set([...readVersions, version])].sort((a, b) => a - b);
@@ -599,81 +588,30 @@ async function mountApp(
         } else pullRequestReads.push(url.search);
         return Response.json(pullRequest);
       }
-      if (/^\/api\/reviews\/saved\/targets\/[^/]+\/drift$/.test(url.pathname))
-        return Response.json({
-          changed: !!options.drift && url.pathname.includes("/target-0/"),
-        });
-      if (url.pathname === "/api/reviews/saved/iterations" && init?.method === "POST") {
+      if (url.pathname === "/api/reviews/saved/refresh" && init?.method === "POST") {
+        // The checkout, captured again as a new version.
         const id = `target-${savedTargets.length}`;
         savedTargets.push({
           ...savedTargets.at(-1)!,
           id,
           label: `Captured ${savedTargets.length}`,
         });
-        startedNotes.push({
-          number: options.iterationBriefs!.length + startedNotes.length + 1,
+        refreshed.push({
+          number: (options.versions ?? 0) + refreshed.length + 1,
           createdAt: "2026-09-23T00:00:00Z",
           targetIds: [id],
-          fresh: true,
         });
         return Response.json(savedBundle());
       }
-      if (url.pathname === "/api/reviews/saved/delete-notes" && init?.method === "POST") {
-        const { iteration } = JSON.parse(String(init.body)) as {
-          iteration?: number;
-        };
-        const started = startedNotes.findIndex((entry) => entry.number === iteration);
-        if (started >= 0) {
-          const [removed] = startedNotes.splice(started, 1);
-          savedTargets.splice(
-            savedTargets.findIndex((target) => target.id === removed!.targetIds[0]),
-            1,
-          );
-        }
-        return Response.json(savedBundle());
-      }
-      if (url.pathname === "/api/reviews/saved/pins" && init?.method === "POST") {
-        const mutation = JSON.parse(String(init.body)) as PinMutation;
-        if ("add" in mutation)
-          pins = [
-            ...pins,
-            {
-              id: `p_${pins.length + 1}`,
-              text: mutation.add.text,
-              createdAt: "2026-09-21T10:00:00Z",
-              ...(mutation.add.source ? { source: mutation.add.source } : {}),
-            },
-          ];
-        else pins = pins.filter((pin) => pin.id !== mutation.remove);
-        return Response.json(savedBundle());
-      }
-      if (url.pathname === "/api/reviews/saved/brief-comments" && init?.method === "POST") {
-        const mutation = JSON.parse(String(init.body)) as BriefCommentMutation;
-        const now = new Date().toISOString();
-        if ("add" in mutation)
-          briefComments = [
-            ...briefComments,
-            {
-              ...mutation.add,
-              id: `c_${briefComments.length + 1}`,
-              createdAt: now,
-              updatedAt: now,
-            },
-          ];
-        else if ("edit" in mutation)
-          briefComments = briefComments.map((comment) =>
-            comment.id === mutation.edit.id
-              ? { ...comment, text: mutation.edit.text, updatedAt: now }
-              : comment,
-          );
-        else briefComments = briefComments.filter((comment) => comment.id !== mutation.remove);
-        return Response.json(savedBundle());
-      }
+      if (/^\/api\/reviews\/saved\/targets\/[^/]+\/drift$/.test(url.pathname))
+        return Response.json({
+          changed: !!options.drift && url.pathname.includes("/target-0/"),
+        });
       if (url.pathname === "/api/reviews/saved/pull-request-live")
         return Response.json({
           url: "https://github.com/example/repo/pull/7",
           number: 7,
-          title: prDraft?.title ?? "Pull request",
+          title: "Pull request",
           author: "reader",
           state: "draft",
           body: "Calls failed once and gave up.",
@@ -685,24 +623,6 @@ async function mountApp(
           merge: { mergeable: "UNKNOWN", status: "UNKNOWN", decision: null },
           fetchedAt: Date.now(),
         });
-      if (url.pathname === "/api/reviews/saved/pr-draft-create" && prDraft) {
-        prCreates.push(JSON.parse(String(init?.body)));
-        prDraft = { ...prDraft, pullRequestUrl: "https://github.com/example/repo/pull/7" };
-        return Response.json({
-          review: savedBundle(),
-          url: prDraft.pullRequestUrl,
-          left: ["The retry chart"],
-        });
-      }
-      if (url.pathname === "/api/reviews/saved/pr-draft" && prDraft)
-        return new Response(
-          `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="80"><rect width="200" height="80" fill="#2a6"/></svg>`,
-          { headers: { "content-type": "image/svg+xml" } },
-        );
-      if (url.pathname === "/api/reviews/saved/brief" && init?.method === "POST") {
-        brief = JSON.parse(String(init.body)).brief ?? undefined;
-        return Response.json(savedBundle());
-      }
       if (url.pathname === "/api/repositories")
         return Response.json({ repositories: savedRepositories });
       if (url.pathname === "/api/branches")
@@ -987,21 +907,16 @@ async function mountApp(
   await expect
     .poll(() => document.querySelector("[data-review-status]")?.getAttribute("data-review-status"))
     .toBe("ready");
-  // A saved review with a brief opens on the Brief tab. Its hidden diff views
+  // A saved review with a guide opens on its Overview. Its hidden diff views
   // have no box, so they render when Changes shows.
-  const briefFirst =
-    options.savedReview &&
-    (options.brief !== undefined ||
-      options.iterationBriefs ||
-      options.guide ||
-      options.rangeCommits);
+  const guideFirst =
+    options.savedReview && (options.versions || options.guide || options.rangeCommits);
   // The first diff in a page loads Pierre's highlighter on the main thread.
   await expect
     .poll(() => document.querySelectorAll("diffs-container").length, { timeout: 5_000 })
-    .toBeGreaterThanOrEqual(briefFirst ? 0 : options.review ? 1 : 2);
+    .toBeGreaterThanOrEqual(guideFirst ? 0 : options.review ? 1 : 2);
   return {
     controller,
-    prCreates,
     requests,
     fileRequests,
     vaultWrites,
@@ -1018,7 +933,6 @@ async function mountApp(
     ownedStarts,
     pageReads,
     savedNotes,
-    approvals: () => approvals,
     readVersions: () => readVersions,
   };
 }
@@ -1940,6 +1854,72 @@ describe("graphical review", () => {
     await expect.poll(() => CSS.highlights.has("med-diff-find")).toBe(false);
   });
 
+  test("a palette command that opens a field leaves the focus in it", async () => {
+    await mountApp();
+    // Focus starts on a control, which the palette would otherwise give it back to.
+    const changes = page.getByRole("radio", { name: "Changes", exact: true });
+    await changes.click();
+    expect(document.activeElement).toBe(changes.element());
+    const command = async (name: string) => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }),
+      );
+      await page.getByRole("combobox", { name: "Search commands" }).fill(name);
+      await userEvent.keyboard("{Enter}");
+    };
+    await command("Find in diff contents");
+    const find = page.getByRole("textbox", { name: "Find in changes" });
+    await expect.poll(() => document.activeElement).toBe(find.element());
+    // Typing goes into the box.
+    await userEvent.keyboard("after");
+    await expect.element(find).toHaveValue("after");
+    await userEvent.keyboard("{Escape}");
+    await changes.click();
+    await command("Filter changed files");
+    await expect.poll(() => document.activeElement?.getAttribute("aria-label")).toMatch(/filter/i);
+  });
+
+  test("the Changes page keeps its place while another page shows, each time", async () => {
+    await page.viewport(1280, 800);
+    const paths = [0, 1, 2].map((index) => `src/long${index}.ts`);
+    const patch = paths
+      .map(
+        (path, index) =>
+          `diff --git a/${path} b/${path}\nindex 1111111..2222222 100644\n--- a/${path}\n+++ b/${path}\n@@ -1,140 +1,140 @@\n` +
+          Array.from(
+            { length: 140 },
+            (_, line) => `-const value${line} = -1;\n+const value${line} = ${index};\n`,
+          ).join(""),
+      )
+      .join("");
+    const repository = createFakeRepository({
+      upstream: false,
+      hookFails: false,
+      pushRejected: false,
+      slow: false,
+    });
+    await mountApp({ review: { paths, patch }, commitApi: repository.api });
+    const stream = page.getByRole("main", { name: "Continuous review" });
+    const scroller = () =>
+      [stream.element(), ...stream.element().querySelectorAll<HTMLElement>("*")].find(
+        (node) => getComputedStyle(node).overflowY === "auto" && node.scrollHeight > 2000,
+      );
+    await expect.poll(() => scroller()?.scrollHeight ?? 0).toBeGreaterThan(2000);
+    await stream.wheel({ delta: { y: 1500 } });
+    await expect.poll(() => scroller()?.scrollTop ?? 0).toBeGreaterThan(1000);
+    // Settled: the place the page keeps is the last one it reported.
+    await new Promise((done) => setTimeout(done, 200));
+    const top = scroller()!.scrollTop;
+    const changes = page.getByRole("radio", { name: "Changes", exact: true });
+    const commit = page.getByRole("radio", { name: "Commit", exact: true });
+    for (const _ of [1, 2, 3]) {
+      await commit.click();
+      await expect.element(commit).toHaveAttribute("aria-checked", "true");
+      await changes.click();
+      await expect.poll(() => scroller()?.scrollTop).toBeCloseTo(top, 0);
+    }
+  });
+
   test("find in diffs centers matches in other files, collapsed ones too", async () => {
     await page.viewport(1280, 800);
     // Long files, so a match starts far outside the viewport and the
@@ -2731,9 +2711,10 @@ describe("review guide", () => {
   test("shows a version's proof first, what changed since the last review, and its findings", async () => {
     await mountApp({
       savedReview: true,
-      iterationBriefs: [
-        "The first round.",
-        [
+      versions: 2,
+      // The second version's guide: its summary has the proof and findings.
+      guide: {
+        summary: [
           "## Proof",
           "- `bun run test`: 42 passed",
           "- `bun run build` failed: 1 type error",
@@ -2746,7 +2727,8 @@ describe("review guide", () => {
           "- Important `src/alpha.ts:1` Callers still import the old name.",
           "- Nit `src/beta.ts:2` Rename `shared`. Won't fix: it matches upstream.",
         ].join("\n"),
-      ],
+        segments: [{ title: "Rename", files: ["src/**"] }],
+      },
       since: {
         from: 1,
         to: 2,
@@ -2757,7 +2739,7 @@ describe("review guide", () => {
         ],
       },
     });
-    // A second version opens on the Overview, though it has no guide.
+    // A second version opens on the Overview.
     await expect
       .element(page.getByRole("radio", { name: "Review" }))
       .toHaveAttribute("aria-checked", "true");
@@ -2818,9 +2800,9 @@ describe("review guide", () => {
       "./gradlew :telemetry:histogram-core-internal:test --tests 'ClassicBucketsTest'";
     await mountApp({
       savedReview: true,
-      iterationBriefs: [
-        "The first round.",
-        [
+      versions: 2,
+      guide: {
+        summary: [
           "## Proof",
           "",
           "| Check | Scope | Result |",
@@ -2829,7 +2811,8 @@ describe("review guide", () => {
           "| `bun run lint` | all of `src/` | 1 error in src/beta.ts |",
           "| Fixture | Generated | `histogram()` is `registry.timer(bucketName())`; the name has `platformVersion` and the bucket set |",
         ].join("\n"),
-      ],
+        segments: [{ title: "Rename", files: ["src/**"] }],
+      },
     });
     const overview = page.getByRole("region", { name: "Guide overview" });
     const proof = overview.getByRole("region", { name: "Proof" });
@@ -3092,11 +3075,11 @@ describe("reading a version by commit and since the last review", () => {
     localStorage.setItem("med:guide-rail", "open");
     const { controller, savedReads, readVersions } = await mountApp({
       savedReview: true,
-      iterationBriefs: ["The first round.", "The second round."],
+      versions: 2,
       since: {
         from: 1,
         to: 2,
-        basis: "approved",
+        basis: "viewed",
         files: [{ path: "src/alpha.ts", change: "changed", target: "target-1" }],
         moved: ["src/beta.ts"],
       },
@@ -3107,7 +3090,7 @@ describe("reading a version by commit and since the last review", () => {
     await expect.poll(() => controller.getSnapshot().savedReview?.readVersions).toEqual([2]);
     // It opens on only what changed, and names no version.
     await expect.poll(() => controller.getSnapshot().savedSince).toBe(1);
-    await expect.element(page.getByText("What changed since you approved it")).toBeVisible();
+    await expect.element(page.getByText("What changed since you last looked")).toBeVisible();
     await expect
       .element(page.getByText("Changed only with the base, as after a rebase: src/beta.ts"))
       .toBeVisible();
@@ -3132,7 +3115,7 @@ describe("reading a version by commit and since the last review", () => {
   test("the Pull request page has no versions note: the review opens on what is new", async () => {
     await mountApp({
       savedReview: true,
-      iterationBriefs: ["The first round.", "The second round."],
+      versions: 2,
       since: {
         from: 1,
         to: 2,
@@ -3409,7 +3392,7 @@ describe("review guide comments", () => {
     await userEvent.click(later.getByRole("button", { name: "Send to Claude" }));
     await expect
       .poll(() => agentMessages.at(-1))
-      .toMatchObject({ sessionId: "s1", text: "", noteIds: ["later"] });
+      .toMatchObject({ thread: "claude-s1", text: "", noteIds: ["later"] });
     await expect.element(later.getByText("· Sent to Claude")).toBeVisible();
     expect(later.getByRole("button", { name: "Send to Claude" }).query()).toBeNull();
     // The other comment waits for its own send.
@@ -3458,7 +3441,7 @@ describe("review guide comments", () => {
     // The thread goes by its first comment, with the reply in it.
     await expect
       .poll(() => agentMessages.at(-1))
-      .toMatchObject({ sessionId: "s1", text: "", noteIds: ["ask"] });
+      .toMatchObject({ thread: "claude-s1", text: "", noteIds: ["ask"] });
     await expect.element(asked.getByText("· Sent to Claude")).toBeVisible();
     const text = asked.element().textContent!;
     expect(text.indexOf("Sent to Claude")).toBeGreaterThan(text.indexOf("Then name it"));
@@ -3492,7 +3475,7 @@ describe("review guide comments", () => {
     const sent = controller.getSnapshot().notes!.notes.find((note) => note.text === "Rename it.")!;
     await expect
       .poll(() => agentMessages.at(-1))
-      .toMatchObject({ sessionId: "s1", text: "", noteIds: [sent.id] });
+      .toMatchObject({ thread: "claude-s1", text: "", noteIds: [sent.id] });
 
     // Not ticked, it waits for Send in the message box.
     await write("Later.");
@@ -3690,63 +3673,6 @@ describe("file references in comments", () => {
 });
 
 describe("saved reviews", () => {
-  test("the agent's pull request draft has its tab, with its image; a comment goes to the agent, and Create opens the pull request", async () => {
-    const { prCreates } = await mountApp({
-      savedReview: true,
-      prDraft: {
-        title: "Retry failed fetches",
-        body: "## Why\n\nCalls failed once and gave up.\n\n![The retry chart](shots/chart.png)\n",
-        repo: "/test/repo",
-        images: [{ href: "shots/chart.png", file: `${"a".repeat(64)}.png` }],
-        revision: 2,
-        updatedAt: "2026-10-30T02:00:00Z",
-      },
-    });
-    // The Review stays the first tab; the draft has its own, after it.
-    await userEvent.click(page.getByRole("radio", { name: "Pull request" }));
-    await expect.element(page.getByText("Pull request draft · revision 2")).toBeVisible();
-    await expect.element(page.getByRole("heading", { name: "Retry failed fetches" })).toBeVisible();
-    // Med shows its copy of the local image.
-    await expect
-      .poll(() => page.getByRole("img", { name: "The retry chart" }).element().getAttribute("src"))
-      .toBe(`/api/reviews/saved/pr-draft?image=${"a".repeat(64)}.png`);
-
-    const paragraph = page.getByText(/^Calls failed once/);
-    const text = paragraph.element().firstChild as Text;
-    const range = new Range();
-    range.setStart(text, 0);
-    range.setEnd(text, "Calls failed once".length);
-    document.getSelection()!.removeAllRanges();
-    document.getSelection()!.addRange(range);
-    await userEvent.click(page.getByRole("button", { name: "Comment on the selection" }));
-    await userEvent.fill(page.getByRole("textbox", { name: "Comment text" }), "How many times?");
-    await userEvent.click(page.getByRole("button", { name: "Save note" }));
-    await expect
-      .element(page.getByRole("article", { name: "Comment on “Calls failed once”" }))
-      .toBeVisible();
-
-    // Create asks first, as a draft by default, and says the image stays out.
-    await userEvent.click(page.getByRole("button", { name: "Create pull request…" }));
-    const ask = page.getByRole("alertdialog", { name: "Create pull request" });
-    await expect.poll(() => ask.element().textContent).toMatch(/its image stays out/);
-    await userEvent.click(ask.getByRole("button", { name: "Create" }));
-    await expect.poll(() => prCreates).toEqual([{ draft: true }]);
-    await expect
-      .poll(() => page.getByRole("status").element().textContent)
-      .toBe("Add The retry chart on GitHub: drag it into the description.");
-    await expect
-      .element(page.getByRole("link", { name: "Open on GitHub" }))
-      .toHaveAttribute("href", "https://github.com/example/repo/pull/7");
-    // The draft has become the live pull request, and it stays one click away.
-    const live = page.getByRole("region", { name: "Pull request", exact: true });
-    await expect.element(live.getByRole("link", { name: "Open on GitHub" })).toBeVisible();
-    expect(page.getByText("Pull request draft · revision 2").query()).toBeNull();
-    await live.getByRole("button", { name: "Draft", exact: true }).click();
-    await expect.element(page.getByText("Pull request draft · revision 2")).toBeVisible();
-    await page.getByRole("button", { name: "Live pull request" }).click();
-    await expect.element(live.getByRole("link", { name: "Open on GitHub" })).toBeVisible();
-  });
-
   test("a thread's Review lists its files and commits, and Changes shows the live changes", async () => {
     await page.viewport(1400, 900);
     const { controller } = await mountApp({
@@ -3884,10 +3810,10 @@ describe("saved reviews", () => {
     await page.viewport(1280, 800);
     const { controller } = await mountApp({
       savedReview: true,
-      iterationBriefs: ["# Only round\n"],
+      versions: 1,
       drift: true,
     });
-    // The thread opens on the brief; the Review's diff has the notice.
+    // The thread opens on its Overview; the Review's diff has the notice.
     await page.getByRole("radio", { name: "Review", exact: true }).click();
     const bar = page
       .getByRole("status")
@@ -3998,7 +3924,7 @@ describe("saved reviews", () => {
         .getByRole("button")
         .elements()
         .map((button) => button.ariaLabel),
-    ).toEqual(["Reply on GitHub", "Copy thread"]);
+    ).toEqual(["Copy thread", "Reply on GitHub"]);
     await expect
       .element(thread.getByRole("link", { name: "Open on GitHub" }))
       .toHaveAttribute("href", "https://github.com/acme/med/pull/7#discussion_r11");
@@ -4704,7 +4630,7 @@ describe("agent session", () => {
       .toEqual([
         {
           id: expect.stringMatching(/^[0-9a-f-]{36}$/),
-          sessionId: "s1",
+          thread: "claude-s1",
           text: "Use minutes.",
           noteIds: ["n1"],
           attachments: [],
@@ -4726,7 +4652,7 @@ describe("agent session", () => {
     agentAnswers.shift()!();
     await expect
       .poll(() => agentMessages.at(-1))
-      .toMatchObject({ sessionId: "s1", text: "", noteIds: ["n2"] });
+      .toMatchObject({ thread: "claude-s1", text: "", noteIds: ["n2"] });
   });
 
   test("a draft and the messages that Med did not take stay after a reload", async () => {
@@ -4778,7 +4704,7 @@ describe("agent session", () => {
       .toEqual([
         {
           id: expect.stringMatching(/^[0-9a-f-]{36}$/),
-          sessionId: "s1",
+          thread: "claude-s1",
           text: "Use minutes.",
           noteIds: [],
           attachments: [],

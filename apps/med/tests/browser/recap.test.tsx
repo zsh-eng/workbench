@@ -59,7 +59,7 @@ const savedReview = (id: string, handoff: boolean) => ({
   createdAt: "2026-10-01T00:00:00Z",
   revision: 0,
   commentCount: 0,
-  sessions: [session],
+  session,
   targets: [
     {
       id: `${id}-target`,
@@ -78,9 +78,16 @@ const savedReview = (id: string, handoff: boolean) => ({
     : { totals: { files: 0, additions: 0, deletions: 0, comparisons: 1 } }),
 });
 const question = "I kept the station's own time. Should I switch it to yours?";
+/** The session's thread, with the review that it handed off, if any. */
+const THREAD = "claude-s1";
 /** A turn that ended on a question, with its checks. */
-const ended = (id: string, endedAt: number, patch: Partial<Thread> = {}): Thread => ({
-  id,
+const ended = (
+  review: string | undefined,
+  endedAt: number,
+  patch: Partial<Thread> = {},
+): Thread => ({
+  id: THREAD,
+  kind: "session",
   title: "Week view",
   createdAt: "2026-10-01T00:00:00Z",
   updatedAt: endedAt,
@@ -89,7 +96,10 @@ const ended = (id: string, endedAt: number, patch: Partial<Thread> = {}): Thread
   branch: "main",
   agent: "claude",
   state: "idle",
-  sessions: [session],
+  session,
+  reviews: review
+    ? [{ id: review, title: "Week view", createdAt: "2026-10-01T00:00:00Z", updatedAt: endedAt }]
+    : [],
   changes: { files: 2, additions: 14, deletions: 3 },
   turn: {
     startedAt: endedAt - 60_000,
@@ -103,8 +113,8 @@ const ended = (id: string, endedAt: number, patch: Partial<Thread> = {}): Thread
   },
   ...patch,
 });
-const working = (id: string, at: number): Thread => ({
-  ...ended(id, at),
+const working = (review: string | undefined, at: number): Thread => ({
+  ...ended(review, at),
   state: "working",
   turn: { startedAt: at, activity: "Running bun test" },
 });
@@ -131,10 +141,17 @@ let root: Root | undefined;
 let mount: HTMLDivElement | undefined;
 let address = "";
 const KEYS = ["med:workspaces:v1", "med:window", "med:recap-seen", "med:recap-seen-since"];
+/** The stored keys of these tests, and each thread's pane layout, which
+ * another file's thread of the same ID would otherwise leave behind. */
+function forget() {
+  for (const key of KEYS) localStorage.removeItem(key);
+  for (const key of Object.keys(localStorage))
+    if (key.startsWith("med:panes:")) localStorage.removeItem(key);
+}
 beforeEach(async () => {
   await page.viewport(1280, 800);
   address = location.pathname + location.search;
-  for (const key of KEYS) localStorage.removeItem(key);
+  forget();
   // Turns from before the recap's first visit count as seen; these are after it.
   localStorage.setItem("med:recap-seen-since", "1");
 });
@@ -142,7 +159,7 @@ afterEach(() => {
   root?.unmount();
   mount?.remove();
   root = mount = undefined;
-  for (const key of KEYS) localStorage.removeItem(key);
+  forget();
   history.replaceState(null, "", address);
   delete (document as unknown as Record<string, unknown>).visibilityState;
 });
@@ -175,12 +192,12 @@ function createHost(tab: Thread, handoff: boolean) {
     const body = init?.body ? (JSON.parse(String(init.body)) as unknown) : undefined;
     const opened = /^\/api\/threads\/([\w-]+)\/open$/.exec(url.pathname);
     if (opened) return Response.json({ thread: threads[0] });
-    if (/^\/api\/reviews\/[\w-]+\/sessions\/s1\/events$/.test(url.pathname))
+    if (url.pathname === `/api/sessions/${THREAD}/events`)
       return stream(
         init,
         `event: reset\ndata: ${JSON.stringify({ events, idle: true, modifiedAt: 0, truncated: false })}\n\n`,
       );
-    if (/^\/api\/reviews\/[\w-]+\/agent\/events$/.test(url.pathname))
+    if (url.pathname === `/api/sessions/${THREAD}/agent/events`)
       return stream(
         init,
         `event: state\ndata: ${JSON.stringify({ messages: [], waiting: [], drafts: [] })}\n\n`,
@@ -330,12 +347,12 @@ test("a turn that asked a question ends with its facts; Review opens the Guide's
   const after = shownRecap()!.getBoundingClientRect();
   expect([after.top, after.height]).toEqual([before.top, before.height]);
   expect(JSON.parse(localStorage.getItem("med:recap-seen")!)).toEqual({
-    [id]: expect.any(Number),
+    [THREAD]: expect.any(Number),
   });
 });
 
 test("before a hand-off Review opens Changes at the first file; ⌥↵ works from the message box, Esc hides, and the next unseen turn shows a new recap", async () => {
-  const id = "recap-changes";
+  const id = undefined;
   const first = Date.now() - 5_000;
   const host = createHost(ended(id, first), false);
   render(host);

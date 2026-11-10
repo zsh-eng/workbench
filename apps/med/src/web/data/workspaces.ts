@@ -1,5 +1,5 @@
-/** Workspaces: the tasks open in this window, such as a saved review, a branch,
- * or a vault. Each keeps its own state; this store keeps the list, the active
+/** Workspaces: the tasks open in this window, such as a thread, a branch, or
+ * a vault. Each keeps its own state; this store keeps the list, the active
  * workspace, and the order in which they were last shown. */
 
 interface WorkspaceBase {
@@ -12,8 +12,6 @@ interface WorkspaceBase {
   detail?: string;
   /** Added in the background, such as by an agent, and not shown yet. */
   unread?: boolean;
-  /** Agent sessions that worked on it, to resume from a terminal. */
-  sessions?: WorkspaceSession[];
   /** The linked worktree it works in, which closing it can remove. */
   worktree?: string;
 }
@@ -22,9 +20,22 @@ export interface WorkspaceSession {
   id: string;
   cwd: string;
 }
-export interface ReviewWorkspace extends WorkspaceBase {
-  kind: "review";
-  reviewId: string;
+/**
+ * A thread of the sidebar: an agent session, or a review that no session
+ * handed off (src/shared/threads.ts). It shows the thread's review, with its
+ * session and the live Changes of the checkout where the session works now.
+ */
+export interface ThreadWorkspace extends WorkspaceBase {
+  kind: "thread";
+  /** The session's key, or the lone review's ID. */
+  threadId: string;
+  /** The review that shows, of the thread's reviews; the newest without it. */
+  reviewId?: string;
+  /** Where the thread works now, as the thread list said last: its Changes
+   * and Commit follow it. */
+  path?: string;
+  repositoryId?: string;
+  branch?: string;
 }
 export interface RepositoryWorkspace extends WorkspaceBase {
   kind: "repository";
@@ -35,9 +46,6 @@ export interface RepositoryWorkspace extends WorkspaceBase {
   path?: string;
   repositoryId?: string;
   branch?: string;
-  /** A session that Med found by itself (data/found-threads.ts): the
-   * workspace is its thread, on its checkout. It names the workspace. */
-  found?: WorkspaceSession;
 }
 /** A registered vault. Vaults come from the server's sources and stay pinned. */
 export interface VaultWorkspace extends WorkspaceBase {
@@ -45,7 +53,7 @@ export interface VaultWorkspace extends WorkspaceBase {
   sourceId: string;
 }
 /** A GitHub pull request that the host opens in a worktree. It becomes its
- * review's workspace once the review is saved. */
+ * review's thread once the review is saved. */
 export interface PullWorkspace extends WorkspaceBase {
   kind: "pull";
   url: string;
@@ -54,16 +62,16 @@ export interface PullWorkspace extends WorkspaceBase {
   /** The agent to start in the worktree, so Retry asks for it again. */
   agent?: string;
 }
-export type Workspace = ReviewWorkspace | RepositoryWorkspace | VaultWorkspace | PullWorkspace;
+export type Workspace = ThreadWorkspace | RepositoryWorkspace | VaultWorkspace | PullWorkspace;
 export type WorkspaceInput =
-  | Omit<ReviewWorkspace, "id">
+  | Omit<ThreadWorkspace, "id">
   | Omit<RepositoryWorkspace, "id">
   | Omit<VaultWorkspace, "id">
   | Omit<PullWorkspace, "id">;
 export interface WorkspacePatch {
   title?: string;
   jobId?: string;
-  sessions?: WorkspaceSession[];
+  reviewId?: string;
   repository?: string;
   detail?: string;
   path?: string;
@@ -78,8 +86,10 @@ export interface WorkspaceSnapshot {
   recent: string[];
 }
 
-/** A saved review's workspace has this id in every window. */
-export const reviewWorkspaceId = (reviewId: string) => `review-${reviewId}`;
+/** A thread's workspace has this id in every window. */
+export const threadWorkspaceId = (threadId: string) => `thread-${threadId}`;
+
+const SESSION_THREAD = /^(?:claude|codex|acp)-[A-Za-z0-9_-]+$/;
 
 /** Tells the workspace of a saved review that the review has new content,
  * such as an agent's next iteration. The event detail is `{ id }`. */
@@ -89,20 +99,6 @@ const STORAGE_KEY = "med:workspaces:v1";
 const LIMIT = 24;
 const newId = () => `w_${Math.random().toString(36).slice(2, 10)}`;
 const optional = (value: unknown) => (typeof value === "string" && value ? value : undefined);
-
-function sessionsOf(value: unknown): WorkspaceSession[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const sessions = value.flatMap((entry) =>
-    entry &&
-    typeof entry === "object" &&
-    (entry.agent === "claude" || entry.agent === "codex") &&
-    optional(entry.id) &&
-    optional(entry.cwd)
-      ? [{ agent: entry.agent, id: entry.id, cwd: entry.cwd } as WorkspaceSession]
-      : [],
-  );
-  return sessions.length ? sessions : undefined;
-}
 
 const quoted = (path: string) => `'${path.replaceAll("'", `'\\''`)}'`;
 
@@ -130,10 +126,39 @@ function parse(value: unknown): Workspace | null {
     detail: optional(entry.detail),
     worktree: optional(entry.worktree),
     ...(entry.unread === true ? { unread: true } : {}),
-    ...(sessionsOf(entry.sessions) ? { sessions: sessionsOf(entry.sessions) } : {}),
   };
+  const place = {
+    path: optional(entry.path),
+    repositoryId: optional(entry.repositoryId),
+    branch: optional(entry.branch),
+  };
+  if (entry.kind === "thread" && optional(entry.threadId))
+    return {
+      ...base,
+      kind: "thread",
+      threadId: entry.threadId as string,
+      reviewId: optional(entry.reviewId),
+      ...place,
+    };
+  // Lists from before sessions led: a review's workspace, or a found session's.
   if (entry.kind === "review" && optional(entry.reviewId))
-    return { ...base, kind: "review", reviewId: entry.reviewId as string };
+    return {
+      ...base,
+      id: threadWorkspaceId(entry.reviewId as string),
+      kind: "thread",
+      threadId: entry.reviewId as string,
+      reviewId: entry.reviewId as string,
+    };
+  const found = entry.found as { agent?: unknown; id?: unknown } | undefined;
+  if (
+    entry.kind === "repository" &&
+    entry.home !== true &&
+    (found?.agent === "claude" || found?.agent === "codex") &&
+    optional(found.id)
+  ) {
+    const threadId = `${found.agent}-${found.id as string}`;
+    return { ...base, id: threadWorkspaceId(threadId), kind: "thread", threadId, ...place };
+  }
   if (entry.kind === "vault" && optional(entry.sourceId))
     return { ...base, kind: "vault", sourceId: entry.sourceId as string };
   if (entry.kind === "pull" && optional(entry.url))
@@ -144,18 +169,13 @@ function parse(value: unknown): Workspace | null {
       jobId: optional(entry.jobId),
       agent: optional(entry.agent),
     };
-  if (entry.kind === "repository") {
-    const found = sessionsOf([entry.found])?.[0];
+  if (entry.kind === "repository")
     return {
       ...base,
       kind: "repository",
       ...(entry.home === true ? { home: true } : {}),
-      path: optional(entry.path),
-      repositoryId: optional(entry.repositoryId),
-      branch: optional(entry.branch),
-      ...(found && entry.home !== true ? { found } : {}),
+      ...place,
     };
-  }
   return null;
 }
 function read(text = storedText()): WorkspaceSnapshot {
@@ -165,18 +185,31 @@ function read(text = storedText()): WorkspaceSnapshot {
       active?: unknown;
       recent?: unknown[];
     } | null;
-    const workspaces = (raw?.workspaces ?? []).flatMap((entry) => parse(entry) ?? []);
+    // A workspace from an older list can come back with a thread's id.
+    const renamed = new Map<string, string>();
+    const workspaces = (raw?.workspaces ?? []).flatMap((entry) => {
+      const workspace = parse(entry);
+      const before = (entry as { id?: unknown } | null)?.id;
+      if (workspace && typeof before === "string") renamed.set(before, workspace.id);
+      return workspace ?? [];
+    });
+    const rename = (id: unknown) => (typeof id === "string" ? (renamed.get(id) ?? id) : id);
     // Lists from before the home workspace pin their first branch workspace.
     const first = workspaces.find((entry) => entry.kind === "repository");
     if (first && !workspaces.some((entry) => entry.kind === "repository" && entry.home))
       workspaces[workspaces.indexOf(first)] = { ...first, home: true };
     const ids = new Set(workspaces.map((entry) => entry.id));
-    const recent = (raw?.recent ?? []).filter(
-      (id): id is string => typeof id === "string" && ids.has(id),
-    );
+    const recent = [
+      ...new Set(
+        (raw?.recent ?? [])
+          .map(rename)
+          .filter((id): id is string => typeof id === "string" && ids.has(id)),
+      ),
+    ];
+    const active = rename(raw?.active);
     return {
       workspaces,
-      active: typeof raw?.active === "string" && ids.has(raw.active) ? raw.active : "",
+      active: typeof active === "string" && ids.has(active) ? active : "",
       recent: [
         ...recent,
         ...workspaces.map((entry) => entry.id).filter((id) => !recent.includes(id)),
@@ -201,16 +234,13 @@ function write(snapshot: WorkspaceSnapshot) {
   }
 }
 
-/** The same task: one review, one vault, one branch of a repository, or one
+/** The same task: one thread, one vault, one branch of a repository, or one
  * detached worktree. A workspace that has not loaded yet matches nothing. */
 function matches(input: WorkspaceInput, entry: Workspace) {
-  if (input.kind === "review") return entry.kind === "review" && entry.reviewId === input.reviewId;
+  if (input.kind === "thread") return entry.kind === "thread" && entry.threadId === input.threadId;
   if (input.kind === "vault") return entry.kind === "vault" && entry.sourceId === input.sourceId;
   if (input.kind === "pull") return entry.kind === "pull" && entry.url === input.url;
   if (entry.kind !== "repository") return false;
-  // A found session's workspace is its session's, not its branch's.
-  if (input.found || entry.found)
-    return input.found?.agent === entry.found?.agent && input.found?.id === entry.found?.id;
   if (!input.branch) return !!input.path && !entry.branch && input.path === entry.path;
   return (
     input.branch === entry.branch &&
@@ -234,10 +264,10 @@ export const overlayAddress = (pathname: string) =>
   pathname === "/file" ||
   pathname === "/search";
 
-/** The workspace's address. A saved review keeps its link; branches use "/". */
+/** The workspace's address. A thread keeps its link; branches use "/". */
 export const workspaceUrl = (workspace: Workspace) =>
-  workspace.kind === "review"
-    ? `/review/${encodeURIComponent(workspace.reviewId)}`
+  workspace.kind === "thread"
+    ? `/review/${encodeURIComponent(workspace.threadId)}`
     : workspace.kind === "vault"
       ? `/vault/${encodeURIComponent(workspace.sourceId)}`
       : "/";
@@ -259,6 +289,17 @@ export type WorkspaceStore = ReturnType<typeof createWorkspaceStore>;
 export function createWorkspaceStore(pathname: string, state?: unknown) {
   let snapshot = read();
   const listeners = new Set<() => void>();
+  /** The thread of a review, as the thread list says: its session's. */
+  let threadOf: (reviewId: string) => string | undefined = () => undefined;
+  /** A review's own thread, or its session's. */
+  const resolve = (input: WorkspaceInput): WorkspaceInput =>
+    input.kind === "thread" && !SESSION_THREAD.test(input.threadId)
+      ? {
+          ...input,
+          threadId: threadOf(input.threadId) ?? input.threadId,
+          reviewId: input.reviewId ?? input.threadId,
+        }
+      : input;
   const publish = (next: WorkspaceSnapshot) => {
     snapshot = next;
     write(next);
@@ -269,7 +310,7 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
     getSnapshot: () => snapshot,
     /** The open workspace for this task, if any. */
     match: (input: WorkspaceInput) =>
-      snapshot.workspaces.find((entry) => matches(input, entry))?.id,
+      snapshot.workspaces.find((entry) => matches(resolve(input), entry))?.id,
     subscribe(listener: () => void) {
       listeners.add(listener);
       return () => {
@@ -277,23 +318,24 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
       };
     },
     /** Selects a matching workspace, or adds one. Returns its id. */
-    open(input: WorkspaceInput, activate = true): string {
+    open(given: WorkspaceInput, activate = true): string {
+      const input = resolve(given);
       const existing = snapshot.workspaces.find((entry) => matches(input, entry));
       if (existing) {
+        // A review link shows that review in its thread.
+        if (existing.kind === "thread" && input.kind === "thread" && input.reviewId)
+          store.update(existing.id, { reviewId: input.reviewId });
         if (activate) store.activate(existing.id);
         return existing.id;
       }
-      // A review, a found session, or a vault has one id in every window, so
-      // windows that add it at the same time agree, and a tab loaded ahead
-      // shows in the same slot.
+      // A thread or a vault has one id in every window, so windows that add
+      // it at the same time agree, and a tab loaded ahead shows in the same slot.
       const id =
-        input.kind === "review"
-          ? reviewWorkspaceId(input.reviewId)
+        input.kind === "thread"
+          ? threadWorkspaceId(input.threadId)
           : input.kind === "vault"
             ? `vault-${input.sourceId}`
-            : input.kind === "repository" && input.found
-              ? `found-${input.found.agent}-${input.found.id}`
-              : newId();
+            : newId();
       const workspace = { ...input, id } as Workspace;
       let workspaces = [...snapshot.workspaces, workspace];
       let recent = activate
@@ -367,15 +409,21 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
       const allowed: (keyof WorkspacePatch)[] =
         current.kind === "repository"
           ? ["title", "repository", "detail", "path", "repositoryId", "branch", "worktree"]
-          : current.kind === "review"
-            ? ["title", "repository", "detail", "sessions", "worktree"]
+          : current.kind === "thread"
+            ? [
+                "title",
+                "repository",
+                "detail",
+                "path",
+                "repositoryId",
+                "branch",
+                "worktree",
+                "reviewId",
+              ]
             : current.kind === "pull"
               ? ["title", "repository", "detail", "jobId"]
               : ["title", "repository", "detail"];
-      const same = (key: keyof WorkspacePatch) =>
-        key === "sessions"
-          ? JSON.stringify(current.sessions ?? []) === JSON.stringify(patch.sessions ?? [])
-          : (current as WorkspacePatch)[key] === patch[key];
+      const same = (key: keyof WorkspacePatch) => (current as WorkspacePatch)[key] === patch[key];
       const changes = Object.fromEntries(
         allowed.filter((key) => key in patch && !same(key)).map((key) => [key, patch[key]]),
       );
@@ -400,18 +448,16 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
         recent: snapshot.recent.filter((entry) => entry !== duplicate?.id),
       });
     },
-    /** A pull request's workspace becomes its review's workspace, in its
-     * place in the list. A workspace that has the review already stays. */
+    /** A pull request's workspace becomes its review's thread, in its
+     * place in the list. A workspace that has the thread already stays. */
     settle(id: string, reviewId: string) {
       const current = find(id);
       if (current?.kind !== "pull") return;
-      const existing = snapshot.workspaces.find(
-        (entry) => entry.kind === "review" && entry.reviewId === reviewId,
-      );
+      const input = resolve({ kind: "thread", threadId: reviewId }) as Omit<ThreadWorkspace, "id">;
+      const existing = snapshot.workspaces.find((entry) => matches(input, entry));
       const next: Workspace = existing ?? {
-        id: `review-${reviewId}`,
-        kind: "review",
-        reviewId,
+        ...input,
+        id: threadWorkspaceId(input.threadId),
         ...(current.title ? { title: current.title } : {}),
         ...(current.repository ? { repository: current.repository } : {}),
       };
@@ -442,6 +488,35 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
           workspaces: snapshot.workspaces.map((other) => (other.id === entry.id ? fresh : other)),
           active: snapshot.active === entry.id ? fresh.id : snapshot.active,
           recent: snapshot.recent.map((other) => (other === entry.id ? fresh.id : other)),
+        });
+      }
+    },
+    /**
+     * Learns which thread each review belongs to, from the thread list. A
+     * workspace opened on a review that a session handed off becomes that
+     * session's thread, or gives way to the session's open workspace.
+     */
+    setThreadOf(next: (reviewId: string) => string | undefined) {
+      threadOf = next;
+      for (const entry of snapshot.workspaces) {
+        if (entry.kind !== "thread" || SESSION_THREAD.test(entry.threadId)) continue;
+        const threadId = threadOf(entry.threadId);
+        if (!threadId) continue;
+        const reviewId = entry.reviewId ?? entry.threadId;
+        const heir = snapshot.workspaces.find(
+          (other) => other.kind === "thread" && other.threadId === threadId,
+        );
+        const moved: Workspace = heir
+          ? { ...(heir as ThreadWorkspace), reviewId }
+          : { ...entry, id: threadWorkspaceId(threadId), threadId, reviewId };
+        const workspaces = snapshot.workspaces.flatMap((other) =>
+          other === entry ? (heir ? [] : [moved]) : other === heir ? [moved] : [other],
+        );
+        const rename = (id: string) => (id === entry.id ? moved.id : id);
+        publish({
+          workspaces,
+          active: rename(snapshot.active),
+          recent: [...new Set(snapshot.recent.map(rename))],
         });
       }
     },
@@ -488,8 +563,8 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
     follow(path: string, historyState?: unknown) {
       const vault = vaultPath(path);
       if (vault) return void store.open({ kind: "vault", sourceId: decodeURIComponent(vault) });
-      const review = reviewPath(path);
-      if (review) return void store.open({ kind: "review", reviewId: decodeURIComponent(review) });
+      const thread = reviewPath(path);
+      if (thread) return void store.open({ kind: "thread", threadId: decodeURIComponent(thread) });
       const current = find(snapshot.active);
       if (overlayAddress(path) && current) return;
       const wanted = (historyState as { workspace?: unknown } | null)?.workspace;

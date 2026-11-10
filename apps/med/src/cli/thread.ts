@@ -28,11 +28,11 @@ export const threadHelp = `Usage: med thread list [--archived] [--json]
        med thread send <id> | --key <key> [--after-turn] <message>
        med thread wait [<id>... | --key <key>...] [--until needs-you|done|idle] [--timeout <seconds>] [--json]
        med thread find [<words>] [--limit <n>] [--json]
-       med thread adopt <session> [--repo <path>] [--title <title>] [--open] [--json]
-       med thread show --paths <path>... | --base <ref> | --commit <ref> | --working | --manifest <path>
+       med thread adopt <session> [--title <title>] [--open] [--json]
 
-A thread is one task: an agent's session and its changes. Threads that the
-user opened are tabs: they show in Med's sidebar and stay loaded. The others
+A thread is an agent's session, with the reviews that it handed off; a review
+that no session handed off is a thread of its own. Threads that the user
+opened are tabs: they show in Med's sidebar and stay loaded. The others
 are archived, and Med does not watch them.
 
 list         prints the tabs in the sidebar's order, one per line: the ID, the
@@ -47,8 +47,8 @@ close        archives a tab. Its agent keeps working; Med stops
              watching it. --remove-worktree also removes the linked worktree
              that Med made for it, if Git can do that without --force.
 reopen       opens the thread that closed last.
-delete       deletes a thread: its saved review, comments, and archive entry.
-             Its agent sessions stay in Claude Code and Codex.
+delete       deletes a thread: its reviews, their comments, and its archive
+             entry. Its agent session stays in Claude Code or Codex.
 send         sends a message to the thread's agent, which Med runs. While the
              agent works, the message joins its turn at its next step;
              --after-turn waits until the turn ends. From another thread that
@@ -66,8 +66,8 @@ wait         waits until a thread's agent stops: it comes to need the user, or
              states, and exits 0, so wait again to go on waiting.
 find, adopt  find a Claude Code or Codex session of any age and make it a
              thread, which opens as a tab. med thread find --help tells more.
-show         adds a version to the Review of your session's thread: what you
-             want the user to read. med thread show --help tells more.
+             To show the user your changes, hand them off with med review
+             create: the review joins your session's thread.
 
 --key names a thread by the key of its review, such as MED_THREAD_KEY in a
 thread that Med started.
@@ -235,12 +235,15 @@ export async function runThreadCommand(
     print?: (text: string) => void;
     environment?: NodeJS.ProcessEnv;
     openUrl?: (url: string) => void;
-    /** The directory that relative paths start from (`show --paths`). */
+    /** The directory that relative paths start from (`adopt <path>`). */
     cwd?: string;
   } = {},
 ): Promise<void> {
-  if (args[0] === "find" || args[0] === "adopt" || args[0] === "show")
-    return runThreadSessionsCommand(args, options);
+  if (args[0] === "show")
+    throw new UsageError(
+      "med thread show is gone: hand off your changes with med review create, which links the review to your session's thread.",
+    );
+  if (args[0] === "find" || args[0] === "adopt") return runThreadSessionsCommand(args, options);
   const command = await parseThreadCommand(args, options.environment);
   const print = options.print ?? console.log;
   if (command.kind === "help") {
@@ -277,10 +280,7 @@ export async function runThreadCommand(
     await waitForThreads(command, call, print, options.environment ?? process.env);
     return;
   }
-  const id =
-    command.id ??
-    z.object({ id: threadIdSchema }).parse(await call("/api/reviews/by-key", { key: command.key }))
-      .id;
+  const id = command.id ?? (await threadByKey(call, command.key!));
   if (command.kind === "open") {
     const { thread } = z
       .object({ thread: z.object({ id: z.string(), title: z.string() }) })
@@ -297,8 +297,7 @@ export async function runThreadCommand(
     const thread = threadListSchema
       .parse(await call("/api/threads"))
       .threads.find((entry) => entry.id === id);
-    const session = thread?.sessions?.at(-1);
-    if (!thread || !session)
+    if (!thread || thread.kind !== "session")
       throw new Error(
         thread
           ? `"${thread.title}" has no agent session to send to.`
@@ -308,8 +307,7 @@ export async function runThreadCommand(
     // that an agent sent it, not the user: the agent reads it as a report.
     const from = (options.environment ?? process.env).MED_THREAD_KEY;
     if (from) {
-      const own = await call("/api/reviews/by-key", { key: from }).catch(() => undefined);
-      if (z.object({ id: z.string() }).safeParse(own).data?.id === id)
+      if ((await threadByKey(call, from).catch(() => undefined)) === id)
         throw new Error("A thread can't send a message to itself.");
     }
     const sender = from === "superagent" ? "the Superagent" : from ? `the thread ${from}` : "";
@@ -319,9 +317,8 @@ export async function runThreadCommand(
     const { message } = z
       .object({ message: z.object({ delivery: z.string().optional() }).passthrough() })
       .parse(
-        await call(`/api/reviews/${id}/agent/messages`, {
+        await call(`/api/sessions/${id}/agent/messages`, {
           id: crypto.randomUUID(),
-          sessionId: session.id,
           text,
           noteIds: [],
           ...(command.afterTurn && { afterTurn: true }),
@@ -338,6 +335,11 @@ export async function runThreadCommand(
   }
 }
 
+/** The thread of a review key, such as `MED_THREAD_KEY`. */
+async function threadByKey(call: (path: string, body?: unknown) => Promise<unknown>, key: string) {
+  return z.object({ thread: z.string() }).parse(await call("/api/threads/by-key", { key })).thread;
+}
+
 /**
  * `med thread wait`: reads the tabs from the host each time they change (a
  * long poll on the host's thread feed) until one of the threads comes to need
@@ -349,8 +351,7 @@ async function waitForThreads(
   print: (text: string) => void,
   environment: NodeJS.ProcessEnv,
 ) {
-  const byKey = async (key: string) =>
-    z.object({ id: threadIdSchema }).parse(await call("/api/reviews/by-key", { key })).id;
+  const byKey = (key: string) => threadByKey(call, key);
   const named = [...command.ids!, ...(await Promise.all(command.keys!.map(byKey)))];
   // Without names: every tab but the caller's own thread.
   const own = environment.MED_THREAD_KEY

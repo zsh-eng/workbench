@@ -68,25 +68,20 @@ export interface OwnedSession {
   act(action: OwnedAction): Promise<void>;
 }
 
-const ownedPath = (reviewId: string, sessionId: string) =>
-  `/api/reviews/${encodeURIComponent(reviewId)}/owned/${encodeURIComponent(sessionId)}`;
+/** The thread is the session's: its key names it. */
+const ownedPath = (threadId: string) => `/api/sessions/${encodeURIComponent(threadId)}/owned`;
 
 /** Sends an action to a session that Med runs, such as the answer to its question. */
 export function sendOwnedAction(
-  reviewId: string,
-  sessionId: string,
+  threadId: string,
   action: OwnedAction,
   fetcher: typeof fetch = browserFetch,
 ) {
-  return createApi(fetcher, readBrowserToken()).json(
-    ownedPath(reviewId, sessionId),
-    ownedStateSchema,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(action),
-    },
-  );
+  return createApi(fetcher, readBrowserToken()).json(ownedPath(threadId), ownedStateSchema, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(action),
+  });
 }
 
 /**
@@ -95,13 +90,12 @@ export function sendOwnedAction(
  * effort. It answers with the new thread, which the caller opens.
  */
 export function forkSession(
-  reviewId: string,
-  sessionId: string,
+  threadId: string,
   fork: SessionFork,
   fetcher: typeof fetch = browserFetch,
 ) {
   return createApi(fetcher, readBrowserToken()).json(
-    `/api/reviews/${encodeURIComponent(reviewId)}/sessions/${encodeURIComponent(sessionId)}/fork`,
+    `/api/sessions/${encodeURIComponent(threadId)}/fork`,
     sessionForkedSchema,
     {
       method: "POST",
@@ -117,13 +111,13 @@ export function forkSession(
  * `generation` asks again, as when Med resumes a session that it only read.
  */
 export function useOwnedSession(
-  reviewId: string,
-  sessionId: string,
+  threadId: string,
   fetcher: typeof fetch = browserFetch,
   generation = "",
 ): OwnedSession {
   const [state, setState] = useState<{ id: string; value: OwnedState } | null>(null);
-  const path = ownedPath(reviewId, sessionId);
+  const path = ownedPath(threadId);
+  const sessionId = threadId;
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
@@ -160,10 +154,10 @@ export function useOwnedSession(
     async (action: OwnedAction) => {
       setState({
         id: sessionId,
-        value: await sendOwnedAction(reviewId, sessionId, action, fetcher),
+        value: await sendOwnedAction(threadId, action, fetcher),
       });
     },
-    [reviewId, sessionId, fetcher],
+    [threadId, sessionId, fetcher],
   );
   return { state: state?.id === sessionId ? state.value : null, act };
 }

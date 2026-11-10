@@ -1,31 +1,17 @@
 import { execFile, spawn } from "node:child_process";
 import { readdir, readFile, realpath } from "node:fs/promises";
-import { dirname, extname, isAbsolute, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { parseArgs, promisify } from "node:util";
 import { z } from "zod";
-import { MAX_PROMPT_IMAGE_BYTES } from "../shared/agent-inbox";
-import {
-  clientPort,
-  getStateDirectory,
-  givenPort,
-  readConnection,
-  servicePort,
-} from "../host/runtime/connection";
-import { imageHrefs, MAX_PR_DRAFT_IMAGES, type PrDraftInput } from "../host/pr-drafts";
-import {
-  pullRequestUrlSchema,
-  savedReviewSchema,
-  type SavedReviewCreate,
-} from "../shared/saved-review";
-import { openBrowser, readStandardInput, request, showReview } from "./review";
-import { remoteFor } from "./review-parts";
+import { getStateDirectory, givenPort, servicePort } from "../host/runtime/connection";
+import { pullRequestUrlSchema, type SavedReviewCreate } from "../shared/saved-review";
+import { openBrowser, request, showReview } from "./review";
 import { UsageError } from "./exit-status";
 
 const exec = promisify(execFile);
 
 export const pullRequestHelp = `Usage: med pr checkout <number|url|branch> [gh options] [--port <port>] [--state-dir <dir>] [--no-open]
        med pr template [--repo <path>]
-       med pr draft --key <key> --file <path|-> [--title <title>] [--base <branch>] [--repo <path>]
 
 checkout checks out a GitHub pull request with gh, then opens its review in
 Med: the changes from the merge base with the pull request's base branch to
@@ -35,18 +21,7 @@ Other options pass through to gh pr checkout, for example --force, --detach,
 Med starts its background server if needed and registers the repository.
 
 template prints the repository's pull request templates, such as
-.github/pull_request_template.md, each under its path.
-
-draft attaches a pull request description to the review with that key (in a
-Med thread, MED_THREAD_KEY), as its next revision. Write it in Markdown from
-the template: a first line "# <title>" is the title, unless --title gives one.
-Images can be local files, relative to the file, or https links; Med keeps a
-copy of each local one. The user reads the draft first in the review's Notes
-and comments on it; the comments come back like other review comments. Revise
-the file and run draft again. Only the user opens the pull request, with
-Create in Med, which runs gh pr create from the checkout's branch; never run
-gh pr create yourself. --base names the branch to merge into (gh's default
-otherwise), and --repo the checkout (default: MED_THREAD_REPO, or this one).`;
+.github/pull_request_template.md, each under its path.`;
 
 /** gh pr checkout options that take a value. */
 const valueOptions = new Set(["-b", "--branch", "-R", "--repo"]);
@@ -163,6 +138,25 @@ async function hasCommit(repo: string, oid: string) {
     return false;
   }
 }
+
+/** The local remote for a GitHub repository URL, or the URL itself. */
+async function remoteFor(repo: string, pullRequestUrl: string) {
+  const url = new URL(pullRequestUrl);
+  const [, owner, name] = url.pathname.split("/");
+  const slug = `${url.host}/${owner}/${name}`.toLowerCase();
+  const remotes = await output("git", ["remote", "-v"], repo).catch(() => "");
+  for (const line of remotes.split("\n")) {
+    const [remote, address] = line.split(/\s+/);
+    if (!remote || !address) continue;
+    const normalized = address
+      .toLowerCase()
+      .replace(/^(?:ssh:\/\/)?git@([^:/]+)[:/]/, "$1/")
+      .replace(/^https?:\/\/(?:[^@/]+@)?/, "")
+      .replace(/\.git$/, "");
+    if (normalized === slug) return remote;
+  }
+  return `${url.origin}/${owner}/${name}.git`;
+}
 type CommandOptions = {
   cwd?: string;
   fetcher?: typeof fetch;
@@ -217,109 +211,11 @@ async function runTemplateCommand(args: string[], options: CommandOptions) {
     print(`## ${path}\n\n${(await readFile(join(root, path), "utf8")).trim()}\n`);
 }
 
-const IMAGE_TYPES: Record<string, "image/png" | "image/jpeg" | "image/gif" | "image/webp"> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-};
-
-async function runDraftCommand(args: string[], options: CommandOptions) {
-  const { values } = parseArgs({
-    args,
-    options: {
-      key: { type: "string" },
-      file: { type: "string" },
-      title: { type: "string" },
-      base: { type: "string" },
-      repo: { type: "string" },
-      port: { type: "string" },
-      "state-dir": { type: "string" },
-    },
-  });
-  const environment = options.environment ?? process.env;
-  const print = options.print ?? console.log;
-  const warn = options.warn ?? console.error;
-  const key = values.key ?? (environment.MED_THREAD_KEY || undefined);
-  if (!key) throw new Error("Use --key, the key of the task's review.");
-  if (!values.file) throw new Error("Use --file <path|->: the description in Markdown.");
-  const cwd = resolve(options.cwd ?? process.cwd());
-  const path = values.file === "-" ? undefined : resolve(cwd, values.file);
-  const markdown = path ? await readFile(path, "utf8") : await readStandardInput();
-  let title = values.title?.trim();
-  let body = markdown.trim();
-  const heading = /^#[ \t]+(.+)(?:\n|$)/.exec(body);
-  if (!title && heading) {
-    title = heading[1]!.trim();
-    body = body.slice(heading[0].length).trim();
-  }
-  if (!title) throw new Error('Start the file with a "# <title>" line, or pass --title.');
-  // Med keeps a copy of each local image; links stay links.
-  const folder = path ? dirname(path) : cwd;
-  const images: NonNullable<PrDraftInput["images"]> = [];
-  for (const href of new Set(imageHrefs(body))) {
-    if (/^(?:[a-z][\w+.-]*:)/i.test(href)) continue;
-    let file: string;
-    try {
-      file = decodeURIComponent(href);
-    } catch {
-      file = href;
-    }
-    file = isAbsolute(file) ? file : resolve(folder, file);
-    const mimeType = IMAGE_TYPES[extname(file).toLowerCase()];
-    const bytes = mimeType ? await readFile(file).catch(() => undefined) : undefined;
-    if (!mimeType) warn(`${href}: Med keeps PNG, JPEG, GIF, and WebP images; it shows no other.`);
-    else if (!bytes) warn(`${href}: there is no such file.`);
-    else if (bytes.length > MAX_PROMPT_IMAGE_BYTES) warn(`${href}: an image can be up to 5 MB.`);
-    else images.push({ href, mimeType, data: bytes.toString("base64") });
-  }
-  if (images.length > MAX_PR_DRAFT_IMAGES)
-    throw new Error(`A draft can show up to ${MAX_PR_DRAFT_IMAGES} local images.`);
-  const repo = values.repo
-    ? resolve(cwd, values.repo)
-    : environment.MED_THREAD_REPO ||
-      (await output("git", ["rev-parse", "--show-toplevel"], cwd).catch(() => undefined));
-  const stateDir = getStateDirectory(values["state-dir"]);
-  const connection = await readConnection(
-    stateDir,
-    await clientPort(stateDir, values.port, environment),
-  );
-  const fetcher = options.fetcher ?? fetch;
-  // A key, or the review's ID (r_…), as med review update takes.
-  const { id } = z
-    .object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) })
-    .parse(
-      await request(connection, "/api/reviews/by-key", fetcher, { key }).catch((error: unknown) =>
-        /^r_[a-z0-9]+$/.test(key) ? { id: key } : Promise.reject(error),
-      ),
-    );
-  const input: PrDraftInput = {
-    title,
-    body,
-    ...(repo ? { repo } : {}),
-    ...(values.base ? { base: values.base } : {}),
-    images,
-  };
-  const saved = savedReviewSchema.parse(
-    await request(connection, `/api/reviews/${id}/pr-draft`, fetcher, input),
-  );
-  // Open windows read the review again.
-  await showReview(connection, id, false, fetcher, options.openUrl, true);
-  print(
-    `[Pull request draft](${connection.origin}/review/${id}), revision ${saved.prDraft?.revision ?? 1}${images.length ? `, with ${images.length} ${images.length === 1 ? "image" : "images"}` : ""}.`,
-  );
-  print(
-    "The user reads it in the review's Notes and comments on it. Revise the file and run med pr draft again; the user opens the pull request with Create in Med.",
-  );
-}
-
 export async function runPullRequestCommand(
   args: string[],
   options: CommandOptions = {},
 ): Promise<void> {
   if (args[0] === "template") return runTemplateCommand(args.slice(1), options);
-  if (args[0] === "draft") return runDraftCommand(args.slice(1), options);
   const command = parsePullRequestCommand(args);
   const print = options.print ?? console.log;
   if (command.kind === "help") {

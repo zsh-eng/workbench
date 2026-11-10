@@ -20,7 +20,7 @@ that answers wins:
 | Git attributes | host, `check-attr` | `linguist-generated` (set or unset), `-diff` (not through the `binary` macro, as in `*.png binary`). Read only when the checkout has `.gitattributes` or `info/attributes`               |
 | Header         | host               | `@generated`, `DO NOT EDIT`, `auto-generated` in the first 5 lines: from the patch, or the first 1 KiB of a working file                                                                 |
 | Path           | shared             | lockfiles; `dist/`, `.vite/`, `.next/`, `coverage/`, `__generated__/`; `__snapshots__/`, `*.snap`, `-snapshots/`; `*.min.js`, `*.map`; `*.generated.*`, `*.gen.*`, `*.pb.go`, `*_pb2.py` |
-| Hand-off       | host, at capture   | `med review create --generated <path\|glob>…` (also `update --paths`, `thread show`): files, folders, and globs, as a guide names files                                                  |
+| Hand-off       | host, at capture   | `med review create --generated <path\|glob>…` (also `update --paths`): files, folders, and globs, as a guide names files                                                                 |
 
 The host puts the answer on each `ReviewFile` as `generated: { kind, source? }`,
 or `generated: false` when an attribute unmarks a file. The hand-off layer

@@ -27,7 +27,6 @@ export function FileViewTabs({
   onCloseAll,
   panelId = "file-view-panel",
   showChanges = true,
-  showBrief = false,
   showReview = false,
   showCommit = false,
   search,
@@ -41,8 +40,6 @@ export function FileViewTabs({
   active: string;
   panelId?: string;
   showChanges?: boolean;
-  /** The Pull request tab, after Review and before Changes. */
-  showBrief?: boolean;
   /** What the agent handed off, with its Guide, comes first. */
   showReview?: boolean;
   /** Stage, commit, and push a live checkout. */
@@ -106,21 +103,6 @@ export function FileViewTabs({
             )}
           >
             Review
-          </Tabs.Tab>
-        )}
-        {showBrief && (
-          <Tabs.Tab
-            value="brief"
-            aria-controls={panelId}
-            aria-label="Pull request"
-            {...stylex.props(
-              styles.tab,
-              styles.changes,
-              styles.enter,
-              active === "brief" && styles.active,
-            )}
-          >
-            Pull request
           </Tabs.Tab>
         )}
         {showChanges && (

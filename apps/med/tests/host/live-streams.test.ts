@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SavedReview } from "../../src/shared/saved-review";
+import { threadOfReview } from "../../src/shared/threads";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { createApi } from "../../src/web/data/api";
 import { browserFetch } from "../../src/web/data/live";
@@ -46,10 +47,13 @@ test("a page reads all its event streams over one connection", async () => {
       headers: { authorization: `Bearer ${host.token}`, "content-type": "application/json" },
       body: JSON.stringify(body),
     }).then((response) => response.json())) as T;
+  const session = "9a9a9a9a-9a9a-49a9-89a9-9a9a9a9a9a9a";
   const review = await plain<SavedReview>("/api/reviews", {
     title: "Live",
     targets: [{ repo: directory, comparison: { kind: "working" } }],
+    session: { agent: "claude", id: session, cwd: directory },
   });
+  const thread = `claude-${session}`;
 
   const open = async (path: string) => {
     const controller = new AbortController();
@@ -68,8 +72,8 @@ test("a page reads all its event streams over one connection", async () => {
     `/api/events?repo=${encodeURIComponent(directory)}`,
     `/api/events?repo=${encodeURIComponent(directory)}`,
     "/api/threads/events",
-    `/api/reviews/${review.id}/agent/events`,
-    `/api/reviews/${review.id}/agent/events`,
+    `/api/sessions/${thread}/agent/events`,
+    `/api/sessions/${thread}/agent/events`,
     "/api/threads/events",
   ];
   const opened = await Promise.all(paths.map(open));
@@ -90,13 +94,14 @@ test("a page reads all its event streams over one connection", async () => {
     messages: [],
     drafts: [],
     elsewhere: {},
-    resumable: [],
+    // No process has the session open: a message resumes it in Med.
+    resumable: [session],
     owned: [],
     revision: 0,
   });
-  // The thread list names the saved review and the repository.
+  // The thread list names the review's session, with its review, and the repository.
   expect(JSON.parse(opened[7]!.events[0]!.data)).toMatchObject({
-    threads: [{ id: review.id, title: "Live", checkout: directory }],
+    threads: [{ id: thread, title: "Live", checkout: directory, reviews: [{ id: review.id }] }],
     repositories: [{ path: directory }],
   });
   expect(requests.filter((request) => request.startsWith("GET"))).toEqual(["GET /api/live"]);
@@ -105,7 +110,11 @@ test("a page reads all its event streams over one connection", async () => {
   const [first, second] = opened;
   expect(await plain("/api/windows/review", { id: review.id })).toEqual({ windows: 2 });
   await vi.waitFor(() => expect(second!.events.at(-1)?.event).toBe("review"));
-  expect(JSON.parse(first!.events.at(-1)!.data)).toMatchObject({ id: review.id, title: "Live" });
+  expect(JSON.parse(first!.events.at(-1)!.data)).toMatchObject({
+    id: review.id,
+    thread,
+    title: "Live",
+  });
   first!.close();
   await vi.waitFor(async () =>
     expect(await plain("/api/windows/review", { id: review.id })).toEqual({ windows: 1 }),
@@ -117,9 +126,9 @@ test("a page reads all its event streams over one connection", async () => {
   await vi.waitFor(() => expect(replies.every((reply) => reply.response.bodyUsed)).toBe(true));
 
   // A channel that the host refuses reads like a refused stream.
-  const missing = await open(`/api/reviews/${review.id}/sessions/nothing/events`);
+  const missing = await open(`/api/sessions/claude-nothing/events`);
   expect(missing.response.status).toBe(404);
-  expect(await missing.response.json()).toMatchObject({ error: { code: "session-not-found" } });
+  expect(await missing.response.json()).toMatchObject({ error: { code: "thread-not-found" } });
 
   // When the host stops, each channel ends, so its reader connects again.
   await host.close();
@@ -160,9 +169,10 @@ test("a long ACP thread comes over the live stream in parts, and the page's othe
     body: JSON.stringify({
       title: "Long Codex thread",
       targets: [{ repo: directory, comparison: { kind: "working" } }],
-      sessions: [{ agent: "acp", name: "Codex", id: sessionId, cwd: directory }],
+      session: { agent: "acp", name: "Codex", id: sessionId, cwd: directory },
     }),
   }).then((response) => response.json())) as SavedReview;
+  const threadId = threadOfReview(review);
 
   const open = async (path: string, maxEventSize?: number) => {
     const controller = new AbortController();
@@ -179,7 +189,7 @@ test("a long ACP thread comes over the live stream in parts, and the page's othe
   };
   const list = await open("/api/threads/events");
   // The session pane reads events up to 4 MiB, as session-stream.ts does.
-  const thread = await open(`/api/reviews/${review.id}/sessions/${sessionId}/events`, 4 << 20);
+  const thread = await open(`/api/sessions/${threadId}/events`, 4 << 20);
   await vi.waitFor(
     () => {
       const [reset, ...rest] = thread.events.map(
@@ -197,7 +207,7 @@ test("a long ACP thread comes over the live stream in parts, and the page's othe
 
   // The thread list on the same connection still takes changes.
   const before = list.events.length;
-  await browserFetch(`/api/threads/${review.id}/name`, {
+  await browserFetch(`/api/threads/${threadId}/name`, {
     method: "POST",
     headers: { authorization: `Bearer ${host.token}`, "content-type": "application/json" },
     body: JSON.stringify({ name: "Codex export" }),

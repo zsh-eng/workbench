@@ -72,7 +72,7 @@ const reviewFor = (comparison: Comparison, id: string) => ({
 const savedReview = (id: string) => ({
   id,
   title: saved[id]!.title,
-  ...(id === "talk" ? { sessions: [talkSession] } : {}),
+  ...(id === "talk" ? { session: talkSession } : {}),
   createdAt: "2026-10-01T00:00:00Z",
   revision: 0,
   commentCount: 0,
@@ -91,19 +91,37 @@ const savedReview = (id: string) => ({
     },
   ],
 });
+/** A review's row: its own, or its session's, which `patch` makes. */
 const thread = (id: string, patch: Partial<Thread> = {}): Thread => ({
   id,
+  kind: "review",
   title: saved[id]!.title,
   createdAt: "2026-10-01T00:00:00Z",
   updatedAt: Date.now() - 60_000,
+  reviews: [
+    {
+      id,
+      title: saved[id]!.title,
+      createdAt: "2026-10-01T00:00:00Z",
+      updatedAt: Date.now() - 60_000,
+    },
+  ],
   repository: { id: "repo-0", name: "fixture", path: "/test/repo" },
   checkout: "/test/repo",
   branch: "main",
   ...patch,
 });
+/** The talk session's thread, with the review that it handed off. */
+const TALK_THREAD = `claude-${talkSession.id}`;
 const threads = [
   ...["week", "older", "model"].map((id) => thread(id)),
-  thread("talk", { agent: "claude", state: "idle", sessions: [talkSession] }),
+  thread("talk", {
+    id: TALK_THREAD,
+    kind: "session",
+    agent: "claude",
+    state: "idle",
+    session: talkSession,
+  }),
 ];
 
 /** An event stream that stays open until the page closes it. */
@@ -123,7 +141,7 @@ const stream = (init: RequestInit | undefined, first?: string) =>
 const fetcher: typeof fetch = async (input, init) => {
   const url = new URL(String(input), "http://localhost");
   const repo = url.searchParams.get("repo") || "/test/repo";
-  if (url.pathname === `/api/reviews/talk/sessions/${talkSession.id}/events`) {
+  if (url.pathname === `/api/sessions/${TALK_THREAD}/events`) {
     const reset = {
       events: [
         {

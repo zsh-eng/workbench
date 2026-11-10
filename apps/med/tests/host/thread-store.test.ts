@@ -1,27 +1,18 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import {
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  realpath,
-  rm,
-  utimes,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SavedReview } from "../../src/shared/saved-review";
 import type { Thread, ThreadList } from "../../src/shared/threads";
 import { startHost, type RunningHost } from "../../src/host/server";
-import { claudeProjectFolder } from "../../src/host/found-sessions";
+import { claudeProjectFolder } from "../../src/host/session-index";
 import { readServerEvents } from "../../src/web/data/sse";
 
-// Open tabs and cold history through the production host: the first start
-// with tabs, the order across restarts, pruning of closed threads, and the
-// subagents that a tab lists.
+// Tabs and the archive through the production host: the move from an older
+// Med's tabs, names, pins and seen marks across restarts, pruning of
+// archived threads, and the subagents that a tab lists.
 
 const directories: string[] = [];
 const hosts: RunningHost[] = [];
@@ -119,12 +110,12 @@ async function fixture() {
     });
     return { status: response.status, data: (await response.json()) as T };
   };
-  const save = async (title: string, sessions: SavedReview["sessions"] = []) =>
+  const save = async (title: string, session?: SavedReview["session"]) =>
     (
       await api<SavedReview>("/api/reviews", {
         title,
         targets: [{ repo, comparison: { kind: "working" } }],
-        ...(sessions?.length ? { sessions } : {}),
+        ...(session && { session }),
       })
     ).data;
   const tabs = async () =>
@@ -140,79 +131,64 @@ async function fixture() {
   return { api, save, tabs, history, start, stop, restart, record, repo, home, stateDir };
 }
 
-test("the first start with tabs opens the recent threads, closes the rest, and keeps the order", async () => {
-  const { save, tabs, history, restart, record, stateDir } = await fixture();
-  await save("Recent work");
-  const older = await save("Quiet for twenty days");
-  const quiet = await save("Quiet for ten days");
-  const archived = await save("Archived before tabs");
-  expect(await tabs()).toEqual([
-    "Archived before tabs",
-    "Quiet for ten days",
-    "Quiet for twenty days",
-    "Recent work",
-  ]);
-
-  // As Med before tabs left them: no tabs file, an archived record, and one
-  // that has not changed for ten days.
-  await rm(join(stateDir, "tabs.json"));
-  const file = JSON.parse(await readFile(record(archived.id), "utf8")) as {
-    saved: { archivedAt?: string };
+test("the first start moves an older Med's tabs: a review goes to its session's thread, with its name, pin, and seen mark", async () => {
+  const { api, save, tabs, history, stop, start, repo, stateDir } = await fixture();
+  const session = {
+    agent: "claude" as const,
+    id: "56565656-5656-4565-8565-565656565656",
+    cwd: repo,
   };
-  file.saved.archivedAt = "2026-10-01T08:00:00.000Z";
-  await writeFile(record(archived.id), JSON.stringify(file));
-  const tenDays = new Date(Date.now() - 10 * DAY);
-  await utimes(record(quiet.id), tenDays, tenDays);
-  const twentyDays = new Date(Date.now() - 20 * DAY);
-  await utimes(record(older.id), twentyDays, twentyDays);
-  await restart();
+  const found = "78787878-7878-4787-8787-787878787878";
+  const handedOff = await save("Tide chart", session);
+  const alone = await save("Harbour webcams");
+  const archived = await save("Offline tides");
+  await stop();
+  // As the Med before sessions were threads left it: each review a tab, a
+  // found session a `found-…` tab, and no thread store.
+  await rm(join(stateDir, "threads.json"));
+  await writeFile(
+    join(stateDir, "tabs.json"),
+    JSON.stringify({
+      version: 1,
+      order: [handedOff.id, `found-claude-${found}`, alone.id],
+      entries: {
+        [handedOff.id]: { name: "Tide chart v2" },
+        [`found-claude-${found}`]: {
+          stub: { title: "Found work", sessions: [{ agent: "claude", id: found, cwd: repo }] },
+        },
+        [alone.id]: {},
+        [archived.id]: { closedAt: Date.parse("2026-10-01T08:00:00.000Z") },
+      },
+      pins: [handedOff.id],
+      seen: { [handedOff.id]: 42 },
+    }),
+  );
+  await start();
 
-  // A recent thread opens; an archived one closes when it was archived, and
-  // the others close now, newest change first.
-  expect(await tabs()).toEqual(["Recent work"]);
-  const closed = await history();
-  expect(closed.map((thread) => [thread.title, thread.open])).toEqual([
-    ["Quiet for ten days", false],
-    ["Quiet for twenty days", false],
-    ["Archived before tabs", false],
+  const listed = (await api<ThreadList>("/api/threads")).data.threads;
+  const byId = new Map(listed.map((thread) => [thread.id, thread]));
+  expect(listed.map((thread) => thread.id).toSorted()).toEqual(
+    [`claude-${session.id}`, `claude-${found}`, alone.id].toSorted(),
+  );
+  expect(byId.get(`claude-${session.id}`)).toMatchObject({
+    kind: "session",
+    title: "Tide chart v2",
+    pinned: 1,
+    seen: 42,
+    session: { agent: "claude", id: session.id },
+    reviews: [{ id: handedOff.id, title: "Tide chart" }],
+  });
+  expect(byId.get(`claude-${found}`)).toMatchObject({ kind: "session", reviews: [] });
+  expect(byId.get(alone.id)).toMatchObject({ kind: "review", reviews: [{ id: alone.id }] });
+  expect(await history()).toMatchObject([
+    { id: archived.id, open: false, closedAt: Date.parse("2026-10-01T08:00:00.000Z") },
   ]);
-  expect(closed[0]!.closedAt).toBeGreaterThan(Date.now() - 60_000);
-  expect(closed[2]!.closedAt).toBe(Date.parse("2026-10-01T08:00:00.000Z"));
-
-  // A new thread opens at the top, and a restart does not make the tabs again.
-  await save("Next task");
-  expect(await tabs()).toEqual(["Next task", "Recent work"]);
-  await restart();
-  expect(await tabs()).toEqual(["Next task", "Recent work"]);
-  expect((await history()).map((thread) => thread.title)).toEqual([
-    "Quiet for ten days",
-    "Quiet for twenty days",
-    "Archived before tabs",
-  ]);
-});
-
-test("the first start with tabs opens at most the 8 newest threads of the last 7 days", async () => {
-  const { save, tabs, history, restart, record, stateDir } = await fixture();
-  const titles = Array.from({ length: 10 }, (_, index) => `Thread ${index + 1}`);
-  const recent = [];
-  for (const title of titles) recent.push(await save(title));
-  const old = await save("Nine days old");
-  // As Med before tabs left them: ten threads in the last 7 days, 15 hours
-  // apart, newest first, and one of nine days ago.
-  await rm(join(stateDir, "tabs.json"));
-  for (const [index, review] of recent.entries()) {
-    const at = new Date(Date.now() - 60_000 - index * 15 * 60 * 60 * 1000);
-    await utimes(record(review.id), at, at);
-  }
-  const nineDays = new Date(Date.now() - 9 * DAY);
-  await utimes(record(old.id), nineDays, nineDays);
-  await restart();
-
-  expect(await tabs()).toEqual(titles.slice(0, 8));
-  expect((await history()).map((thread) => thread.title)).toEqual([
-    ...titles.slice(8),
-    "Nine days old",
-  ]);
+  // The old file stays beside the new one, and a restart does not move it again.
+  expect(existsSync(join(stateDir, "tabs.json.before-sessions"))).toBe(true);
+  expect(existsSync(join(stateDir, "tabs.json"))).toBe(false);
+  await stop();
+  await start();
+  expect((await tabs()).toSorted()).toEqual(["Found work", "Harbour webcams", "Tide chart v2"]);
 });
 
 test("a thread keeps the name that the reader gives it across a restart, a hand-off, and history, and an empty name restores the agent's title", async () => {
@@ -230,8 +206,8 @@ test("a thread keeps the name that the reader gives it across a restart, a hand-
   expect(await listed()).toEqual([
     { title: "Station search v2", agentTitle: "Forgiving station search" },
   ]);
-  // Med keeps the name in its tabs file, not in the review.
-  const saved = JSON.parse(await readFile(join(stateDir, "tabs.json"), "utf8")) as {
+  // Med keeps the name in its thread store, not in the review.
+  const saved = JSON.parse(await readFile(join(stateDir, "threads.json"), "utf8")) as {
     entries: Record<string, { name?: string }>;
   };
   expect(saved.entries[review.id]?.name).toBe("Station search v2");
@@ -267,13 +243,14 @@ test("a pinned thread stays pinned across a restart and in history, and a delete
   const pinned = async () =>
     (await api<ThreadList>("/api/threads")).data.threads
       .filter((thread) => thread.pinned)
+      .toSorted((a, b) => a.pinned! - b.pinned!)
       .map((thread) => thread.title);
 
   expect((await api(`/api/threads/${second.id}/pin`, { pinned: true })).status).toBe(200);
   expect((await api(`/api/threads/${first.id}/pin`, { pinned: true })).status).toBe(200);
   expect(await pinned()).toEqual(["Offline tides", "Forgiving station search"]);
-  // Med keeps the pins in its tabs file, in the order they were pinned.
-  const saved = JSON.parse(await readFile(join(stateDir, "tabs.json"), "utf8")) as {
+  // Med keeps the pins in its thread store, in the order they were pinned.
+  const saved = JSON.parse(await readFile(join(stateDir, "threads.json"), "utf8")) as {
     pins?: string[];
   };
   expect(saved.pins).toEqual([second.id, first.id]);
@@ -310,7 +287,7 @@ test("a pinned thread stays pinned across a restart and in history, and a delete
 
   // Deleting a thread removes its pin, and Med cannot pin what it does not know.
   expect((await api(`/api/threads/${second.id}/delete`, {})).status).toBe(200);
-  const after = JSON.parse(await readFile(join(stateDir, "tabs.json"), "utf8")) as {
+  const after = JSON.parse(await readFile(join(stateDir, "threads.json"), "utf8")) as {
     pins?: string[];
   };
   expect(after.pins).toEqual([]);
@@ -318,7 +295,7 @@ test("a pinned thread stays pinned across a restart and in history, and a delete
   expect((await api(`/api/threads/${first.id}/pin`, { pinned: "yes" })).status).toBe(400);
 });
 
-test("a pinned session keeps its pin when a review saves it", async () => {
+test("a review that a session hands off joins the session's thread, which keeps its pin", async () => {
   const { api, save, repo, home } = await fixture();
   const session = "34343434-3434-4434-8434-343434343434";
   const folder = join(home, ".claude", "projects", claudeProjectFolder(repo));
@@ -327,45 +304,49 @@ test("a pinned session keeps its pin when a review saves it", async () => {
     join(folder, `${session}.jsonl`),
     transcript(repo, session, "Draw the tide chart.", "runs"),
   );
-  const found = `found-claude-${session}`;
-  const pins = async () =>
-    (await api<ThreadList>("/api/threads")).data.threads.map((thread) => [
-      thread.id,
-      thread.pinned,
+  const thread = `claude-${session}`;
+  const rows = async () =>
+    (await api<ThreadList>("/api/threads")).data.threads.map((each) => [
+      each.id,
+      each.pinned,
+      each.reviews.map((review) => review.title),
     ]);
   // A session that Med sees work opens as a tab, and the reader pins it.
-  await expect.poll(pins).toEqual([[found, undefined]]);
-  expect((await api(`/api/threads/${found}/pin`, { pinned: true })).status).toBe(200);
-  expect(await pins()).toEqual([[found, 1]]);
+  await expect.poll(rows).toEqual([[thread, undefined, []]]);
+  expect((await api(`/api/threads/${thread}/pin`, { pinned: true })).status).toBe(200);
+  expect(await rows()).toEqual([[thread, 1, []]]);
 
-  // Its agent hands off a review: the review takes the session's tab and pin.
-  const review = await save("Tide chart", [{ agent: "claude", id: session, cwd: repo }]);
-  expect(await pins()).toEqual([[review.id, 1]]);
+  // Its agent hands off a review, then another: the thread stays one row.
+  await save("Tide chart", { agent: "claude", id: session, cwd: repo });
+  await save("Tide chart labels", { agent: "claude", id: session, cwd: repo });
+  expect(await rows()).toEqual([[thread, 1, ["Tide chart labels", "Tide chart"]]]);
 });
 
-test("a tabs file with an entry that Med cannot read keeps the other tabs and their names, and a copy of the file", async () => {
+test("a thread store with an entry that Med cannot read keeps the other tabs and their names, and a copy of the file", async () => {
   const { api, save, tabs, start, stop, stateDir } = await fixture();
   const first = await save("Forgiving station search");
   const second = await save("Tide tables offline");
   await api(`/api/threads/${first.id}/name`, { name: "Station search v2" });
   await api(`/api/threads/${second.id}/name`, { name: "Offline tides" });
-  expect(await tabs()).toEqual(["Offline tides", "Station search v2"]);
+  expect((await tabs()).toSorted()).toEqual(["Offline tides", "Station search v2"]);
   await stop();
-  const file = join(stateDir, "tabs.json");
+  const file = join(stateDir, "threads.json");
   const saved = JSON.parse(await readFile(file, "utf8"));
   saved.entries[second.id].name = 42;
   await writeFile(file, JSON.stringify(saved));
 
   await start();
-  expect(await tabs()).toEqual(["Tide tables offline", "Station search v2"]);
-  const kept = (await readdir(stateDir)).filter((name) => name.startsWith("tabs.json.unreadable-"));
+  expect((await tabs()).toSorted()).toEqual(["Station search v2", "Tide tables offline"]);
+  const kept = (await readdir(stateDir)).filter((name) =>
+    name.startsWith("threads.json.unreadable-"),
+  );
   expect(kept).toHaveLength(1);
   expect(JSON.parse(await readFile(join(stateDir, kept[0]!), "utf8")).entries[second.id].name).toBe(
     42,
   );
 });
 
-test("a closed thread keeps its captures for 30 days, then a stub that opens its session, and after 180 days nothing", async () => {
+test("an archived thread is forgotten after 180 days, with its reviews", async () => {
   const { api, save, tabs, history, restart, record, repo, home, stateDir } = await fixture();
   const session = "12121212-1212-4212-8212-121212121212";
   const folder = join(home, ".claude", "projects", claudeProjectFolder(repo));
@@ -374,59 +355,36 @@ test("a closed thread keeps its captures for 30 days, then a stub that opens its
     join(folder, `${session}.jsonl`),
     transcript(repo, session, "Explain the tide model.", "ends"),
   );
-  // An adopted session captures nothing: it names its checkout, which its stub keeps.
-  const month = (
-    await api<{ id: string }>("/api/sessions/adopt", { session, title: "Closed a month ago" })
-  ).data;
+  const adopted = (
+    await api<{ id: string }>("/api/sessions/adopt", { session, title: "Kept half a year ago" })
+  ).data.id;
   const year = await save("Closed half a year ago");
-  const kept = await save("Closed last week");
-  expect((await api(`/api/threads/${month.id}/pin`, { pinned: true })).status).toBe(200);
-  for (const thread of [month, year, kept])
-    expect((await api(`/api/threads/${thread.id}/close`, {})).status).toBe(200);
+  const week = await save("Closed last week");
+  for (const id of [adopted, year.id, week.id])
+    expect((await api(`/api/threads/${id}/close`, {})).status).toBe(200);
 
   // Med prunes when it starts, and once a day.
-  const file = join(stateDir, "tabs.json");
+  const file = join(stateDir, "threads.json");
   const state = JSON.parse(await readFile(file, "utf8")) as {
     entries: Record<string, { closedAt?: number }>;
   };
-  state.entries[month.id]!.closedAt = Date.now() - 31 * DAY;
+  state.entries[adopted]!.closedAt = Date.now() - 181 * DAY;
   state.entries[year.id]!.closedAt = Date.now() - 181 * DAY;
-  state.entries[kept.id]!.closedAt = Date.now() - 7 * DAY;
+  state.entries[week.id]!.closedAt = Date.now() - 7 * DAY;
   await writeFile(file, JSON.stringify(state));
   await restart();
 
-  // Last week's thread keeps its record; a month's keeps a stub in history;
-  // half a year's is gone.
-  expect(existsSync(record(kept.id))).toBe(true);
-  expect(existsSync(record(month.id))).toBe(false);
+  expect(existsSync(record(week.id))).toBe(true);
   expect(existsSync(record(year.id))).toBe(false);
-  expect((await api(`/api/reviews/${month.id}`)).status).toBe(404);
-  const closed = await history();
-  expect(closed.map((thread) => thread.title)).toEqual(["Closed last week", "Closed a month ago"]);
-  expect(closed[1]).toMatchObject({
-    id: month.id,
-    stub: true,
-    open: false,
-    checkout: repo,
-    sessions: [{ agent: "claude", id: session }],
-  });
-
-  // A stub opens as its session, which Med finds again.
-  const opened = await api<{ thread: Thread }>(`/api/threads/${month.id}/open`, {});
-  expect(opened.status).toBe(200);
-  expect(opened.data.thread).toMatchObject({
-    id: `found-claude-${session}`,
-    found: true,
-    pinned: 1,
-  });
-  const tabIds = async () =>
-    (await api<ThreadList>("/api/threads")).data.threads.map((thread) => thread.id);
-  expect(await tabIds()).toContain(`found-claude-${session}`);
+  expect((await api(`/api/reviews/${year.id}`)).status).toBe(404);
+  // The session stays in Claude Code; Med no longer keeps it.
   expect((await history()).map((thread) => thread.title)).toEqual(["Closed last week"]);
+  const after = JSON.parse(await readFile(file, "utf8")) as { entries: Record<string, unknown> };
+  expect(Object.keys(after.entries)).not.toContain(adopted);
 
-  // No longer a limit of 128 saved reviews: more save.
+  // No limit of saved reviews: more save.
   for (let index = 0; index < 3; index++) await save(`Another ${index}`);
-  expect((await tabs()).length).toBeGreaterThanOrEqual(4);
+  expect((await tabs()).length).toBeGreaterThanOrEqual(3);
 });
 
 test("a tab lists its Claude subagents: what each does now, and those that finished", async () => {
@@ -459,7 +417,8 @@ test("a tab lists its Claude subagents: what each does now, and those that finis
     join(agents, "agent-a2.meta.json"),
     JSON.stringify({ description: "Read the docs", toolUseId: "toolu_docs" }),
   );
-  const saved = await save("Durations in minutes", [{ agent: "claude", id: session, cwd: repo }]);
+  await save("Durations in minutes", { agent: "claude", id: session, cwd: repo });
+  const thread = `claude-${session}`;
 
   // A window's stream sends the subagents with the tab.
   const latest: { value: ThreadList | null } = { value: null };
@@ -475,12 +434,10 @@ test("a tab lists its Claude subagents: what each does now, and those that finis
   ).catch(() => {});
   await vi.waitFor(
     () =>
-      expect(
-        latest.value?.threads.find((thread) => thread.id === saved.id)?.subagents,
-      ).toHaveLength(2),
+      expect(latest.value?.threads.find((each) => each.id === thread)?.subagents).toHaveLength(2),
     { timeout: 10_000 },
   );
-  const subagents = latest.value!.threads.find((thread) => thread.id === saved.id)!.subagents!;
+  const subagents = latest.value!.threads.find((each) => each.id === thread)!.subagents!;
   expect(subagents).toEqual(
     expect.arrayContaining([
       {
@@ -531,14 +488,14 @@ test("the host keeps what the reader saw of each tab: one mark for every window 
   const merged = await listed();
   expect(merged.get(first.id)!.seen).toBe(at);
   expect(merged.get(second.id)!.seen).toBe(at - 20);
-  const file = JSON.parse(await readFile(join(stateDir, "tabs.json"), "utf8")) as {
+  const file = JSON.parse(await readFile(join(stateDir, "threads.json"), "utf8")) as {
     seen?: Record<string, number>;
   };
   expect(Object.keys(file.seen ?? {}).toSorted()).toEqual([first.id, second.id].toSorted());
 
   // A deleted thread leaves the marks, and Med marks only threads it knows.
   expect((await api(`/api/threads/${second.id}/delete`, {})).status).toBe(200);
-  const after = JSON.parse(await readFile(join(stateDir, "tabs.json"), "utf8")) as {
+  const after = JSON.parse(await readFile(join(stateDir, "threads.json"), "utf8")) as {
     seen?: Record<string, number>;
   };
   expect(Object.keys(after.seen ?? {})).toEqual([first.id]);

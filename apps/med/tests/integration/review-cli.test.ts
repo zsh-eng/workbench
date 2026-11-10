@@ -242,38 +242,11 @@ describe("agent review CLI through the production host", () => {
     );
     await expect(f.run("reply", "gone", "Done.")).rejects.toThrow('"gone" is not a comment ID.');
     await expect(f.run("reply", "abcdef12", "Done.")).rejects.toThrow(
-      "No review in Med has a comment with ID abcdef12.",
+      "Med request failed: No thread in Med has a comment with ID abcdef12.",
     );
     await expect(f.run("reply", "abcdef12", "--key", "fix-copy", "Done.")).rejects.toThrow(
       "Med request failed: This review has no comment with that ID.",
     );
-  });
-
-  it("attaches a brief from a file, then replaces and removes it without a new revision", async () => {
-    const f = await fixture();
-    const path = join(f.root, "brief.md");
-    await writeFile(path, "\n# Fix\n\nSee [file.txt:1](file.txt:1).\n\n");
-    const bundle = await f.saved(
-      await f.run("create", "--title", "Fix", "--repo", f.repos[0]!, "--working", "--brief", path),
-    );
-    expect(bundle.brief.text).toBe("# Fix\n\nSee [file.txt:1](file.txt:1).");
-    const post = (brief: string | null) =>
-      fetch(`http://127.0.0.1:${f.host.port}/api/reviews/${bundle.id}/brief`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${f.host.token}`, "content-type": "application/json" },
-        body: JSON.stringify({ brief }),
-      });
-    const replaced = await (await post("Second brief")).json();
-    expect(replaced).toMatchObject({ brief: { text: "Second brief" }, revision: bundle.revision });
-    expect((await post("x".repeat(100_001))).status).toBe(400);
-    expect((await f.api(`/api/reviews/${bundle.id}`)).brief.text).toBe("Second brief");
-    expect((await (await post(null)).json()).brief).toBeUndefined();
-    expect((await f.api(`/api/reviews/${bundle.id}`)).brief).toBeUndefined();
-    const empty = join(f.root, "empty.md");
-    await writeFile(empty, " \n");
-    await expect(
-      f.run("create", "--title", "Fix", "--repo", f.repos[0]!, "--working", "--brief", empty),
-    ).rejects.toThrow("Invalid brief: Supply the brief text.");
   });
 
   it("attaches a guide to a committed range with its commits, then replaces and removes it", async () => {
@@ -423,13 +396,14 @@ describe("agent review CLI through the production host", () => {
     let text = "";
     while (!/event: review\ndata: .*\n\n/.test(text)) text += (await reader.read()).value ?? "";
     const data = /event: review\ndata: (.*)\n/.exec(text)![1]!;
+    // A review that no session handed off is a thread of its own.
     expect(JSON.parse(data)).toEqual({
       type: "review",
       id: shown,
+      thread: shown,
       title: "Shown",
       open: true,
       updated: false,
-      sessions: [],
     });
     expect(opened).toEqual([]);
 
@@ -448,14 +422,9 @@ describe("agent review CLI through the production host", () => {
     expect(opened).toEqual([`${origin}/review/${linked}#token=${f.host.token}`]);
   });
 
-  it("updates one review by key: iterations keep comments and briefs, and the PR link and title come later", async () => {
+  it("updates one review by key: versions keep comments, and the PR link and title come later", async () => {
     const f = await fixture();
     const repo = f.repos[0]!;
-    const brief = async (name: string, text: string) => {
-      const path = join(f.root, name);
-      await writeFile(path, text);
-      return path;
-    };
     const create = (title: string, key: string, ...more: string[]) =>
       f.run(
         "create",
@@ -469,10 +438,8 @@ describe("agent review CLI through the production host", () => {
         "--no-pr",
         ...more,
       );
-    const first = await f.saved(
-      await create("Round one", "feat/x", "--brief", await brief("one.md", "First round")),
-    );
-    expect(first.iterations).toMatchObject([{ number: 1, brief: { text: "First round" } }]);
+    const first = await f.saved(await create("Round one", "feat/x"));
+    expect(first.iterations).toMatchObject([{ number: 1 }]);
     const post = (path: string, body: unknown) =>
       fetch(`http://127.0.0.1:${f.host.port}${path}`, {
         method: "POST",
@@ -489,12 +456,7 @@ describe("agent review CLI through the production host", () => {
     expect(noted.status).toBe(200);
 
     await writeFile(join(repo, "file.txt"), "after again\n");
-    const output = await create(
-      "Round two",
-      "feat/x",
-      "--brief",
-      await brief("two.md", "Second round"),
-    );
+    const output = await create("Round two", "feat/x");
     const [link, note] = output.split("\n");
     expect(note).toBe("Added iteration 2 to the review with this key.");
     const second = await f.saved(link!);
@@ -503,18 +465,9 @@ describe("agent review CLI through the production host", () => {
       key: "feat/x",
       title: "Round two",
       commentCount: 1,
-      brief: { text: "Second round" },
       totals: { comparisons: 1 },
     });
-    expect(
-      second.iterations.map((entry: { number: number; brief: { text: string } }) => [
-        entry.number,
-        entry.brief.text,
-      ]),
-    ).toEqual([
-      [1, "First round"],
-      [2, "Second round"],
-    ]);
+    expect(second.iterations.map((entry: { number: number }) => entry.number)).toEqual([1, 2]);
     const current = second.iterations[1].targetIds[0];
     expect((await f.api(`/api/reviews/${first.id}/targets/${current}/review`)).patch).toContain(
       "+after again",
@@ -566,75 +519,7 @@ exit 1
     await expect(create("Bad", "has space")).rejects.toThrow("Invalid key");
   });
 
-  it("starts new notes: the current comparison, captured again, as an empty iteration for later pins", async () => {
-    const f = await fixture();
-    const repo = f.repos[0]!;
-    const path = join(f.root, "brief.md");
-    await writeFile(path, "First round");
-    const first = await f.saved(
-      await f.run(
-        "create",
-        "--title",
-        "Round one",
-        "--key",
-        "feat/notes",
-        "--repo",
-        repo,
-        "--working",
-        "--no-pr",
-        "--brief",
-        path,
-      ),
-    );
-    const post = async (action: string, body: unknown) => {
-      const response = await fetch(
-        `http://127.0.0.1:${f.host.port}/api/reviews/${first.id}/${action}`,
-        {
-          method: "POST",
-          headers: { authorization: `Bearer ${f.host.token}`, "content-type": "application/json" },
-          body: JSON.stringify(body),
-        },
-      );
-      expect(response.status).toBe(200);
-      return response.json();
-    };
-    await writeFile(join(repo, "file.txt"), "after the notes\n");
-    const started = await post("iterations", {});
-    expect(started.iterations).toMatchObject([
-      { number: 1, brief: { text: "First round" } },
-      { number: 2, fresh: true },
-    ]);
-    expect(started.iterations[1].brief).toBeUndefined();
-    const current = started.iterations[1].targetIds[0];
-    expect(current).not.toBe(first.iterations[0].targetIds[0]);
-    expect((await f.api(`/api/reviews/${first.id}/targets/${current}/review`)).patch).toContain(
-      "+after the notes",
-    );
-    const pinned = await post("pins", { add: { text: "A reply to keep." } });
-    expect(pinned.iterations[1].pins.map((pin: { text: string }) => pin.text)).toEqual([
-      "A reply to keep.",
-    ]);
-    expect(pinned.iterations[0].pins).toBeUndefined();
-
-    // Deleting the started notes takes their iteration and its comparison.
-    const commented = await post("brief-comments", {
-      add: { section: "brief", iteration: 1, quote: "First round", text: "Keep this round." },
-    });
-    expect(commented.commentCount).toBe(1);
-    const deleted = await post("delete-notes", { iteration: 2 });
-    expect(deleted.iterations.map((entry: { number: number }) => entry.number)).toEqual([1]);
-    expect(deleted.targets.map((target: { id: string }) => target.id)).not.toContain(current);
-    expect(deleted.brief).toMatchObject({ text: "First round" });
-    // Agent notes lose their brief and its comments; the comparison stays.
-    const cleared = await post("delete-notes", { iteration: 1 });
-    expect(cleared.iterations).toMatchObject([{ number: 1 }]);
-    expect(cleared.iterations[0].brief).toBeUndefined();
-    expect(cleared.brief).toBeUndefined();
-    expect(cleared.commentCount).toBe(0);
-    expect(cleared.targets).toHaveLength(1);
-  });
-
-  it("records the agent sessions that made a review, with the directories they started in", async () => {
+  it("links the agent session that hands off a review, with the directory it started in", async () => {
     const f = await fixture();
     const home = join(f.root, "home");
     const claude = join(home, ".claude", "projects", "-work-app");
@@ -663,24 +548,23 @@ exit 1
     const target = ["--repo", f.repos[0]!, "--working", "--no-pr"];
     // The Claude Code session that runs the command is found on its own.
     const bundle = await f.saved(
-      await run(
-        { CLAUDE_CODE_SESSION_ID: "claude-1" },
-        ...create,
-        ...target,
-        "--session",
-        "codex:codex-9",
-      ),
+      await run({ CLAUDE_CODE_SESSION_ID: "claude-1" }, ...create, ...target),
     );
-    expect(bundle.sessions).toEqual([
-      { agent: "codex", id: "codex-9", cwd: "/work/codex" },
-      { agent: "claude", id: "claude-1", cwd: "/work/app" },
-    ]);
-    // A session joins once; using it again moves it last.
-    await run({}, "update", "--key", "feat/agents", "--session", "codex:codex-9");
-    expect((await f.api(`/api/reviews/${bundle.id}`)).sessions).toEqual([
-      { agent: "claude", id: "claude-1", cwd: "/work/app" },
-      { agent: "codex", id: "codex-9", cwd: "/work/codex" },
-    ]);
+    expect(bundle.session).toEqual({ agent: "claude", id: "claude-1", cwd: "/work/app" });
+    // --session names another; the review moves to that session's thread.
+    await run(
+      { CLAUDE_CODE_SESSION_ID: "claude-1" },
+      "update",
+      "--key",
+      "feat/agents",
+      "--session",
+      "codex:codex-9",
+    );
+    expect((await f.api(`/api/reviews/${bundle.id}`)).session).toEqual({
+      agent: "codex",
+      id: "codex-9",
+      cwd: "/work/codex",
+    });
     const quiet = await f.saved(
       await run(
         { CLAUDE_CODE_SESSION_ID: "claude-1" },
@@ -691,7 +575,7 @@ exit 1
         "--no-session",
       ),
     );
-    expect(quiet.sessions).toBeUndefined();
+    expect(quiet.session).toBeUndefined();
     await expect(run({}, ...create, ...target, "--session", "gpt:1")).rejects.toThrow(
       "Use --session claude:<session-id>",
     );
@@ -966,7 +850,7 @@ describe("hand-off checks that say what to do next", () => {
       call("toolu_sub", "Bash", { command: "med review create --key sub --working" }, true),
     );
     const sub = await create("sub");
-    expect((await f.saved(sub.out)).sessions).toBeUndefined();
+    expect((await f.saved(sub.out)).session).toBeUndefined();
     expect(sub.advice).toContain(
       "Session: this command runs in a subagent of Claude Code session parent.",
     );
@@ -977,14 +861,16 @@ describe("hand-off checks that say what to do next", () => {
       call("toolu_test", "Bash", { command: "bun run test" }, true),
     );
     const own = await create("own");
-    expect((await f.saved(own.out)).sessions).toEqual([
-      { agent: "claude", id: "parent", cwd: "/work/app" },
-    ]);
+    expect((await f.saved(own.out)).session).toEqual({
+      agent: "claude",
+      id: "parent",
+      cwd: "/work/app",
+    });
 
     // When no transcript shows the call, Med records nothing and says so.
     await transcripts("", call("toolu_test", "Bash", { command: "bun run test" }, true));
     const unknown = await create("unknown");
-    expect((await f.saved(unknown.out)).sessions).toBeUndefined();
+    expect((await f.saved(unknown.out)).session).toBeUndefined();
     expect(unknown.advice).toContain(
       "Med could not tell which agent runs this command, so Med recorded no session. If the session itself runs it, add --session claude:parent.",
     );
@@ -1162,7 +1048,14 @@ describe("hand-off checks that say what to do next", () => {
   it("checks proof, an explainer, and open findings only when the repository opts in", async () => {
     const f = await fixture();
     const repo = f.repos[0]!;
-    const brief = join(f.root, "brief.md");
+    const guide = join(f.root, "guide.json");
+    const withSummary = async (summary: string) => {
+      await writeFile(
+        guide,
+        JSON.stringify({ summary, segments: [{ title: "Retry", files: ["file.txt"] }] }),
+      );
+      return ["--guide", guide];
+    };
     const handoff = (...extra: string[]) =>
       checked(f, [
         "create",
@@ -1181,19 +1074,20 @@ describe("hand-off checks that say what to do next", () => {
     expect(saved).toBeGreaterThan(0);
 
     execFileSync("git", ["config", "med.checks", "proof,findings"], { cwd: repo });
-    await writeFile(brief, "## Findings\n- Important `file.txt:1` The retry never stops.\n");
-    const refused = await handoff("--brief", brief).catch((error: Error) => error.message);
+    const refused = await handoff(
+      ...(await withSummary("## Findings\n- Important `file.txt:1` The retry never stops.\n")),
+    ).catch((error: Error) => error.message);
     expect(refused).toMatch(
-      /^.+ asks for proof,findings with each hand-off \(git config med\.checks proof,findings\)\. Add a Proof section in the brief: .+med skills suggest proof-first.+; and no open Important finding: fix it, or close each as Fixed, Intentional, or Won't fix with a reason \(file\.txt:1\)\. Then run med review create again\. Nothing was captured\. To turn the check off, the user runs: git config --unset-all med\.checks$/,
+      /^.+ asks for proof,findings with each hand-off \(git config med\.checks proof,findings\)\. Add a Proof section in the guide's summary: .+med skills suggest proof-first.+; and no open Important finding: fix it, or close each as Fixed, Intentional, or Won't fix with a reason \(file\.txt:1\)\. Then run med review create again\. Nothing was captured\. To turn the check off, the user runs: git config --unset-all med\.checks$/,
     );
     expect(await reviews(f)).toBe(saved);
 
     // With proof, and the finding closed, the version is captured.
-    await writeFile(
-      brief,
-      "## Proof\n- `bun test`: 3 passed\n\n## Findings\n- Important `file.txt:1` The retry never stops. Fixed: it stops after 3 tries.\n",
+    const { out } = await handoff(
+      ...(await withSummary(
+        "## Proof\n- `bun test`: 3 passed\n\n## Findings\n- Important `file.txt:1` The retry never stops. Fixed: it stops after 3 tries.\n",
+      )),
     );
-    const { out } = await handoff("--brief", brief);
     expect((await f.saved(out.split("\n")[0]!)).iterations).toHaveLength(2);
 
     // A guide's summary is an explainer, however short.
@@ -1201,21 +1095,13 @@ describe("hand-off checks that say what to do next", () => {
     await expect(handoff()).rejects.toThrow(
       /asks for explainer with each hand-off .+ Add an explainer: why the change exists/,
     );
-    const guide = join(f.root, "guide.json");
-    await writeFile(
-      guide,
-      JSON.stringify({
-        summary: "Retries stop.",
-        segments: [{ title: "Retry", files: ["file.txt"] }],
-      }),
-    );
-    await handoff("--guide", guide);
+    await handoff(...(await withSummary("Retries stop.")));
     expect(await reviews(f)).toBe(saved);
   });
 });
 
-describe("since your last review, and approvals", () => {
-  it("lists the files that changed since the version the reader approved or commented on", async () => {
+describe("since your last review", () => {
+  it("lists the files that changed since the version the reader read or commented on", async () => {
     const f = await fixture();
     const repo = f.repos[0]!;
     const post = async (path: string, body: unknown) => {
@@ -1260,15 +1146,15 @@ describe("since your last review, and approvals", () => {
         { path: "new.txt", change: "new", target: expect.any(String) },
       ],
     });
-    // The reader comments on version 2 and approves version 1; version 3
-    // drops new.txt. Since compares with the later of the two: version 2.
+    // The reader comments on version 2 and reads version 1; version 3 drops
+    // new.txt. Since compares with the later of the two: version 2.
     const two = (await f.api(`/api/reviews/${one.id}`)).iterations[1].targetIds[0];
     await post(`/api/reviews/${one.id}/targets/${two}/notes`, {
       expectedRevision: 0,
       mutation: { type: "add", note: { path: "file.txt", side: "new", line: 1, text: "Why?" } },
     });
-    const approved = await post(`/api/reviews/${one.id}/approval`, { version: 1, approved: true });
-    expect(approved.approvals).toEqual([{ version: 1, at: expect.any(String) }]);
+    const read = await post(`/api/reviews/${one.id}/read`, { version: 1 });
+    expect(read.readVersions).toEqual([1]);
     await rm(join(repo, "new.txt"));
     await create();
     expect((await f.api(`/api/reviews/${one.id}/since`)).since).toEqual({
@@ -1277,27 +1163,25 @@ describe("since your last review, and approvals", () => {
       basis: "commented",
       files: [{ path: "new.txt", change: "gone", target: expect.any(String) }],
     });
-    // An approval of version 3 makes it the last review; taking it back undoes that.
-    await post(`/api/reviews/${one.id}/approval`, { version: 3, approved: true });
+    // Reading version 3 makes it the last review.
+    await post(`/api/reviews/${one.id}/read`, { version: 3 });
     await writeFile(join(repo, "other.txt"), "changed in 4\n");
     await create();
     expect((await f.api(`/api/reviews/${one.id}/since`)).since).toMatchObject({
       from: 3,
-      basis: "approved",
+      basis: "viewed",
       files: [{ path: "other.txt", change: "changed" }],
     });
-    const back = await post(`/api/reviews/${one.id}/approval`, { version: 3, approved: false });
-    expect(back.approvals).toEqual([{ version: 1, at: expect.any(String) }]);
-    // A version that does not exist cannot be approved.
-    const missing = await fetch(`http://127.0.0.1:${f.host.port}/api/reviews/${one.id}/approval`, {
+    // A version that does not exist cannot be read.
+    const missing = await fetch(`http://127.0.0.1:${f.host.port}/api/reviews/${one.id}/read`, {
       method: "POST",
       headers: { authorization: `Bearer ${f.host.token}`, "content-type": "application/json" },
-      body: JSON.stringify({ version: 9, approved: true }),
+      body: JSON.stringify({ version: 9 }),
     });
     expect(missing.status).toBe(404);
   });
 
-  it("shows only what changed since the approved version, across a rebase, with comments on the version's lines", async () => {
+  it("shows only what changed since the version read, across a rebase, with comments on the version's lines", async () => {
     const f = await fixture();
     const repo = f.repos[0]!;
     const lines = (count: number) => Array.from({ length: count }, (_, at) => `${at + 1}`);
@@ -1355,7 +1239,7 @@ describe("since your last review, and approvals", () => {
         targets: { id: string; commits?: { id: string; subject: string }[] }[];
       };
     const one = await create();
-    await post(`/api/reviews/${one.id}/approval`, { version: 1, approved: true });
+    await post(`/api/reviews/${one.id}/read`, { version: 1 });
     // Main moves under the branch, and the branch rebases onto it and adds a commit.
     git(repo, "switch", "main");
     await write(
@@ -1379,7 +1263,7 @@ describe("since your last review, and approvals", () => {
     const latest = three.iterations[2]!.targetIds[0]!;
     expect((await f.api(`/api/reviews/${one.id}/since?version=3`)).since).toMatchObject({
       from: 1,
-      basis: "approved",
+      basis: "viewed",
       files: [
         { path: "a.txt", change: "changed", target: latest },
         { path: "b.txt", change: "new", target: latest },
@@ -1395,7 +1279,7 @@ describe("since your last review, and approvals", () => {
     expect(since).toMatchObject({
       from: 1,
       to: 2,
-      basis: "approved",
+      basis: "viewed",
       files: [{ path: "b.txt", change: "new", target }],
       moved: ["a.txt"],
     });

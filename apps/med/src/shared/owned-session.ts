@@ -299,20 +299,18 @@ export const agentOptionsSchema = z.object({
 });
 export type AgentOptions = z.infer<typeof agentOptionsSchema>;
 
+/** `POST /api/reviews/:id/start`: an agent for a review that no session
+ * handed off, such as a pull request's, in its checkout. The review becomes
+ * the new session's. */
 export const ownedStartSchema = z.object({
   preset: z.string().min(1).max(80),
-  /** The review target whose repository the agent works in. */
-  targetId: z.string().max(80).optional(),
   choices: agentChoicesSchema.optional(),
-  /**
-   * Continue in Med: a Claude session of the review that another process
-   * runs. The new session starts from its history (`--fork-session`), and
-   * the messages that wait for that process go to the new one.
-   */
-  fork: z
-    .string()
-    .regex(/^[A-Za-z0-9_-]{1,128}$/)
-    .optional(),
+});
+/** What a start or Continue in Med answers: the session's thread, which can
+ * be another thread than the one asked, and the agent's state. */
+export const ownedStartedSchema = z.object({
+  thread: z.string(),
+  state: ownedStateSchema,
 });
 
 /** Fork from here: a new thread whose Claude Code session starts from this

@@ -289,7 +289,7 @@ function CheckRow({
   };
   return (
     <li {...stylex.props(styles.check)}>
-      <div {...stylex.props(styles.checkRow)}>
+      <div {...stylex.props(styles.checkRow, stylex.defaultMarker())}>
         <span
           role="img"
           aria-label={word}
@@ -318,7 +318,7 @@ function CheckRow({
             rel="noopener noreferrer"
             title={`Open ${label}`}
             aria-label={`Open ${label}`}
-            {...stylex.props(ui.button, ui.iconButton, styles.tool)}
+            {...stylex.props(ui.button, ui.iconButton, styles.tool, styles.onHover)}
           >
             <Icon name="external" size={12} />
           </a>
@@ -442,9 +442,6 @@ export default function PullRequestView({
   loadLog,
   refreshes,
   onShowThread,
-  onShowDraft,
-  left,
-  onDismissLeft,
 }: {
   reviewId: string;
   url: string;
@@ -459,11 +456,6 @@ export default function PullRequestView({
   /** Increases to read GitHub now, as the ⌘K command asks. */
   refreshes: number;
   onShowThread(thread: PullRequestThread): void;
-  /** Shows the agent's draft, for a review that has one. */
-  onShowDraft?(): void;
-  /** The local images that Create left out, for the reader to add on GitHub. */
-  left?: readonly string[];
-  onDismissLeft?(): void;
 }) {
   const onScreen = useWorkspaceShown();
   const {
@@ -488,28 +480,25 @@ export default function PullRequestView({
       <div className="med-md-scroll med-pull-scroll">
         <div className="med-pull">
           <header className="med-pull-head">
-            <div {...stylex.props(styles.titleRow)}>
-              <h1 className="med-pull-title">
-                {shownTitle}
-                {number && <span className="med-pull-number"> #{number}</span>}
-              </h1>
-              <span {...stylex.props(styles.actions)}>
-                {onShowDraft && (
-                  <button type="button" {...stylex.props(ui.button)} onClick={onShowDraft}>
-                    Draft
-                  </button>
-                )}
-                <a
-                  href={url}
-                  target="_blank"
-                  rel="noreferrer"
-                  {...stylex.props(ui.button, styles.outLink)}
-                >
-                  <Icon name="github" size={13} />
-                  Open on GitHub
-                </a>
-              </span>
-            </div>
+            {/* The title, with its number, which goes to GitHub; under it one
+                quiet line: the state in its colour, then who merges what. */}
+            <h1 className="med-pull-title">
+              {shownTitle}
+              {number && (
+                <>
+                  {" "}
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Open on GitHub"
+                    className="med-pull-number"
+                  >
+                    #{number}
+                  </a>
+                </>
+              )}
+            </h1>
             {pull && (
               <p {...stylex.props(styles.meta)}>
                 <span {...stylex.props(styles.pullState, states[pull.state])}>
@@ -540,22 +529,6 @@ export default function PullRequestView({
             {pull && lowBudget(pull) && (
               <p {...stylex.props(styles.note)}>
                 GitHub&apos;s limit for this sign-in is low, so Med reads less often.
-              </p>
-            )}
-            {left && left.length > 0 && (
-              <p role="status" {...stylex.props(styles.notice)}>
-                <span {...stylex.props(ui.grow)}>
-                  Add {left.join(", ")} on GitHub: drag {left.length === 1 ? "it" : "them"} into the
-                  description.
-                </span>
-                <button
-                  type="button"
-                  aria-label="Dismiss"
-                  {...stylex.props(ui.button, ui.iconButton, styles.tool)}
-                  onClick={onDismissLeft}
-                >
-                  <Icon name="close" size={12} />
-                </button>
               </p>
             )}
           </header>
@@ -636,16 +609,6 @@ const styles = stylex.create({
     fontFamily: tokens.ui,
     fontSize: 13,
   },
-  // The title, and beside it the way to GitHub.
-  titleRow: { display: "flex", alignItems: "flex-start", gap: 12 },
-  actions: {
-    display: "inline-flex",
-    alignItems: "center",
-    flexShrink: 0,
-    gap: 2,
-    marginTop: 16,
-    marginInlineStart: "auto",
-  },
   retry: {
     padding: 0,
     borderWidth: 0,
@@ -683,39 +646,29 @@ const styles = stylex.create({
     fontSize: 12.5,
     cursor: "pointer",
   },
-  outLink: { textDecoration: "none" },
   meta: {
     display: "flex",
     flexWrap: "wrap",
     alignItems: "center",
-    columnGap: 12,
-    rowGap: 6,
-    marginTop: 12,
+    columnGap: 10,
+    rowGap: 4,
+    marginTop: 8,
     marginBottom: 6,
     color: tokens.muted,
     fontSize: 13,
     lineHeight: 1.6,
   },
-  // The state as GitHub shows it: a pill with its mark, in its colour.
+  // The state in a word with its mark, in its colour; no pill.
   pullState: {
     display: "inline-flex",
     alignItems: "center",
     flexShrink: 0,
     gap: 5,
-    height: 24,
-    paddingInlineStart: 8,
-    paddingInlineEnd: 10,
-    borderRadius: 999,
-    backgroundColor: "color-mix(in srgb, currentColor 13%, transparent)",
-    fontSize: 12,
-    fontWeight: 600,
+    fontSize: 13,
+    fontWeight: 550,
   },
-  author: { color: tokens.text, fontWeight: 550 },
+  author: { color: tokens.text, fontWeight: 500 },
   refs: {
-    paddingInline: 5,
-    paddingBlock: 1,
-    borderRadius: `calc(4px * ${tokens.round})`,
-    backgroundColor: tokens.fill,
     color: tokens.text,
     fontFamily: tokens.code,
     fontSize: 12,
@@ -766,6 +719,15 @@ const styles = stylex.create({
     marginInlineEnd: -6,
     color: { default: tokens.faint, ":hover": tokens.text },
     textDecoration: "none",
+  },
+  // A row's way out, such as a check's page on GitHub: it shows with the
+  // pointer or the focus on its row.
+  onHover: {
+    opacity: {
+      default: 0,
+      [stylex.when.ancestor(":hover")]: 1,
+      ":focus-visible": 1,
+    },
   },
   logToggle: {
     padding: 0,

@@ -65,9 +65,18 @@ const savedReview = (id: string) => ({
 });
 const thread = (id: string, patch: Partial<Thread> = {}): Thread => ({
   id,
+  kind: "review",
   title: titles[id] ?? id,
   createdAt: "2026-10-01T00:00:00Z",
   updatedAt: Date.now() - 60_000,
+  reviews: [
+    {
+      id,
+      title: titles[id] ?? id,
+      createdAt: "2026-10-01T00:00:00Z",
+      updatedAt: Date.now() - 60_000,
+    },
+  ],
   repository: tide,
   checkout: "/test/repo",
   branch: "main",

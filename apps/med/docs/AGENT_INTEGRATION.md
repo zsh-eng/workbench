@@ -134,7 +134,7 @@ request covers it all.
 `--key` names the task, such as its branch. Create the review again with the
 same key after each round of work: Med adds a version to that review instead
 of a new workspace. The review is marked new again, and its new comparison and
-brief become current. The Review opens on what is new since the user last
+guide become current. The Review opens on what is new since the user last
 looked; earlier versions stay as snapshots, and comments stay on their
 comparisons. Keys use letters, digits, and
 `. / @ : + # _ -`. Without `--key`, `create` uses the branch's name, when the
@@ -150,7 +150,7 @@ round (`--working --paths <files>`). A review can be part of a change.
 
 ```sh
 med review create --key feat/parser --title "Parser recovery" \
-  --repo ~/code/parser --base origin/main --head HEAD --merge-base --brief -
+  --repo ~/code/parser --base origin/main --head HEAD --merge-base --guide -
 ```
 
 After you open the pull request, link it to the review:
@@ -165,27 +165,26 @@ request from its branch that `gh pr list --head <branch>` finds.
 
 ### Link your session
 
-Med records the agent sessions that worked on a review. Its Session pane shows
-the agent's thread, read from the transcript and followed live; see
+A review is linked to the agent session that handed it off, and is listed in
+that session's thread. The thread's Session pane shows the agent's
+conversation, read from the transcript and followed live; see
 [agent sessions](SESSIONS.md).
 
-- Claude Code sets `CLAUDE_CODE_SESSION_ID`, and `review create` records that
+- Claude Code sets `CLAUDE_CODE_SESSION_ID`, and `review create` links that
   session by itself.
 - A subagent has its parent's `CLAUDE_CODE_SESSION_ID`. Med looks for the
   command's call in the session's transcripts: when a subagent runs the
-  command, or when Med cannot tell which agent runs it, Med records no
-  session and says why. The review then has no Session pane, because nothing
-  would send the subagent a message. `--session claude:<id>` records a
-  session by hand; `med thread
-show` in a subagent needs `--key`.
-- Other sessions need `--session codex:<id>` or `--session claude:<id>`. Repeat
-  the option for more sessions; `review update --key <name> --session …` adds
-  one later.
-- `--no-session` records no session from the environment.
+  command, or when Med cannot tell which agent runs it, Med links no
+  session and says why. The review is then a thread of its own, because
+  nothing would send the subagent a message. `--session claude:<id>` links a
+  session by hand.
+- A Codex session, or another one, needs `--session codex:<id>` or
+  `--session claude:<id>`; `review update --key <name> --session …` moves a
+  review to that session's thread.
+- `--no-session` links no session from the environment.
 
 Med reads a session's folder from its transcript in `~/.claude` or `~/.codex`.
-Without a transcript, it records the command's folder. A review keeps its 32
-newest sessions.
+Without a transcript, it uses the command's folder.
 
 ### Answer a comment
 
@@ -219,10 +218,10 @@ comment of the review starts the same way. Med finds the review by the
 comment, trying the thread's review first (`MED_THREAD_KEY`); `--key` names
 the review when two reviews have such a comment. `med review reply` is the
 same command. Med shows the answer under the comment with your agent's name,
-as the session that runs the command (or else the review's latest session).
+as the session that runs the command (or else the review's session).
 It does not make the comment unsent, and the next message that holds the
-thread shows the answer as yours. A comment on a passage of the guide or the
-pull request draft has no ID and takes no reply; answer it in your message.
+thread shows the answer as yours. A comment on a passage of the guide has no
+ID and takes no reply; answer it in your message.
 Use a reply for a question the user asked on a line, or to say why you left a
 change out; your final message still says what you did.
 
@@ -301,8 +300,7 @@ and your comments.
   segment that holds its file.
 - A guide holds up to 200 comments and 200,000 characters.
 
-Pass it with `--guide`, as a file or as `-` for standard input. Only one of
-`--brief` and `--guide` can read standard input.
+Pass it with `--guide`, as a file or as `-` for standard input.
 
 ```sh
 med review create --key parser-recovery --title "Parser recovery" \
@@ -328,33 +326,13 @@ capture, `update --guide` says so and prints that command. A later version
 without a guide keeps the one before it. [The Guide](usage/guide.md) says
 what the reader sees.
 
-### Attach a brief
+### Proof, findings, and generated files
 
-A brief is Markdown that Med keeps with the version. The Overview shows its
-Proof, Findings, and Explainer sections (below); Med keeps the rest of its text
-but no longer shows it ([Notes (removed)](AGENT_WORKSPACES.md#notes-removed)). Cite code
-with repository-relative links that end in line numbers:
-
-```markdown
-The parser now rejects empty input ([parse.ts:42-58](src/parse.ts:42-58)).
-The tests cover both cases in [parse.test.ts:12](tests/parse.test.ts:12).
-```
-
-Pass it with `--brief`, as a file or as `-` for standard input:
-
-```sh
-med review create --title "Fix the parser" --repo ~/code/parser \
-  --base "$start" --head HEAD --brief brief.md
-```
-
-Cite the files that need attention; the reviewer reads the rest in Changes.
-
-Links can be `path:line`, `path:start-end`, `path#Lstart-Lend`, absolute paths
-in the repository, and GitHub blob URLs. With `--manifest`, links resolve
-against the open target. A brief holds up to 100,000 characters.
-
-Med reads these sections of a brief, a pinned reply, or the guide's summary,
-and shows them on the Overview
+The guide's summary is Markdown. Cite code with repository-relative links
+that end in line numbers, such as `[parse.ts:42-58](src/parse.ts:42-58)`;
+links can be `path:line`, `path:start-end`, `path#Lstart-Lend`, absolute
+paths in the repository, and GitHub blob URLs. Med reads these sections of
+the summary and shows them on the Overview
 ([proof, findings, and later hand-offs](usage/guide.md#proof-findings-and-later-hand-offs)):
 
 ```markdown
@@ -381,38 +359,22 @@ Headings such as Checks, Tests, or Verification also mark proof; `[P1]`-style
 tags read as Important (P0–P1) or Nit (P2–P3). Globs under Generated join
 `--generated`.
 
-### Draft a pull request
+### Open a pull request
 
-When the user asks for a pull request, draft its description in Med first.
-Med shows the draft rendered, the user comments on it as on a brief, and
-only the user opens the pull request, with **Create** in Med:
+Open one only when the user asks. `med pr template --repo <root>` prints the
+repository's templates, such as `.github/pull_request_template.md` or a file
+of `.github/PULL_REQUEST_TEMPLATE/`, each under its path. Fill it; without
+one, say why, what changed, and how you checked it, and leave out sections
+that do not apply. Push the branch, open the pull request with `gh pr create`,
+and link it to the review:
 
 ```sh
-med pr template --repo ~/code/parser      # the repository's templates, each under its path
-med pr draft --key fix/parser --file pr.md
+med review update --key fix/parser --pr https://github.com/owner/repository/pull/123
 ```
 
-- Fill the template that `med pr template` prints, such as
-  `.github/pull_request_template.md` or a file of
-  `.github/PULL_REQUEST_TEMPLATE/`. Without one, say why, what changed, and
-  how you checked it. Leave out sections that do not apply.
-- The file's first line, `# <title>`, is the pull request's title, unless
-  `--title` gives one. `--base` names the branch to merge into; without it,
-  gh uses the repository's default branch. `--repo` names the checkout
-  (default: `MED_THREAD_REPO`, or the current one).
-- Images can be local PNG, JPEG, GIF, or WebP files, relative to the file
-  (`![Retry chart](shots/retry.png)`), or https links. Med keeps a copy of
-  each local one, up to 8 images of 5 MB.
-- Comments on the draft come back as the user's other comments do, under the
-  heading `On the pull request draft`. Revise the file and run `med pr draft` again
-  with the same key: each run is the next revision.
-- Never run `gh pr create` yourself. **Create** runs it from the checkout's
-  branch, which must be on GitHub with all of its commits, and links the pull request to the
-  review. GitHub takes images only as links, so a local image stays out of
-  the body and the text names it, for the user to add on GitHub.
-- Once the pull request is open, the tab shows it live, with its checks and
-  comments. A later `med pr draft` stays one click away, under **Draft**. Med
-  does not change the pull request's description.
+Once it is linked, the thread shows the pull request live, with its checks
+and comments. Med also links a pull request that opens later on the review's
+branch, while the thread is a tab.
 
 ### Compare with a base branch
 
@@ -477,8 +439,7 @@ med review create --title "API client" --repo ~/code/my-app --working \
 ```
 
 `--generated` takes files, folders (ending in `/`), and globs, as a guide
-names files; quote globs. `med review update --paths` and `med thread show`
-take it too. It marks files of that version only. A file that the
+names files; quote globs. `med review update --paths` takes it too. It marks files of that version only. A file that the
 repository's Git attributes unmark (`-linguist-generated`) stays unmarked.
 
 ### Several repositories
@@ -513,47 +474,24 @@ input, so it needs no file; put the guide in it as `"guide"`. Keep a written
 manifest out of the reviewed changes unless it belongs to the project. `med review create --help`
 lists every option.
 
-### Stacks and sets
-
-Related pull requests or branches are one thread. `--stack` names them
-bottom first; each is a layer, diffed against the layer below. A pull request
-(a number such as `101`, `#101`, or its URL) is read with `gh` and is its own
-diff, from the merge base with its base commit; a head that is not local is
-fetched as `refs/pull/<n>/head`, never checked out. A branch is its changes
-since the layer below; the bottom branch's since `--base` (the repository's
-base branch by default). `--set` makes parts that do not depend on each other,
-each since its own base.
-
-```sh
-med review create --repo . --title "Parser rewrite" --stack 101 102 103 104
-med review create --repo . --stack parse-tokens build-ast typecheck --base main
-med review create --repo . --set fix-docs fix-cli --guide guides.json
-```
-
-`--guide` takes a JSON array with a guide, or `null`, for each part. Each
-part's pull request URL or branch is its key: `med review create --key <key>`
-with one comparison hands off that part again, as a new version in which the
-other parts keep their comparisons and comments; `med review update --key
-<key> --guide -` sets its guide. A hand-off of one range joins an open thread
-as its next layer when its base is that thread's top head and the same session
-made both, or both are pull requests; the command then prints `Added layer N
-of M`. See [stacks and sets](STACKS.md).
-
 ## Tabs and archived threads
 
-The threads that the user has open are tabs, in Med's sidebar. The others are
-archived: Med does not watch them. A thread that you hand off with
-`med review create` opens as a tab. When the user asks you to open, close, or
-list threads, use `med thread`:
+A thread is an agent session, with the reviews that it handed off; a review
+that no session handed off is a thread of its own. Its ID is the session's
+key, such as `claude-5f0c2a8e-…`, or the review's ID (`r_…`). The threads
+that the user has open are tabs, in Med's sidebar. The others are archived:
+Med does not watch them. Your session's thread opens as a tab when you hand
+off with `med review create`. When the user asks you to open, close, or list
+threads, use `med thread`:
 
 ```sh
 med thread list                          # the tabs: ID, state, repository/branch, title
 med thread list --archived               # closed threads and found sessions, newest first
-med thread open r_6d1f…                  # opens an archived thread as a tab
-med thread close r_6d1f…                 # archives a tab; its agent keeps working
+med thread open claude-5f0c…             # opens an archived thread as a tab
+med thread close claude-5f0c…            # archives a tab; its agent keeps working
 med thread close --key "$MED_THREAD_KEY" --remove-worktree
-med thread reopen                        # opens the tab that closed last, at its place
-med thread delete r_6d1f…                # deletes the thread with its Review versions and comments
+med thread reopen                        # opens the tab that closed last
+med thread delete claude-5f0c…           # deletes the thread with its reviews and their comments
 ```
 
 The lines have tabs between the fields. The state is, as `⌘0` ranks them,
@@ -577,8 +515,8 @@ list of tabs and ends when one of the threads comes to need the user or
 finishes its work:
 
 ```sh
-med thread send r_6d1f… "Run the tests again."
-med thread wait r_6d1f…                  # until it needs the user or finishes
+med thread send claude-5f0c… "Run the tests again."
+med thread wait claude-5f0c…             # until it needs the user or finishes
 med thread wait --until idle             # until no other tab works
 ```
 
@@ -617,26 +555,27 @@ med thread find tide prediction
 # claude:2f0c…	2026-09-12 16:40	~/code/tide	Explain the tide prediction model
 ```
 
-`med thread adopt <session>` makes the session a Med thread, as **Keep in Med**
-does: the thread shows the session and the live Changes of the session's
-checkout. It captures nothing; the thread has a Review once the agent shows
-one ([Show work in a thread](#show-work-in-a-thread)). Give the session as
+`med thread adopt <session>` keeps the session in Med, as **Keep in Med**
+does: its thread stays in the list however old it gets, and shows the session
+and the live Changes of the checkout where it works. It captures nothing; the
+thread has a Review once the agent hands one off
+([Show work in a thread](#show-work-in-a-thread)). Give the session as
 `find` prints it, as an ID or its first 6 or more characters, or as the path
 of its transcript. The command prints the thread's ID and a Markdown link; put
 the link in your reply.
 
 ```sh
 med thread adopt claude:2f0c4a91-6b0e-4d55-9a57-1f3e8c2d7b10
-# Thread r_6d1f…: [Explain the tide prediction model](http://127.0.0.1:6330/review/r_6d1f…)
+# Thread claude-2f0c4a91-…: [Explain the tide prediction model](http://127.0.0.1:6330/review/claude-2f0c4a91-…)
 ```
 
 - A new thread opens as a tab. A session that a thread holds gives that
   thread, and opens it as a tab when it is archived.
 - When no session matches, or more than one does, the command fails and says
   so; for more than one, it lists them.
-- When the session's folder is not in a registered repository, or no longer
-  exists, choose the checkout with `--repo <path>`. `--title` names the thread,
-  and `--open` shows it.
+- A session can work anywhere: one outside the registered repositories is a
+  thread too, with no Changes until it works in one. `--title` names the
+  thread, and `--open` shows it.
 
 ## Show work in a thread
 
@@ -646,31 +585,16 @@ its uncommitted changes. Med saves nothing for them. **Review** is what the
 agent shows the user: each hand-off is a saved version, and comments attach
 to the version that they are on.
 
-`med thread show` adds a version to the Review of your session's thread. In a
-Med thread, `MED_THREAD_KEY` names the thread; in a Claude Code session, Med
-finds the thread that holds the session (adopt it first). `--key` or
-`--session codex:<id>` names another thread.
+`med review create` adds a version to a review of your session's thread:
+the session that runs the command is linked to the review, so the review
+joins its thread. In a Med thread, `MED_THREAD_KEY` is the default key, so
+each hand-off is the next version of the thread's review. `--session
+codex:<id>` or `claude:<id>` links another session, and `--no-session` none,
+which makes the review a thread of its own. A subagent has its parent's
+session ID, so Med links no session for it and says why.
 
-```sh
-med thread show --paths src/nav.ts src/nav/ --guide - <<'GUIDE'
-<your guide>
-GUIDE
-```
-
-- `--paths <path>...` shows the uncommitted changes of these files or folders.
-  Use it in a checkout that other sessions or people also change, such as a
-  shared main checkout. With `--base <ref>`, it shows the files' changes since
-  the branch left `<ref>`.
-- `--base <ref>` shows the branch's commits since it left `<ref>`, and its
-  uncommitted changes; with `--head <ref>`, only the commits to `<head>`.
-- `--commit <ref>` shows one commit, `--working` all uncommitted changes, and
-  `--manifest <path>` the targets of a manifest.
-- `--guide` and `--brief` attach a guide or a brief to the version.
-
-The command prints the version and the thread's link. `med review create
---key <thread-key>` with a comparison also adds a version, and
-`med review update --key <key> --paths …` adds one of those files' working
-changes.
+`med review update --key <key> --paths …` adds a version of those files'
+working changes.
 
 ## Link to a current file
 
@@ -724,8 +648,8 @@ git config med.checks proof,explainer,findings   # any of the three
 git config --unset-all med.checks                # off again
 ```
 
-- `proof`: the brief has a Proof section with at least one check.
-- `explainer`: the guide's summary or the brief explains the change.
+- `proof`: the guide's summary has a Proof section with at least one check.
+- `explainer`: the guide's summary explains the change.
 - `findings`: no Important finding is left open.
 
 `med skills suggest` lists the practices as small skills to copy

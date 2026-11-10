@@ -9,10 +9,9 @@ import type { Thread } from "../../src/shared/threads";
 import type { ReviewGuide } from "../../src/shared/review-guide";
 import { initializeTheme, themeController } from "../../src/web/themes";
 
-// A session that handed off two reviews: its rail's Reviews card opens each.
-// Each review is its own workspace, with its own copy of the session, and one
-// that has not shown yet prepares out of sight while the last stays on
-// screen (Workspaces.tsx). The host is a fake.
+// A session that handed off two reviews is one thread: its rail's Reviews
+// card shows each in the thread's workspace, and the session stays on screen.
+// The host is a fake.
 
 const head = "a".repeat(40);
 const repositories = [
@@ -73,7 +72,7 @@ const savedReview = (id: string) => ({
   createdAt: "2026-10-01T00:00:00Z",
   revision: 0,
   commentCount: 0,
-  sessions: [session],
+  session,
   targets: [
     {
       id: `${id}-target`,
@@ -113,16 +112,23 @@ let root: Root | undefined;
 let mount: HTMLDivElement | undefined;
 let address = "";
 const KEYS = ["med:workspaces:v1", "med:window"];
+/** The stored keys of these tests, and each thread's pane layout, which
+ * another file's thread of the same ID would otherwise leave behind. */
+function forget() {
+  for (const key of KEYS) localStorage.removeItem(key);
+  for (const key of Object.keys(localStorage))
+    if (key.startsWith("med:panes:")) localStorage.removeItem(key);
+}
 beforeEach(async () => {
   await page.viewport(1500, 900);
   address = location.pathname + location.search;
-  for (const key of KEYS) localStorage.removeItem(key);
+  forget();
 });
 afterEach(() => {
   root?.unmount();
   mount?.remove();
   root = mount = undefined;
-  for (const key of KEYS) localStorage.removeItem(key);
+  forget();
   history.replaceState(null, "", address);
 });
 
@@ -140,10 +146,6 @@ const stream = (init: RequestInit | undefined, first?: string) =>
   );
 
 function createHost(threads: Thread[]) {
-  // The second review's session waits until the test lets it load, so that
-  // review prepares out of sight meanwhile.
-  let release = () => {};
-  const held = new Promise<void>((resolve) => (release = resolve));
   const listeners = new Set<ReadableStreamDefaultController<Uint8Array>>();
   const frame = () =>
     `event: state\ndata: ${JSON.stringify({ threads, repositories: [tide] })}\n\n`;
@@ -155,15 +157,12 @@ function createHost(threads: Thread[]) {
       return Response.json({
         thread: threads.find((each) => each.id === opened[1]),
       });
-    const events_ = /^\/api\/reviews\/([\w-]+)\/sessions\/s1\/events$/.exec(url.pathname);
-    if (events_) {
-      if (events_[1] === "rev-b") await held;
+    if (url.pathname === "/api/sessions/claude-s1/events")
       return stream(
         init,
         `event: reset\ndata: ${JSON.stringify({ events, idle: true, modifiedAt: 0, truncated: false })}\n\n`,
       );
-    }
-    if (/^\/api\/reviews\/[\w-]+\/agent\/events$/.test(url.pathname))
+    if (url.pathname === "/api/sessions/claude-s1/agent/events")
       return stream(
         init,
         `event: state\ndata: ${JSON.stringify({ messages: [], waiting: [], drafts: [] })}\n\n`,
@@ -249,7 +248,7 @@ function createHost(threads: Thread[]) {
     // Owned sessions, turns, and the rest: none here.
     return Response.json({ error: { code: "not-found", message: "None" } }, { status: 404 });
   };
-  return { fetcher, release };
+  return { fetcher };
 }
 
 function render(host: ReturnType<typeof createHost>) {
@@ -273,43 +272,38 @@ function render(host: ReturnType<typeof createHost>) {
   );
 }
 
-const thread = (id: string, title: string, updatedAt: number): Thread => ({
-  id,
-  title,
-  createdAt: id === "rev-a" ? "2026-10-01T00:00:00Z" : "2026-10-02T00:00:00Z",
-  updatedAt,
+const sessionThread = (now: number): Thread => ({
+  id: "claude-s1",
+  kind: "session",
+  title: "Tide times",
+  createdAt: "2026-10-01T00:00:00Z",
+  updatedAt: now - 1000,
   repository: tide,
   checkout: "/test/repo",
   branch: "main",
   agent: "claude",
   state: "idle",
-  sessions: [session],
+  session,
+  reviews: [
+    { id: "rev-a", title: "Week view", createdAt: "2026-10-02T00:00:00Z", updatedAt: now - 1000 },
+    { id: "rev-b", title: "Month view", createdAt: "2026-10-01T00:00:00Z", updatedAt: now - 5000 },
+  ],
   changes: { files: 2, additions: 14, deletions: 3 },
 });
 
-const slot = (id: string) => document.querySelector<HTMLElement>(`[data-workspace-slot$="${id}"]`)!;
-/** The session's own row of controls, which shows where the title band does
- * not hold them. */
-const sessionRow = (id: string) => slot(id).querySelector("[data-session-panel] > header");
-/** Whether the workspace's session is on screen. */
-const onScreen = (id: string) =>
-  !!slot(id).querySelector("[data-session-panel]")?.checkVisibility({ visibilityProperty: true });
-/** The pages in the title band, which belong to the workspace that it shows. */
-const bandPages = () =>
-  [...document.querySelectorAll<HTMLElement>('header[aria-label="Workspace"] [role="radio"]')]
-    .filter((page) => page.checkVisibility())
-    .map((page) => page.getAttribute("aria-label"));
-const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+/** The review on screen, by its comparison's ID. */
+const shown = () =>
+  [...document.querySelectorAll<HTMLElement>("[data-review-status]")].find((element) =>
+    element.checkVisibility({ visibilityProperty: true }),
+  )?.dataset.reviewId;
+/** Whether the thread's session is on screen. */
+const sessionShown = () =>
+  !!document.querySelector("[data-session-panel]")?.checkVisibility({ visibilityProperty: true });
 
-test("a session's other review takes the screen whole: until it shows, the band and the session stay as they were", async () => {
-  const now = Date.now();
-  const host = createHost([
-    thread("rev-a", "Week view", now - 1000),
-    thread("rev-b", "Month view", now - 5000),
-  ]);
-  render(host);
+test("a session's reviews show in its one thread, and the session stays on screen", async () => {
+  render(createHost([sessionThread(Date.now())]));
   await userEvent.click(
-    page.getByRole("navigation", { name: "Sessions" }).getByRole("button", { name: /^Week view/ }),
+    page.getByRole("navigation", { name: "Sessions" }).getByRole("button", { name: /^Tide times/ }),
   );
   const reviews = page.getByRole("region", { name: "Reviews" });
   await expect.element(reviews).toBeVisible();
@@ -318,25 +312,12 @@ test("a session's other review takes the screen whole: until it shows, the band 
       page.getByRole("log", { name: "Session" }).getByText("Times in Tromsø are an hour off."),
     )
     .toBeVisible();
-  const pages = bandPages();
-  expect(pages).toContain("Review");
-  expect(sessionRow("rev-a")).toBeNull();
+  // The newest review shows first.
+  await expect.poll(shown).toBe("rev-a-target");
 
-  // Month view prepares out of sight while its session loads. Week view keeps
-  // the band's pages and its session keeps its place, with no row of its own.
+  // The other review takes its place in the same workspace; the session stays.
   await reviews.getByRole("button", { name: /^Month view/ }).click();
-  await frame();
-  await frame();
-  expect(getComputedStyle(slot("rev-b")).visibility).toBe("hidden");
-  expect(onScreen("rev-a")).toBe(true);
-  expect(onScreen("rev-b")).toBe(false);
-  expect(sessionRow("rev-a")).toBeNull();
-  expect(bandPages()).toEqual(pages);
-
-  // Once its session has loaded, Month view takes the screen, and the band.
-  host.release();
-  await expect.poll(() => onScreen("rev-b")).toBe(true);
-  expect(onScreen("rev-a")).toBe(false);
-  expect(sessionRow("rev-b")).toBeNull();
-  await expect.poll(bandPages).toEqual(pages);
+  await expect.poll(shown).toBe("rev-b-target");
+  expect(sessionShown()).toBe(true);
+  expect(document.querySelectorAll('[data-workspace-slot$="claude-s1"]').length).toBe(1);
 });

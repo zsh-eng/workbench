@@ -340,32 +340,29 @@ export function PullRequestTitle({
 }) {
   const number = pull?.number ?? /\/pull\/(\d+)/.exec(url)?.[1];
   const heading = pull?.title ?? title;
+  // One quiet line: the pull request's mark in the colour of its state, its
+  // title, and its number. The rest is in the tooltip and the Pull request page.
+  const about = pull ? ` · ${PULL_STATES[pull.state]} · ${pull.author}` : "";
   return (
-    <>
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label={`Open pull request #${number}: ${heading}`}
-        {...clippedTooltip(`#${number} ${heading}`)}
-        {...stylex.props(styles.pullLink)}
-      >
-        <Icon name="github" size={14} />
-        <span {...stylex.props(styles.pullNumber)}>#{number}</span>
-        <FadingName text={heading} style={styles.pullTitle} />
-        <Icon name="external" size={12} />
-      </a>
-      {pull && (
-        <span {...stylex.props(styles.pullState, styles[pull.state])}>
-          {PULL_STATES[pull.state]}
-        </span>
-      )}
-      {pull && (
-        <span title={`Opened by ${pull.author}`} {...stylex.props(styles.pullAuthor)}>
-          {pull.author}
-        </span>
-      )}
-    </>
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`Open pull request #${number}: ${heading}`}
+      {...clippedTooltip(`${heading} #${number}${about}\nOpen on GitHub`)}
+      {...stylex.props(styles.pullLink)}
+    >
+      <span data-state={pull?.state} {...stylex.props(styles.pullMark, pull && styles[pull.state])}>
+        <Icon
+          name={
+            pull?.state === "merged" ? "merged" : pull?.state === "draft" ? "draft" : "pullRequest"
+          }
+          size={14}
+        />
+      </span>
+      <FadingName text={heading} style={styles.pullTitle} />
+      <span {...stylex.props(styles.pullNumber)}>#{number}</span>
+    </a>
   );
 }
 
@@ -380,29 +377,12 @@ const styles = stylex.create({
     fontSize: 13,
     fontWeight: 500,
     whiteSpace: "nowrap",
-    textDecoration: { default: "none", ":hover": "underline" },
+    textDecoration: "none",
   },
-  pullNumber: { flexShrink: 0, color: tokens.muted, fontVariantNumeric: "tabular-nums" },
+  pullNumber: { flexShrink: 0, color: tokens.faint, fontVariantNumeric: "tabular-nums" },
   /** A long title stops at about 48 characters of text and fades; the link's tooltip has all of it. */
   pullTitle: { maxWidth: "36ch" },
-  pullAuthor: {
-    display: { default: "block", "@container (max-width: 520px)": "none" },
-    flexShrink: 0,
-    minWidth: 0,
-    maxWidth: 160,
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-  },
-  pullState: {
-    flexShrink: 0,
-    paddingInline: 6,
-    borderRadius: `calc(4px * ${tokens.round})`,
-    backgroundColor: tokens.fill,
-    fontSize: 11,
-    lineHeight: "18px",
-    fontWeight: 500,
-  },
+  pullMark: { display: "inline-flex", flexShrink: 0, color: tokens.faint },
   open: { color: tokens.green },
   draft: { color: tokens.muted },
   merged: { color: tokens.accent },

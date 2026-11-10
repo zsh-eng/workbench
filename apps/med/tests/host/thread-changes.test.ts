@@ -1,13 +1,13 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, utimes, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, realpath, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Comparison, ReviewResponse } from "../../src/shared/protocol";
 import type { SavedReview } from "../../src/shared/saved-review";
 import type { ThreadList } from "../../src/shared/threads";
 import { startHost, type RunningHost } from "../../src/host/server";
-import { claudeProjectFolder } from "../../src/host/found-sessions";
+import { claudeProjectFolder } from "../../src/host/session-index";
 import { readServerEvents } from "../../src/web/data/sse";
 
 // A thread's live Changes through the production host: the branch's changes,
@@ -278,23 +278,19 @@ test("Changes show a branch's changes, and in a shared checkout only one session
 
   // The tabs: sessions in the main checkout share it; the branch's session
   // counts its branch's changes. An idle found session is a tab once opened.
-  for (const id of [
-    `found-claude-${ids.mainClaude}`,
-    `found-codex-${ids.mainCodex}`,
-    `found-claude-${ids.branch}`,
-  ])
+  for (const id of [`claude-${ids.mainClaude}`, `codex-${ids.mainCodex}`, `claude-${ids.branch}`])
     expect((await api(`/api/threads/${id}/open`, {})).status).toBe(200);
   const latest = await list();
   await vi.waitFor(
     () => {
       const threads = latest.value!.threads;
-      expect(
-        threads.find((thread) => thread.id === `found-claude-${ids.mainClaude}`),
-      ).toMatchObject({ shared: true });
-      expect(threads.find((thread) => thread.id === `found-codex-${ids.mainCodex}`)).toMatchObject({
+      expect(threads.find((thread) => thread.id === `claude-${ids.mainClaude}`)).toMatchObject({
         shared: true,
       });
-      const branch = threads.find((thread) => thread.id === `found-claude-${ids.branch}`);
+      expect(threads.find((thread) => thread.id === `codex-${ids.mainCodex}`)).toMatchObject({
+        shared: true,
+      });
+      const branch = threads.find((thread) => thread.id === `claude-${ids.branch}`);
       expect(branch?.shared).toBeUndefined();
       expect(branch?.changes).toEqual({ files: 2, additions: 2, deletions: 2 });
     },
@@ -310,7 +306,7 @@ test("Changes show a branch's changes, and in a shared checkout only one session
   expect(some.data.uncommitted?.sort()).toEqual(["b.ts", "new.ts"]);
 });
 
-test("Keep in Med and adopt capture nothing, also for an inactive session; the row counts live Changes", async () => {
+test("Keep in Med makes no review, also for an inactive session; the row counts live Changes", async () => {
   const { api, list, feature, home } = await fixture();
   await writeFile(join(feature, "a.ts"), "feature\n");
   // Lockfiles count as files, not as lines (docs/GENERATED.md).
@@ -328,42 +324,55 @@ test("Keep in Med and adopt capture nothing, also for an inactive session; the r
     session: ids.old,
   });
   expect(adopted.status).toBe(200);
-  const saved = (await api<SavedReview>(`/api/reviews/${adopted.data.id}`)).data;
-  expect(saved).toMatchObject({
-    targets: [],
-    checkout: { repo: feature, branch: "feature" },
-    sessions: [{ agent: "claude", id: ids.old }],
-  });
-  expect(saved.iterations).toBeUndefined();
+  expect(adopted.data).toMatchObject({ id: `claude-${ids.old}`, created: true });
   // Before a hand-off, the row counts the branch's live Changes.
   const latest = await list();
+  const row = () => latest.value!.threads.find((thread) => thread.id === adopted.data.id);
   await vi.waitFor(
     () =>
-      expect(latest.value!.threads.find((thread) => thread.id === adopted.data.id)).toMatchObject({
+      expect(row()).toMatchObject({
+        kind: "session",
         checkout: feature,
         branch: "feature",
         linked: true,
+        reviews: [],
         changes: { files: 4, additions: 2, deletions: 2 },
       }),
     { timeout: 10_000 },
   );
 
-  // The agent's first hand-off is version 1; the next is version 2.
-  const first = await api<SavedReview>(`/api/reviews/${adopted.data.id}/versions`, {
-    targets: [{ repo: feature, comparison: { kind: "working", paths: ["b.ts"] } }],
-  });
+  // The agent's first hand-off is version 1 of a review of its thread; the
+  // next with the same key is version 2.
+  const handOff = (comparison: unknown) =>
+    api<SavedReview>("/api/reviews", {
+      title: "Feature",
+      key: "feature",
+      targets: [{ repo: feature, comparison }],
+      session: { agent: "claude", id: ids.old, cwd: feature },
+    });
+  const first = await handOff({ kind: "working", paths: ["b.ts"] });
   expect(first.status).toBe(200);
   expect(first.data.iterations?.map((entry) => entry.number)).toEqual([1]);
   expect(first.data.totals).toMatchObject({ files: 1 });
-  const second = await api<SavedReview>(`/api/reviews/${adopted.data.id}/versions`, {
-    targets: [{ repo: feature, comparison: { kind: "range", base: "main", head: "HEAD" } }],
-  });
+  const second = await handOff({ kind: "range", base: "main", head: "HEAD" });
+  expect(second.data.id).toBe(first.data.id);
   expect(second.data.iterations?.map((entry) => entry.number)).toEqual([1, 2]);
-  // A version needs a comparison.
-  expect((await api(`/api/reviews/${adopted.data.id}/versions`, { targets: [] })).status).toBe(400);
+  await vi.waitFor(() =>
+    expect(row()?.reviews.map((review) => review.id)).toEqual([first.data.id]),
+  );
+  // A review needs a comparison.
+  expect(
+    (
+      await api("/api/reviews", {
+        title: "Nothing",
+        targets: [],
+        session: { agent: "claude", id: ids.old, cwd: feature },
+      })
+    ).status,
+  ).toBe(400);
 });
 
-test("A thread moves to another checkout of its repository and keeps the base of its Changes", async () => {
+test("A session's thread follows it to another checkout, and keeps the base of its Changes", async () => {
   const { api, changes, list, repo, feature, home } = await fixture();
   await writeFile(join(feature, "a.ts"), "feature\n");
   git(feature, ["commit", "-q", "-am", "Feature"]);
@@ -379,24 +388,32 @@ test("A thread moves to another checkout of its repository and keeps the base of
   await vi.waitFor(() => expect(row()).toMatchObject({ checkout: repo, branch: "main" }));
   const repositoryId = row()!.repository!.id;
 
-  // The agent works in the feature worktree now: the thread follows it, with
-  // its Changes since stable.
-  const moved = await api<SavedReview>(`/api/reviews/${adopted.data.id}/details`, {
-    checkout: { repositoryId, repo: feature, branch: "feature", base: "stable" },
-  });
-  expect(moved.status).toBe(200);
-  expect((await api<SavedReview>(`/api/reviews/${adopted.data.id}`)).data.checkout).toEqual({
-    repositoryId,
-    repo: feature,
-    branch: "feature",
-    base: "stable",
-  });
+  expect(repositoryId).toEqual(expect.any(String));
+
+  // The agent works in the feature worktree now: its transcript says so, and
+  // the thread follows it. The reader chose stable as the base of its Changes.
+  await appendFile(
+    path,
+    lines([
+      {
+        type: "user",
+        cwd: feature,
+        sessionId: ids.old,
+        timestamp: now(),
+        uuid: `${ids.old}-moved`,
+        message: { role: "user", content: "Work on the feature." },
+      },
+    ]),
+  );
+  expect((await api(`/api/threads/${adopted.data.id}/base`, { base: "stable" })).status).toBe(200);
   await vi.waitFor(
     () =>
       expect(row()).toMatchObject({
         checkout: feature,
         branch: "feature",
         linked: true,
+        base: "stable",
+        session: { cwd: feature },
         changes: { files: 2, additions: 2, deletions: 2 },
       }),
     { timeout: 10_000 },
@@ -415,13 +432,6 @@ test("A thread moves to another checkout of its repository and keeps the base of
   expect(await label("main")).toBe("Branch changes · since main");
   expect(await label("stable")).toBe("Branch changes · since stable");
 
-  // A thread works only in a registered repository's checkouts.
-  const outside = join(home, "outside");
-  await mkdir(outside, { recursive: true });
-  const refused = await api(`/api/reviews/${adopted.data.id}/details`, {
-    checkout: { repositoryId, repo: outside, branch: "main" },
-  });
-  expect(refused.status).toBe(403);
   // A base branch that is gone says so, and names the way out.
   git(repo, ["branch", "-D", "stable"]);
   const gone = await api<{ error: { message: string } }>("/api/review", {

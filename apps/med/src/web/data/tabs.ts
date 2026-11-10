@@ -13,7 +13,7 @@ import { needsYou } from "./threads";
 
 // Open tabs and cold history in the browser: the host's routes, what this
 // browser has read, and the rule that closes a tab whose work has landed.
-// The host keeps which threads are tabs (src/host/thread-tabs.ts).
+// The host keeps which threads are tabs (src/host/thread-store.ts).
 
 const api = (fetcher: typeof fetch) => createApi(fetcher, readBrowserToken());
 const post = (body: unknown = {}) => ({
@@ -48,7 +48,6 @@ export const reopenThread = (fetcher: typeof fetch) =>
 export const renameThread = (id: string, name: string, fetcher: typeof fetch) =>
   api(fetcher).json(`/api/threads/${id}/name`, z.object({ ok: z.boolean() }), post({ name }));
 
-/** Pins a thread under the other pins, or unpins it. */
 /** Pins a thread at `at` among the pins (from 0; under the others without
  * it), moves a pinned one there, or unpins it. */
 export const pinThread = (id: string, pinned: boolean, fetcher: typeof fetch, at?: number) =>
@@ -57,22 +56,6 @@ export const pinThread = (id: string, pinned: boolean, fetcher: typeof fetch, at
     z.object({ ok: z.boolean() }),
     post({ pinned, ...(at !== undefined && { at }) }),
   );
-
-/** Puts the thread on top of `onto`'s stack (docs/STACKS.md); `onto` stays. */
-export const groupThread = (id: string, onto: string, fetcher: typeof fetch) =>
-  api(fetcher)
-    .json(`/api/threads/${id}/group`, z.object({ thread: z.string() }), post({ onto }))
-    .then((result) => result.thread);
-
-/** Makes each part of a stack or a set above the first a thread again. */
-export const ungroupThread = (id: string, fetcher: typeof fetch) =>
-  api(fetcher)
-    .json(`/api/threads/${id}/ungroup`, z.object({ threads: z.array(z.string()) }), post())
-    .then((result) => result.threads);
-
-/** A thread of parts is a stack, its layers on each other, or a set. */
-export const setThreadShape = (id: string, shape: "stack" | "set", fetcher: typeof fetch) =>
-  api(fetcher).json(`/api/threads/${id}/shape`, z.object({ ok: z.boolean() }), post({ shape }));
 
 export const deleteThread = (id: string, fetcher: typeof fetch) =>
   api(fetcher).json(`/api/threads/${id}/delete`, z.object({ deleted: z.boolean() }), post());
@@ -86,7 +69,7 @@ export const readHistory = (fetcher: typeof fetch) =>
 // ------------------------------------------------------------- read state
 
 // The host keeps what the reader saw of each tab, by the tab's `updatedAt`
-// (`Thread.seen`, src/host/thread-tabs.ts), so every window and the CLI agree
+// (`Thread.seen`, src/host/thread-store.ts), so every window and the CLI agree
 // on what is new. This browser keeps marks for subagents' results only. The
 // marks that it kept for tabs before go to the host once.
 

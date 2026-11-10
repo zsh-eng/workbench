@@ -25,7 +25,6 @@ export const agentMessageInputSchema = z.object({
   /** The client's ID for the message, so its own copy and Med's are one row,
    * and sending it again does not send it twice. */
   id: z.string().uuid().optional(),
-  sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
   text: z.string().max(MAX_AGENT_MESSAGE_TEXT),
   /** Top-level comments to add, with their replies. */
   noteIds: z.array(z.string().min(1).max(128)).max(1000),

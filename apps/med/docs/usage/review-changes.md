@@ -120,7 +120,7 @@ A review with an agent session sends comments to that session, so you do not
 paste them. The session's message box holds your text and the comments that
 you have not sent. They wait above it as one line: **Send 2 comments** sends
 them on their own, and the comment count opens the list, where a checkbox
-chooses which, and a comment's file and text show it at its line in Changes. A GitHub comment's reply button, or **Add all to**
+chooses which, and a comment's file and text show it at its line in Changes. A GitHub comment's **Add to the message** button, or **Add all to**
 the agent in the pull request panel, adds GitHub comments. Press `⌘↵` or **Send**.
 
 When Med runs the session, a new comment's box, and a reply's, has **Send to

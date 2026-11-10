@@ -102,12 +102,13 @@ const savedTitles: Record<string, string> = {
   fifth: "Fifth review",
   older: "Older review",
 };
-/** The agent session of the "talk" thread. */
+/** The agent session of the "talk" thread, which handed off the "talk" review. */
 const talkSession = { agent: "claude" as const, id: "talk-session", cwd: "/test/repo" };
+const TALK = `claude-${talkSession.id}`;
 const savedReview = (id: string) => ({
   id,
   title: savedTitles[id],
-  ...(id === "talk" ? { sessions: [talkSession] } : {}),
+  ...(id === "talk" ? { session: talkSession } : {}),
   createdAt: "2026-10-01T00:00:00Z",
   revision: 0,
   commentCount: id === "commented" ? 1 : 0,
@@ -135,12 +136,8 @@ function createHost() {
   let fileText = "export const after = 2;\n";
   const streams = new Set<string>();
   const windows = new Set<ReadableStreamDefaultController<Uint8Array>>();
-  const announce = (review: {
-    id: string;
-    open: boolean;
-    sessions?: { agent: "claude" | "codex"; id: string; cwd: string }[];
-  }) => {
-    const data = { type: "review", title: savedTitles[review.id], ...review };
+  const announce = (review: { id: string; open: boolean }) => {
+    const data = { type: "review", title: savedTitles[review.id], thread: review.id, ...review };
     const chunk = new TextEncoder().encode(`event: review\ndata: ${JSON.stringify(data)}\n\n`);
     for (const window of windows) window.enqueue(chunk);
   };
@@ -212,9 +209,27 @@ function createHost() {
           )
         : Response.json({ removed: true });
     }
+    // A new thread is the session that the host starts; it has no review
+    // until the agent hands one off.
     if (url.pathname === "/api/threads" && init?.method === "POST") {
-      threadRequests.push({ path: url.pathname, body: JSON.parse(String(init.body)) });
-      return Response.json({ review: savedReview("agent") });
+      const body = JSON.parse(String(init.body)) as { title: string };
+      threadRequests.push({ path: url.pathname, body });
+      const started: Thread = {
+        id: "claude-started",
+        kind: "session",
+        title: body.title,
+        createdAt: new Date().toISOString(),
+        updatedAt: Date.now(),
+        repository: { id: "repo-0", name: "fixture", path: "/test/repo" },
+        checkout: "/test/repo",
+        branch: "main",
+        agent: "claude",
+        state: "working",
+        session: { agent: "claude", id: "started", cwd: "/test/repo" },
+        reviews: [],
+      };
+      setThreads([started, ...threads]);
+      return Response.json({ thread: started.id });
     }
     // Tabs and history, as the host keeps them (src/host/thread-service.ts).
     if (url.pathname === "/api/threads/history")
@@ -325,7 +340,7 @@ function createHost() {
       });
       return new Response(body, { headers: { "content-type": "text/event-stream" } });
     }
-    if (url.pathname === `/api/reviews/talk/sessions/${talkSession.id}/events`) {
+    if (url.pathname === `/api/sessions/${TALK}/events`) {
       const reset = {
         events: [
           {
@@ -373,7 +388,7 @@ function createHost() {
       return new Response(body, { headers: { "content-type": "text/event-stream" } });
     }
     // A session's thread, inbox, and controls: none here, except an answer.
-    const sessionRoute = /^\/api\/reviews\/\w+\/(sessions|owned|agent)\b/.exec(url.pathname);
+    const sessionRoute = /^\/api\/sessions\/[\w-]+(?:\/(owned|agent)\b)?/.exec(url.pathname);
     if (sessionRoute?.[1] === "owned" && init?.method === "POST") {
       answers.push({ path: url.pathname, body: JSON.parse(String(init.body)) });
       return Response.json({
@@ -609,16 +624,35 @@ const threadRows = () =>
       .filter(Boolean)
       .join("");
   });
+/** A review's row: its own, or its session's, which `patch` makes. */
 const thread = (id: string, patch: Partial<Thread> = {}): Thread => ({
   id,
+  kind: "review",
   title: savedTitles[id] ?? id,
   createdAt: "2026-10-01T00:00:00Z",
   updatedAt: Date.now() - 60_000,
+  reviews: [
+    {
+      id,
+      title: savedTitles[id] ?? id,
+      createdAt: "2026-10-01T00:00:00Z",
+      updatedAt: Date.now() - 60_000,
+    },
+  ],
   repository: { id: "repo-0", name: "fixture", path: "/test/repo" },
   checkout: "/test/repo",
   branch: "main",
   ...patch,
 });
+/** The talk session's thread, with its review. */
+const talkThread = () =>
+  thread("talk", {
+    id: TALK,
+    kind: "session",
+    agent: "claude",
+    state: "idle",
+    session: talkSession,
+  });
 
 test("keeps branch workspaces live, switches by shortcut, and restores them", async () => {
   const host = createHost();
@@ -693,7 +727,7 @@ test("a thread in view loads out of sight, and its first visit shows that slot",
   host.setThreads([thread("agent", { agent: "claude", state: "idle", updatedAt: Date.now() })]);
   // Before any click, the thread loads in a slot of its own, out of sight,
   // once the reader has not acted for a second.
-  const slot = () => document.querySelector<HTMLElement>('[data-workspace-slot="review-agent"]');
+  const slot = () => document.querySelector<HTMLElement>('[data-workspace-slot="thread-agent"]');
   await expect
     .poll(() => slot()?.querySelector<HTMLElement>("[data-review-status]")?.dataset.reviewStatus, {
       timeout: 5000,
@@ -723,7 +757,7 @@ test("every tab loads out of sight and stays, as open terminal tabs do; history 
     inView.map((id, index) => thread(id, { updatedAt: Date.now() - (index + 1) * 60_000 })),
   );
   const slot = (id: string) =>
-    document.querySelector<HTMLElement>(`[data-workspace-slot="review-${id}"]`);
+    document.querySelector<HTMLElement>(`[data-workspace-slot="thread-${id}"]`);
   // More threads than the three that loaded ahead before.
   for (const id of inView)
     await expect
@@ -863,9 +897,9 @@ test("a thread with its session on screen shows its session first, and its diff 
   const host = createHost();
   render(host);
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  host.setThreads([thread("talk", { agent: "claude", state: "idle", sessions: [talkSession] })]);
+  host.setThreads([talkThread()]);
   // The thread loads ahead. Its diff arrives, and waits for its session.
-  const slot = () => document.querySelector<HTMLElement>('[data-workspace-slot="review-talk"]');
+  const slot = () => document.querySelector<HTMLElement>(`[data-workspace-slot="thread-${TALK}"]`);
   const status = () =>
     slot()?.querySelector<HTMLElement>("[data-review-status]")?.dataset.reviewStatus;
   await expect
@@ -924,7 +958,7 @@ test("the review's header names the review, keeps its actions in ⌘K, and there
   const host = createHost();
   render(host);
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  host.setThreads([thread("talk", { agent: "claude", state: "idle", sessions: [talkSession] })]);
+  host.setThreads([talkThread()]);
   host.releaseSession();
   await page.getByRole("button", { name: /^Talk review/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("talk-target");
@@ -1019,7 +1053,7 @@ test("a tab closes by ×, ⌘⌥W, or the palette; Undo and ⌘⌥T bring it bac
   // Reopening put Second at the top of Recent, and closing lands on it.
   await expect.poll(threadRows).toEqual(["Second review, working(current)", "Agent review"]);
   await expect.poll(() => shown()?.dataset.reviewId).not.toBe("third-target");
-  expect(document.querySelector('[data-workspace-slot="review-third"]')).toBeNull();
+  expect(document.querySelector('[data-workspace-slot="thread-third"]')).toBeNull();
   await userEvent.keyboard("{Control>}{Alt>}t{/Alt}{/Control}");
   await expect.poll(() => shown()?.dataset.reviewId).toBe("third-target");
   await expect.poll(threadRows).toContain("Third review(current)");
@@ -1088,12 +1122,12 @@ test("closing a tab with an unsaved draft asks first, and the reopened thread sh
     .toMatchTextContent(/^“Third review” has unsaved changes in src\/alpha\.ts\./);
   await question.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect.element(question).not.toBeInTheDocument();
-  expect(document.querySelector('[data-workspace-slot="review-third"]')).not.toBeNull();
+  expect(document.querySelector('[data-workspace-slot="thread-third"]')).not.toBeNull();
   // Close closes the tab with its workspace.
   await userEvent.keyboard("{Control>}{Alt>}w{/Alt}{/Control}");
   await question.getByRole("button", { name: "Close", exact: true }).click();
   await expect.poll(threadRows).toEqual([]);
-  expect(document.querySelector('[data-workspace-slot="review-third"]')).toBeNull();
+  expect(document.querySelector('[data-workspace-slot="thread-third"]')).toBeNull();
   // Another program changes the file. ⌘⌥T opens the thread again, and its
   // file opens with the draft and says that the file changed.
   host.setFileText("export const agent = 3;\n");
@@ -1278,7 +1312,7 @@ test("a tab's menu copies its resume command, marks it unread, and closes it", a
       checkout: "/test/feature",
       linked: true,
       branch: "feature",
-      sessions: [{ agent: "claude", id: "abc-123", cwd: "/work/it's here" }],
+      session: { agent: "claude", id: "abc-123", cwd: "/work/it's here" },
     }),
     thread("second"),
   ]);
@@ -1545,7 +1579,9 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
       },
     ]);
   await expect.element(dialog).not.toBeInTheDocument();
-  await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
+  // The new thread opens on its checkout's Changes, beside its session.
+  await expect.poll(() => location.pathname).toBe("/review/claude-started");
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("review-/test/repo");
 
   // A model without efforts has no effort to choose. Escape leaves a new
   // thread that has not started.
@@ -1563,7 +1599,7 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   await expect.element(effort).toHaveTextContent("high effort");
   await userEvent.keyboard("{Escape}");
   await expect.element(dialog).not.toBeInTheDocument();
-  expect(shown()?.dataset.reviewId).toBe("agent-target");
+  expect(location.pathname).toBe("/review/claude-started");
 
   // A repository chosen here wins over the repository on screen. Typing in
   // the filter narrows the list, and Enter picks. With two repositories, the

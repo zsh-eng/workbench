@@ -32,8 +32,8 @@ function RunningSession({ preset }: { preset: AgentPreset }) {
   return (
     <div {...stylex.props(styles.frame)}>
       <SessionPanel
-        reviewId="demo"
-        sessions={[agent.session]}
+        threadId={agent.session.id}
+        session={agent.session}
         fetcher={agent.fetcher}
         inbox={inbox}
         onOpenPath={() => {}}
@@ -79,6 +79,8 @@ const NOW = Date.UTC(2026, 9, 13, 21, 0);
 const THREADS: Thread[] = [
   {
     id: "r1",
+    kind: "session",
+    reviews: [],
     title: "Weeks in relative times",
     createdAt: "2026-10-13T20:00:00Z",
     updatedAt: NOW - 20_000,
@@ -90,6 +92,8 @@ const THREADS: Thread[] = [
   },
   {
     id: "r2",
+    kind: "session",
+    reviews: [],
     title: "Durations in the export",
     createdAt: "2026-10-13T19:00:00Z",
     updatedAt: NOW - 6 * 60_000,
@@ -101,6 +105,8 @@ const THREADS: Thread[] = [
   },
   {
     id: "r3",
+    kind: "session",
+    reviews: [],
     title: "Club summary layout",
     createdAt: "2026-10-13T18:00:00Z",
     updatedAt: NOW - 25 * 60_000,
@@ -112,6 +118,8 @@ const THREADS: Thread[] = [
   },
   {
     id: "r4",
+    kind: "session",
+    reviews: [],
     title: "Theme tokens",
     createdAt: "2026-10-12T18:00:00Z",
     updatedAt: NOW - 26 * 3600_000,
@@ -127,8 +135,8 @@ function LongSession() {
   return (
     <div {...stylex.props(styles.frame)}>
       <SessionPanel
-        reviewId="demo"
-        sessions={[long.session]}
+        threadId={long.session.id}
+        session={long.session}
         fetcher={long.fetcher}
         onOpenPath={() => {}}
       />

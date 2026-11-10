@@ -240,11 +240,11 @@ export class PullJobs {
 
       if (agent)
         await this.step(job, "agent", async () => {
-          const started = await host.api<{ state: { sessionId: string } }>(
-            `/api/reviews/${review.id}/owned`,
-            { preset: agent.id },
-          );
-          await host.api(`/api/reviews/${review.id}/owned/${started.state.sessionId}`, {
+          // The agent's session takes the review as its thread's.
+          const started = await host.api<{ thread: string }>(`/api/reviews/${review.id}/start`, {
+            preset: agent.id,
+          });
+          await host.api(`/api/sessions/${started.thread}/owned`, {
             action: "prompt",
             text: reviewPrompt(pull, base),
           });

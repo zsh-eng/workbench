@@ -32,15 +32,18 @@ export function GuideThread({
       mark={agent.mark}
       createdAt={agent.at}
       embedded={embedded}
-      // A note sits on lines, so a comment on a whole file takes no reply.
-      onReply={note.line === undefined || box.replying ? undefined : box.open}
+      // One Reply in the card, on its last message: here until the reader has
+      // answered, then on their thread. A note sits on lines, so a comment on
+      // a whole file takes no reply.
+      onReply={note.line === undefined || box.replying || replies.length ? undefined : box.open}
     >
-      {replies.map((reply) => (
+      {replies.map((reply, index) => (
         <NoteCard
           key={reply.id}
           note={reply}
           replies={notes.filter((item) => item.parentId === reply.id)}
           embedded
+          canReply={index === replies.length - 1}
           onMutate={onMutate}
           onOpenLink={onOpenLink}
         />

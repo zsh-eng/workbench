@@ -592,7 +592,7 @@ export function withoutProof(text: string): string {
     .trim();
 }
 
-/** Reads review output from several texts, such as a brief, its pins, and a guide summary. */
+/** Reads review output from several texts, such as the guide's summary. */
 export function readReviewOutput(texts: readonly (string | undefined)[]): ReviewOutput {
   const all: ReviewOutput = { findings: [], generated: [] };
   const seen = new Set<string>();

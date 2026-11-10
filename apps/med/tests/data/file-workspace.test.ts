@@ -106,9 +106,9 @@ describe("file workspace", () => {
     workspace.dispose();
   });
   test("closing gives the screen back to the tab that showed before, skipping tabs the row lost", () => {
-    let notes = true;
+    let guide = true;
     const { workspace, pending } = fixture();
-    workspace.setAvailable((id) => id !== "brief" || notes);
+    workspace.setAvailable((id) => id !== "guide" || guide);
     workspace.configure("first", A, "First");
     for (const name of ["one.ts", "two.ts", "three.ts"]) workspace.open(name);
     const [one, two, three] = workspace.getSnapshot().tabs;
@@ -121,15 +121,15 @@ describe("file workspace", () => {
     workspace.close(one!.id);
     expect(workspace.getSnapshot().active).toBe("changes");
     // A background close leaves the screen and its read alone.
-    workspace.select("brief");
+    workspace.select("guide");
     workspace.select(two!.id);
     const reads = pending.length;
     workspace.open("four.ts", undefined, undefined, undefined, undefined, { background: true });
     workspace.close(workspace.getSnapshot().tabs.at(-1)!.id);
     expect(workspace.getSnapshot().active).toBe(two!.id);
     expect(pending).toHaveLength(reads);
-    // Notes left the row, so the file goes back to Changes.
-    notes = false;
+    // The guide left the row, so the file goes back to Changes.
+    guide = false;
     workspace.close(two!.id);
     expect(workspace.getSnapshot().active).toBe("changes");
     // Commit goes back the same way.
@@ -209,7 +209,7 @@ describe("file workspace", () => {
   test("close all and close others go back the same way", () => {
     const { workspace, pending } = fixture();
     workspace.configure("first", A, "First");
-    workspace.select("brief");
+    workspace.select("guide");
     for (const name of ["one.ts", "two.ts", "three.ts"]) workspace.open(name);
     const [one, two] = workspace.getSnapshot().tabs;
     // Close others from a tab that does not show: that tab shows.
@@ -226,10 +226,10 @@ describe("file workspace", () => {
     expect(workspace.getSnapshot().tabs).toEqual([]);
     expect(workspace.getSnapshot().active).toBe("changes");
     workspace.open("one.ts");
-    workspace.select("brief");
+    workspace.select("guide");
     workspace.select(one!.id);
     workspace.closeAll();
-    expect(workspace.getSnapshot().active).toBe("brief");
+    expect(workspace.getSnapshot().active).toBe("guide");
     workspace.dispose();
   });
   test("background opens add tabs without changing selection or cancelling reads", async () => {

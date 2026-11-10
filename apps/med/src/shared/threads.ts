@@ -1,18 +1,35 @@
 import { z } from "zod";
 import { agentStatusSchema, sessionHaltSchema, threadTurnSchema } from "./agent-status";
 import { agentChoicesSchema } from "./owned-session";
-import {
-  agentSessionSchema,
-  partShapeSchema,
-  pullRequestStateSchema,
-  type SavedReview,
-} from "./saved-review";
+import { agentSessionSchema } from "./saved-review";
 
-/** The thread ID of a saved review, or of a session that Med found by itself. */
+/** The agent of a session, as its key starts. */
+export const SESSION_AGENTS = ["claude", "codex", "acp"] as const;
+export type SessionAgent = (typeof SESSION_AGENTS)[number];
+
+/** A session's key: its agent and the agent's own session ID, such as
+ * `claude-3e2eb502-…`. A session is a thread whatever folder it works in. */
+export const sessionKey = (session: { agent: SessionAgent; id: string }) =>
+  `${session.agent}-${session.id}`;
+/** The thread of a review: its session's, or its own row without one. */
+export const threadOfReview = (review: {
+  id: string;
+  session?: { agent: SessionAgent; id: string };
+}) => (review.session ? sessionKey(review.session) : review.id);
+const SESSION_KEY = /^(claude|codex|acp)-([A-Za-z0-9_-]{1,128})$/;
+/** The agent and the session ID of a session's key. */
+export function parseSessionKey(key: string) {
+  const match = SESSION_KEY.exec(key);
+  return match ? { agent: match[1] as SessionAgent, id: match[2]! } : undefined;
+}
+export const REVIEW_ID = /^r_[a-f0-9]{24}$/;
+
+/** A thread's ID: an agent session's key, or a saved review's ID for a
+ * review that no session handed off. */
 export const threadIdSchema = z
   .string()
   .regex(
-    /^(?:r_[a-f0-9]{24}|found-(?:claude|codex)-[A-Za-z0-9_-]{1,128})$/,
+    /^(?:r_[a-f0-9]{24}|(?:claude|codex|acp)-[A-Za-z0-9_-]{1,128})$/,
     "Choose a thread by its ID.",
   );
 
@@ -32,58 +49,74 @@ export const threadSubagentSchema = z.object({
 });
 export type ThreadSubagent = z.infer<typeof threadSubagentSchema>;
 
+const count = z.number().int().nonnegative();
+const changesSchema = z.object({ files: count, additions: count, deletions: count });
+
+/** A review of a thread: a captured change with its details. */
+export const threadReviewSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  createdAt: z.string(),
+  /** Its latest change, in milliseconds. */
+  updatedAt: z.number(),
+  /** The checkout and branch of its first comparison. */
+  repo: z.string().optional(),
+  branch: z.string().optional(),
+  pullRequestUrl: z.string().optional(),
+  changes: changesSchema.optional(),
+});
+export type ThreadReview = z.infer<typeof threadReviewSchema>;
+
 /**
- * A thread: one task with its agent sessions and its changes. Each saved
- * review is a thread, and so is a session that Med found by itself. A thread
- * is a tab (open) or in history (closed); the host keeps which, and the
- * order of the tabs (src/host/thread-tabs.ts).
+ * A thread: an agent session, or a review that no session handed off. A
+ * session is not tied to a folder: its checkout is where it works now, so
+ * Changes and Commit follow it from one repository or branch to another. Its
+ * reviews are the ones it handed off. A thread is a tab (open) or archived;
+ * the host keeps which (src/host/thread-store.ts).
  */
 export const threadSchema = z.object({
-  /** The saved review's ID. */
+  /** The session's key, or the review's ID. */
   id: z.string(),
+  kind: z.enum(["session", "review"]),
   /** The name that shows: the reader's name for the thread, else the agent's title. */
   title: z.string(),
   /** The agent's title, when the reader named the thread in Med (`POST
    * /api/threads/:id/name`): `title` is the reader's name then. */
   agentTitle: z.string().optional(),
   createdAt: z.string(),
-  /** The latest change to the review or to its lead session, in milliseconds. */
+  /** The latest change to the session or to one of its reviews, in milliseconds. */
   updatedAt: z.number(),
-  /** The registered repository; a worktree names its main checkout here. */
+  /** The registered repository of the checkout; a worktree names its main checkout here. */
   repository: z.object({ id: z.string(), name: z.string(), path: z.string() }).optional(),
-  /** The checkout the thread works in, such as a linked worktree. */
+  /** Where the session works now (its latest folder in a checkout), or the
+   * review's checkout. */
   checkout: z.string().optional(),
   /** The checkout is a linked worktree, which Git can remove. */
   linked: z.boolean().optional(),
   branch: z.string().optional(),
-  /** The lead session's agent and state, when the thread has a session. */
+  /** The branch that its Changes start from, when the reader chose one. */
+  base: z.string().optional(),
+  /** The session's agent and state. */
   agent: agentStatusSchema.shape.agent.optional(),
   state: agentStatusSchema.shape.state.optional(),
-  /** The agent sessions, oldest first, to resume one in a terminal. */
-  sessions: z.array(agentSessionSchema).optional(),
-  changes: z
-    .object({
-      files: z.number().int().nonnegative(),
-      additions: z.number().int().nonnegative(),
-      deletions: z.number().int().nonnegative(),
-    })
-    .optional(),
+  /** The agent session, with the folder it works in now. A review thread has none. */
+  session: agentSessionSchema.optional(),
+  /** Its reviews, newest first. A review thread lists itself. */
+  reviews: z.array(threadReviewSchema),
+  /** The counts of the newest review, or of the checkout's live Changes. */
+  changes: changesSchema.optional(),
   pullRequestUrl: z.string().optional(),
   /** Its place among the pins, from 1, when the reader pinned it: the
-   * sidebar lists the pinned sessions first, in the order they were pinned. */
+   * sidebar lists the pinned threads first, in the order they were pinned. */
   pinned: z.number().int().positive().optional(),
-  /** The Superagent's thread (src/host/superagent.ts): the sidebar shows it
-   * on top, apart from the others. */
-  superagent: z.boolean().optional(),
-  /** A session that Med found by itself (src/host/found-sessions.ts): no
-   * saved review names it, and its ID is not a review's. */
-  found: z.boolean().optional(),
-  /** The lead session's last turn, from its transcript's tail: what it does
-   * or said, and its checks. With `changes`, the facts of the turn recap. */
+  /** Med runs the session (or resumes it), so a message goes to it from Med. */
+  owned: z.boolean().optional(),
+  /** The session's last turn, from its transcript's tail: what it does or
+   * said, and its checks. With `changes`, the facts of the turn recap. */
   turn: threadTurnSchema.optional(),
-  /** What stopped the lead session's work until the reader acts. */
+  /** What stopped the session's work until the reader acts. */
   halt: sessionHaltSchema.optional(),
-  /** The newest message that the user sent from Med to the thread's agents. */
+  /** The newest message that the user sent from Med to the session. */
   replied: z
     .object({
       at: z.number(),
@@ -92,8 +125,8 @@ export const threadSchema = z.object({
     })
     .optional(),
   /** The checkout's work that its base branch does not have yet
-   * (src/host/checkout-work.ts): commits ahead of the base, and, for a thread
-   * on working changes, uncommitted changes. */
+   * (src/host/checkout-work.ts): commits ahead of the base, and uncommitted
+   * changes. */
   unlanded: z
     .object({
       base: z.string(),
@@ -102,85 +135,27 @@ export const threadSchema = z.object({
     })
     .optional(),
   /** Other work can be in the checkout: it is a repository's main checkout,
-   * or more than one thread works in it. Changes then offer "Only this
+   * or more than one session works in it. Changes then offer "Only this
    * session's files". */
   shared: z.boolean().optional(),
   /** The newest change that the reader has seen, by `updatedAt`: the host
-   * keeps it for each tab (src/host/thread-tabs.ts), so every window and the
-   * CLI agree on what is new. A tab's change from before Med kept marks
-   * counts as seen. */
+   * keeps it for each tab, so every window and the CLI agree on what is new.
+   * A tab's change from before Med kept marks counts as seen. */
   seen: z.number().optional(),
-  /** A tab: the thread stays warm and shows in the sidebar. False in history. */
+  /** A tab: the thread stays warm and shows in the sidebar. False when archived. */
   open: z.boolean().optional(),
-  /** When the thread went to history, in milliseconds. */
+  /** When the thread was archived, in milliseconds. */
   closedAt: z.number().optional(),
-  /** The first prompt of its lead session, which history searches. */
+  /** The session's first prompt, which the archive searches. */
   prompt: z.string().max(400).optional(),
-  /** History keeps only what lists and resumes the thread: its captures are gone. */
-  stub: z.boolean().optional(),
-  /** The subagents that its lead session runs, or ran lately, newest first. */
+  /** The subagents that the session runs, or ran lately, newest first. */
   subagents: z.array(threadSubagentSchema).max(8).optional(),
-  /** A stack or a set of reviews (docs/STACKS.md): its parts in order, a
-   * stack's bottom first, with the counts of the current version. */
-  parts: z
-    .object({
-      shape: partShapeSchema,
-      items: z.array(threadPartSchema()),
-    })
-    .optional(),
 });
 export type Thread = z.infer<typeof threadSchema>;
-export type ThreadPart = NonNullable<Thread["parts"]>["items"][number];
-
-function threadPartSchema() {
-  const count = z.number().int().nonnegative();
-  return z.object({
-    id: z.string(),
-    title: z.string(),
-    pullRequestUrl: z.string().optional(),
-    state: pullRequestStateSchema.optional(),
-    base: z.string().optional(),
-    head: z.string().optional(),
-    /** The part's comparison in the current version. */
-    targetId: z.string().optional(),
-    files: count,
-    additions: count,
-    deletions: count,
-    comments: count,
-  });
-}
-
-/** A thread list's parts of a saved review, in order. */
-export function threadParts(review: Pick<SavedReview, "parts" | "partTotals">): Thread["parts"] {
-  if (!review.parts) return undefined;
-  return {
-    shape: review.parts.shape,
-    items: review.parts.items.map((part) => {
-      const totals = review.partTotals?.[part.id];
-      return {
-        id: part.id,
-        title: part.title,
-        ...(part.pullRequestUrl ? { pullRequestUrl: part.pullRequestUrl } : {}),
-        ...(part.state ? { state: part.state } : {}),
-        ...(part.base ? { base: part.base } : {}),
-        ...(part.head ? { head: part.head } : {}),
-        ...(totals ? { targetId: totals.targetId } : {}),
-        files: totals?.files ?? 0,
-        additions: totals?.additions ?? 0,
-        deletions: totals?.deletions ?? 0,
-        comments: totals?.comments ?? 0,
-      };
-    }),
-  };
-}
-
-/** `POST /api/threads/:id/group`: the thread goes on top of `onto`'s stack. */
-export const threadGroupSchema = z.object({ onto: threadIdSchema });
-/** `POST /api/threads/:id/shape`: a thread of parts is a stack or a set. */
-export const threadShapeSchema = z.object({ shape: partShapeSchema });
 
 export const threadListSchema = z.object({
-  /** The tabs, in the user's order. History is `GET /api/threads/history`. */
+  /** The tabs; the sidebar puts the pinned ones first (src/web/data/threads.ts).
+   * History is `GET /api/threads/history`. */
   threads: z.array(threadSchema),
   repositories: z.array(
     z.object({
@@ -191,13 +166,13 @@ export const threadListSchema = z.object({
       branch: z.string().optional(),
     }),
   ),
-  /** Whether the list shows the sessions that Med finds by itself. */
+  /** Whether the list shows the sessions that Med found by itself, not only
+   * the ones that it runs or keeps (`POST /api/found`). */
   found: z.object({ shown: z.boolean() }).optional(),
 });
 export type ThreadList = z.infer<typeof threadListSchema>;
 
-/** `GET /api/threads/history`: closed threads and found sessions that are
- * not tabs, newest first. */
+/** `GET /api/threads/history`: archived threads, newest first. */
 export const threadHistorySchema = z.object({ threads: z.array(threadSchema) });
 
 /** The user sent a message from Med after the turn ended. */
@@ -295,12 +270,9 @@ export function waitOver(
   });
 }
 
-/** `POST /api/threads/:id/open`: `restore` puts a closed tab back at its
- * place, as Undo and Reopen closed tab do; otherwise it goes to the top of its
- * repository's tabs. */
-export const threadOpenSchema = z.object({ restore: z.boolean().default(false) });
-/** The tab that opened. A thread whose captures are gone opens as its
- * session, so the ID can change. */
+/** `POST /api/threads/:id/open`: an archived thread is a tab again. */
+export const threadOpenSchema = z.object({});
+/** The tab that opened. */
 export const threadOpenedSchema = z.object({ thread: threadSchema });
 
 /** `POST /api/threads/:id/close`. `auto`: the work landed (the auto-close rule). */

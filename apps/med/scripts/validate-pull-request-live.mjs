@@ -1,8 +1,7 @@
 // The Pull request page in each state of a pull request: the built Med and a
 // real browser on a fake gh (scripts/fake-gh.mjs), with gh's output as real
-// GitHub gives it (tests/fixtures/gh/live-pull-requests.mjs). A draft opens as
-// a pull request, and the tab becomes the live view. Med writes nothing to
-// GitHub here but that one `gh pr create`, which the reader's click runs.
+// GitHub gives it (tests/fixtures/gh/live-pull-requests.mjs). Med writes
+// nothing to GitHub here.
 // Set MED_LIVE_PR_SHOTS to a folder for screenshots of each state, light and
 // dark, narrow and wide.
 import assert from "node:assert/strict";
@@ -148,10 +147,7 @@ try {
   const words = (view, text) => view.getByText(text, { exact: true }).first().waitFor();
   const shoot = async (name, page, view) => {
     if (!shots) return;
-    await view
-      .getByText(/^Read /)
-      .first()
-      .waitFor();
+    await view.getByRole("heading", { level: 1 }).waitFor();
     await page.waitForTimeout(300);
     await page.screenshot({ path: join(shots, `${name}.png`) });
   };
@@ -269,38 +265,6 @@ try {
     await page.context().close();
   }
 
-  // A branch with no pull request keeps the draft view; Create makes it live.
-  {
-    const id = await create("Queue retries");
-    const draft = join(directory, "pr.md");
-    await writeFile(draft, "# Retry the queue\n\n## Why\n\nA blip dropped jobs.\n");
-    answerGh({ args: ["pr", "create"], stdout: `${draftPull.url}\n` });
-    med("pr", "draft", "--key", id, "--file", draft, "--repo", repo);
-    const { page, view } = await open(id);
-    await page.getByText("Pull request draft · revision 1").waitFor();
-    await page.getByRole("heading", { name: "Retry the queue" }).waitFor();
-    const before = fakeGh.calls().length;
-    await page.waitForTimeout(600);
-    assert.equal(
-      fakeGh
-        .calls()
-        .slice(before)
-        .filter(({ args }) => args[0] === "pr" && args[1] === "view").length,
-      0,
-    );
-    await page.getByRole("button", { name: "Create pull request…" }).click();
-    await page
-      .getByRole("alertdialog", { name: "Create pull request" })
-      .getByRole("button", { name: "Create" })
-      .click();
-    await words(view, "#51");
-    await words(view, "A draft: it cannot merge until it is ready.");
-    assert.equal(await page.getByText("Pull request draft · revision 1").count(), 0);
-    await view.getByRole("button", { name: "Draft", exact: true }).click();
-    await page.getByText("Pull request draft · revision 1").waitFor();
-    await page.context().close();
-  }
-
   if (shots) {
     await mkdir(shots, { recursive: true });
     for (const [name, number] of [
@@ -326,19 +290,18 @@ try {
   assert.deepEqual(pageErrors, []);
   const calls = fakeGh.check();
   // gh api reads unless it is told to write, and Med tells it only for its
-  // pending-review mutations. The one write here is the reader's Create.
+  // pending-review mutations, which the reader does not make here.
   const writes = calls.filter(
     ({ args }) =>
       args.some((arg) => /^(?:--method|-X|--input)$|^query=mutation|^mutation/.test(arg)) ||
-      (args[0] === "pr" && !["view", "checks", "list", "create"].includes(args[1])) ||
+      (args[0] === "pr" && !["view", "checks", "list"].includes(args[1])) ||
       (args[0] === "run" && args[1] !== "view"),
   );
   assert.deepEqual(writes, []);
-  assert.equal(calls.filter(({ args }) => args[0] === "pr" && args[1] === "create").length, 1);
   console.log(
     JSON.stringify({
       checks:
-        "open with failing CI, draft, merged, and conflicts from a fork, in a real browser on gh's real output shapes; failures first and a check on two triggers twice, with its trigger; a commit status's unsafe link dropped; the pending review marked as the reader's; the failed log only on request, without gh's columns; a thread linking to its line; a draft that keeps its view until Create makes it live; no write to GitHub but that Create",
+        "open with failing CI, draft, merged, and conflicts from a fork, in a real browser on gh's real output shapes; failures first and a check on two triggers twice, with its trigger; a commit status's unsafe link dropped; the pending review marked as the reader's; the failed log only on request, without gh's columns; a thread linking to its line; no write to GitHub",
       ghCalls: calls.length,
       pageErrors,
     }),

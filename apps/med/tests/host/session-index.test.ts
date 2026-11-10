@@ -5,10 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SessionEvent } from "../../src/shared/agent-session";
-import type { SavedReview } from "../../src/shared/saved-review";
 import type { Thread, ThreadList } from "../../src/shared/threads";
 import { startHost, type RunningHost } from "../../src/host/server";
-import { claudeProjectFolder } from "../../src/host/found-sessions";
+import { claudeProjectFolder } from "../../src/host/session-index";
 import { readServerEvents } from "../../src/web/data/sse";
 import { removeFolder } from "./remove-folder";
 
@@ -228,8 +227,11 @@ function follow(host: RunningHost) {
   };
 }
 
+/** The titles of the sessions that the list shows and that handed off no review. */
 const foundIn = (list: ThreadList | null) =>
-  (list?.threads ?? []).filter((thread) => thread.found).map((thread) => thread.title);
+  (list?.threads ?? [])
+    .filter((thread) => thread.kind === "session" && !thread.reviews.length)
+    .map((thread) => thread.title);
 
 test("the thread list finds Claude Code and Codex sessions in the registered checkouts", async () => {
   const { api, list, host, repo, glossary, home, directory } = await fixture();
@@ -258,7 +260,8 @@ test("the thread list finds Claude Code and Codex sessions in the registered che
     prompt: "Work in a new worktree.",
   });
   // Not listed: a folder outside the repositories, a session older than a
-  // week, a session without a prompt, and one that a saved review names.
+  // week, and a session without a prompt. One that handed off a review is
+  // its thread, with the review.
   await mkdir(join(directory, "elsewhere"));
   await claude(home, join(directory, "elsewhere"), "44444444-4444-4444-8444-444444444444", {
     prompt: "Not in a registered repository.",
@@ -278,7 +281,7 @@ test("the thread list finds Claude Code and Codex sessions in the registered che
   await api("/api/reviews", {
     title: "Handed off",
     targets: [{ repo: glossary, comparison: { kind: "working" } }],
-    sessions: [{ agent: "claude", id: kept, cwd: glossary }],
+    session: { agent: "claude", id: kept, cwd: glossary },
   });
 
   const latest = await list();
@@ -297,42 +300,44 @@ test("the thread list finds Claude Code and Codex sessions in the registered che
   const byTitle = (title: string) => threads.find((thread) => thread.title === title);
   // Titles: Claude's custom title, else the first prompt as a thread name.
   expect(byTitle("README glossary")).toMatchObject({
-    id: `found-claude-${glossaryId}`,
-    found: true,
+    id: `claude-${glossaryId}`,
+    kind: "session",
     agent: "claude",
     state: "working",
     checkout: glossary,
     branch: "glossary",
     linked: true,
     repository: { name: "tide", path: repo },
-    sessions: [{ agent: "claude", id: glossaryId, cwd: glossary }],
+    session: { agent: "claude", id: glossaryId, cwd: glossary },
+    reviews: [],
   });
   expect(byTitle("Explain the prediction model in the README")).toMatchObject({
     agent: "claude",
     state: "idle",
     checkout: repo,
     branch: "main",
-    sessions: [{ cwd: join(repo, "docs") }],
+    session: { cwd: join(repo, "docs") },
   });
   expect(byTitle("Readers in the US want heights in feet")).toMatchObject({
-    id: "found-codex-33333333-3333-4333-8333-333333333333",
+    id: "codex-33333333-3333-4333-8333-333333333333",
     agent: "codex",
     state: "idle",
     checkout: glossary,
   });
   // Until the registry reads the new worktree, its session is not listed.
   expect(byTitle("Work in a new worktree")?.checkout ?? side).toBe(side);
-  // The saved review keeps its session; it is not listed twice.
-  expect(threads.filter((thread) => thread.title === "Handed off")).toHaveLength(1);
-  expect(latest.value!.found).toEqual({ shown: true });
-  // A session that works opens as a tab, once; the others are history.
-  await vi.waitFor(
-    () =>
-      expect(
-        latest.tabs!.threads.filter((thread) => thread.found).map((thread) => thread.title),
-      ).toEqual(["README glossary"]),
-    { timeout: 5000 },
+  // The session that handed off a review is one thread, with the review.
+  const handedOff = threads.filter((thread) =>
+    thread.reviews.some((review) => review.title === "Handed off"),
   );
+  expect(handedOff.map((thread) => [thread.id, thread.kind])).toEqual([
+    [`claude-${kept}`, "session"],
+  ]);
+  expect(latest.value!.found).toMatchObject({ shown: true });
+  // A session that works opens as a tab, once; the others are history.
+  await vi.waitFor(() => expect(foundIn(latest.tabs)).toEqual(["README glossary"]), {
+    timeout: 5000,
+  });
   expect(byTitle("Explain the prediction model in the README")?.open).toBe(false);
 
   // The checkout's working changes count, and follow the agent's edits,
@@ -349,9 +354,9 @@ test("the thread list finds Claude Code and Codex sessions in the registered che
     { timeout: 10_000 },
   );
 
-  // The session pane reads a found thread's session as a saved review's.
+  // The session pane reads the session by its key.
   const response = await fetch(
-    `http://127.0.0.1:${host.port}/api/reviews/found-claude-${glossaryId}/sessions/${glossaryId}/events`,
+    `http://127.0.0.1:${host.port}/api/sessions/claude-${glossaryId}/events`,
     { headers: { authorization: `Bearer ${host.token}` } },
   );
   expect(response.status).toBe(200);
@@ -374,17 +379,13 @@ test("the thread list finds Claude Code and Codex sessions in the registered che
         event.update.content.text === "Add a short glossary to the README.",
     ),
   ).toBe(true);
-  // A session outside the registered repositories has no route.
+  // A session that Med neither found nor keeps has no route.
   expect(
-    (
-      await api(
-        "/api/reviews/found-claude-44444444-4444-4444-8444-444444444444/sessions/44444444-4444-4444-8444-444444444444/turns",
-      )
-    ).status,
+    (await api("/api/sessions/claude-44444444-4444-4444-8444-444444444444/turns")).status,
   ).toBe(404);
 
   // A found tab that the reader closes stays in history while its agent works.
-  const id = `found-claude-${glossaryId}`;
+  const id = `claude-${glossaryId}`;
   expect(await api(`/api/threads/${id}/close`, {})).toEqual({
     status: 200,
     data: { closed: true },
@@ -410,8 +411,9 @@ test("a session that started outside the repositories shows in the checkout wher
   await vi.waitFor(() => expect(foundIn(latest.value)).toContain("Started in the notes"), {
     timeout: 10_000,
   });
-  expect(latest.value!.threads.find((thread) => thread.id === `found-claude-${id}`)).toMatchObject({
+  expect(latest.value!.threads.find((thread) => thread.id === `claude-${id}`)).toMatchObject({
     checkout: glossary,
+    session: { cwd: glossary },
   });
 });
 
@@ -429,14 +431,16 @@ test("found sessions hide one by one or all at once, and Keep in Med saves one a
   );
 
   // Hide keeps the choice in the state directory, across a restart.
-  expect(
-    (await api("/api/found", { hide: { id: `found-claude-${id}`, hidden: true } })).status,
-  ).toBe(200);
+  expect((await api("/api/found", { hide: { id: `claude-${id}`, hidden: true } })).status).toBe(
+    200,
+  );
   await vi.waitFor(() => expect(foundIn(latest.value)).toEqual(["Add feet"]), { timeout: 5000 });
-  await api("/api/found", { hide: { id: `found-claude-${id}`, hidden: false } });
+  await api("/api/found", { hide: { id: `claude-${id}`, hidden: false } });
   await vi.waitFor(() => expect(foundIn(latest.value)).toHaveLength(2), { timeout: 5000 });
   await api("/api/found", { shown: false });
-  await vi.waitFor(() => expect(latest.value!.found).toEqual({ shown: false }), { timeout: 5000 });
+  await vi.waitFor(() => expect(latest.value!.found).toMatchObject({ shown: false }), {
+    timeout: 5000,
+  });
   expect(foundIn(latest.value)).toEqual([]);
   await hosts.splice(0)[0]!.close();
   const again = await startHost({
@@ -455,29 +459,22 @@ test("found sessions hide one by one or all at once, and Keep in Med saves one a
     return { status: response.status, data: (await response.json()) as T };
   };
   const restarted = follow(again);
-  await vi.waitFor(() => expect(restarted.value?.found).toEqual({ shown: false }));
-  await call("/api/found", { shown: true });
-  await vi.waitFor(() => expect(foundIn(restarted.value)).toHaveLength(2), { timeout: 10_000 });
+  await vi.waitFor(() => expect(restarted.value?.found).toMatchObject({ shown: false }));
 
-  // Keep in Med: a saved thread on the checkout's working changes, with the
-  // session linked, takes the found thread's place.
-  const saved = await call<SavedReview>("/api/reviews", {
-    title: "README glossary",
-    targets: [{ repo: glossary, comparison: { kind: "working" } }],
-    sessions: [{ agent: "claude", id, cwd: glossary }],
-  });
-  expect(saved.status).toBe(200);
+  // Keep in Med: a kept session lists while found sessions do not.
+  const kept = await call<{ thread: string }>("/api/sessions/adopt", { session: id });
+  expect(kept.status).toBe(200);
   // The tabs come as a stream and the history from a poll, in either order.
   await vi.waitFor(
-    () => {
-      expect(foundIn(restarted.value)).toEqual(["Add feet"]);
-      expect(restarted.value!.threads.find((thread) => thread.id === saved.data.id)).toMatchObject({
-        title: "README glossary",
-        sessions: [{ agent: "claude", id }],
-      });
-    },
+    () =>
+      expect(restarted.value!.threads.find((thread) => thread.id === `claude-${id}`)).toMatchObject(
+        { title: "README glossary", session: { agent: "claude", id } },
+      ),
     { timeout: 5000 },
   );
+  expect(foundIn(restarted.value)).toEqual(["README glossary"]);
+  await call("/api/found", { shown: true });
+  await vi.waitFor(() => expect(foundIn(restarted.value)).toHaveLength(2), { timeout: 10_000 });
 });
 
 test("one window of 7 days lists Claude Code and Codex sessions by the time their transcripts changed", async () => {
@@ -555,21 +552,21 @@ test("a Codex session that Med runs through ACP shows once, as its thread, also 
   const repositories = await api<{ repositories: { id: string; path: string }[] }>(
     "/api/repositories",
   );
-  const started = await api<{ review: SavedReview }>("/api/threads", {
+  const started = await api<{ thread: string }>("/api/threads", {
     repositoryId: repositories.data.repositories.find((entry) => entry.path === repo)!.id,
     prompt: "Add a unit option to formatHeight.",
     preset: "codex",
     worktree: false,
   });
   expect(started.status).toBe(200);
-  const review = started.data.review;
-  const owned = review.sessions![0]!;
-  expect(owned.agent).toBe("acp");
+  const thread = started.data.thread;
+  expect(thread).toMatch(/^acp-/);
+  const owned = { id: thread.slice("acp-".length) };
   await vi.waitFor(
     async () =>
-      expect(
-        (await api<{ status: string }>(`/api/reviews/${review.id}/owned/${owned.id}`)).data.status,
-      ).toBe("idle"),
+      expect((await api<{ status: string }>(`/api/sessions/${thread}/owned`)).data.status).toBe(
+        "idle",
+      ),
     { timeout: 10_000 },
   );
   // Codex wrote the session's rollout with its own ID, and the prompt.
@@ -591,12 +588,12 @@ test("a Codex session that Med runs through ACP shows once, as its thread, also 
   // scan has read the rollout too.
   await codex(home, repo, "c1c1c1c1-c1c1-4c1c-8c1c-c1c1c1c1c1c1", "A terminal task in Codex.");
   const once = async (latest: { value: ThreadList | null }) => {
-    await vi.waitFor(() => expect(foundIn(latest.value)).toEqual(["A terminal task in Codex"]), {
+    await vi.waitFor(() => expect(foundIn(latest.value)).toContain("A terminal task in Codex"), {
       timeout: 10_000,
     });
     const threads = latest.value!.threads;
-    expect(threads.some((thread) => thread.id === `found-codex-${codexId}`)).toBe(false);
-    expect(threads.filter((thread) => thread.id === review.id)).toHaveLength(1);
+    expect(threads.some((thread) => thread.id === `codex-${codexId}`)).toBe(false);
+    expect(threads.filter((each) => each.id === thread)).toHaveLength(1);
   };
   await once(await list());
 
@@ -763,7 +760,7 @@ test("Codex's guardian reviews and subagents do not list; a subagent's thread sh
   expect(searched.data.sessions.map((session) => session.id)).toEqual([parent]);
 
   const response = await fetch(
-    `http://127.0.0.1:${host.port}/api/reviews/found-codex-${parent}/sessions/${parent}/events`,
+    `http://127.0.0.1:${host.port}/api/sessions/codex-${parent}/events`,
     { headers: { authorization: `Bearer ${host.token}` } },
   );
   const events: SessionEvent[] = [];

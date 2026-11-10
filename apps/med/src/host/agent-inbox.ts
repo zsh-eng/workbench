@@ -232,6 +232,14 @@ export class AgentInbox {
     });
   }
 
+  /** Moves a thread's messages to another thread, after those it has, as
+   * when Med continues a session in a fork that takes its thread's place. */
+  async move(from: string, to: string) {
+    if (from === to) return;
+    const moved = await this.change(from, (messages) => messages.splice(0));
+    if (moved.length) await this.change(to, (messages) => void messages.unshift(...moved));
+  }
+
   /**
    * Runs `send` for the message with the client's ID `id`, one at a time. A
    * message that Med has already comes back, and `send` does not run, so a

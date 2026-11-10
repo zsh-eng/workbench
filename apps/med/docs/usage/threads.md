@@ -1,17 +1,21 @@
 # Threads
 
-A thread is one task: an agent's work and its changes, as a saved review, or
-a Claude Code or Codex session that Med found. The threads that you have open
+A thread is a Claude Code or Codex session, with the reviews that it handed
+off. A session is not tied to a folder: it can move to another branch or
+repository, and its thread's Changes follow the checkout where it works now.
+A review is a captured change with its guide and comments; a review that no
+session handed off is a thread of its own. The threads that you have open
 are **tabs**. All other threads are **archived**.
 
-The sidebar lists the tabs as sessions, one row each: **Pinned**, in the
-order you pinned them, then **Recent**, newest activity first. There is no
-grouping by repository. A session that handed off several reviews, such as
-one for each branch, is one row: the review on screen, else the newest. The
-row keeps the session's name and pin whichever review you open: the name you
-gave it, else its first review's title. Its
-session rail's **Reviews** lists them all, newest first, and opens each one;
-**Archive** on the row archives them all. `⌘1`–`⌘9` open the session at that place in the list.
+The sidebar lists the tabs, one row each: **Pinned**, in the order you
+pinned them, then **Recent**, newest activity first. There is no grouping by
+repository. The sidebar lists the sessions that Med started or that you
+kept, the sessions that handed off a review, and those that worked in a
+registered repository in the last 7 days. A session that handed off several
+reviews, such as one for each branch, is one row; its session rail's
+**Reviews** lists them, newest first, and opens each one. A row's name is the
+name you gave it, else the session's title. `⌘1`–`⌘9` open the thread at that
+place in the list.
 A row shows the agent's mark and the session's name, and at most one dot: blue
 in a ring when the agent needs you, blue when its work finished since you
 looked, amber when the work stopped. While the agent works, its name dims
@@ -74,14 +78,12 @@ does not load them or read their agents until you open one again.
   in the list starts a search) to search as `⌃Tab` does. `↑` and `↓` (or `j`
   and `k`) choose a thread, and `↵` or a click opens it as a tab. `⌘⌫` or a
   row's trash button deletes a thread after a second `↵`.
-- **Delete…** in a row's menu deletes the thread after you confirm: its saved
-  review, its Review versions, and its comments. The agent's session stays in
+- **Delete…** in a row's menu deletes the thread after you confirm: its
+  reviews, their versions, and their comments. The agent's session stays in
   Claude Code or Codex; Med does not show it as a found session again.
-- The archive does not grow without limit. Med keeps a closed thread's Review
-  versions and comments for 30 days. Then it keeps only the title, the
-  repository, the branch, and the sessions, for 180 days after the close; such
-  a thread opens as its agent's session. Med prunes when it starts and once a
-  day.
+- The archive does not grow without limit. 180 days after you archive a
+  thread, Med deletes it with its reviews and their comments; the session
+  stays in Claude Code or Codex. Med prunes when it starts and once a day.
 
 ## New threads and the sidebar
 
@@ -126,7 +128,7 @@ does not load them or read their agents until you open one again.
   unread** or **Mark as read** (`U`), **Rename** (`R`), **Move up** and
   **Move down** for a pin, **Archive** (`A`), and **Delete** (`D`). While the
   menu is open, a letter runs its item. Med keeps the pins, also across a
-  restart and in the archive. A pinned session's first hand-off takes its pin.
+  restart and in the archive.
 - **Drag a row into Pinned** to pin it at that place, within Pinned to move
   it, and out to Recent to unpin it. While it drags, the list shows where it
   would land: the other rows make room, and Pinned shows even with no pins.
@@ -150,8 +152,8 @@ The Superagent is a thread for the other threads: ask it where things stand,
 which threads wait on you and why, or to pass a direction to one of them. The
 first click on **Superagent** starts it. Med makes it a folder of its own in
 its state folder, which no list of repositories shows, and starts Claude Code
-there on Opus at high effort with a brief: what the Superagent is for, and how
-it works through `med`. After that it is a thread like any other: change its
+there on Opus at high effort with its instructions: what the Superagent is
+for, and how it works through `med`. After that it is a thread like any other: change its
 model and effort in the message box, queue messages, or stop it. There is one
 Superagent; the next click opens it.
 
@@ -184,23 +186,21 @@ scheduling when you ask for a check later.
   checkout that other sessions share, such as the main checkout, **Only this
   session's files** keeps the files that the thread's Claude Code or Codex
   session edited.
-- **Set a thread's branch and base** from its comparison menu in **Changes**.
-  The menu's button names both, such as "station-search since main".
-  **Thread checkout…**, or `⌘⇧G` in a thread, chooses another branch or
-  worktree of the repository: `↵` moves the thread there. Use it when the
-  agent works in a checkout other than the one that the thread started in.
-  The thread's Changes, its row, and the title band then show that checkout,
-  also after a restart. A branch that has no worktree opens in a new
-  workspace, as Med never switches branches; `⌘↵` opens any choice in a new
-  workspace. **Base branch…** chooses what the branch's changes start from:
-  the commits since that branch, and the uncommitted changes. The thread
-  keeps the base, and its row counts the changes since it. Choose the
-  repository's usual base to go back to it. Moving a thread changes only
-  what Med shows; the agent's session keeps its own folder.
-- **Review** is what the agent hands off (`med thread show`, or
-  `med review create --key …`): its Guide or its diff.
-  Each hand-off replaces the Review, which opens on what is new since you
-  looked; Med shows no version numbers. A hand-off of several checkouts has a
+- **A thread follows its session.** When the agent moves to another branch,
+  worktree, or repository, the thread's Changes, its row, and the title band
+  show the checkout where it works now. A session that works outside the
+  registered repositories has no Changes until it works in one. The
+  comparison menu's button names the branch and its base, such as
+  "station-search since main". **Base branch…** chooses what the branch's
+  changes start from: the commits since that branch, and the uncommitted
+  changes. The thread keeps the base, and its row counts the changes since
+  it. Choose the repository's usual base to go back to it.
+- **Review** is what the agent hands off with `med review create`: its
+  Guide or its diff. A hand-off with the same `--key` adds a version to that
+  review, which opens on what is new since you looked; Med shows no version
+  numbers. A hand-off with another key is another review of the thread:
+  **Reviews** in the session rail chooses which one shows, the newest at
+  first. A hand-off of several checkouts has a
   menu of them above the diff. Git's comparisons are only in **Changes**. In a thread with a Review, the **Changes** tab has no file
   count, so that the tabs keep their places. A thread opens on **Review**
   after a hand-off and on **Changes** before one. A hand-off that arrives
@@ -212,9 +212,7 @@ scheduling when you ask for a check later.
   the review's card too. A file that a reply names is a link with the file's
   language icon. When the checkout changes after a version, a bar offers
   **Refresh review**, which saves the checkout again as a new version, and
-  **Show Changes**. An older thread, which saved its checkout when it
-  started, keeps that capture as version 1; an empty capture alone is not a
-  Review.
+  **Show Changes**.
 - The band above the workspace names the checkout that it shows: the
   repository, the branch, and a linked worktree's folder. Click the branch to
   copy its name, or the repository or the folder to copy the checkout's path;
@@ -246,9 +244,9 @@ app.
 
 ## Agent sessions
 
-A review that records its agent session has **Show agent session**: the
-review's **Restore**, at its top right, while the session hides, and the
-palette. Both open the Session pane:
+A session's thread has **Show agent session**: the review's **Restore**, at
+its top right, while the session hides, and the palette. Both open the
+Session pane:
 prompts, replies, thoughts, tool calls with output and diffs, the plan, and
 background shells and agents. It follows the session live.
 
@@ -257,9 +255,8 @@ background shells and agents. It follows the session live.
   blocks and tool output, the cards under the thread, and the message box.
   A narrower pane, or the session rail, narrows the column. The pane keeps the
   width that you give it; drag its edge to give the review the room beside
-  the column. Markdown files, pull request drafts, and the Guide read at the
-  same width.
-- Type: Markdown files and briefs read at 15 pixels. The thread's prompts and
+  the column. Markdown files and the Guide read at the same width.
+- Type: Markdown files and the Guide read at 15 pixels. The thread's prompts and
   replies read at 14.5 (a little smaller in Paper, as its documents are), so
   a line holds about as many characters as Claude Desktop's. Code and tables
   in either read at 0.867 of the text; diffs stay at 12 pixel monospace.
@@ -269,8 +266,7 @@ background shells and agents. It follows the session live.
 
 - The thread has no header of its own: the title band names it, and the
   band's end holds the session's controls, the review's pages, and Display
-  ([Layout](layout.md#the-title-band-and-the-reviews-header)). Where a review
-  has several sessions, a menu there named for the agent chooses one. **New
+  ([Layout](layout.md#the-title-band-and-the-reviews-header)). **New
   thread** (`⌥N`, or `⌘N` in the installed app) starts another session.
 - `⌘⇧B` hides the session pane. It does not stop or close the session: the
   agent keeps working, and its row in the sidebar shows its state. The

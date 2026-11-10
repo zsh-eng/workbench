@@ -89,8 +89,7 @@ list back: it hides the tasks until one starts or fails.
 The title band is one row for the whole workspace. Its start names the
 checkout, or the thread while the sidebar hides. Its end always holds, from
 left to right: the session's controls (its context's use, or the session
-rail's list button where the rail has room, and a menu of the review's
-sessions where it has several), then the pages, the pull request's comments,
+rail's list button where the rail has room), then the pages, the pull request's comments,
 **Copy comments** with their number while the review has comments, and
 **Display** (an icon). They show whether or not the review does.
 

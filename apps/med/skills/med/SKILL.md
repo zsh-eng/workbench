@@ -6,7 +6,8 @@ description: Hand off code changes for review in Med, the user's local review ap
 # Hand off changes in Med
 
 Med shows your change to the user as a review. They comment on lines and send
-the comments back to you.
+the comments back to you. Your session is a thread in Med's sidebar, wherever
+it works; each review that you hand off is listed in that thread.
 
 ## First, where you are
 
@@ -56,8 +57,6 @@ your work:
   `--paths <your files>`;
 - commits on main: `--base <commit before your work> --head HEAD`;
 - a feature branch: `--base main --head HEAD --merge-base`;
-- stacked branches or pull requests: one review with `--stack` (`--set` for
-  independent parts);
 - several repositories: one review from `--manifest`.
 
 ```sh
@@ -79,7 +78,7 @@ segment; summaries say why in 1–3 sentences; comment only where it saves the
 reader time (`kind`: note, suggestion, risk, question). Summaries are
 Markdown: where a picture explains a flow, a state change, or a screen faster
 than words, consider a `mermaid` fence or an image from the checkout.
-`med docs agents` has the guide's format, stacks, sets, and manifests.
+`med docs agents` has the guide's format and manifests.
 
 ## When a command fails
 
@@ -89,14 +88,12 @@ user to start it with `med web`. A review or thread that does not exist
 `med <command> --help`. Do not run a failed command again unchanged; if its
 fix needs the user, such as `med add`, ask them.
 
-## Draft a pull request
+## Open a pull request
 
-When the user asks for a pull request, do not run `gh pr create`. Run
-`med pr template --repo <root>`, fill the template in a Markdown file whose
-first line is `# <title>`, and run `med pr draft --key <key> --file <file>`.
-The user comments on the draft in Med; revise the file and run it again. The
-user opens the pull request with Create in Med. After a pull request is open
-elsewhere: `med review update --key <key> --pr <url>`.
+Open one only when the user asks. `med pr template --repo <root>` prints the
+repository's pull request template; fill it with why, what changed, and how
+you checked it, and open the pull request with `gh pr create`. Then link it
+to the review: `med review update --key <key> --pr <url>`.
 
 ## When comments come back
 

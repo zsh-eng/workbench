@@ -196,13 +196,8 @@ export const usageRoutes = {
   thread: {
     method: "GET",
     path: "/api/thread-usage",
-    input: z.object({
-      id: z.string().regex(/^[A-Za-z0-9_-]{1,200}$/),
-      session: z
-        .string()
-        .regex(/^[A-Za-z0-9_-]{1,128}$/)
-        .optional(),
-    }),
+    /** The thread: its session's key. */
+    input: z.object({ id: z.string().regex(/^[A-Za-z0-9_-]{1,200}$/) }),
     output: threadUsageSchema,
   },
 } as const satisfies Record<string, RouteContract>;

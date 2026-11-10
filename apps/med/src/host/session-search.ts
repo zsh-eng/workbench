@@ -1,6 +1,7 @@
 import { realpath, stat } from "node:fs/promises";
 import { basename, join, relative, sep } from "node:path";
-import { parseFoundThreadId, type FoundAgent, type SessionEntry } from "../shared/found-sessions";
+import type { FoundAgent, SessionEntry } from "../shared/found-sessions";
+import { parseSessionKey } from "../shared/threads";
 import {
   HEAD_BYTES,
   codexDayFolders,
@@ -10,12 +11,12 @@ import {
   readHead,
   rolloutId,
   scanLines,
-} from "./found-sessions";
+} from "./session-index";
 import { userHome } from "./service/discover";
 
 // `med thread find` and `med thread adopt` reach the Claude Code and Codex
 // sessions of any age on this computer. The thread list shows only the recent
-// ones in the registered repositories (found-sessions.ts). A search lists
+// ones in the registered repositories (session-index.ts). A search lists
 // every transcript and reads its head once per change of the file; for Claude
 // Code it also reads the end, where a title that the user sets later goes.
 // Codex's archived sessions are in the search too.
@@ -235,9 +236,9 @@ export function createSessionSearch(options: {
       }
       let agent: FoundAgent | undefined;
       let id = value;
-      const found = parseFoundThreadId(value);
+      const found = parseSessionKey(value);
       const named = /^(claude|codex):(.+)$/.exec(value);
-      if (found) ({ agent, id } = found);
+      if (found && found.agent !== "acp") ({ agent, id } = { agent: found.agent, id: found.id });
       else if (named) [agent, id] = [named[1] as FoundAgent, named[2]!];
       if (!validId(id) || id.length < MIN_PREFIX) return [];
       const listed = (await listTranscripts(home())).filter(

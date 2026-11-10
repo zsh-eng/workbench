@@ -8,24 +8,29 @@ on `127.0.0.1:6330`. Your code, reviews, and comments stay on your Mac.
 ![The agent's session beside the review of its change](screenshots/app/window.webp)
 
 [Med's user flows](USER_FLOWS.md) walks through the everyday paths: a
-change and its review, asking for changes, stacked pull requests, questions
-about code, pull requests, files and notes, and how agents use Med.
+change and its review, asking for changes, one session with several reviews,
+questions about code, pull requests, files and notes, and how agents use Med.
 
 ## The words
 
 - A **source** is a repository, or a vault of Markdown notes, that you added
   with `med add`. Med watches it for changes.
-- A **thread** is one task: an agent's session and the changes it hands off.
-  Your open threads are the rows in the sidebar.
 - A **session** is one agent conversation. Med either runs it, or reads one
-  that another app runs.
+  that another app runs. It is not tied to a folder: it can move to another
+  branch or repository.
+- A **thread** is a session, with the reviews that it handed off. Its
+  Changes follow the checkout where the session works now. A review that no
+  session handed off is a thread of its own. Your open threads are the rows
+  in the sidebar.
 - A **hand-off** is what an agent shows you with `med review create`: a diff,
   or part of one. The agent picks what it compares, such as the whole change
   or only the latest round. A later hand-off with the same **key**, usually
-  the branch, joins the same thread and opens on **New since you looked**.
-- A **review** is the saved record of a thread's hand-offs: the captured
-  diffs, the guide, and the comments. It is a view on a set of changes, kept
-  so it still reads the same after the branch moves on.
+  the branch, is the next version of that review and opens on **New since
+  you looked**.
+- A **review** is the saved record of a key's hand-offs: the captured diffs,
+  the guide, and the comments, linked to the session that handed it off. It
+  is a view on a set of changes, kept so it still reads the same after the
+  branch moves on.
 - A **guide** is optional: the agent's summary, then parts that you read one
   at a time. A diff with a sentence is enough.
 - A **comment** is your note on lines. It is a draft until you send it, and

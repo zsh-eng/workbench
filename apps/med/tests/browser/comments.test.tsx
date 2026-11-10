@@ -428,7 +428,7 @@ test("a long link ends in an ellipsis inside the card, on a line and on a file",
   }
 });
 
-test("any message takes a reply, and the thread goes to the agent from the reader's latest one", async () => {
+test("a thread takes replies at its end, and goes to the agent from the reader's latest message", async () => {
   const sends: string[] = [];
   const answer: Note = {
     ...note,
@@ -468,14 +468,16 @@ test("any message takes a reply, and the thread goes to the agent from the reade
   }
   render(<Thread />);
   const card = page.getByRole("article");
-  // The agent's answer takes a reply too.
+  // One thread, as in a chat: its one Reply is at its end, under the agent's answer.
+  const messages = () => [...card.element().querySelectorAll(":scope > div")];
   await expect
     .poll(() => card.getByRole("button", { name: "Reply", exact: true }).elements().length)
-    .toBe(2);
+    .toBe(1);
+  expect(messages().at(-1)!.textContent).toContain("Reply");
+  expect(messages()[0]!.textContent).not.toContain("Reply");
   // Before a reply, Send sits by the comment, the reader's only message.
-  const messages = () => [...card.element().querySelectorAll(":scope > div")];
   expect(messages()[0]!.querySelector('[aria-label="Send to Claude"]')).not.toBeNull();
-  await card.getByRole("button", { name: "Reply", exact: true }).last().click();
+  await card.getByRole("button", { name: "Reply", exact: true }).click();
   // The reply box can send it now, as a new comment's can.
   await expect.element(card.getByRole("checkbox", { name: "Send to Claude now" })).toBeVisible();
   await card.getByRole("textbox", { name: "Reply text" }).fill("Then test the count.");

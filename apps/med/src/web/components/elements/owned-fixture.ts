@@ -292,7 +292,7 @@ export function createDemoAgent(
           return () => eventListeners.delete(listener);
         },
       );
-    if (path.endsWith(`/owned/${sessionId}/events`))
+    if (path.endsWith(`/sessions/${sessionId}/owned/events`))
       return stream(
         () => frame("state", state),
         (send) => {
@@ -301,7 +301,7 @@ export function createDemoAgent(
           return () => stateListeners.delete(listener);
         },
       );
-    if (path.endsWith(`/owned/${sessionId}`) && init?.method === "POST") {
+    if (path.endsWith(`/sessions/${sessionId}/owned`) && init?.method === "POST") {
       act(JSON.parse(String(init.body)) as OwnedAction);
       return Response.json(state);
     }

@@ -87,8 +87,8 @@ comment by itself.
 
 When a review has a real pull request on GitHub, its **Pull request** tab shows
 that pull request as GitHub has it, so you rarely need github.com. A review
-from a branch with no pull request keeps the draft. This does not cover a stack:
-each layer has its own pull request, and the band links to it.
+links its pull request when the agent runs `med review update --pr <url>`,
+or when Med finds one opened on the review's branch.
 
 The page is one column.
 
@@ -137,31 +137,6 @@ The tab reads GitHub and changes nothing there, apart from your pending review:
 a reply, or Submit, Approve, or Discard when you click it. It does not merge or
 run checks again.
 
-## Pull request drafts
-
-When an agent drafts a pull request with
-[`med pr draft`](../AGENT_INTEGRATION.md#draft-a-pull-request), the review gets a
-**Pull request** tab after **Review**, under **Pull request draft · revision
-N**: its title, its description from the repository's template, and its
-images. To comment on its words, select them and click **Comment** or press
-`c`; the comments go to the agent with your other comments, and its next
-draft replaces the shown one. **Create pull request…** asks
-first, then runs `gh pr create` from the checkout's branch, as a draft unless
-you clear **As a draft**. Med does not push: push the branch, with all of its
-commits, first. GitHub
-takes images only as links, so a local image stays out and the text names it;
-Med says which ones to drag into the description on GitHub. Then the draft's
-**Open on GitHub** opens the pull request, and the review links to it. The tab
-then shows the [live pull request](#live-pull-requests). Its **Draft** button
-shows the draft again, also a revision that the agent writes later.
-
-A link in the draft can be `path`, `path:12`, `path:12-20`, `path#L12-L20`, an absolute
-path, an editor link, or a GitHub blob URL. A unique suffix such as
-`App.tsx:42` works. A link or a path in inline code to a file that the change
-does not touch opens that file of the checkout as a tab, at its lines. Its
-excerpt shows the cited lines from the checkout, marked **Not in the change**.
-An absolute path inside the checkout shows as the path in the checkout.
-
 ## Codex reviews
 
 A saved review shows the findings of Codex reviews in its checkouts: run
@@ -174,32 +149,5 @@ after the review was saved.
   its priority, such as **P1**.
 - The Codex count beside the title opens each verdict, the findings that the
   diff cannot show, and **Copy resume command**.
-- A finding's reply button, or **Add all to** the agent for a whole review,
+- A finding's **Add to the message** button, or **Add all to** the agent for a whole review,
   puts the findings in the next message to the review's agent.
-
-## Stacks and sets
-
-A thread can hold several reviews of one intent ([design](../STACKS.md)): a
-**stack** of pull requests or branches, each on the one below, or a **set** of
-independent ones. An agent makes one with
-`med review create --stack 101 102 103 104` (bottom first) or `--set`; a
-hand-off of one range whose base is the head of an open thread's top layer,
-from the same session or with both pull requests, joins that thread as its
-next layer.
-
-- **Sidebar.** The thread is one session row, like any other.
-- **Stack rail.** At the top of the Review's rail: the layers top to bottom,
-  the base branch (such as `main`) under the bottom one, each with its number,
-  title, pull request state, and comment count. A pull request that GitHub moved to
-  another base says "on main". **This layer** shows the layer's own diff;
-  **Whole stack** shows the base to the top layer's head; Shift-click a layer
-  for the layers from the shown one to it. In a narrow pane the layers are a
-  menu in the review's row.
-- **Keys.** `⌥↑` and `⌥↓` go up and down the stack (in a sidebar row they move
-  the tab).
-- The title band names the shown layer's pull request. All layers use the
-  thread's one checkout, so a switch keeps the session and its files.
-- Drag a row onto the middle of another row of its repository and hold until
-  that row is outlined to stack it on top; a quick drop only moves the row.
-  The row's menu has **Stack on**, **Ungroup** (each layer above the
-  first is a thread again), and **Treat as a set** or **Treat as a stack**.

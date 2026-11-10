@@ -6,7 +6,12 @@ import { join } from "node:path";
 import type { SessionEvent } from "../../src/shared/agent-session";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { createSessionStore } from "../../src/web/data/session-store";
-import { followSession } from "../../src/web/data/session-stream";
+import {
+  followSession,
+  keptPages,
+  prependPage,
+  type SessionStreamState,
+} from "../../src/web/data/session-stream";
 import { readServerEvents } from "../../src/web/data/sse";
 
 const directories: string[] = [];
@@ -65,7 +70,7 @@ async function fixture() {
       body: JSON.stringify({
         title: "Format durations",
         targets: [{ repo, comparison: { kind: "working" } }],
-        sessions: [{ agent: "claude", id: session, cwd: repo }],
+        session: { agent: "claude", id: session, cwd: repo },
       }),
     })
   ).json()) as { id: string };
@@ -99,7 +104,7 @@ function listen(response: Response) {
 }
 
 test("a review's agent session streams its transcript, then new lines and subagents", async () => {
-  const { api, saved, transcript, subagents } = await fixture();
+  const { api, transcript, subagents } = await fixture();
   await writeFile(
     transcript,
     line({
@@ -117,7 +122,7 @@ test("a review's agent session streams its transcript, then new lines and subage
         }),
       ),
   );
-  const response = await api(`/api/reviews/${saved.id}/sessions/${session}/events`);
+  const response = await api(`/api/sessions/claude-${session}/events`);
   expect(response.headers.get("content-type")).toBe("text/event-stream");
   const received = listen(response);
   await vi.waitFor(() => expect(received[0]?.event).toBe("reset"));
@@ -191,7 +196,7 @@ test("a review's agent session streams its transcript, then new lines and subage
 });
 
 test("a second stream of a session starts with its updates so far, without tool images", async () => {
-  const { api, saved, transcript } = await fixture();
+  const { api, transcript } = await fixture();
   await writeFile(
     transcript,
     line({
@@ -209,7 +214,7 @@ test("a second stream of a session starts with its updates so far, without tool 
         }),
       ),
   );
-  const events = `/api/reviews/${saved.id}/sessions/${session}/events`;
+  const events = `/api/sessions/claude-${session}/events`;
   const first = listen(await api(events));
   await vi.waitFor(() => expect(first[0]?.event).toBe("reset"));
   await appendFile(
@@ -274,7 +279,7 @@ test("a second stream of a session starts with its updates so far, without tool 
 });
 
 test("a kept thread's next stream takes only the updates after the ones it has", async () => {
-  const { saved, transcript, fetcher } = await fixture();
+  const { transcript, fetcher } = await fixture();
   await writeFile(
     transcript,
     line({
@@ -296,8 +301,7 @@ test("a kept thread's next stream takes only the updates after the ones it has",
     streams.push(controller);
     await new Promise<void>((live) =>
       followSession(
-        saved.id,
-        session,
+        `claude-${session}`,
         store,
         (state) => state.status === "live" && live(),
         controller.signal,
@@ -325,13 +329,13 @@ test("a kept thread's next stream takes only the updates after the ones it has",
 });
 
 test("a stream that comes back to an unread follower gets only the updates after its count", async () => {
-  const { api, saved, transcript } = await fixture();
+  const { api, transcript } = await fixture();
   await writeFile(
     transcript,
     line(user(0, "Format the durations.")) +
       line(assistant(1, "a1", { type: "text", text: "Durations read as minutes." }, "end_turn")),
   );
-  const path = `/api/reviews/${saved.id}/sessions/${session}/events`;
+  const path = `/api/sessions/claude-${session}/events`;
   const closed = new AbortController();
   const first = listen(await api(path, { signal: closed.signal }));
   await vi.waitFor(() => expect(first.some((entry) => entry.event === "reset")).toBe(true));
@@ -354,16 +358,16 @@ test("a stream that comes back to an unread follower gets only the updates after
   expect(again[0]).toMatchObject({ event: "reset", resumed: true, events: [] });
 });
 
-test("a session the review does not record, or without a transcript, is not found", async () => {
-  const { api, saved } = await fixture();
-  expect((await api(`/api/reviews/${saved.id}/sessions/other-session/events`)).status).toBe(404);
-  const missing = await api(`/api/reviews/${saved.id}/sessions/${session}/events`);
+test("a session that Med does not list, or one without a transcript, is not found", async () => {
+  const { api } = await fixture();
+  expect((await api(`/api/sessions/claude-other-session/events`)).status).toBe(404);
+  const missing = await api(`/api/sessions/claude-${session}/events`);
   expect(missing.status).toBe(404);
   expect(await missing.json()).toMatchObject({ error: { code: "transcript-not-found" } });
 });
 
 test("a long session's first view is its last few screens, and the turns before it page back", async () => {
-  const { api, saved, transcript } = await fixture();
+  const { api, transcript } = await fixture();
   const reply = "y".repeat(1_000);
   await writeFile(
     transcript,
@@ -374,7 +378,7 @@ test("a long session's first view is its last few screens, and the turns before 
         line(assistant(1, `r${index}`, { type: "text", text: reply }, "end_turn")),
     ).join(""),
   );
-  const received = listen(await api(`/api/reviews/${saved.id}/sessions/${session}/events`));
+  const received = listen(await api(`/api/sessions/claude-${session}/events`));
   await vi.waitFor(() => expect(received[0]?.event).toBe("reset"));
   const first = received[0] as unknown as { truncated: boolean; start: number };
   // Its last turns fill the screens; the first view does not read 8 MiB.
@@ -384,14 +388,14 @@ test("a long session's first view is its last few screens, and the turns before 
   expect(shown).toContain('"Prompt 399"');
   expect(shown).not.toContain('"Prompt 0"');
   const page = (await (
-    await api(`/api/reviews/${saved.id}/sessions/${session}/page?before=${first.start}`)
+    await api(`/api/sessions/claude-${session}/page?before=${first.start}`)
   ).json()) as { events: SessionEvent[]; start: number };
   expect(page.start).toBe(0);
   expect(JSON.stringify(page.events)).toContain('"Prompt 0"');
 });
 
 test("a long session pages back from its tail, and its prompts form a turn index", async () => {
-  const { api, fetcher, saved, transcript } = await fixture();
+  const { api, fetcher, transcript } = await fixture();
   // The early call's result comes after 8.5 MB of tool output, in the tail.
   // Work folds into one row, so this first view reads all 8 MiB.
   const filler = "x".repeat(10_000);
@@ -429,7 +433,7 @@ test("a long session pages back from its tail, and its prompts form a turn index
       line(user(4, "Second prompt")) +
       line(assistant(5, "a2", { type: "text", text: "Done." }, "end_turn")),
   );
-  const received = listen(await api(`/api/reviews/${saved.id}/sessions/${session}/events`));
+  const received = listen(await api(`/api/sessions/claude-${session}/events`));
   await vi.waitFor(() => expect(received[0]?.event).toBe("reset"));
   const first = received[0] as unknown as { truncated: boolean; start: number };
   expect(first.truncated).toBe(true);
@@ -450,14 +454,21 @@ test("a long session pages back from its tail, and its prompts form a turn index
   store.subscribe(() => counts.push(store.getSnapshot().items.length));
   const browser = new AbortController();
   streams.push(browser);
-  void followSession(saved.id, session, store, () => {}, browser.signal, fetcher);
+  const states: SessionStreamState[] = [];
+  void followSession(
+    `claude-${session}`,
+    store,
+    (state) => states.push(state),
+    browser.signal,
+    fetcher,
+  );
   await vi.waitFor(() => expect(store.getSnapshot().items.length).toBeGreaterThan(700));
   expect(new Set(counts.filter((count) => count > 0))).toEqual(
     new Set([store.getSnapshot().items.length]),
   );
 
   const page = (await (
-    await api(`/api/reviews/${saved.id}/sessions/${session}/page?before=${first.start}`)
+    await api(`/api/sessions/claude-${session}/page?before=${first.start}`)
   ).json()) as { events: SessionEvent[]; start: number };
   expect(page.start).toBe(0);
   expect(page.events.slice(0, 2).map((event) => event.update)).toMatchObject([
@@ -465,15 +476,37 @@ test("a long session pages back from its tail, and its prompts form a turn index
     { sessionUpdate: "tool_call", toolCallId: "early", title: "Build" },
   ]);
 
-  const turns = (await (
-    await api(`/api/reviews/${saved.id}/sessions/${session}/turns`)
-  ).json()) as { turns: { offset: number; text: string }[] };
+  // The thread keeps the earlier page when its stream opens again, as when a
+  // hidden thread shows: the stream resumes the thread rather than replace it.
+  prependPage(store, page);
+  const size = store.size();
+  const generation = states.at(-1)?.generation;
+  browser.abort();
+  const again = new AbortController();
+  streams.push(again);
+  const resumed: SessionStreamState[] = [];
+  void followSession(
+    `claude-${session}`,
+    store,
+    (state) => resumed.push(state),
+    again.signal,
+    fetcher,
+  );
+  await vi.waitFor(() => expect(resumed.at(-1)?.status).toBe("live"));
+  expect(store.size()).toBe(size);
+  expect(JSON.stringify(store.getSnapshot().items)).toContain("First prompt");
+  expect(resumed.at(-1)?.generation).toBe(generation);
+  expect(keptPages(store)).toEqual({ generation, start: 0 });
+
+  const turns = (await (await api(`/api/sessions/claude-${session}/turns`)).json()) as {
+    turns: { offset: number; text: string }[];
+  };
   expect(turns.turns.map((turn) => turn.text)).toEqual(["First prompt", "Second prompt"]);
   expect(turns.turns[0]!.offset).toBe(0);
   expect(turns.turns[1]!.offset).toBeGreaterThan(first.start);
   // The index grows with the transcript.
   await appendFile(transcript, line(user(6, "Third prompt")));
-  const more = (await (await api(`/api/reviews/${saved.id}/sessions/${session}/turns`)).json()) as {
+  const more = (await (await api(`/api/sessions/claude-${session}/turns`)).json()) as {
     turns: { text: string }[];
   };
   expect(more.turns.map((turn) => turn.text)).toEqual([
@@ -482,7 +515,7 @@ test("a long session pages back from its tail, and its prompts form a turn index
     "Third prompt",
   ]);
   // Another agent reads the session from its transcript's path.
-  expect(
-    await (await api(`/api/reviews/${saved.id}/sessions/${session}/transcript`)).json(),
-  ).toEqual({ path: transcript });
+  expect(await (await api(`/api/sessions/claude-${session}/transcript`)).json()).toEqual({
+    path: transcript,
+  });
 });

@@ -5,11 +5,9 @@ import { REVIEW_UPDATED } from "./workspaces";
 import {
   savedReviewSchema,
   savedFeedbackSchema,
-  threadCheckout,
-  type BriefCommentMutation,
+  fileCommentSchema,
+  type FileComment,
   type FileCommentMutation,
-  type PinMutation,
-  type SavedCheckout,
   type SavedIteration,
   type SavedReview,
   type SavedFeedback,
@@ -81,6 +79,8 @@ export type { ParsedReviewFile } from "../../shared/review";
 const driftSchema = z.object({ changed: z.boolean() });
 export interface ReviewControllerSnapshot {
   savedReview: SavedReview | null;
+  /** The thread's comments on lines of files (`gc` in a file). */
+  fileComments: FileComment[];
   savedTargetId: string | null;
   savedView: boolean;
   /** The saved view shows only what changed since this earlier version. */
@@ -160,16 +160,29 @@ export interface ReviewControllerOptions {
   events?: boolean;
   /** A workspace's repository and branch; without it the host's default opens. */
   start?: { path?: string; repositoryId?: string; branch?: string };
+  /** The thread that the workspace shows: where its session works now, which
+   * its Changes show, and the base that the reader chose for them. */
+  thread?: ThreadPlace;
   /** Resolves when the pane that leads the workspace, such as its agent
    * session, is ready. A saved diff and the checkout's Git state wait for it
    * before they take the main thread, so they do not hold the session. */
   lead?: () => Promise<void>;
 }
 
+export interface ThreadPlace {
+  id: string;
+  path?: string;
+  repositoryId?: string;
+  base?: string;
+}
+
 export interface ReviewController {
   getSnapshot(): ReviewControllerSnapshot;
   subscribe(listener: () => void): () => void;
   initialize(): Promise<void>;
+  /** A thread's first hand-off joins its workspace in place: the Review tab
+   * comes, and the reader stays where they are. */
+  attachSavedReview(id: string): Promise<void>;
   selectSavedTarget(id: string): Promise<void>;
   returnToSavedReview(): Promise<void>;
   /** The Review tab: the version shown last, or the current one. */
@@ -190,13 +203,9 @@ export interface ReviewController {
   /** Changes again after a commit of the list beside them: the live
    * comparison that showed before it. */
   showAllChanges(): Promise<void>;
-  /** Moves the thread to another checkout of its repository. Its Changes
-   * show that checkout from now on, since the same base. */
-  moveThread(checkout: {
-    repositoryId: string;
-    repo: string;
-    branch: string | null;
-  }): Promise<void>;
+  /** The thread works somewhere else now, such as another repository or
+   * branch, or the reader chose another base: its Changes follow. */
+  follow(place: ThreadPlace): Promise<void>;
   /** Shows the branch's changes since `comparison.base`. On the thread's own
    * checkout, the thread keeps that base. */
   setChangesBase(comparison: Extract<Comparison, { kind: "working" }>): Promise<void>;
@@ -211,7 +220,7 @@ export interface ReviewController {
   /** Changes the reader's pending review on GitHub, then reads the comments again. */
   changePullRequestReview(input: PendingReviewInput): Promise<PullRequestComments>;
   /** Reads the saved review's details again, such as a pull request that
-   * the host linked. */
+   * the host linked, and the thread's comments on files. */
   refreshSavedReview(): Promise<void>;
   /** Codex reviews of the saved review's checkouts, with their findings. */
   loadCodexReviews(): Promise<CodexReviewRun[]>;
@@ -219,32 +228,18 @@ export interface ReviewController {
    * null before version 2. */
   loadSince(version: number): Promise<Since | null>;
   clearSavedComments(expectedRevision: number): Promise<void>;
-  /** Replace the saved review's brief, or remove it with null. */
-  setSavedBrief(text: string | null): Promise<void>;
+  /** Captures the review's comparisons again, as its next version. */
+  refreshReview(): Promise<SavedIteration | undefined>;
   /** Replace or remove the current iteration's guide. */
   setSavedGuide(guide: ReviewGuide | null): Promise<void>;
-  /** Pin an agent reply to the saved review's Notes, or remove a pin. */
-  pinToReview(mutation: PinMutation): Promise<void>;
-  /** New, empty Notes: the current comparisons, captured again as a new
-   * iteration, which later pins go to. */
-  startNotes(): Promise<SavedIteration | undefined>;
-  /** Delete the Notes that show for an iteration, and the comments on them;
-   * see the host's deleteNotes. */
-  deleteNotes(notes: { iteration?: number; briefFrom?: number }): Promise<void>;
-  /** Comment on a passage of the Notes, or edit or remove such a comment. */
-  commentBrief(mutation: BriefCommentMutation): Promise<void>;
   /** Comment on lines of a file, or change such a comment; returns the
-   * review as the host has it then. */
-  commentFile(mutation: FileCommentMutation): Promise<SavedReview | undefined>;
-  /** Opens the saved review's pull request draft on GitHub with gh, and
-   * returns its URL and the local images that GitHub did not get. */
-  createPullRequest(asDraft: boolean): Promise<{ url: string; left: string[] }>;
-  /** Starts an installed agent in the review's repository and returns its
-   * session ID. With `fork`, the new Claude session starts from that one's
-   * history (Continue in Med). */
-  startSession(preset: string, options?: { fork?: string }): Promise<string>;
+   * thread's comments then. */
+  commentFile(mutation: FileCommentMutation): Promise<FileComment[]>;
+  /** Starts an installed agent on the review, in its checkout: the review
+   * becomes the new session's. Returns the session's thread. */
+  startSession(preset: string): Promise<string>;
   /** Save the current Git comparison as a review and return its ID. */
-  saveReview(input: { title: string; brief?: string }): Promise<string>;
+  saveReview(input: { title: string }): Promise<string>;
   /** `inReview`: a commit of the Review's range, not a live comparison. */
   selectComparison(comparison: Comparison, inReview?: boolean): Promise<void>;
   refresh(): Promise<void>;
@@ -316,40 +311,9 @@ export function currentTargets(saved: SavedReview) {
   return ids ? own.filter((target) => ids.includes(target.id)) : own;
 }
 
-/**
- * Whether the thread has a Review: something that its agent handed off. A
- * thread made before Changes became live captured its checkout when it
- * started; that capture is version 1, unless it is empty and alone.
- */
-/** The layers next to the shown one in its version of a stack or a set: one
- * above, one below, then two away; the rest wait until they are neighbours. */
-function layersAround(saved: SavedReview, shown: string | null) {
-  if (!saved.parts || !shown) return [];
-  const iteration = saved.iterations?.find((entry) => entry.targetIds.includes(shown));
-  const ids = iteration?.targetIds ?? [];
-  const at = ids.indexOf(shown);
-  if (at < 0) return [];
-  return [at + 1, at - 1, at + 2, at - 2].flatMap((index) => {
-    const id = ids[index];
-    const target = id ? saved.targets.find((entry) => entry.id === id) : undefined;
-    return target && !target.commentReviewId ? [target] : [];
-  });
-}
-
-export function hasReview(saved: SavedReview) {
-  const own = saved.targets.filter((target) => !target.commentReviewId);
-  if (!own.length) return false;
-  const versions = saved.iterations?.length ?? 1;
-  const brief =
-    saved.brief || saved.guide || saved.iterations?.some((entry) => entry.brief || entry.guide);
-  return !(
-    versions === 1 &&
-    own.length === 1 &&
-    own[0]!.comparison.kind === "working" &&
-    saved.totals?.files === 0 &&
-    !brief
-  );
-}
+/** Whether the saved review has a comparison of its own to show. */
+export const hasReview = (saved: SavedReview) =>
+  saved.targets.some((target) => !target.commentReviewId);
 
 /** The repository list that a window reads now; windows that open with it share it. */
 const catalogues = new WeakMap<typeof fetch, Promise<z.infer<typeof repositoriesSchema>>>();
@@ -419,7 +383,8 @@ export function prefetchSavedReview(reviewId: string, fetcher: typeof fetch = br
 export function createReviewController(options: ReviewControllerOptions = {}): ReviewController {
   const token = options.token ?? readBrowserToken();
   // A workspace names its review or branch; otherwise the page address does.
-  const savedReviewId =
+  // A thread's first hand-off sets it later (`attachSavedReview`).
+  let savedReviewId =
     options.savedReviewId ??
     (options.start || typeof location === "undefined"
       ? undefined
@@ -461,6 +426,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   const listeners = new Set<() => void>();
   let snapshot: ReviewControllerSnapshot = {
     savedReview: null,
+    fileComments: [],
     savedTargetId: null,
     savedView: false,
     savedSince: null,
@@ -1101,28 +1067,29 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     const base = changesBase(repository, snapshot.session?.repository.branch, ownBase(path));
     return base ? { kind: "working", base } : { kind: "working" };
   };
+  /** Where the thread works now, as its workspace said last. */
+  let place = options.thread;
   /** The base that the reader chose for the thread, when `path` is its checkout. */
-  const ownBase = (path: string | undefined) => {
-    const checkout = snapshot.savedReview && threadCheckout(snapshot.savedReview);
-    return checkout && checkout.repo === path ? checkout.base : undefined;
-  };
-  /** Saves where the thread works and the base of its Changes. False when
-   * another review took the window meanwhile. */
-  async function saveCheckout(checkout: SavedCheckout) {
-    const saved = snapshot.savedReview;
-    if (!saved) throw new Error("Open a thread first.");
-    const next = await api.json(
-      `/api/reviews/${encodeURIComponent(saved.id)}/details`,
-      savedReviewSchema,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ checkout }),
-      },
+  const ownBase = (path: string | undefined) =>
+    place && place.path === path ? place.base : undefined;
+  /** Saves the base of the thread's Changes; none for the repository's usual one. */
+  async function saveBase(base: string | undefined) {
+    if (!place) return;
+    place = { ...place, base };
+    await api.json(`/api/threads/${encodeURIComponent(place.id)}/base`, z.unknown(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base: base ?? null }),
+    });
+  }
+  /** Reads the thread's comments on files. */
+  async function loadFileComments() {
+    if (!place) return;
+    const { comments } = await api.json(
+      `/api/threads/${encodeURIComponent(place.id)}/file-comments`,
+      z.object({ comments: z.array(fileCommentSchema) }),
     );
-    if (disposed || snapshot.savedReview?.id !== saved.id) return false;
-    update({ savedReview: next });
-    return true;
+    if (!disposed) update({ fileComments: comments });
   }
   /** Whether the checkout of the latest captured target changed after its
    * capture. The answer shows as `savedDrift`; a failed check shows nothing. */
@@ -1519,19 +1486,10 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     if (!saved || (!saved.iterations?.length && !commits.length) || suspended || disposed) return;
     const abort = new AbortController();
     iterationAbort = abort;
-    // A stack's neighbours first, nearest first, so ⌥↑ and ⌥↓ show at once.
-    const neighbours = layersAround(saved, snapshot.savedTargetId);
-    const targets = [
-      ...neighbours,
-      ...(saved.iterations ?? [])
-        .toReversed()
-        .slice(0, 6)
-        .flatMap((iteration) =>
-          saved.targets.filter(
-            (entry) => entry.id === iteration.targetIds[0] && !neighbours.includes(entry),
-          ),
-        ),
-    ];
+    const targets = (saved.iterations ?? [])
+      .toReversed()
+      .slice(0, 6)
+      .flatMap((iteration) => saved.targets.filter((entry) => entry.id === iteration.targetIds[0]));
     void (async () => {
       for (const target of targets) {
         await idle();
@@ -1739,13 +1697,11 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     const current = snapshot.savedReview?.targets.find(
       (entry) => entry.id === snapshot.savedTargetId,
     );
-    // A stack's or a set's layers all use the thread's one checkout, whatever
-    // branch it was on when each layer came (docs/STACKS.md).
     if (
       snapshot.session?.repository.path === checkout &&
       current?.repositoryId === target.repositoryId &&
       current.repo === target.repo &&
-      (current.branch === target.branch || !!snapshot.savedReview?.parts)
+      current.branch === target.branch
     )
       await loadSavedTarget(target);
     else await openWorkspace(checkout, branch, target.repositoryId, target);
@@ -2110,11 +2066,14 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     if (wasCurrent && snapshot.savedView && next && next.id !== snapshot.savedTargetId)
       await selectSavedTarget(next.id);
   };
-  if (savedReviewId && typeof window !== "undefined") {
+  /** Reads the saved review again when the window comes back or it changes. */
+  const listenSaved = () => {
+    if (typeof window === "undefined") return;
     window.addEventListener("focus", refreshSavedOnFocus);
     document.addEventListener("visibilitychange", refreshSavedOnVisibility);
     window.addEventListener(REVIEW_UPDATED, reloadSaved);
-  }
+  };
+  if (savedReviewId) listenSaved();
 
   return {
     getSnapshot: () => snapshot,
@@ -2129,6 +2088,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       // "Add a repository" page shows only when the host has none.
       update({ status: "loading" });
       if (!savedReviewId) {
+        void loadFileComments().catch(() => {});
         const start = options.start;
         // A branch opens once, at its worktree or at its head commit, so the
         // catalogue comes first.
@@ -2157,15 +2117,9 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         );
         if (disposed) return;
         update({ savedReview });
+        void loadFileComments().catch(() => {});
         const first = currentTargets(savedReview)[0] ?? savedReview.targets[0];
-        // Before the agent hands off a Review, the thread shows its checkout's Changes.
-        const checkout = threadCheckout(savedReview);
-        if (!first || !hasReview(savedReview)) {
-          if (!checkout) throw new Error("This thread names no checkout.");
-          await options.lead?.();
-          if (disposed) return;
-          return await openWorkspace(checkout.repo, undefined, checkout.repositoryId);
-        }
+        if (!first) throw new Error("This review has no comparison.");
         // The checkout's session reads its repository again from Git and lists
         // the others as the host knows them, so the review opens without the
         // read of every repository's branches and worktrees.
@@ -2197,6 +2151,16 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
               : message(error),
         });
       }
+    },
+    async attachSavedReview(id) {
+      if (savedReviewId) return;
+      savedReviewId = id;
+      listenSaved();
+      const savedReview = await api
+        .json(`/api/reviews/${encodeURIComponent(id)}`, savedReviewSchema)
+        .catch(() => null);
+      if (!savedReview || disposed || savedReviewId !== id) return;
+      update({ savedReview });
     },
     // Another version or comparison shows whole; the Guide asks for Since again.
     selectSavedTarget: (id) => {
@@ -2270,13 +2234,11 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       ).lines;
     },
     async showChanges() {
-      const saved = snapshot.savedReview;
-      const checkout = saved ? threadCheckout(saved) : undefined;
       reviewSide = false;
-      // A Review of another checkout: Changes are the thread's own checkout's.
-      if (checkout && snapshot.session && snapshot.session.repository.path !== checkout.repo) {
+      // A Review of another checkout: Changes are where the thread works now.
+      if (place?.path && snapshot.session && snapshot.session.repository.path !== place.path) {
         liveChoice = choiceBeforeCommit = null;
-        return openWorkspace(checkout.repo, undefined, checkout.repositoryId);
+        return openWorkspace(place.path, undefined, place.repositoryId);
       }
       const live = liveChoice ?? defaultChanges();
       if (
@@ -2292,40 +2254,28 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       if (liveChoice?.kind === "commit") liveChoice = choiceBeforeCommit;
       return selectComparison(liveChoice ?? defaultChanges());
     },
-    async moveThread(target) {
-      const before = snapshot.savedReview && threadCheckout(snapshot.savedReview);
-      // The base goes with the thread.
-      const moved = await saveCheckout({
-        repositoryId: target.repositoryId,
-        repo: target.repo,
-        branch: target.branch,
-        ...(before?.base && { base: before.base }),
-      });
-      if (!moved) return;
+    async follow(next) {
+      const moved = next.path !== place?.path;
+      place = next;
+      if (!moved || !next.path) return;
       liveChoice = choiceBeforeCommit = null;
-      reviewSide = false;
-      await openWorkspace(target.repo, undefined, target.repositoryId);
+      // The Review stays on screen; Changes show the new checkout next time.
+      if (reviewSide || snapshot.savedView) return;
+      await openWorkspace(next.path, undefined, next.repositoryId);
     },
     async setChangesBase(comparison) {
-      const saved = snapshot.savedReview;
-      const checkout = saved && threadCheckout(saved);
       // The repository's usual base is not saved, so the thread follows it.
       const usual = changesBase(
         snapshot.repositories.find((entry) => entry.id === snapshot.activeRepositoryId),
         snapshot.session?.repository.branch,
       );
-      let saving: Promise<unknown> | undefined;
-      if (
-        checkout &&
+      const saving =
+        place &&
         comparison.base &&
-        checkout.repo === snapshot.session?.repository.path &&
-        (checkout.base ?? usual) !== comparison.base
-      ) {
-        const { base: _, ...rest } = checkout;
-        saving = saveCheckout(
-          comparison.base === usual ? rest : { ...rest, base: comparison.base },
-        );
-      }
+        place.path === snapshot.session?.repository.path &&
+        (place.base ?? usual) !== comparison.base
+          ? saveBase(comparison.base === usual ? undefined : comparison.base)
+          : undefined;
       await selectComparison(comparison);
       await saving;
     },
@@ -2377,26 +2327,17 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         throw error;
       }
     },
-    async setSavedBrief(text) {
+    async refreshReview() {
       const saved = snapshot.savedReview;
-      if (!saved) throw new Error("Open a saved review to attach a brief.");
+      if (!saved) throw new Error("Open a review to refresh it.");
       const next = await api.json(
-        `/api/reviews/${encodeURIComponent(saved.id)}/brief`,
+        `/api/reviews/${encodeURIComponent(saved.id)}/refresh`,
         savedReviewSchema,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ brief: text }),
-        },
+        { method: "POST" },
       );
-      if (disposed || snapshot.savedReview?.id !== saved.id) return;
-      // A brief change does not move the comment revision. Keep newer comment counts.
-      update({
-        savedReview:
-          next.revision >= snapshot.savedReview.revision
-            ? next
-            : { ...snapshot.savedReview, brief: next.brief },
-      });
+      if (disposed || snapshot.savedReview?.id !== saved.id) return undefined;
+      update({ savedReview: next });
+      return next.iterations?.at(-1);
     },
     async setSavedGuide(guide) {
       const saved = snapshot.savedReview;
@@ -2419,139 +2360,37 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
             : { ...snapshot.savedReview, guide: next.guide, iterations: next.iterations },
       });
     },
-    async pinToReview(mutation) {
-      const saved = snapshot.savedReview;
-      if (!saved) throw new Error("Open a saved review to pin a reply.");
-      const next = await api.json(
-        `/api/reviews/${encodeURIComponent(saved.id)}/pins`,
-        savedReviewSchema,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(mutation),
-        },
-      );
-      if (disposed || snapshot.savedReview?.id !== saved.id) return;
-      // Pins do not move the comment revision. Keep newer comment counts.
-      update({
-        savedReview:
-          next.revision >= snapshot.savedReview.revision
-            ? next
-            : { ...snapshot.savedReview, pins: next.pins, iterations: next.iterations },
-      });
-    },
-    async startNotes() {
-      const saved = snapshot.savedReview;
-      if (!saved) throw new Error("Open a saved review to start new notes.");
-      const next = await api.json(
-        `/api/reviews/${encodeURIComponent(saved.id)}/iterations`,
-        savedReviewSchema,
-        { method: "POST" },
-      );
-      if (disposed || snapshot.savedReview?.id !== saved.id) return undefined;
-      update({ savedReview: next });
-      return next.iterations?.at(-1);
-    },
-    async deleteNotes(notes) {
-      const saved = snapshot.savedReview;
-      if (!saved) throw new Error("Open a saved review to delete its notes.");
-      const next = await api.json(
-        `/api/reviews/${encodeURIComponent(saved.id)}/delete-notes`,
-        savedReviewSchema,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(notes),
-        },
-      );
-      if (disposed || snapshot.savedReview?.id !== saved.id) return;
-      update({ savedReview: next });
-      // Notes that went with their comparison: the latest one shows.
-      if (
-        snapshot.savedTargetId &&
-        !next.targets.some((target) => target.id === snapshot.savedTargetId)
-      ) {
-        const latest = next.iterations?.at(-1)?.targetIds[0] ?? next.targets[0]?.id;
-        if (latest) await selectSavedTarget(latest);
-      }
-    },
-    async commentBrief(mutation) {
-      const saved = snapshot.savedReview;
-      if (!saved) throw new Error("Open a saved review to comment on its notes.");
-      const next = await api.json(
-        `/api/reviews/${encodeURIComponent(saved.id)}/brief-comments`,
-        savedReviewSchema,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(mutation),
-        },
-      );
-      if (disposed || snapshot.savedReview?.id !== saved.id) return;
-      // A comment on a diff can finish first; keep its newer count.
-      const current = snapshot.savedReview;
-      update({
-        savedReview:
-          next.revision >= current.revision
-            ? next
-            : {
-                ...current,
-                briefComments: next.briefComments,
-                commentCount:
-                  current.commentCount +
-                  (next.briefComments?.length ?? 0) -
-                  (current.briefComments?.length ?? 0),
-              },
-      });
-    },
     async commentFile(mutation) {
-      const saved = snapshot.savedReview;
-      if (!saved) throw new Error("Open a thread to comment on its files.");
-      const next = await api.json(
-        `/api/reviews/${encodeURIComponent(saved.id)}/file-comments`,
-        savedReviewSchema,
+      if (!place) throw new Error("Open a thread to comment on its files.");
+      const { comments } = await api.json(
+        `/api/threads/${encodeURIComponent(place.id)}/file-comments`,
+        z.object({ comments: z.array(fileCommentSchema) }),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(mutation),
         },
       );
-      if (disposed || snapshot.savedReview?.id !== saved.id) return next;
-      const current = snapshot.savedReview;
-      update({
-        savedReview:
-          next.revision >= current.revision
-            ? next
-            : { ...current, fileComments: next.fileComments, commentCount: next.commentCount },
-      });
-      return next;
+      if (!disposed) update({ fileComments: comments });
+      return comments;
     },
-    async startSession(preset, options = {}) {
+    async startSession(preset) {
       const saved = snapshot.savedReview;
-      if (!saved) throw new Error("Open a saved review to start a session.");
-      const result = await api.json(
-        `/api/reviews/${encodeURIComponent(saved.id)}/owned`,
-        z.object({ review: savedReviewSchema, state: z.object({ sessionId: z.string() }) }),
+      if (!saved) throw new Error("Open a review to start a session on it.");
+      const started = await api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/start`,
+        z.object({ thread: z.string() }),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            preset,
-            targetId: snapshot.savedTargetId ?? undefined,
-            ...(options.fork ? { fork: options.fork } : {}),
-          }),
+          body: JSON.stringify({ preset }),
         },
       );
-      if (!disposed && snapshot.savedReview?.id === saved.id)
-        update({
-          savedReview:
-            result.review.revision >= snapshot.savedReview.revision
-              ? result.review
-              : { ...snapshot.savedReview, sessions: result.review.sessions },
-        });
-      return result.state.sessionId;
+      // The host links the review to the new session.
+      await refreshSavedMetadata().catch(() => {});
+      return started.thread;
     },
-    async saveReview({ title, brief }) {
+    async saveReview({ title }) {
       const repo = snapshot.session?.repository.path;
       const comparison = snapshot.comparison;
       if (!repo || snapshot.session?.repository.git === false)
@@ -2561,11 +2400,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       const created = await api.json("/api/reviews", savedReviewSchema, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title,
-          ...(brief ? { brief } : {}),
-          targets: [{ repo, comparison }],
-        }),
+        body: JSON.stringify({ title, targets: [{ repo, comparison }] }),
       });
       return created.id;
     },
@@ -2700,22 +2535,12 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         },
       );
     },
-    refreshSavedReview: () => refreshSavedMetadata(),
-    async createPullRequest(asDraft) {
-      const saved = snapshot.savedReview;
-      if (!saved) throw new Error("Open a saved review to open its pull request.");
-      const created = await api.json(
-        `/api/reviews/${encodeURIComponent(saved.id)}/pr-draft-create`,
-        z.object({ review: savedReviewSchema, url: z.string(), left: z.array(z.string()) }),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ draft: asDraft }),
-        },
-      );
-      if (!disposed && snapshot.savedReview?.id === saved.id)
-        update({ savedReview: created.review });
-      return { url: created.url, left: created.left };
+    // A comment's answer can be on the review or on a file of the thread.
+    refreshSavedReview: async () => {
+      await Promise.all([
+        snapshot.savedReview ? refreshSavedMetadata() : undefined,
+        loadFileComments().catch(() => {}),
+      ]);
     },
     async revealPath(repo, path) {
       await api.json("/api/reveal", revealSchema, {

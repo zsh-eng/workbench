@@ -7,7 +7,7 @@ import { onGitHub, PendingReviewContext } from "../data/pending-review";
 import { CommentAgentContext, noteAuthor, type CommentAgent } from "../data/comment-agent";
 import { relativeTime } from "../data/relative-time";
 import { tokens, ui } from "../theme.stylex";
-import { Icon } from "./Icon";
+import { Icon, type IconName } from "./Icon";
 import { SendNow } from "./SendNow";
 
 // The thread's Markdown renderer loads with the first comment, not with the review.
@@ -238,9 +238,10 @@ export function NoteComposer({
   );
 }
 
-/** Marks what sits under it as a reply: a line down its side. */
+/** The next part of a thread, such as a reply box: under the last message,
+ * on the same edge. */
 export function ReplyRail({ children }: { children: ReactNode }) {
-  return <div {...stylex.props(styles.reply)}>{children}</div>;
+  return <div {...stylex.props(styles.next)}>{children}</div>;
 }
 
 /** A reply box. A save that fails brings the text back, unless the reader has
@@ -319,6 +320,7 @@ function ThreadMessage({
   note,
   reply = false,
   replies = 0,
+  byline,
   toAgent,
   onReply,
   onMutate,
@@ -328,7 +330,10 @@ function ThreadMessage({
   reply?: boolean;
   /** The replies under it, which a delete takes with it. */
   replies?: number;
+  /** Who wrote it, where the thread's author changes. */
+  byline?: { name: string; mark?: IconName };
   toAgent?: ThreadSend | null;
+  /** The thread's one Reply, on its last message. */
   onReply?: () => void;
   onMutate(mutation: NoteMutation): Promise<void>;
   onOpenLink?(href: string): void;
@@ -360,7 +365,6 @@ function ThreadMessage({
       setHanding(false);
     }
   };
-  const author = note.author && noteAuthor(note.author);
   const postToGitHub =
     github?.targetId &&
     !reply &&
@@ -395,11 +399,11 @@ function ThreadMessage({
     }
   };
   return (
-    <div {...stylex.props(reply && styles.reply, stylex.defaultMarker())}>
-      {author && (
+    <div {...stylex.props(reply && styles.next, stylex.defaultMarker())}>
+      {byline && (
         <p {...stylex.props(styles.replier)}>
-          <Icon name={author.mark} size={12} />
-          {author.name}
+          {byline.mark && <Icon name={byline.mark} size={12} />}
+          {byline.name}
         </p>
       )}
       {note.resolution && note.resolution !== "active" && !note.author && (
@@ -481,12 +485,10 @@ function ThreadMessage({
               {onReply && (
                 <button
                   type="button"
-                  title="Reply"
-                  {...stylex.props(ui.button, ui.iconButton, styles.tool)}
-                  aria-label="Reply"
+                  {...stylex.props(ui.button, styles.tool, styles.word)}
                   onClick={onReply}
                 >
-                  <Icon name="reply" size={14} />
+                  Reply
                 </button>
               )}
               {!note.author && (
@@ -565,6 +567,7 @@ export function NoteCard({
   replies,
   label,
   embedded = false,
+  canReply = true,
   onMutate,
   onOpenLink,
 }: {
@@ -574,6 +577,8 @@ export function NoteCard({
   label?: string;
   /** Under the agent's comment that it answers, in that comment's card. */
   embedded?: boolean;
+  /** False where a later part of the same card takes the reply. */
+  canReply?: boolean;
   onMutate(mutation: NoteMutation): Promise<void>;
   /** A link to a file in a comment's Markdown, such as src/summary.ts:5. */
   onOpenLink?(href: string): void;
@@ -593,9 +598,21 @@ export function NoteCard({
           send: () => agent.send(note.id),
         }
       : null;
-  // Any message of the thread takes a reply, the agent's too; it goes under
-  // the thread's last. A comment on a passage takes none.
-  const onReply = box.replying || label ? undefined : box.open;
+  // One thread, as in a chat: its messages one under another, and one Reply,
+  // on the last, whose answer goes at the end. A comment on a passage takes none.
+  const onReply = box.replying || label || !canReply ? undefined : box.open;
+  const messages = [note, ...replies];
+  // Who wrote a message shows where the author changes: the agent always,
+  // and "You" in a thread that someone else is in too.
+  const others = embedded || messages.some((item) => item.author);
+  // In a card under the agent's comment, the first message follows the agent.
+  const writer = (index: number) =>
+    index < 0 ? (embedded ? "guide" : "") : (messages[index]!.author?.agent ?? "you");
+  const byline = (index: number) => {
+    const item = messages[index]!;
+    if (writer(index) === writer(index - 1) || (!item.author && !others)) return undefined;
+    return item.author ? noteAuthor(item.author) : { name: "You" };
+  };
   return (
     <article
       data-comment-card
@@ -605,48 +622,33 @@ export function NoteCard({
           ? `Your reply to ${answered?.author ?? "the agent"}`
           : `Comment thread at ${lineLabel(note)}`)
       }
-      {...stylex.props(embedded ? styles.reply : styles.card)}
+      {...stylex.props(embedded ? styles.next : styles.card)}
     >
-      {embedded ? (
-        <p {...stylex.props(styles.replier)}>
-          <Icon name="reply" size={12} />
-          You
-        </p>
-      ) : (
-        answered && (
-          // The agent's comment does not show here, as under a later guide.
-          <blockquote title={answered.text} {...stylex.props(styles.quote)}>
-            <Icon name="reply" size={12} />
-            <span {...stylex.props(styles.quoteText)}>
-              {answered.author}: {answered.text}
-            </span>
-          </blockquote>
-        )
+      {!embedded && answered && (
+        // The agent's comment does not show here, as under a later guide.
+        <blockquote title={answered.text} {...stylex.props(styles.quote)}>
+          <span {...stylex.props(styles.quoteText)}>
+            {answered.author}: {answered.text}
+          </span>
+        </blockquote>
       )}
-      <ThreadMessage
-        key={note.id}
-        note={note}
-        replies={replies.length}
-        toAgent={mine === note ? toAgent : null}
-        onMutate={onMutate}
-        onOpenLink={onOpenLink}
-        onReply={onReply}
-      />
-      {replies.map((reply) => (
+      {messages.map((item, index) => (
         <ThreadMessage
-          key={reply.id}
-          note={reply}
-          reply
-          toAgent={mine === reply ? toAgent : null}
+          key={item.id}
+          note={item}
+          reply={index > 0}
+          replies={index ? 0 : replies.length}
+          byline={byline(index)}
+          toAgent={mine === item ? toAgent : null}
           onMutate={onMutate}
           onOpenLink={onOpenLink}
-          onReply={onReply}
+          onReply={index === messages.length - 1 ? onReply : undefined}
         />
       ))}
       {box.replying && (
-        <ReplyRail>
+        <div {...stylex.props(styles.next)}>
           <NoteComposer target={note} parentId={note.id} sendable={!!toAgent} {...box.composer} />
-        </ReplyRail>
+        </div>
       )}
     </article>
   );
@@ -750,15 +752,16 @@ const styles = stylex.create({
     backgroundColor: tokens.text,
     opacity: { default: 1, ":hover": 0.85, ":disabled": 0.35 },
   },
-  // A reply hangs from what it answers, on a line down its side that ends
-  // at its time.
-  reply: {
-    marginTop: 10,
-    marginInlineStart: 6,
-    paddingInlineStart: 12,
-    borderInlineStartWidth: 2,
-    borderInlineStartStyle: "solid",
-    borderInlineStartColor: tokens.lineStrong,
+  // The next message of a thread: one under the other, on the same edge.
+  next: { marginTop: 10 },
+  // A tool in words, such as the thread's Reply.
+  word: {
+    width: "auto",
+    paddingInline: 8,
+    color: { default: tokens.muted, ":hover": tokens.text },
+    fontSize: 12,
+    fontWeight: 550,
+    whiteSpace: "nowrap",
   },
   replier: {
     display: "flex",

@@ -1377,9 +1377,9 @@ async function weekAttempts({ root, home, state, worktree, now }) {
       weekA: { agent: "claude", id: claude.id, path: claude.path, cwd: a },
       weekB: { agent: "codex", id: codex.id, path: codex.path, cwd: b },
     },
-    /** Adds the two attempts as one group, after the other threads. */
+    /** Adds the two attempts, each with its session, after the other threads. */
     register(cli) {
-      const create = (tree, key, attempt) => [
+      const create = (tree, key) => [
         "review",
         "create",
         "--title",
@@ -1389,14 +1389,10 @@ async function weekAttempts({ root, home, state, worktree, now }) {
         "--working",
         "--key",
         key,
-        "--group",
-        "week-view",
-        "--attempt",
-        String(attempt),
         "--no-pr",
       ];
-      cli(create(a, "week-view-a", 1), { CLAUDE_CODE_SESSION_ID: claude.id });
-      cli([...create(b, "week-view-b", 2), "--session", `codex:${codex.id}`]);
+      cli(create(a, "week-view-a"), { CLAUDE_CODE_SESSION_ID: claude.id });
+      cli([...create(b, "week-view-b"), "--session", `codex:${codex.id}`]);
     },
   };
 }

@@ -5,7 +5,6 @@ import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { SavedReview } from "../../src/shared/saved-review";
 import type { ThreadList } from "../../src/shared/threads";
 import { runThreadCommand } from "../../src/cli/thread";
 import { startHost, type RunningHost } from "../../src/host/server";
@@ -88,15 +87,19 @@ async function fixture() {
 
 test("the Superagent is one thread in a hidden folder, started once with its brief on Opus at high effort", async () => {
   const { api, project, said, stateDir } = await fixture();
-  const first = await api<{ review: SavedReview; created: boolean }>("/api/superagent", {});
+  const first = await api<{ thread: string; created: boolean }>("/api/superagent", {});
   expect(first.status).toBe(200);
   expect(first.data.created).toBe(true);
-  const review = first.data.review;
-  expect(review.title).toBe("Superagent");
-  expect(review.key).toBe("superagent");
+  // An ordinary session, named and pinned on top.
+  const tab = async () =>
+    (await api<ThreadList>("/api/threads")).data.threads.find(
+      (thread) => thread.id === first.data.thread,
+    );
+  const shown = await tab();
+  expect(shown).toMatchObject({ kind: "session", title: "Superagent", pinned: 1, reviews: [] });
   const folder = join(stateDir, "superagent");
   expect(existsSync(join(folder, ".git"))).toBe(true);
-  const session = review.sessions![0]!;
+  const session = shown!.session!;
   expect(session.cwd).toBe(await realpath(folder));
 
   // Opus at high effort, and the brief as its first turn.
@@ -111,41 +114,46 @@ test("the Superagent is one thread in a hidden folder, started once with its bri
   expect((await said(session.id))[0]).toContain("med thread send <id>");
 
   // Again, it is the same thread, and the brief is not sent twice.
-  const again = await api<{ review: SavedReview; created: boolean }>("/api/superagent", {});
-  expect(again.data).toMatchObject({ created: false, review: { id: review.id } });
+  const again = await api<{ thread: string; created: boolean }>("/api/superagent", {});
+  expect(again.data).toEqual({ created: false, thread: first.data.thread });
   expect(await said(session.id)).toHaveLength(1);
 
-  // The lists of repositories leave its folder out; the thread list marks it.
+  // The lists of repositories leave its folder out.
   const repositories = (await api<{ repositories: { path: string }[] }>("/api/repositories")).data
     .repositories;
   expect(repositories.map((entry) => entry.path)).not.toContain(await realpath(folder));
   expect(repositories).toHaveLength(1);
-  const threads = (await api<ThreadList>("/api/threads")).data.threads;
-  expect(threads.find((thread) => thread.id === review.id)).toMatchObject({ superagent: true });
-  expect(threads.filter((thread) => thread.superagent)).toHaveLength(1);
+  // Archived, it opens again as the same thread.
+  expect((await api(`/api/threads/${first.data.thread}/close`, {})).status).toBe(200);
+  expect((await api<{ thread: string }>("/api/superagent", {})).data.thread).toBe(
+    first.data.thread,
+  );
+  expect(await tab()).toMatchObject({ title: "Superagent", pinned: 1 });
 });
 
 test("`med thread send` from the Superagent reaches another thread's agent, labelled as its", async () => {
   const { api, host, said, stateDir } = await fixture();
-  const superagent = (await api<{ review: SavedReview }>("/api/superagent", {})).data.review;
+  const superagent = (await api<{ thread: string }>("/api/superagent", {})).data.thread;
   const repositoryId = (await api<{ repositories: { id: string }[] }>("/api/repositories")).data
     .repositories[0]!.id;
-  const thread = (
-    await api<{ review: SavedReview }>("/api/threads", {
+  const started = (
+    await api<{ thread: string }>("/api/threads", {
       repositoryId,
       prompt: "Count the trails.",
       preset: "claude",
     })
-  ).data.review;
-  const session = thread.sessions![0]!;
+  ).data.thread;
   // Its first turn ends.
-  await vi.waitFor(
+  const thread = await vi.waitFor(
     async () => {
       const list = (await api<ThreadList>("/api/threads")).data.threads;
-      expect(list.find((entry) => entry.id === thread.id)?.state).toBe("idle");
+      const found = list.find((entry) => entry.id === started);
+      expect(found?.state).toBe("idle");
+      return found!;
     },
     { timeout: 10_000 },
   );
+  const session = thread.session!;
 
   const printed: string[] = [];
   const send = (id: string, key: string) =>
@@ -166,7 +174,7 @@ test("`med thread send` from the Superagent reaches another thread's agent, labe
   );
 
   // A thread does not send to itself.
-  await expect(send(superagent.id, "superagent")).rejects.toThrow(
+  await expect(send(superagent, "superagent")).rejects.toThrow(
     "A thread can't send a message to itself.",
   );
 });

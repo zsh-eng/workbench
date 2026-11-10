@@ -38,44 +38,19 @@ import {
   validateReviewNoteText,
 } from "../shared/hunk/noteValidation";
 import { HostError } from "./runtime/errors";
+import { shortCommentId } from "./thread-comments";
 import { lineChanges, mapLine, replay, textPatch, type LineChange } from "./repository/text-diff";
 import {
   savedReviewCreateSchema,
   pullRequestUrlSchema,
-  briefTextSchema,
   savedReviewDetailsSchema,
   agentSessionSchema,
-  savedCheckoutSchema,
-  MAX_BRIEF_LENGTH,
   MAX_ITERATIONS,
-  approvalSchema,
-  MAX_PINS,
-  MAX_SESSIONS,
-  pinSourceSchema,
-  briefCommentSchema,
-  fileCommentSchema,
-  MAX_FILE_COMMENT_LINES,
-  type FileComment,
-  type FileCommentMutation,
-  savedPrDraftSchema,
-  type SavedPrDraft,
   endpointNamesSchema,
-  partsProblem,
-  savedPartsSchema,
-  MAX_PARTS,
-  type AgentSession,
-  type PartInput,
-  type PartShape,
-  type SavedPart,
-  type SavedParts,
-  type BriefCommentMutation,
-  type PinMutation,
   type SavedReview,
   type Since,
   type SavedReviewCreate,
-  type SavedCheckout,
   type CapturedReviewTarget,
-  threadCheckout,
   agentName,
 } from "../shared/saved-review";
 import {
@@ -89,7 +64,6 @@ import {
 
 const REVIEW_ID = /^r_[a-f0-9]{24}$/;
 const TARGET_ID = /^t_[a-f0-9]{24}$/;
-const PART_ID = /^l_[a-f0-9]{12}$/;
 const MAX_RECORD_BYTES = 64 * 1024 * 1024;
 /** The byte budget of all records. Past it, the oldest closed threads give
  * up their captures (`evictable`); open threads never do. */
@@ -151,72 +125,43 @@ const targetSchema = z.object({
   commits: z.array(savedCommitSchema).max(MAX_SAVED_COMMITS).optional(),
   moreCommits: z.boolean().optional(),
   names: endpointNamesSchema.optional(),
-  part: z.string().regex(PART_ID).optional(),
 });
-const briefSchema = z.object({ text: text.max(MAX_BRIEF_LENGTH), updatedAt: text });
-const pinsSchema = z
-  .array(
-    z.object({
-      id: z.string().regex(/^p_[a-f0-9]{12}$/),
-      text: text.max(MAX_BRIEF_LENGTH),
-      createdAt: text,
-      source: pinSourceSchema.optional(),
-    }),
-  )
-  .max(MAX_PINS);
 const savedSchema = z.object({
   id: z.string().regex(REVIEW_ID),
   key: text.optional(),
   title: text,
   pullRequestUrl: pullRequestUrlSchema.optional(),
   pullRequestTitle: text.optional(),
-  brief: briefSchema.optional(),
   guide: savedGuideSchema.optional(),
-  pins: pinsSchema.optional(),
-  briefComments: z
-    .array(briefCommentSchema.extend({ id: z.string().regex(/^c_[a-f0-9]{12}$/) }))
-    .max(MAX_NOTES)
-    .optional(),
-  fileComments: z
-    .array(fileCommentSchema.extend({ id: z.string().uuid() }))
-    .max(MAX_NOTES)
-    .optional(),
-  prDraft: savedPrDraftSchema.optional(),
-  sessions: z.array(agentSessionSchema).max(MAX_SESSIONS).optional(),
+  session: agentSessionSchema.optional(),
   iterations: z
     .array(
       z.object({
         number: z.number().int().positive(),
         createdAt: text,
         targetIds: z.array(z.string().regex(TARGET_ID)),
-        brief: briefSchema.optional(),
         guide: savedGuideSchema.optional(),
-        pins: pinsSchema.optional(),
-        fresh: z.boolean().optional(),
-        guides: z.record(z.string().regex(PART_ID), savedGuideSchema).optional(),
       }),
     )
     .max(MAX_ITERATIONS)
     .optional(),
-  parts: savedPartsSchema
-    .extend({
-      /** Med named the thread from its parts; it names it again when they change. */
-      autoTitle: z.boolean().optional(),
-    })
-    .optional(),
-  approvals: z.array(approvalSchema).max(MAX_ITERATIONS).optional(),
   readVersions: z.array(z.number().int().positive()).max(MAX_ITERATIONS).optional(),
   createdAt: text,
   revision: natural,
   commentCount: natural,
-  // A thread that the agent has not handed off yet has no target.
   targets: z.array(targetSchema).max(128),
-  checkout: savedCheckoutSchema.optional(),
-  archivedAt: text.optional(),
 });
+/** A record as an older Med wrote it: a list of sessions, of which the last
+ * handed off the review, becomes its one session. */
+const savedFromDisk = z.preprocess((value) => {
+  const raw = value as { sessions?: unknown; session?: unknown } | null;
+  if (!raw || typeof raw !== "object" || raw.session || !Array.isArray(raw.sessions)) return value;
+  const { sessions, ...rest } = raw as { sessions: unknown[] };
+  return sessions.length ? { ...rest, session: sessions.at(-1) } : rest;
+}, savedSchema);
 const recordSchema = z.object({
   version: z.literal(1),
-  saved: savedSchema,
+  saved: savedFromDisk,
   captures: z
     .array(
       z.object({
@@ -301,12 +246,7 @@ function savedGuide(guide: ReviewGuide, updatedAt = new Date().toISOString()) {
 /** Comments on the captured comparisons, on the Notes, and on files, with
  * their replies, as a review's notes count theirs. */
 const countComments = (record: SavedRecord) =>
-  record.captures.reduce((sum, capture) => sum + capture.notes.notes.length, 0) +
-  (record.saved.briefComments?.length ?? 0) +
-  (record.saved.fileComments ?? []).reduce((sum, comment) => sum + 1 + comment.replies.length, 0);
-
-/** A short commit for the agent's message. */
-const shortOid = (oid: string) => oid.slice(0, 12);
+  record.captures.reduce((sum, capture) => sum + capture.notes.notes.length, 0);
 
 /** Rebuild only a selected slice of captured patch rows. Large added files must
  * not repeat their complete initial-add hunk for every comment. */
@@ -414,7 +354,6 @@ function patchCoversSelection(file: FileDiffMetadata, note: Note): boolean {
   return false;
 }
 
-/** Adds sessions that the review does not have yet; the newest are kept. */
 /** Links a PR. A title read for another PR does not stay with a new link. */
 function linkPullRequest(
   saved: { pullRequestUrl?: string; pullRequestTitle?: string },
@@ -424,38 +363,6 @@ function linkPullRequest(
   if (title) saved.pullRequestTitle = title;
   else if (saved.pullRequestUrl !== url) delete saved.pullRequestTitle;
   saved.pullRequestUrl = url;
-}
-
-function addSessions(saved: { sessions?: AgentSession[] }, sessions: AgentSession[] = []) {
-  const all = [...(saved.sessions ?? [])];
-  for (const session of sessions) {
-    const index = all.findIndex(
-      (entry) => entry.agent === session.agent && entry.id === session.id,
-    );
-    if (index >= 0) all.splice(index, 1);
-    all.push(session);
-  }
-  if (all.length) saved.sessions = all.slice(-MAX_SESSIONS);
-}
-
-/** A single hand-off's details as a part's. */
-const partOf = (input: SavedReviewCreate): Partial<PartInput> => ({
-  ...(input.pullRequestUrl ? { pullRequestUrl: input.pullRequestUrl } : {}),
-  ...(input.pullRequestTitle
-    ? { pullRequestTitle: input.pullRequestTitle, title: input.pullRequestTitle }
-    : {}),
-  ...(input.guide ? { guide: input.guide } : {}),
-});
-
-/** The current version's own comparisons in order: a stack's layers, bottom
- * first, or a single review's comparisons. */
-function currentLayers(saved: Pick<SavedReview, "targets" | "iterations">) {
-  const ids =
-    saved.iterations?.at(-1)?.targetIds ??
-    saved.targets.filter((target) => !target.commentReviewId).map((target) => target.id);
-  return ids.flatMap(
-    (id) => saved.targets.find((target) => target.id === id && !target.commentReviewId) ?? [],
-  );
 }
 
 /** Disk records own frozen sources and notes; live repository services are never consulted. */
@@ -470,13 +377,22 @@ export class SavedReviewStore {
   private described = new Map<string, { identity: string; review: SavedReview }>();
   /** Each review's comment IDs, by the file's identity, for `reviewsWithComment`. */
   private commentIds = new Map<string, { identity: string; ids: string[] }>();
-  /** Recent comparisons of a target with an earlier version (`delta`). */
   /** What changed since an earlier version, by target: at most 8, and 32 MiB. */
   private deltas = new ByteLru<Delta>(32 * 1024 * 1024, 8);
   private deltaJobs = new Map<string, Promise<Delta>>();
   /** Counts the writes and deletes of this store, so a reader can tell when
    * its list of reviews is old. */
   changes = 0;
+  private listeners = new Set<() => void>();
+  /** Hears each write and delete, as the thread list does. */
+  subscribe(listener: () => void) {
+    this.listeners.add(listener);
+    return () => void this.listeners.delete(listener);
+  }
+  private touched() {
+    this.changes++;
+    for (const listener of this.listeners) listener();
+  }
   constructor(
     private readonly directory: string,
     private readonly budget: {
@@ -705,7 +621,7 @@ export class SavedReviewStore {
       beforeCommit?.();
       await rename(temporary, this.file(record.saved.id));
       this.cache.delete(record.saved.id);
-      this.changes++;
+      this.touched();
     } finally {
       await unlink(temporary).catch(() => undefined);
     }
@@ -797,44 +713,20 @@ export class SavedReviewStore {
     return record.saved.targets.at(-1)!;
   }
 
-  /** A new review, or a new version of the review with its key. A thread
-   * without targets names its `checkout`: it has no Review until the agent
-   * hands off one. `joinable` names the open threads that a hand-off of one
-   * range can join as a layer (docs/STACKS.md, detection). */
+  /** A new review, or a new version of the review with its key. */
   create(
     input: SavedReviewCreate,
     capture: (target: SavedReviewCreate["targets"][number]) => Promise<CapturedReviewTarget>,
     beforeCommit?: () => void,
-    checkout?: SavedCheckout,
-    joinable?: (id: string) => boolean,
-  ): Promise<SavedReview & { joined?: { layer: number; of: number } }> {
+  ): Promise<SavedReview> {
     return this.writing(async () => {
       const parsed = savedReviewCreateSchema.safeParse(input);
       if (!parsed.success) throw new HostError("invalid-saved-review", parsed.error.message);
       input = parsed.data;
-      const problem = partsProblem(input);
-      if (problem) throw new HostError("invalid-saved-review", problem, 400);
       const known = input.key ? await this.findKey(input.key, true) : undefined;
-      if (known) {
-        if (!input.targets.length)
-          throw new HostError("saved-review-empty", "A new version needs a comparison.", 400);
-        return this.iterate(known, input, capture, beforeCommit);
-      }
-      if (!input.targets.length && !checkout)
-        throw new HostError("saved-review-empty", "Name the thread's checkout.", 400);
+      if (known) return this.iterate(known, input, capture, beforeCommit);
       const results: CapturedReviewTarget[] = [];
       for (const requested of input.targets) results.push(await capture(requested));
-      // One range from the agent of an open thread, or a pull request on top
-      // of one, is that thread's next layer.
-      if (
-        joinable &&
-        !input.parts &&
-        results.length === 1 &&
-        results[0]!.review.comparison.kind === "range"
-      ) {
-        const joined = await this.joinChain(input, results[0]!, joinable, beforeCommit);
-        if (joined) return joined;
-      }
       const id = `r_${randomBytes(12).toString("hex")}`;
       const record: SavedRecord = {
         version: 1,
@@ -845,11 +737,8 @@ export class SavedReviewStore {
           ...(input.pullRequestUrl && input.pullRequestTitle
             ? { pullRequestTitle: input.pullRequestTitle }
             : {}),
-          ...(input.brief
-            ? { brief: { text: input.brief, updatedAt: new Date().toISOString() } }
-            : {}),
           ...(input.guide ? { guide: savedGuide(input.guide) } : {}),
-          ...(checkout ? { checkout } : {}),
+          ...(input.session ? { session: input.session } : {}),
           createdAt: new Date().toISOString(),
           revision: 0,
           commentCount: 0,
@@ -858,205 +747,26 @@ export class SavedReviewStore {
         captures: [],
       };
       for (const result of results) this.appendCapture(record, result);
-      addSessions(record.saved, input.sessions);
-      if (input.key) record.saved.key = input.key;
-      // The first hand-off is version 1. A stack or a set always has
-      // versions, which keep each part's guide.
-      if ((input.key || input.parts) && record.saved.targets.length) {
+      if (input.key) {
+        record.saved.key = input.key;
+        // The first hand-off of a keyed review is version 1.
         record.saved.iterations = [
           {
             number: 1,
             createdAt: record.saved.createdAt,
             targetIds: record.saved.targets.map((target) => target.id),
-            ...(record.saved.brief ? { brief: record.saved.brief } : {}),
             ...(record.saved.guide ? { guide: record.saved.guide } : {}),
           },
         ];
       }
-      if (input.parts) {
-        const iteration = record.saved.iterations![0]!;
-        record.saved.parts = {
-          shape: input.parts.shape,
-          items: input.parts.items.map((item, index) =>
-            this.placePart(record, iteration, record.saved.targets[index]!.id, item),
-          ),
-        };
-      }
       await this.write(record, beforeCommit);
       if (input.key) await this.setKey(input.key, id);
-      for (const part of record.saved.parts?.items ?? []) await this.setKey(part.key, id);
       return this.describe(record);
     }, beforeCommit);
   }
 
-  /** A new part, or the part with the same key in `known`, for the target
-   * `targetId` of `iteration`; its guide goes to the iteration. */
-  private placePart(
-    record: SavedRecord,
-    iteration: NonNullable<SavedRecord["saved"]["iterations"]>[number],
-    targetId: string,
-    item: PartInput,
-    known?: readonly SavedPart[],
-  ): SavedPart {
-    const before = known?.find((part) => part.key === item.key);
-    const target = record.saved.targets.find((entry) => entry.id === targetId)!;
-    const { guide, ...details } = item;
-    const part: SavedPart = {
-      ...before,
-      ...details,
-      id: before?.id ?? `l_${randomBytes(6).toString("hex")}`,
-      title: item.title ?? item.pullRequestTitle ?? before?.title ?? target.label,
-    };
-    target.part = part.id;
-    if (guide) iteration.guides = { ...iteration.guides, [part.id]: savedGuide(guide) };
-    return part;
-  }
-
-  /** The current version of `record`, made if the record has none yet, as a
-   * second hand-off makes it (iterate). */
-  private currentIteration(record: SavedRecord) {
-    const saved = record.saved;
-    if (!saved.iterations?.length) {
-      const own = saved.targets.filter((target) => !target.commentReviewId);
-      saved.iterations = [
-        {
-          number: 1,
-          createdAt: saved.createdAt,
-          targetIds: own.map((target) => target.id),
-          ...(saved.brief ? { brief: saved.brief } : {}),
-          ...(saved.guide ? { guide: saved.guide } : {}),
-          ...(saved.pins ? { pins: saved.pins } : {}),
-        },
-      ];
-      delete saved.pins;
-      for (const comment of saved.briefComments ?? [])
-        if (comment.section === "brief") comment.iteration = 1;
-    }
-    return saved.iterations.at(-1)!;
-  }
-
-  /** Makes a single review a stack of its one comparison, which keeps its
-   * pull request, key, and guide as the first part's. */
-  private makeParts(record: SavedRecord) {
-    const saved = record.saved;
-    const iteration = this.currentIteration(record);
-    if (saved.parts) return saved.parts;
-    const own = iteration.targetIds.flatMap(
-      (id) => saved.targets.find((target) => target.id === id && !target.commentReviewId) ?? [],
-    );
-    if (own.length !== 1)
-      throw new HostError(
-        "parts-unsupported",
-        "Only a thread with one comparison can become a stack.",
-        409,
-      );
-    const target = own[0]!;
-    const part: SavedPart = {
-      id: `l_${randomBytes(6).toString("hex")}`,
-      key: saved.key ?? saved.pullRequestUrl ?? `review-${target.id}`,
-      title: saved.pullRequestTitle ?? saved.title,
-      ...(saved.pullRequestUrl ? { pullRequestUrl: saved.pullRequestUrl } : {}),
-      ...(saved.pullRequestTitle ? { pullRequestTitle: saved.pullRequestTitle } : {}),
-      ...(target.names?.base ? { base: target.names.base } : {}),
-      ...(target.names?.head ? { head: target.names.head } : {}),
-    };
-    target.part = part.id;
-    if (iteration.guide) iteration.guides = { [part.id]: iteration.guide };
-    delete iteration.guide;
-    delete saved.guide;
-    // The pull request is the layer's now; the title band shows the shown layer's.
-    delete saved.pullRequestUrl;
-    delete saved.pullRequestTitle;
-    saved.parts = { shape: "stack", items: [part], autoTitle: true };
-    return saved.parts;
-  }
-
-  /** Med's name for a thread of parts: its bottom part's, and how many. */
-  private nameParts(record: SavedRecord) {
-    const parts = record.saved.parts;
-    if (!parts?.autoTitle || !parts.items.length) return;
-    const first = parts.items[0]!.title;
-    record.saved.title =
-      `${first} · ${parts.items.length} ${parts.shape === "stack" ? "layers" : "parts"}`.slice(
-        0,
-        200,
-      );
-  }
-
-  /**
-   * Detection (docs/STACKS.md): an open thread whose top layer's head is the
-   * new range's base, or whose bottom layer's base is its head, in the same
-   * repository, made by the same agent session or also a pull request. The
-   * range becomes its layer. The caller holds the lock.
-   */
-  private async joinChain(
-    input: SavedReviewCreate,
-    result: CapturedReviewTarget,
-    joinable: (id: string) => boolean,
-    beforeCommit?: () => void,
-  ) {
-    const sessions = new Set((input.sessions ?? []).map((entry) => `${entry.agent}:${entry.id}`));
-    const candidates: { id: string; at: "top" | "bottom"; time: number }[] = [];
-    for (const summary of await this.listUnlocked()) {
-      if (!joinable(summary.id)) continue;
-      const shared = (summary.sessions ?? []).some((entry) =>
-        sessions.has(`${entry.agent}:${entry.id}`),
-      );
-      const pulls =
-        !!input.pullRequestUrl &&
-        (!!summary.pullRequestUrl || !!summary.parts?.items.some((part) => part.pullRequestUrl));
-      if (!shared && !pulls) continue;
-      const layers = currentLayers(summary);
-      if (!layers.length || (summary.parts && summary.parts.shape !== "stack")) continue;
-      if (!summary.parts && layers.length !== 1) continue;
-      const top = layers.at(-1)!;
-      const bottom = layers[0]!;
-      const same = (target: { repositoryId: string; comparison: { kind: string } }) =>
-        target.repositoryId === result.repositoryId && target.comparison.kind === "range";
-      if (same(top) && top.head === result.review.base)
-        candidates.push({ id: summary.id, at: "top", time: summary.modifiedAt });
-      else if (same(bottom) && bottom.base === result.review.head)
-        candidates.push({ id: summary.id, at: "bottom", time: summary.modifiedAt });
-    }
-    const chosen = candidates.sort((a, b) => b.time - a.time)[0];
-    if (!chosen) return undefined;
-    const { at } = chosen;
-    const record = await this.read(chosen.id, true);
-    const parts = this.makeParts(record);
-    const iteration = this.currentIteration(record);
-    const target = this.appendCapture(record, result);
-    const part = this.placePart(record, iteration, target.id, {
-      key: input.key ?? input.pullRequestUrl ?? `review-${target.id}`,
-      title: input.pullRequestTitle ?? input.title,
-      ...(input.pullRequestUrl ? { pullRequestUrl: input.pullRequestUrl } : {}),
-      ...(input.pullRequestTitle ? { pullRequestTitle: input.pullRequestTitle } : {}),
-      ...(result.names?.base ? { base: result.names.base } : {}),
-      ...(result.names?.head ? { head: result.names.head } : {}),
-      ...(input.guide ? { guide: input.guide } : {}),
-    });
-    if (at === "top") {
-      iteration.targetIds.push(target.id);
-      parts.items.push(part);
-    } else {
-      iteration.targetIds.unshift(target.id);
-      parts.items.unshift(part);
-    }
-    if (parts.items.length > MAX_PARTS)
-      throw new HostError("saved-review-limit", `A stack can have up to ${MAX_PARTS} layers.`, 413);
-    addSessions(record.saved, input.sessions);
-    this.nameParts(record);
-    await this.write(record, beforeCommit);
-    await this.setKey(part.key, record.saved.id);
-    if (input.key && input.key !== part.key) await this.setKey(input.key, record.saved.id);
-    return {
-      ...this.describe(record),
-      joined: { layer: at === "top" ? parts.items.length : 1, of: parts.items.length },
-    };
-  }
-
-  /** New notes from the reader: the current iteration's comparisons, captured
-   * again as a new, empty iteration. Later pins go to it. */
-  startNotes(
+  /** The review's comparisons captured again as a new version: Refresh. */
+  refresh(
     id: string,
     capture: (target: SavedReviewCreate["targets"][number]) => Promise<CapturedReviewTarget>,
     beforeCommit?: () => void,
@@ -1064,24 +774,6 @@ export class SavedReviewStore {
     return this.writing(async () => {
       const record = await this.read(id, true);
       const saved = record.saved;
-      if (saved.parts) {
-        // A stack's comparisons are frozen commits: the new notes keep them.
-        const previous = this.currentIteration(record);
-        if (saved.iterations!.length >= MAX_ITERATIONS)
-          throw new HostError(
-            "saved-review-limit",
-            `A review can have at most ${MAX_ITERATIONS} iterations. Use a new key.`,
-            413,
-          );
-        saved.iterations!.push({
-          number: previous.number + 1,
-          createdAt: new Date().toISOString(),
-          targetIds: [...previous.targetIds],
-          fresh: true,
-        });
-        await this.write(record, beforeCommit);
-        return this.describe(record);
-      }
       const current = new Set(
         saved.iterations?.at(-1)?.targetIds ??
           saved.targets.filter((target) => !target.commentReviewId).map((target) => target.id),
@@ -1102,7 +794,7 @@ export class SavedReviewStore {
       });
       if (!targets.length)
         throw new HostError("saved-review-empty", "This review has no comparison to capture.", 409);
-      return this.iterate(record, { title: saved.title, targets }, capture, beforeCommit, true);
+      return this.iterate(record, { title: saved.title, targets }, capture, beforeCommit);
     }, beforeCommit);
   }
 
@@ -1123,42 +815,24 @@ export class SavedReviewStore {
     }, beforeCommit);
   }
 
-  /** The agent's next round on a keyed review: new comparisons and brief as a
-   * new iteration. Comments, earlier briefs, and earlier comparisons stay. */
+  /** The agent's next round on a keyed review: new comparisons and guide as a
+   * new version. Comments and earlier comparisons stay. */
   private async iterate(
     record: SavedRecord,
     input: SavedReviewCreate,
     capture: (target: SavedReviewCreate["targets"][number]) => Promise<CapturedReviewTarget>,
     beforeCommit?: () => void,
-    fresh = false,
   ): Promise<SavedReview> {
-    if (input.parts || record.saved.parts)
-      return this.iterateParts(record, input, capture, beforeCommit);
     const saved = record.saved;
     const own = saved.targets.filter((target) => !target.commentReviewId);
-    // A thread without a hand-off yet starts at version 1, which keeps the
-    // replies that the reader pinned before it.
-    const first = !saved.iterations && !own.length;
-    const pinned = first ? saved.pins : undefined;
-    const iterations =
-      saved.iterations ??
-      (first
-        ? []
-        : [
-            {
-              number: 1,
-              createdAt: saved.createdAt,
-              targetIds: own.map((t) => t.id),
-              ...(saved.brief ? { brief: saved.brief } : {}),
-              ...(saved.guide ? { guide: saved.guide } : {}),
-              ...(saved.pins ? { pins: saved.pins } : {}),
-            },
-          ]);
-    delete saved.pins;
-    // The brief of a review without iterations becomes the first iteration's.
-    if (!saved.iterations)
-      for (const comment of saved.briefComments ?? [])
-        if (comment.section === "brief") comment.iteration = 1;
+    const iterations = saved.iterations ?? [
+      {
+        number: 1,
+        createdAt: saved.createdAt,
+        targetIds: own.map((target) => target.id),
+        ...(saved.guide ? { guide: saved.guide } : {}),
+      },
+    ];
     if (iterations.length >= MAX_ITERATIONS)
       throw new HostError(
         "saved-review-limit",
@@ -1171,128 +845,20 @@ export class SavedReviewStore {
       targetIds.push(this.appendCapture(record, result, undefined, false).id);
     }
     const now = new Date().toISOString();
-    const brief = input.brief ? { text: input.brief, updatedAt: now } : undefined;
     const guide = input.guide ? savedGuide(input.guide, now) : undefined;
     iterations.push({
       number: (iterations.at(-1)?.number ?? 0) + 1,
       createdAt: now,
       targetIds,
-      ...(brief ? { brief } : {}),
       ...(guide ? { guide } : {}),
-      ...(pinned ? { pins: pinned } : {}),
-      ...(fresh ? { fresh } : {}),
     });
     saved.iterations = iterations;
     saved.title = input.title.trim();
-    if (brief) saved.brief = brief;
     if (guide) saved.guide = guide;
     if (input.pullRequestUrl) linkPullRequest(saved, input.pullRequestUrl, input.pullRequestTitle);
-    addSessions(saved, input.sessions);
+    if (input.session) saved.session = input.session;
     this.fit(record);
     await this.write(record, beforeCommit);
-    return this.describe(record);
-  }
-
-  /**
-   * A new version of a stack or a set. A hand-off with parts replaces them
-   * all; one comparison with a part's key replaces that part only. A part
-   * whose comparison did not change keeps its target, so its comments stay.
-   */
-  private async iterateParts(
-    record: SavedRecord,
-    input: SavedReviewCreate,
-    capture: (target: SavedReviewCreate["targets"][number]) => Promise<CapturedReviewTarget>,
-    beforeCommit?: () => void,
-  ): Promise<SavedReview> {
-    const saved = record.saved;
-    const previous = this.currentIteration(record);
-    const known = saved.parts?.items ?? [];
-    if (!saved.parts) {
-      // A single review becomes a stack: its pull request and guide were the
-      // whole thread's, and each part has its own now.
-      delete saved.pullRequestUrl;
-      delete saved.pullRequestTitle;
-      delete saved.guide;
-    }
-    let items: PartInput[];
-    let requested = input.targets;
-    if (input.parts) items = input.parts.items;
-    else {
-      const part = known.find((entry) => entry.key === input.key);
-      if (!part || input.targets.length !== 1)
-        throw new HostError(
-          "parts-key",
-          "This thread is a stack or a set. Hand off all its parts with --stack or --set, or one part with its own key.",
-          409,
-        );
-      // The other parts keep their comparisons; this one gets the new one.
-      items = known.map((entry) => ({ ...entry, ...(entry.id === part.id ? partOf(input) : {}) }));
-      requested = known.map((entry) =>
-        entry.id === part.id ? input.targets[0]! : { repo: "", comparison: { kind: "working" } },
-      );
-    }
-    if (previous.number >= MAX_ITERATIONS || (saved.iterations?.length ?? 0) >= MAX_ITERATIONS)
-      throw new HostError(
-        "saved-review-limit",
-        `A review can have at most ${MAX_ITERATIONS} iterations. Use a new key.`,
-        413,
-      );
-    const now = new Date().toISOString();
-    const iteration: NonNullable<SavedRecord["saved"]["iterations"]>[number] = {
-      number: previous.number + 1,
-      createdAt: now,
-      targetIds: [],
-    };
-    const before = (key: string) => {
-      const part = known.find((entry) => entry.key === key);
-      const id =
-        part &&
-        previous.targetIds.find((targetId) =>
-          saved.targets.some((target) => target.id === targetId && target.part === part.id),
-        );
-      return id ? saved.targets.find((target) => target.id === id) : undefined;
-    };
-    const parts: SavedPart[] = [];
-    for (const [index, item] of items.entries()) {
-      const old = before(item.key);
-      const replace = input.parts || item.key === input.key;
-      let targetId: string;
-      if (!replace) {
-        if (!old) throw new HostError("parts-key", "A part of this thread has no comparison.", 409);
-        targetId = old.id;
-      } else {
-        const result = await capture(requested[index]!);
-        // The same commits keep the same target.
-        targetId =
-          old &&
-          old.repositoryId === result.repositoryId &&
-          old.comparison.kind === "range" &&
-          result.review.comparison.kind === "range" &&
-          old.base === result.review.base &&
-          old.head === result.review.head
-            ? old.id
-            : this.appendCapture(record, result, undefined, false).id;
-      }
-      iteration.targetIds.push(targetId);
-      parts.push(this.placePart(record, iteration, targetId, item, known));
-    }
-    if (input.brief) iteration.brief = { text: input.brief, updatedAt: now };
-    saved.iterations = [...(saved.iterations ?? []), iteration];
-    saved.parts = {
-      ...(saved.parts ?? {}),
-      shape: input.parts?.shape ?? saved.parts?.shape ?? "stack",
-      items: parts,
-    };
-    if (input.parts && input.title.trim() !== saved.title) {
-      saved.title = input.title.trim();
-      delete saved.parts.autoTitle;
-    }
-    if (iteration.brief) saved.brief = iteration.brief;
-    addSessions(saved, input.sessions);
-    this.nameParts(record);
-    this.fit(record);
-    await this.write(record, beforeCommit);
-    for (const part of parts) await this.setKey(part.key, saved.id);
     return this.describe(record);
   }
 
@@ -1354,9 +920,7 @@ export class SavedReviewStore {
     if (!id) return undefined;
     try {
       const record = await this.read(id, fresh);
-      return record.saved.key === key || record.saved.parts?.items.some((part) => part.key === key)
-        ? record
-        : undefined;
+      return record.saved.key === key ? record : undefined;
     } catch (error) {
       if (error instanceof HostError && error.code === "saved-review-not-found") return undefined;
       throw error;
@@ -1381,13 +945,12 @@ export class SavedReviewStore {
         throw new HostError("invalid-saved-review", parsed.error.issues[0]!.message);
       const record = await this.read(id, true);
       if (parsed.data.title) record.saved.title = parsed.data.title;
-      if (parsed.data.checkout) record.saved.checkout = parsed.data.checkout;
       if (parsed.data.pullRequestUrl === null) {
         delete record.saved.pullRequestUrl;
         delete record.saved.pullRequestTitle;
       } else if (parsed.data.pullRequestUrl)
         linkPullRequest(record.saved, parsed.data.pullRequestUrl, parsed.data.pullRequestTitle);
-      addSessions(record.saved, parsed.data.sessions);
+      if (parsed.data.session) record.saved.session = parsed.data.session;
       await this.write(record, beforeCommit);
       return this.describe(record);
     }, beforeCommit);
@@ -1411,56 +974,11 @@ export class SavedReviewStore {
         totals.deletions += file.deletions;
       }
     }
-    const parts = record.saved.parts;
-    const partTotals: NonNullable<SavedReview["partTotals"]> = {};
-    for (const capture of parts ? record.captures : []) {
-      if (!targets.has(capture.targetId)) continue;
-      const part = record.saved.targets.find((target) => target.id === capture.targetId)?.part;
-      if (!part) continue;
-      partTotals[part] = {
-        targetId: capture.targetId,
-        files: capture.review.files.length,
-        additions: capture.review.files.reduce((sum, file) => sum + file.additions, 0),
-        deletions: capture.review.files.reduce((sum, file) => sum + file.deletions, 0),
-        comments: capture.notes.notes.length,
-      };
-    }
-    const { autoTitle: _auto, ...shown } = parts ?? {};
-    return {
-      ...record.saved,
-      ...(parts ? { parts: shown as SavedParts, partTotals } : {}),
-      totals,
-    };
+    return { ...record.saved, totals };
   }
 
   get(id: string): Promise<SavedReview> {
     return this.serial(async () => this.describe(await this.read(id)));
-  }
-
-  /** Approve a version, or take the approval back: a record for the reader,
-   * which nothing else waits on (docs/PRACTICES.md). */
-  approve(
-    id: string,
-    version: number,
-    approved: boolean,
-    beforeCommit?: () => void,
-  ): Promise<SavedReview> {
-    return this.writing(async () => {
-      const record = await this.read(id, true);
-      const versions = record.saved.iterations?.map((entry) => entry.number) ?? [1];
-      if (!versions.includes(version))
-        throw new HostError("version-not-found", `This review has no version ${version}.`, 404);
-      const others = (record.saved.approvals ?? []).filter((entry) => entry.version !== version);
-      const approvals = approved
-        ? [...others, { version, at: new Date().toISOString() }].sort(
-            (a, b) => a.version - b.version,
-          )
-        : others;
-      if (approvals.length) record.saved.approvals = approvals;
-      else delete record.saved.approvals;
-      await this.write(record, beforeCommit);
-      return this.describe(record);
-    }, beforeCommit);
   }
 
   /** Record that the reader read a version: they opened it.
@@ -1490,35 +1008,22 @@ export class SavedReviewStore {
     if (!earlier.length) return undefined;
     const capture = (targetId: string) =>
       record.captures.find((entry) => entry.targetId === targetId);
-    const approved = new Set((record.saved.approvals ?? []).map((entry) => entry.version));
     const read = new Set(record.saved.readVersions ?? []);
     const commented = (entry: (typeof versions)[number]) =>
-      entry.targetIds.some((target) => (capture(target)?.notes.notes.length ?? 0) > 0) ||
-      !!record.saved.briefComments?.some((comment) => comment.iteration === entry.number);
-    const reviewed = earlier.findLast(
-      (entry) => approved.has(entry.number) || commented(entry) || read.has(entry.number),
-    );
+      entry.targetIds.some((target) => (capture(target)?.notes.notes.length ?? 0) > 0);
+    const reviewed = earlier.findLast((entry) => commented(entry) || read.has(entry.number));
     const from = reviewed ?? earlier.at(-1)!;
-    const basis: Since["basis"] = !reviewed
-      ? "previous"
-      : approved.has(from.number)
-        ? "approved"
-        : commented(from)
-          ? "commented"
-          : "viewed";
+    const basis: Since["basis"] = !reviewed ? "previous" : commented(from) ? "commented" : "viewed";
     return { versions, to, from, basis };
   }
 
-  /** A target's counterpart in another version: the same repository and part. */
+  /** A target's counterpart in another version: the same repository. */
   private counterpart(record: SavedRecord, version: SavedIteration, target: SavedTarget) {
     const candidates = version.targetIds
       .map((id) => record.saved.targets.find((entry) => entry.id === id))
       .filter(
         (entry): entry is SavedTarget =>
-          !!entry &&
-          !entry.commentReviewId &&
-          entry.repositoryId === target.repositoryId &&
-          entry.part === target.part,
+          !!entry && !entry.commentReviewId && entry.repositoryId === target.repositoryId,
       );
     return candidates.find((entry) => entry.repo === target.repo) ?? candidates[0];
   }
@@ -1916,7 +1421,6 @@ export class SavedReviewStore {
         const ids = await this.read(id).then(
           (record) => [
             ...record.captures.flatMap((target) => target.notes.notes.map((note) => note.id)),
-            ...(record.saved.fileComments ?? []).map((comment) => comment.id),
           ],
           () => undefined,
         );
@@ -2076,7 +1580,7 @@ export class SavedReviewStore {
     });
     this.cache.delete(id);
     this.described.delete(id);
-    this.changes++;
+    this.touched();
     const keys = await this.readKeys();
     const left = Object.entries(keys).filter(([, value]) => value !== id);
     if (left.length !== Object.keys(keys).length) await this.writeKeys(Object.fromEntries(left));
@@ -2090,235 +1594,8 @@ export class SavedReviewStore {
     }, beforeCommit);
   }
 
-  /** Moves a target and its capture, with its comments, from one record to
-   * another, under a new ID. The caller holds the lock and writes both. */
-  private transplant(from: SavedRecord, to: SavedRecord, targetId: string) {
-    const target = from.saved.targets.find((entry) => entry.id === targetId)!;
-    const capture = from.captures.find((entry) => entry.targetId === targetId)!;
-    const id = `t_${randomBytes(12).toString("hex")}`;
-    const reviewId = `${to.saved.id}:${id}`;
-    to.saved.targets.push({ ...target, id });
-    to.captures.push({
-      ...capture,
-      targetId: id,
-      review: { ...capture.review, id: reviewId },
-      sources: capture.sources.map((source) => ({ ...source, reviewId })),
-      notes: { ...capture.notes, reviewId },
-    });
-    from.saved.targets.splice(from.saved.targets.indexOf(target), 1);
-    from.captures.splice(from.captures.indexOf(capture), 1);
-    for (const iteration of from.saved.iterations ?? [])
-      iteration.targetIds = iteration.targetIds.filter((entry) => entry !== targetId);
-    return to.saved.targets.at(-1)!;
-  }
-
-  /**
-   * Manual grouping: thread `source` goes on top of thread `onto` as its next
-   * layer, or layers when it is a stack itself. Its current comparisons move
-   * with their comments and guides, and so do its pull request, keys, and
-   * sessions; the rest of it (its brief, pins, and older versions) stays in
-   * its own record. Returns `onto`.
-   */
-  group(sourceId: string, ontoId: string, beforeCommit?: () => void): Promise<SavedReview> {
-    return this.writing(async () => {
-      if (sourceId === ontoId)
-        throw new HostError("parts-unsupported", "Choose another thread to group with.", 400);
-      const [source, onto] = [await this.read(sourceId, true), await this.read(ontoId, true)];
-      const layers = currentLayers(source.saved);
-      if (!layers.length)
-        throw new HostError("saved-review-empty", "That thread has no Review to add.", 409);
-      if (!source.saved.parts && layers.length !== 1)
-        throw new HostError(
-          "parts-unsupported",
-          "A Review of several comparisons cannot be one layer.",
-          409,
-        );
-      const ontoTarget = currentLayers(onto.saved)[0];
-      if (ontoTarget && ontoTarget.repositoryId !== layers[0]!.repositoryId)
-        throw new HostError("parts-unsupported", "Group threads of the same repository.", 409);
-      const parts = onto.saved.parts ?? this.makeParts(onto);
-      const iteration = this.currentIteration(onto);
-      const sourceIteration = source.saved.iterations?.at(-1);
-      const sourceParts = source.saved.parts?.items;
-      const keys: string[] = [];
-      for (const layer of layers) {
-        const known = sourceParts?.find((part) => part.id === layer.part);
-        const guide = known
-          ? source.saved.iterations?.findLast((entry) => entry.guides?.[known.id])?.guides?.[
-              known.id
-            ]
-          : (sourceIteration?.guide ?? source.saved.guide);
-        const moved = this.transplant(source, onto, layer.id);
-        const part: SavedPart = known
-          ? { ...known }
-          : {
-              id: `l_${randomBytes(6).toString("hex")}`,
-              key: source.saved.key ?? source.saved.pullRequestUrl ?? `review-${moved.id}`,
-              title: source.saved.pullRequestTitle ?? source.saved.title,
-              ...(source.saved.pullRequestUrl
-                ? { pullRequestUrl: source.saved.pullRequestUrl }
-                : {}),
-              ...(source.saved.pullRequestTitle
-                ? { pullRequestTitle: source.saved.pullRequestTitle }
-                : {}),
-              ...(moved.names?.base ? { base: moved.names.base } : {}),
-              ...(moved.names?.head ? { head: moved.names.head } : {}),
-            };
-        if (parts.items.some((entry) => entry.key === part.key))
-          part.key = `${part.key}-${moved.id.slice(2, 8)}`;
-        moved.part = part.id;
-        if (guide) iteration.guides = { ...iteration.guides, [part.id]: guide };
-        iteration.targetIds.push(moved.id);
-        parts.items.push(part);
-        keys.push(part.key);
-      }
-      if (parts.items.length > MAX_PARTS)
-        throw new HostError(
-          "saved-review-limit",
-          `A stack can have up to ${MAX_PARTS} layers.`,
-          413,
-        );
-      // Commits that the reader commented on while browsing go too.
-      for (const target of source.saved.targets.filter((entry) => entry.commentReviewId))
-        this.transplant(source, onto, target.id);
-      addSessions(onto.saved, source.saved.sessions);
-      this.nameParts(onto);
-      // The source keeps what history needs: its checkout and its notes.
-      const checkout = threadCheckout(source.saved) ?? threadCheckout(onto.saved);
-      if (checkout && !source.saved.checkout)
-        source.saved.checkout = savedCheckoutSchema.parse(checkout);
-      delete source.saved.parts;
-      delete source.saved.pullRequestUrl;
-      delete source.saved.pullRequestTitle;
-      if (source.saved.key) keys.push(source.saved.key);
-      delete source.saved.key;
-      onto.saved.commentCount = countComments(onto);
-      source.saved.commentCount = countComments(source);
-      onto.saved.revision++;
-      source.saved.revision++;
-      this.fit(onto);
-      // The layer is in its stack before it leaves its thread.
-      await this.write(onto, beforeCommit);
-      await this.write(source, beforeCommit);
-      for (const key of keys) await this.setKey(key, onto.saved.id);
-      return this.describe(onto);
-    }, beforeCommit);
-  }
-
-  /**
-   * Ungroup: each part above the first becomes a thread of its own again,
-   * with its comparison, comments, guide, pull request, and key. The thread
-   * keeps the first part and becomes a single review. Returns the new threads.
-   */
-  ungroup(id: string, beforeCommit?: () => void): Promise<SavedReview[]> {
-    return this.writing(async () => {
-      const record = await this.read(id, true);
-      const parts = record.saved.parts;
-      if (!parts)
-        throw new HostError("parts-unsupported", "This thread is not a stack or a set.", 409);
-      const iteration = this.currentIteration(record);
-      const layers = currentLayers(record.saved);
-      const made: SavedRecord[] = [];
-      for (const layer of layers.slice(1)) {
-        const part = parts.items.find((entry) => entry.id === layer.part);
-        const guide = part
-          ? record.saved.iterations?.findLast((entry) => entry.guides?.[part.id])?.guides?.[part.id]
-          : undefined;
-        const created: SavedRecord = {
-          version: 1,
-          saved: {
-            id: `r_${randomBytes(12).toString("hex")}`,
-            title: part?.title ?? layer.label,
-            ...(part?.pullRequestUrl ? { pullRequestUrl: part.pullRequestUrl } : {}),
-            ...(part?.pullRequestTitle ? { pullRequestTitle: part.pullRequestTitle } : {}),
-            ...(guide ? { guide } : {}),
-            ...(part ? { key: part.key } : {}),
-            createdAt: new Date().toISOString(),
-            revision: 0,
-            commentCount: 0,
-            targets: [],
-          },
-          captures: [],
-        };
-        const moved = this.transplant(record, created, layer.id);
-        delete moved.part;
-        if (part)
-          created.saved.iterations = [
-            {
-              number: 1,
-              createdAt: created.saved.createdAt,
-              targetIds: [moved.id],
-              ...(guide ? { guide } : {}),
-            },
-          ];
-        created.saved.commentCount = countComments(created);
-        made.push(created);
-      }
-      // The first part is the thread's own review again.
-      const first = parts.items.find((entry) => entry.id === layers[0]?.part);
-      const firstGuide = first
-        ? record.saved.iterations?.findLast((entry) => entry.guides?.[first.id])?.guides?.[first.id]
-        : undefined;
-      for (const target of record.saved.targets) delete target.part;
-      for (const entry of record.saved.iterations ?? []) delete entry.guides;
-      if (firstGuide) iteration.guide = record.saved.guide = firstGuide;
-      if (first?.pullRequestUrl)
-        linkPullRequest(record.saved, first.pullRequestUrl, first.pullRequestTitle);
-      if (parts.autoTitle && first) record.saved.title = first.title;
-      delete record.saved.parts;
-      record.saved.commentCount = countComments(record);
-      record.saved.revision++;
-      for (const created of made) await this.write(created, beforeCommit);
-      await this.write(record, beforeCommit);
-      for (const created of made)
-        if (created.saved.key) await this.setKey(created.saved.key, created.saved.id);
-      return made.map((created) => this.describe(created));
-    }, beforeCommit);
-  }
-
-  /** A thread of parts is a stack or a set. */
-  setShape(id: string, shape: PartShape, beforeCommit?: () => void): Promise<SavedReview> {
-    return this.writing(async () => {
-      const record = await this.read(id, true);
-      if (!record.saved.parts)
-        throw new HostError("parts-unsupported", "This thread is not a stack or a set.", 409);
-      record.saved.parts.shape = shape;
-      this.nameParts(record);
-      await this.write(record, beforeCommit);
-      return this.describe(record);
-    }, beforeCommit);
-  }
-
-  /** Replace or remove the brief. Comments and their revision stay unchanged. */
-  setBrief(id: string, brief: string | null, beforeCommit?: () => void): Promise<SavedReview> {
-    return this.writing(async () => {
-      const record = await this.read(id, true);
-      if (brief === null) delete record.saved.brief;
-      else {
-        const parsed = briefTextSchema.safeParse(brief);
-        if (!parsed.success)
-          throw new HostError("invalid-brief", parsed.error.issues[0]!.message, 400);
-        record.saved.brief = { text: parsed.data, updatedAt: new Date().toISOString() };
-      }
-      // A pasted brief replaces the current iteration's.
-      const iteration = record.saved.iterations?.at(-1);
-      if (iteration) {
-        if (record.saved.brief) iteration.brief = record.saved.brief;
-        else delete iteration.brief;
-      }
-      await this.write(record, beforeCommit);
-      return this.describe(record);
-    }, beforeCommit);
-  }
-
-  /** Replace or remove the current iteration's guide, or a part's: the part
-   * with the key `part`. */
-  setGuide(
-    id: string,
-    guide: unknown,
-    beforeCommit?: () => void,
-    part?: string,
-  ): Promise<SavedReview> {
+  /** Replace or remove the current iteration's guide. */
+  setGuide(id: string, guide: unknown, beforeCommit?: () => void): Promise<SavedReview> {
     return this.writing(async () => {
       const record = await this.read(id, true);
       let next: ReturnType<typeof savedGuide> | undefined;
@@ -2326,24 +1603,6 @@ export class SavedReviewStore {
         const parsed = reviewGuideSchema.safeParse(guide);
         if (!parsed.success) throw new HostError("invalid-guide", guideError(parsed.error), 400);
         next = savedGuide(parsed.data);
-      }
-      if (record.saved.parts) {
-        const found = record.saved.parts.items.find(
-          (entry) => entry.key === part || entry.id === part,
-        );
-        if (!found)
-          throw new HostError(
-            "parts-key",
-            "This thread is a stack or a set. Give the guide with the key of one part.",
-            409,
-          );
-        const iteration = this.currentIteration(record);
-        const guides = { ...iteration.guides };
-        if (next) guides[found.id] = next;
-        else delete guides[found.id];
-        iteration.guides = guides;
-        await this.write(record, beforeCommit);
-        return this.describe(record);
       }
       const owner = record.saved.iterations?.at(-1);
       for (const holder of owner ? [record.saved, owner] : [record.saved]) {
@@ -2355,260 +1614,6 @@ export class SavedReviewStore {
         const latest = record.saved.iterations!.findLast((entry) => entry.guide)?.guide;
         if (latest) record.saved.guide = latest;
       }
-      await this.write(record, beforeCommit);
-      return this.describe(record);
-    }, beforeCommit);
-  }
-
-  /** Pin an agent reply to the current iteration, or remove a pin. Pinning
-   * the same reply again keeps one pin. */
-  pin(id: string, mutation: PinMutation, beforeCommit?: () => void): Promise<SavedReview> {
-    return this.writing(async () => {
-      const record = await this.read(id, true);
-      const saved = record.saved;
-      if ("add" in mutation) {
-        const owner = saved.iterations?.at(-1) ?? saved;
-        const pins = owner.pins ?? [];
-        const { text: body, source } = mutation.add;
-        const same = pins.some(
-          (pin) =>
-            source?.itemId &&
-            pin.source?.itemId === source.itemId &&
-            pin.source.sessionId === source.sessionId,
-        );
-        if (!same) {
-          if (pins.length >= MAX_PINS)
-            throw new HostError(
-              "pin-limit",
-              `An iteration can have at most ${MAX_PINS} pinned replies.`,
-              413,
-            );
-          pins.push({
-            id: `p_${randomBytes(6).toString("hex")}`,
-            text: body,
-            createdAt: new Date().toISOString(),
-            ...(source ? { source } : {}),
-          });
-        }
-        owner.pins = pins;
-      } else {
-        for (const owner of [saved, ...(saved.iterations ?? [])]) {
-          if (!owner.pins) continue;
-          owner.pins = owner.pins.filter((pin) => pin.id !== mutation.remove);
-          if (!owner.pins.length) delete owner.pins;
-        }
-      }
-      await this.write(record, beforeCommit);
-      return this.describe(record);
-    }, beforeCommit);
-  }
-
-  /**
-   * Delete the Notes that show for an iteration: its brief and pins, and a
-   * brief that it shows from an earlier iteration (`briefFrom`), with the
-   * comments on them. Without iterations, the review's own Notes go. Notes
-   * that the reader started go with their iteration and its comparisons,
-   * unless those have comments.
-   */
-  deleteNotes(
-    id: string,
-    { iteration, briefFrom }: { iteration?: number; briefFrom?: number },
-    beforeCommit?: () => void,
-  ): Promise<SavedReview> {
-    return this.writing(async () => {
-      const record = await this.read(id, true);
-      const saved = record.saved;
-      const find = (number: number | undefined) =>
-        number === undefined
-          ? saved.iterations
-            ? undefined
-            : saved
-          : saved.iterations?.find((entry) => entry.number === number);
-      const owner = find(iteration);
-      if (!owner) throw new HostError("notes-not-found", "These notes do not exist.", 404);
-      const earlier = briefFrom !== iteration ? find(briefFrom) : undefined;
-      const pins = new Set(owner.pins?.map((pin) => pin.id));
-      const briefs = new Set([iteration, ...(earlier ? [briefFrom] : [])]);
-      const comments = (saved.briefComments ?? []).filter((comment) =>
-        comment.section === "brief" ? !briefs.has(comment.iteration) : !pins.has(comment.section),
-      );
-      if (comments.length) saved.briefComments = comments;
-      else delete saved.briefComments;
-      delete owner.brief;
-      delete owner.pins;
-      if (earlier) delete earlier.brief;
-      if (saved.iterations) {
-        const started = saved.iterations.find((entry) => entry === owner && entry.fresh);
-        const captures = record.captures.filter((capture) =>
-          started?.targetIds.includes(capture.targetId),
-        );
-        if (started && captures.every((capture) => !capture.notes.notes.length)) {
-          saved.iterations = saved.iterations.filter((entry) => entry !== started);
-          record.captures = record.captures.filter((capture) => !captures.includes(capture));
-          saved.targets = saved.targets.filter((target) => !started.targetIds.includes(target.id));
-        }
-        // The review's brief is the latest one that an iteration still has.
-        const latest = saved.iterations.findLast((entry) => entry.brief)?.brief;
-        if (latest) saved.brief = latest;
-        else delete saved.brief;
-      }
-      saved.commentCount = countComments(record);
-      saved.revision++;
-      await this.write(record, beforeCommit);
-      return this.describe(record);
-    }, beforeCommit);
-  }
-
-  /** Sets the pull request draft that the agent wrote, as its next revision;
-   * `created` records the pull request that Create opened from it. */
-  setPrDraft(
-    id: string,
-    change:
-      | { draft: Omit<SavedPrDraft, "revision" | "updatedAt" | "pullRequestUrl"> }
-      | { created: string },
-    beforeCommit?: () => void,
-  ): Promise<SavedReview> {
-    return this.writing(async () => {
-      const record = await this.read(id, true);
-      const saved = record.saved;
-      if ("created" in change) {
-        if (!saved.prDraft)
-          throw new HostError("no-pr-draft", "This review has no pull request draft.", 404);
-        saved.prDraft.pullRequestUrl = change.created;
-        saved.pullRequestUrl = change.created;
-      } else
-        saved.prDraft = {
-          ...change.draft,
-          revision: (saved.prDraft?.revision ?? 0) + 1,
-          updatedAt: new Date().toISOString(),
-          ...(saved.prDraft?.pullRequestUrl
-            ? { pullRequestUrl: saved.prDraft.pullRequestUrl }
-            : {}),
-        };
-      saved.revision++;
-      await this.write(record, beforeCommit);
-      return this.describe(record);
-    }, beforeCommit);
-  }
-
-  /** Comment on a passage of the Notes, or edit or remove such a comment. */
-  commentBrief(
-    id: string,
-    mutation: BriefCommentMutation,
-    beforeCommit?: () => void,
-  ): Promise<SavedReview> {
-    return this.writing(async () => {
-      const record = await this.read(id, true);
-      const saved = record.saved;
-      const comments = saved.briefComments ?? [];
-      const now = new Date().toISOString();
-      if ("add" in mutation) {
-        const { iteration, ...input } = mutation.add;
-        const brief =
-          iteration === undefined
-            ? saved.iterations
-              ? undefined
-              : saved.brief
-            : saved.iterations?.find((entry) => entry.number === iteration)?.brief;
-        const shown =
-          input.section === "pr"
-            ? !!saved.prDraft
-            : input.section === "brief"
-              ? brief !== undefined
-              : [saved, ...(saved.iterations ?? [])].some((owner) =>
-                  owner.pins?.some((pin) => pin.id === input.section),
-                );
-        if (!shown)
-          throw new HostError("notes-not-found", "These notes are no longer in the review.", 404);
-        if (saved.commentCount >= MAX_NOTES)
-          throw new HostError(
-            "too-many-notes",
-            "A saved review can contain at most 500 notes.",
-            413,
-          );
-        comments.push({
-          ...input,
-          ...(input.section === "brief" && iteration ? { iteration } : {}),
-          id: `c_${randomBytes(6).toString("hex")}`,
-          createdAt: now,
-          updatedAt: now,
-        });
-      } else {
-        const target = "edit" in mutation ? mutation.edit.id : mutation.remove;
-        const index = comments.findIndex((comment) => comment.id === target);
-        if (index < 0) throw new HostError("note-not-found", "The note does not exist.", 404);
-        if ("edit" in mutation)
-          comments[index] = { ...comments[index]!, text: mutation.edit.text, updatedAt: now };
-        else comments.splice(index, 1);
-      }
-      if (comments.length) saved.briefComments = comments;
-      else delete saved.briefComments;
-      saved.commentCount = countComments(record);
-      saved.revision++;
-      await this.write(record, beforeCommit);
-      return this.describe(record);
-    }, beforeCommit);
-  }
-
-  /** Comment on lines of a file, or edit, remove, answer, resolve, or open
-   * such a comment again. */
-  commentFile(
-    id: string,
-    mutation: FileCommentMutation,
-    beforeCommit?: () => void,
-  ): Promise<SavedReview> {
-    return this.writing(async () => {
-      const record = await this.read(id, true);
-      const saved = record.saved;
-      const comments = saved.fileComments ?? [];
-      const now = new Date().toISOString();
-      const find = (target: string) => {
-        const comment = comments.find((entry) => entry.id === target);
-        if (!comment) throw new HostError("note-not-found", "The comment does not exist.", 404);
-        return comment;
-      };
-      const growing = "add" in mutation || "reply" in mutation;
-      if (growing && saved.commentCount >= MAX_NOTES)
-        throw new HostError("too-many-notes", "A saved review can contain at most 500 notes.", 413);
-      if ("add" in mutation) {
-        const input = mutation.add;
-        const end = input.endLine ?? input.line;
-        if (end < input.line || end - input.line >= MAX_FILE_COMMENT_LINES)
-          throw new HostError(
-            "invalid-lines",
-            `A comment covers at most ${MAX_FILE_COMMENT_LINES} lines.`,
-            400,
-          );
-        comments.push({
-          ...input,
-          ...(end !== input.line ? { endLine: end } : { endLine: undefined }),
-          id: randomUUID(),
-          createdAt: now,
-          updatedAt: now,
-          replies: [],
-        });
-        if (comments.at(-1)!.endLine === undefined) delete comments.at(-1)!.endLine;
-      } else if ("edit" in mutation) {
-        const comment = find(mutation.edit.id);
-        comment.text = mutation.edit.text;
-        comment.updatedAt = now;
-      } else if ("remove" in mutation) {
-        comments.splice(comments.indexOf(find(mutation.remove)), 1);
-      } else if ("reply" in mutation) {
-        // The user's reply is a change of the thread: it waits to be sent.
-        const comment = find(mutation.reply.id);
-        comment.replies.push({ id: randomUUID(), text: mutation.reply.text, createdAt: now });
-        comment.updatedAt = now;
-        delete comment.resolved;
-      } else if ("resolve" in mutation) {
-        find(mutation.resolve).resolved = { at: now };
-      } else {
-        delete find(mutation.reopen).resolved;
-      }
-      if (comments.length) saved.fileComments = comments;
-      else delete saved.fileComments;
-      saved.commentCount = countComments(record);
-      saved.revision++;
       await this.write(record, beforeCommit);
       return this.describe(record);
     }, beforeCommit);
@@ -2627,8 +1632,6 @@ export class SavedReviewStore {
         target.notes.notes = [];
         target.notes.revision++;
       }
-      delete record.saved.briefComments;
-      delete record.saved.fileComments;
       record.saved.commentCount = 0;
       record.saved.revision++;
       await this.write(record, beforeCommit);
@@ -2664,7 +1667,7 @@ export class SavedReviewStore {
     author: NoteAuthor,
     beforeCommit?: () => void,
     options: { resolve?: boolean } = {},
-  ): Promise<Note | FileComment> {
+  ): Promise<Note> {
     return this.writing(async () => {
       const record = await this.read(id, true);
       const wanted = commentId.toLowerCase();
@@ -2673,31 +1676,6 @@ export class SavedReviewStore {
       const matches = record.captures.flatMap((target) =>
         target.notes.notes.filter((note) => named(note.id)).map((note) => ({ target, note })),
       );
-      const files = (record.saved.fileComments ?? []).filter((comment) => named(comment.id));
-      if (files.length && !matches.length) {
-        const comment =
-          files.find((entry) => entry.id === wanted) ?? (files.length === 1 ? files[0] : undefined);
-        if (!comment)
-          throw new HostError(
-            "comment-ambiguous",
-            "More than one comment of this review has an ID that starts so. Give more of the ID.",
-            409,
-          );
-        if (record.saved.commentCount >= MAX_NOTES)
-          throw new HostError(
-            "too-many-notes",
-            "A saved review can contain at most 500 notes.",
-            413,
-          );
-        validateReviewNoteText(text);
-        const now = new Date().toISOString();
-        comment.replies.push({ id: randomUUID(), text, author, createdAt: now });
-        if (options.resolve) comment.resolved = { at: now, by: author };
-        record.saved.revision++;
-        record.saved.commentCount = countComments(record);
-        await this.write(record, beforeCommit);
-        return comment;
-      }
       const found =
         matches.find((match) => match.note.id === wanted) ??
         (matches.length === 1 ? matches[0] : undefined);
@@ -2713,16 +1691,8 @@ export class SavedReviewStore {
           "More than one comment of this review has an ID that starts so. Give more of the ID.",
           409,
         );
-      if (!found) {
-        const passage = record.saved.briefComments?.some((comment) => named(comment.id));
-        throw new HostError(
-          "note-not-found",
-          passage
-            ? "That comment is on the Notes, which take no replies. Answer it in your message."
-            : "This review has no comment with that ID.",
-          404,
-        );
-      }
+      if (!found)
+        throw new HostError("note-not-found", "This review has no comment with that ID.", 404);
       if (record.saved.commentCount >= MAX_NOTES)
         throw new HostError("too-many-notes", "A saved review can contain at most 500 notes.", 413);
       const parent = found.note.parentId
@@ -2756,11 +1726,15 @@ export class SavedReviewStore {
   feedback(
     id: string,
     include?: ReadonlySet<string>,
+    { help = true }: { help?: boolean } = {},
   ): Promise<{
     text: string;
     count: number;
     repositoryCount: number;
     revision: number;
+    /** A comment's short ID, for how to answer one; the comments' IDs. */
+    example?: string;
+    ids: string[];
     /** Each thread in the text, by ID: its version (as `comments` gives its
      * `updatedAt`) and the comment as the text has it. */
     threads: Map<string, { version: string; comment: SentComment }>;
@@ -2887,122 +1861,41 @@ export class SavedReviewStore {
           });
         }
       }
-      const pins = [record.saved, ...(record.saved.iterations ?? [])].flatMap(
-        (owner) => owner.pins ?? [],
-      );
-      for (const comment of record.saved.briefComments ?? []) {
-        if (include && !include.has(comment.id)) continue;
-        threadsOut.set(comment.id, {
-          version: comment.updatedAt,
-          comment: {
-            path: comment.section === "pr" ? "PR draft" : "Notes",
-            quote: comment.quote,
-            text: comment.text,
-          },
-        });
-        index++;
-        const pin = pins.find((item) => item.id === comment.section);
-        // A comment on a passage takes no reply in a thread, so it has no ID.
-        appendText(
-          comment.section === "pr"
-            ? `## On the pull request draft${record.saved.prDraft ? ` (revision ${record.saved.prDraft.revision}; revise it and run med pr draft again)` : ""}`
-            : comment.section === "brief"
-              ? `## On the review's brief${comment.iteration ? ` (iteration ${comment.iteration})` : ""}`
-              : `## On an agent reply pinned to the review${pin ? ` (${pin.createdAt})` : ""}`,
-          ...comment.quote.split("\n").map((line) => `> ${line}`),
-          "",
-          comment.text,
-          "",
-        );
-      }
-      let fileExample: string | undefined;
-      for (const comment of record.saved.fileComments ?? []) {
-        if (include && !include.has(comment.id)) continue;
-        if (!include && comment.resolved) continue;
-        const shortId = shortCommentId(comment.id, [
-          ...ids,
-          ...(record.saved.fileComments ?? []).map((entry) => entry.id),
-        ]);
-        example ??= shortId;
-        fileExample ??= shortId;
-        index++;
-        const end = comment.endLine ?? comment.line;
-        const where =
-          comment.source.kind === "commit"
-            ? `at commit ${shortOid(comment.source.oid)}`
-            : "in the working tree";
-        const repository =
-          comment.source.repo.split(/[\\/]/).filter(Boolean).at(-1) ?? comment.source.repo;
-        appendText(
-          `## ${shortId} · ${comment.path}:${comment.line === end ? comment.line : `${comment.line}-${end}`} (a file, not the review's change; ${where} of ${repository})`,
-        );
-        const quoted = comment.quote
-          .split("\n")
-          .slice(0, end - comment.line + 1)
-          .map((line, offset) => `${comment.line + offset} | ${line}`);
-        const longest = Math.max(
-          2,
-          ...quoted.flatMap((line) => [...line.matchAll(/`+/g)].map((match) => match[0].length)),
-        );
-        const fence = "`".repeat(longest + 1);
-        appendText(fence, quoted.join("\n"), fence);
-        appendText("", comment.text, "");
-        for (const reply of comment.replies)
-          appendText(
-            reply.author ? `${agentName(reply.author)} replied:` : "The user replied:",
-            reply.text,
-            "",
-          );
-        threadsOut.set(comment.id, {
-          version: comment.updatedAt,
-          comment: {
-            path: comment.path,
-            line: comment.line,
-            ...(comment.endLine ? { endLine: comment.endLine } : {}),
-            text: comment.text,
-          },
-        });
-      }
-      if (example)
-        appendText(
-          "Answer a comment in its thread with `med reply <id>`, the answer on standard input:",
-          "",
-          "```sh",
-          `med reply ${example} <<'END'`,
-          "<your answer>",
-          "END",
-          "```",
-          "",
-          "A comment can be a question or a request. Answer a question there and change nothing for it; do what a request asks, and answer there to say why you left a change out. Your final message still says what you did.",
-          ...(fileExample
-            ? [
-                "",
-                `A comment on a file has no next review version to show the change, so add \`--resolve\` when you have done what it asks: \`med reply ${fileExample} --resolve <<'END'\`, then what you did. The user can open it again.`,
-              ]
-            : []),
-        );
-      if (!index) appendText("No comments.");
+      if (example && help) appendText(...replyHelp(example));
+      if (!index && help) appendText("No comments.");
       return {
         text: output.join("\n"),
         count: index,
         repositoryCount: repositories.size,
         revision: record.saved.revision,
+        ...(example && { example }),
+        ids,
         threads: threadsOut,
       };
     });
   }
 }
 
-/**
- * A comment's short ID: the first 6 characters of its ID, or more, until no
- * other ID in `ids` starts the same way.
- */
-export function shortCommentId(id: string, ids: readonly string[]) {
-  for (let length = 6; length < id.length; length++) {
-    const start = id.slice(0, length);
-    if (!ids.some((other) => other !== id && other.startsWith(start))) return start;
-  }
-  return id;
+/** How the agent answers a comment, for the end of a message with an
+ * example ID; `file` names a comment on a file, which `--resolve` closes. */
+export function replyHelp(example: string, file?: string) {
+  return [
+    "Answer a comment in its thread with `med reply <id>`, the answer on standard input:",
+    "",
+    "```sh",
+    `med reply ${example} <<'END'`,
+    "<your answer>",
+    "END",
+    "```",
+    "",
+    "A comment can be a question or a request. Answer a question there and change nothing for it; do what a request asks, and answer there to say why you left a change out. Your final message still says what you did.",
+    ...(file
+      ? [
+          "",
+          `A comment on a file has no next review version to show the change, so add \`--resolve\` when you have done what it asks: \`med reply ${file} --resolve <<'END'\`, then what you did. The user can open it again.`,
+        ]
+      : []),
+  ];
 }
 
 /** A comment thread's version: its newest change. A reply changes the thread. */

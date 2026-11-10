@@ -7,7 +7,6 @@ import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
 import { AgentsSection } from "./AgentsSection";
 import { PullSection } from "./PullSection";
-import { NotesSection } from "./NotesSection";
 import { PanesSection } from "./PanesSection";
 import { CodeSection } from "./CodeSection";
 import { CommitSection } from "./CommitSection";
@@ -26,7 +25,6 @@ const sections = [
   { id: "controls", label: "Controls" },
   { id: "review", label: "Review parts" },
   { id: "code", label: "Code colors" },
-  { id: "notes", label: "Notes" },
   { id: "panes", label: "Side panes" },
   { id: "sources", label: "Sources" },
   { id: "session", label: "Agent session" },
@@ -150,7 +148,6 @@ export default function ElementsPage() {
             <ControlsSection />
             <ReviewSection />
             <CodeSection />
-            <NotesSection />
             <PanesSection />
             <SourcesSection />
             <SessionSection />

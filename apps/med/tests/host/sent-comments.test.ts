@@ -77,7 +77,7 @@ async function fixture() {
       title: "Format durations",
       key: "durations",
       targets: [{ repo, comparison: { kind: "working" } }],
-      sessions: [{ agent: "claude", id: session, cwd: repo }],
+      session: { agent: "claude", id: session, cwd: repo },
     })
   ).data;
   const notesPath = `/api/reviews/${saved.id}/targets/${saved.targets[0]!.id}/notes`;
@@ -95,7 +95,8 @@ async function fixture() {
     note: { path: "summary.ts", side: "new", line: 1, text: "Round to minutes." },
   });
   const commentId = added.notes[0]!.id;
-  const inbox = async () => (await api<AgentInboxState>(`/api/reviews/${saved.id}/agent`)).data;
+  const thread = `claude-${session}`;
+  const inbox = async () => (await api<AgentInboxState>(`/api/sessions/${thread}/agent`)).data;
   /** The prompts that the resumed session got. */
   const prompts = async () => {
     const path = join(home, ".claude", "projects", "-fake-repo", `${session}.jsonl`);
@@ -162,12 +163,12 @@ async function fixture() {
 }
 
 test("an edit while Med sends a comment keeps the comment a draft, and the thread shows what the agent got", async () => {
-  const { api, saved, commentId, mutate, inbox, prompts, holdResume } = await fixture();
+  const { api, commentId, mutate, inbox, prompts, holdResume } = await fixture();
   await expect.poll(async () => (await inbox()).resumable).toEqual([session]);
   const resume = holdResume();
   const sending = api<{ message: AgentMessage; state: AgentInboxState }>(
-    `/api/reviews/${saved.id}/agent/messages`,
-    { sessionId: session, text: "", noteIds: [commentId] },
+    `/api/sessions/claude-${session}/agent/messages`,
+    { text: "", noteIds: [commentId] },
   );
   // Med has read the comment and waits to resume the session. The user
   // edits the comment in another window.
@@ -189,11 +190,10 @@ test("an edit while Med sends a comment keeps the comment a draft, and the threa
 });
 
 test("the agent answers a comment in its thread; the comment stays sent, and the next message shows the answer as the agent's", async () => {
-  const { api, saved, commentId, mutate, inbox, prompts } = await fixture();
+  const { api, commentId, mutate, inbox, prompts } = await fixture();
   await expect.poll(async () => (await inbox()).resumable).toEqual([session]);
   expect((await inbox()).owned).toEqual([]);
-  const first = await api(`/api/reviews/${saved.id}/agent/messages`, {
-    sessionId: session,
+  const first = await api(`/api/sessions/claude-${session}/agent/messages`, {
     text: "",
     noteIds: [commentId],
   });
@@ -210,9 +210,8 @@ test("the agent answers a comment in its thread; the comment stays sent, and the
   expect(before.drafts).toEqual([]);
 
   const answered = await api<{ note: { id: string; parentId: string; author: unknown } }>(
-    `/api/reviews/${saved.id}/agent/reply`,
+    `/api/comments/${short}/reply`,
     {
-      commentId: short,
       text: "Minutes drop the seconds. Keep them for short runs?",
       session: { agent: "claude", id: session },
     },
@@ -245,8 +244,7 @@ test("the agent answers a comment in its thread; the comment stays sent, and the
   // The user's reply makes the thread a draft; the agent reads its own
   // answer as its own.
   expect((await inbox()).drafts).toMatchObject([{ id: commentId, replies: 1 }]);
-  await api(`/api/reviews/${saved.id}/agent/messages`, {
-    sessionId: session,
+  await api(`/api/sessions/claude-${session}/agent/messages`, {
     text: "",
     noteIds: [commentId],
   });
@@ -258,10 +256,9 @@ test("the agent answers a comment in its thread; the comment stays sent, and the
     "Claude replied:\nMinutes drop the seconds. Keep them for short runs?\n\nThe user replied:\nYes, under a minute.",
   );
 
-  const missing = await api<{ error: { message: string } }>(
-    `/api/reviews/${saved.id}/agent/reply`,
-    { commentId: "abcdef12", text: "Done." },
-  );
+  const missing = await api<{ error: { message: string } }>("/api/comments/abcdef12/reply", {
+    text: "Done.",
+  });
   expect(missing.status).toBe(404);
-  expect(missing.data.error.message).toBe("This review has no comment with that ID.");
+  expect(missing.data.error.message).toBe("No thread in Med has a comment with ID abcdef12.");
 });

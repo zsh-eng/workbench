@@ -1,6 +1,5 @@
 import type { MentionSources } from "../../data/mentions";
 import * as stylex from "@stylexjs/stylex";
-import { Menu } from "@base-ui/react/menu";
 import {
   useCallback,
   useEffect,
@@ -13,7 +12,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import type { AgentPreset, OwnedAction } from "../../../shared/owned-session";
-import { agentName, type AgentSession, type PinMutation } from "../../../shared/saved-review";
+import { agentName, type AgentSession } from "../../../shared/saved-review";
 import type { AgentMessageInput } from "../../../shared/agent-inbox";
 import {
   openIn,
@@ -27,7 +26,9 @@ import { useOutbox, type Outgoing } from "../../data/outbox";
 import type { SessionItem } from "../../data/session-store";
 import {
   followSession,
+  keptPages,
   keptSessionStore,
+  prependPage,
   readAhead,
   loadSessionPage,
   loadSessionTurns,
@@ -35,9 +36,7 @@ import {
   type SessionStreamState,
   type SessionTurn,
 } from "../../data/session-stream";
-import { picked, tokens, ui } from "../../theme.stylex";
-import { QuietMenuRoot } from "../Controls";
-import { tooltip } from "../ToolButton";
+import { tokens, ui } from "../../theme.stylex";
 import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
 import { paneHandle } from "../PaneTree";
@@ -56,15 +55,6 @@ import { FileRefsContext, type FileRefs } from "../FileRefs";
 import type { TurnRecapProps } from "./TurnRecap";
 import { useViewSetting, viewSettings } from "../../data/view-settings";
 import { column } from "./session-styles";
-
-type PinSource = NonNullable<Extract<PinMutation, { add: unknown }>["add"]["source"]>;
-/** The review's pins, for Pin to review on the agent's replies. */
-export interface SessionPins {
-  /** Pin IDs by `sessionId/itemId`. */
-  pinned: ReadonlyMap<string, string>;
-  pin(source: PinSource, text: string): Promise<void>;
-  show(pinId: string): void;
-}
 
 /** Agents that Med can start in the review's repository. */
 export interface SessionStarter {
@@ -88,60 +78,6 @@ function withStreaming(items: SessionItem[], streaming?: { id: string; text: str
 
 const turnTime = (at: number) =>
   new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-/**
- * The review's sessions, where it has more than one: a menu named for the
- * session on screen, in the title band. ⌘N starts a new thread, and the
- * prompt rail at the thread's edge goes to a prompt (PromptRail).
- */
-function SessionPicker({
-  agent,
-  sessions,
-  current,
-  onChoose,
-}: {
-  agent: string;
-  sessions: AgentSession[];
-  current: string;
-  onChoose(id: string): void;
-}) {
-  const item = (state: { highlighted: boolean }) =>
-    stylex.props(ui.menuItem, styles.menuItem, state.highlighted && [ui.menuHighlighted, picked])
-      .className;
-  const [open, setOpen] = useState(false);
-  return (
-    <QuietMenuRoot open={open} onOpenChange={setOpen} look={agent}>
-      <Menu.Trigger
-        aria-label={`${agent} sessions`}
-        {...tooltip("The review's sessions")}
-        {...stylex.props(ui.button, ui.pressable, styles.menuTrigger)}
-      >
-        {agent}
-        <Icon name="chevron" size={12} />
-      </Menu.Trigger>
-      <Menu.Portal>
-        <Menu.Positioner align="end" sideOffset={6} {...stylex.props(styles.menuPositioner)}>
-          <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.menu)}>
-            <Menu.RadioGroup value={current} onValueChange={(id) => onChoose(String(id))}>
-              {[...sessions].reverse().map((entry, index) => (
-                <Menu.RadioItem key={entry.id} value={entry.id} className={item}>
-                  <span {...stylex.props(styles.check)}>
-                    <Menu.RadioItemIndicator {...stylex.props(styles.indicator)}>
-                      <Icon name="check" size={14} />
-                    </Menu.RadioItemIndicator>
-                  </span>
-                  <span {...stylex.props(styles.menuLabel)}>
-                    {agentName(entry)} {index === 0 ? "· latest" : `· ${entry.id.slice(0, 8)}`}
-                  </span>
-                </Menu.RadioItem>
-              ))}
-            </Menu.RadioGroup>
-          </Menu.Popup>
-        </Menu.Positioner>
-      </Menu.Portal>
-    </QuietMenuRoot>
-  );
-}
 
 /**
  * The Session pane of a review without a session: the agents that Med can
@@ -250,12 +186,12 @@ export function sessionLink(
 }
 
 /**
- * The agent sessions of a saved review, beside the review: the session's
- * thread, read from its transcript and followed while the agent works.
+ * A thread's agent session, beside its review: read from its transcript and
+ * followed while the agent works.
  */
 export function SessionPanel({
-  reviewId,
-  sessions,
+  threadId,
+  session,
   root,
   onOpenPath,
   onOpenComment,
@@ -265,7 +201,6 @@ export function SessionPanel({
   inbox,
   attachments = [],
   onRemoveAttachment,
-  pins,
   bandTools = true,
   lead,
   mentions,
@@ -297,7 +232,8 @@ export function SessionPanel({
   /** Shows this subagent's tab, by the tool call that started it, once for
    * each nonce, as when the sidebar opens it. */
   openAgent?: { id: string; nonce: number };
-  reviewId: string;
+  /** The session's thread: its key names it to the host. */
+  threadId: string;
   /** What @ can name in a message. */
   mentions?: MentionSources;
   onMentionsWanted?(): void;
@@ -307,15 +243,13 @@ export function SessionPanel({
   /** Whether its own controls show at the title band's end: false while the
    * pane hides or another pane fills the workspace. */
   bandTools?: boolean;
-  /** Without it, replies have no Pin to review. */
-  pins?: SessionPins;
   fetcher?: typeof fetch;
   /** Messages to the agent; without it the panel only reads the session. */
   inbox?: AgentInbox;
   /** Text to add to the next message, such as GitHub comments. */
   attachments?: ComposerAttachment[];
   onRemoveAttachment?(id: string): void;
-  sessions: AgentSession[];
+  session: AgentSession;
   /** The repository's path, to open absolute links to its files. */
   root?: string;
   onOpenPath(path: string, line?: number): void;
@@ -326,19 +260,13 @@ export function SessionPanel({
   /** Whether the pane has room for the side panel, for its ⌘K command. */
   onSideRoom?(room: boolean): void;
 }) {
-  const latest = sessions.at(-1)!.id;
-  // A new session, such as one just started, comes to the front.
-  const [pick, setPick] = useState({ latest, id: latest });
-  const chosen = pick.latest === latest ? pick.id : latest;
-  const setChosen = (id: string) => setPick({ latest, id });
-  const session = sessions.find((entry) => entry.id === chosen) ?? sessions.at(-1)!;
   // A Claude session that Med does not run: open in a terminal or another
   // app, or nowhere. When Med resumes it, the session's controls come.
   const presence =
     openIn(inbox?.state, session.id) ??
     (inbox?.state?.resumable.includes(session.id) ? ("resumable" as const) : undefined);
-  const owned = useOwnedSession(reviewId, session.id, fetcher, presence);
-  const store = useMemo(() => keptSessionStore(reviewId, session.id), [reviewId, session.id]);
+  const owned = useOwnedSession(threadId, fetcher, presence);
+  const store = useMemo(() => keptSessionStore(threadId), [threadId]);
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [state, setState] = useState<SessionStreamState>({
     status: "connecting",
@@ -356,18 +284,21 @@ export function SessionPanel({
   useEffect(() => {
     const controller = new AbortController();
     void (async () => {
-      await readAhead(reviewId, session.id);
+      await readAhead(threadId);
       if (controller.signal.aborted) return;
-      await followSession(reviewId, session.id, store, setState, controller.signal, fetcher);
+      await followSession(threadId, store, setState, controller.signal, fetcher);
     })();
     return () => controller.abort();
-  }, [reviewId, session.id, store, fetcher]);
+  }, [threadId, session.id, store, fetcher]);
 
   // The elapsed time moves while the agent works, and a quiet transcript
   // turns idle after a while without a new update.
   // Earlier pages of a long transcript. They belong to one first view: a
-  // reconnect starts a new thread, and the pages go with the old one.
-  const [loaded, setLoaded] = useState<{ generation?: number; start: number } | null>(null);
+  // stream that resumes the kept thread keeps them, as when the thread shows
+  // again, and a new first view takes them away with the old thread.
+  const [loaded, setLoaded] = useState<{ generation?: number; start: number } | null>(() =>
+    keptPages(store),
+  );
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [earlierFailed, setEarlierFailed] = useState(false);
   const [reveal, setReveal] = useState<{ id: string; nonce: number } | undefined>();
@@ -381,14 +312,14 @@ export function SessionPanel({
   const loadPage = useCallback(
     async (before: number) => {
       const requested = generation.current;
-      const page = await loadSessionPage(reviewId, session.id, before, fetcher);
+      const page = await loadSessionPage(threadId, before, fetcher);
       // A first view that came meanwhile has its own start; the page is not its.
       if (generation.current !== requested) throw new Error("The thread started again.");
-      store.prepend(page.events);
+      prependPage(store, page);
       setLoaded({ generation: requested, start: page.start });
       return page.start;
     },
-    [reviewId, session.id, fetcher, store],
+    [threadId, fetcher, store],
   );
   const earlier = useMemo(
     () =>
@@ -421,14 +352,14 @@ export function SessionPanel({
     if (!longSession) return;
     const generation = state.generation;
     let live = true;
-    loadSessionTurns(reviewId, session.id, fetcher).then(
+    loadSessionTurns(threadId, fetcher).then(
       (turns) => live && setIndex({ generation, turns }),
       () => {},
     );
     return () => {
       live = false;
     };
-  }, [longSession, reviewId, session.id, fetcher, state.generation]);
+  }, [longSession, threadId, session.id, fetcher, state.generation]);
   // A turn from the index: load pages until its prompt is in the thread.
   const showTurn = async (turn: SessionTurn) => {
     let from = start;
@@ -528,17 +459,8 @@ export function SessionPanel({
       onFork && session.agent === "claude"
         ? (item: { id: string }) => onFork(session.id, item.id)
         : undefined;
-    if (!pins && !fork) return null;
-    return {
-      ...(pins && {
-        pinned: (itemId: string) => pins.pinned.get(`${session.id}/${itemId}`),
-        pin: (item: { id: string; text: string }) =>
-          pins.pin({ agent: session.agent, sessionId: session.id, itemId: item.id }, item.text),
-        showPin: pins.show,
-      }),
-      ...(fork && { fork }),
-    };
-  }, [pins, onFork, session.id, session.agent]);
+    return fork ? { fork } : null;
+  }, [onFork, session.id, session.agent]);
   const agent = agentName(session);
   const messages = inbox?.state?.messages;
   const streaming = ownedState?.streaming;
@@ -546,13 +468,13 @@ export function SessionPanel({
   // host keeps the browser's ID, so the row stays when its answer comes. The
   // outbox keeps them across a reload, until the host has them.
   const known = useMemo(() => new Set(messages?.map((message) => message.id)), [messages]);
-  const outbox = useOutbox(`${reviewId}/${session.id}`, inbox?.send, known);
+  const outbox = useOutbox(`${threadId}/${session.id}`, inbox?.send, known);
   const { outgoing } = outbox;
-  const send = (input: Omit<AgentMessageInput, "sessionId">) => {
+  const send = (input: AgentMessageInput) => {
     const drafts = inbox?.state?.drafts ?? [];
     const message: Outgoing = {
       id: crypto.randomUUID(),
-      input: { sessionId: session.id, ...input },
+      input,
       createdAt: new Date().toISOString(),
       comments: input.noteIds.flatMap((id) =>
         drafts
@@ -639,29 +561,27 @@ export function SessionPanel({
               }
             : message,
         ) ?? []),
-      ...outgoing
-        .filter((message) => message.input.sessionId === session.id)
-        .map((message): SentMessage => {
-          const { input } = message;
-          return {
-            id: message.id,
-            sessionId: input.sessionId,
-            agent: session.agent,
-            text: input.text,
-            noteIds: input.noteIds,
-            ...(message.comments.length ? { comments: message.comments } : {}),
-            attachmentCount: input.attachments?.length ?? 0,
-            createdAt: message.createdAt,
-            delivery: message.error ? "failed" : "sending",
-            ...(message.error
-              ? {
-                  error: message.error,
-                  retry: () => outbox.retry(message.id),
-                  discard: () => outbox.discard(message.id),
-                }
-              : {}),
-          };
-        }),
+      ...outgoing.map((message): SentMessage => {
+        const { input } = message;
+        return {
+          id: message.id,
+          sessionId: session.id,
+          agent: session.agent,
+          text: input.text,
+          noteIds: input.noteIds,
+          ...(message.comments.length ? { comments: message.comments } : {}),
+          attachmentCount: input.attachments?.length ?? 0,
+          createdAt: message.createdAt,
+          delivery: message.error ? "failed" : "sending",
+          ...(message.error
+            ? {
+                error: message.error,
+                retry: () => outbox.retry(message.id),
+                discard: () => outbox.discard(message.id),
+              }
+            : {}),
+        };
+      }),
     ];
     const items = withStreaming(
       sent.length ? withSentMessages(snapshot.items, sent) : snapshot.items,
@@ -686,8 +606,7 @@ export function SessionPanel({
   // Asked again as the transcript grows, at a turn's end, and now and then
   // while subagents work, whose transcripts the thread does not follow.
   const usage = useThreadUsage(
-    reviewId,
-    session.id,
+    threadId,
     `${state.modifiedAt ?? 0}:${running}:${running ? Math.floor(now / 15_000) : 0}`,
     fetcher,
   );
@@ -726,14 +645,14 @@ export function SessionPanel({
   const [agentsSlot, setAgentsSlot] = useState<HTMLDivElement | null>(null);
   const turnRecap = useMemo(
     () =>
-      recap && session.id === latest
+      recap
         ? {
             ...recap,
             onReply: () =>
               panel.current?.querySelector<HTMLTextAreaElement>("form textarea")?.focus(),
           }
         : undefined,
-    [recap, session.id, latest],
+    [recap],
   );
   const side = roomy && sideChoice === "auto";
   useEffect(() => {
@@ -765,19 +684,10 @@ export function SessionPanel({
   };
   // The first view has not come, and no earlier thread stays meanwhile.
   const loading = state.status === "connecting" && !snapshot.items.length;
-  // The session's own controls, at the title band's end: the review's
-  // sessions where it has several, how full the context is, and the session
-  // rail's toggle. The band names the thread, and the thread its agent.
+  // The session's own controls, at the title band's end: how full the
+  // context is, and the session rail's toggle. The band names the thread, and the thread its agent.
   const sessionTools = bandTools && (
     <>
-      {sessions.length > 1 && (
-        <SessionPicker
-          agent={agent}
-          sessions={sessions}
-          current={session.id}
-          onChoose={setChosen}
-        />
-      )}
       {!side && <UsageChip usage={usage} context={shownContext} />}
       {roomy && (
         <ToolButton
@@ -805,7 +715,7 @@ export function SessionPanel({
         inbox && (
           <SessionComposer
             key={session.id}
-            draftKey={`${reviewId}/${session.id}`}
+            draftKey={`${threadId}/${session.id}`}
             agent={session.agent}
             name={agent}
             presence={presence}

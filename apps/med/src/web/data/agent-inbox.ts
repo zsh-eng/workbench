@@ -18,7 +18,7 @@ import { reconnectPause } from "./reconnect";
 
 /** Follows a review's messages to its agents, its drafts, and who waits. */
 async function followInbox(
-  reviewId: string,
+  threadId: string,
   onState: (state: AgentInboxState) => void,
   signal: AbortSignal,
   fetcher: typeof fetch,
@@ -28,7 +28,7 @@ async function followInbox(
   while (!signal.aborted) {
     try {
       const response = await api.stream(
-        `/api/reviews/${encodeURIComponent(reviewId)}/agent/events`,
+        `/api/sessions/${encodeURIComponent(threadId)}/agent/events`,
         signal,
       );
       if (response.status === 404) return;
@@ -61,29 +61,29 @@ export interface AgentInbox {
   sendNow?(id: string): Promise<void>;
 }
 
-/** A review's agent inbox while `reviewId` is set. */
+/** A thread's agent inbox while `threadId` is set. */
 export function useAgentInbox(
-  reviewId: string | null,
+  threadId: string | null,
   fetcher: typeof fetch = browserFetch,
 ): AgentInbox {
   const [state, setState] = useState<{ id: string; value: AgentInboxState } | null>(null);
   useEffect(() => {
-    if (!reviewId) return;
+    if (!threadId) return;
     const controller = new AbortController();
     void followInbox(
-      reviewId,
-      (value) => setState({ id: reviewId, value }),
+      threadId,
+      (value) => setState({ id: threadId, value }),
       controller.signal,
       fetcher,
     );
     return () => controller.abort();
-  }, [reviewId, fetcher]);
+  }, [threadId, fetcher]);
   const send = useCallback(
     async (input: AgentMessageInput) => {
-      if (!reviewId) throw new Error("This review has no agent session.");
+      if (!threadId) throw new Error("This thread has no agent session.");
       const api = createApi(fetcher, readBrowserToken());
       const result = await api.json(
-        `/api/reviews/${encodeURIComponent(reviewId)}/agent/messages`,
+        `/api/sessions/${encodeURIComponent(threadId)}/agent/messages`,
         z.object({ message: agentMessageSchema, state: agentInboxStateSchema }),
         {
           method: "POST",
@@ -91,17 +91,17 @@ export function useAgentInbox(
           body: JSON.stringify(input),
         },
       );
-      setState({ id: reviewId, value: result.state });
+      setState({ id: threadId, value: result.state });
       return result.message;
     },
-    [reviewId, fetcher],
+    [threadId, fetcher],
   );
   const takeBack = useCallback(
     async (id: string) => {
-      if (!reviewId) throw new Error("This review has no agent session.");
+      if (!threadId) throw new Error("This thread has no agent session.");
       const api = createApi(fetcher, readBrowserToken());
       const result = await api.json(
-        `/api/reviews/${encodeURIComponent(reviewId)}/agent/take`,
+        `/api/sessions/${encodeURIComponent(threadId)}/agent/take`,
         z.object({ message: agentMessageSchema, state: agentInboxStateSchema }),
         {
           method: "POST",
@@ -109,17 +109,17 @@ export function useAgentInbox(
           body: JSON.stringify({ id }),
         },
       );
-      setState({ id: reviewId, value: result.state });
+      setState({ id: threadId, value: result.state });
       return result.message;
     },
-    [reviewId, fetcher],
+    [threadId, fetcher],
   );
   const sendNow = useCallback(
     async (id: string) => {
-      if (!reviewId) throw new Error("This review has no agent session.");
+      if (!threadId) throw new Error("This thread has no agent session.");
       const api = createApi(fetcher, readBrowserToken());
       const result = await api.json(
-        `/api/reviews/${encodeURIComponent(reviewId)}/agent/send-now`,
+        `/api/sessions/${encodeURIComponent(threadId)}/agent/send-now`,
         z.object({ state: agentInboxStateSchema }),
         {
           method: "POST",
@@ -127,12 +127,12 @@ export function useAgentInbox(
           body: JSON.stringify({ id }),
         },
       );
-      setState({ id: reviewId, value: result.state });
+      setState({ id: threadId, value: result.state });
     },
-    [reviewId, fetcher],
+    [threadId, fetcher],
   );
   return {
-    state: state && state.id === reviewId ? state.value : null,
+    state: state && state.id === threadId ? state.value : null,
     send,
     takeBack,
     sendNow,

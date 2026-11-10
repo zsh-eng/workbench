@@ -224,9 +224,9 @@ export function createBrowseApi(fetcher: typeof fetch, token: string) {
       return { path: target.path, ...(index >= 0 ? { line: index + 1 } : {}) };
     },
     /** The transcript of a thread's agent session, which names it to another agent. */
-    async transcript(review: string, session: string) {
+    async transcript(threadId: string) {
       const result = await api.json(
-        `/api/reviews/${encodeURIComponent(review)}/sessions/${encodeURIComponent(session)}/transcript`,
+        `/api/sessions/${encodeURIComponent(threadId)}/transcript`,
         z.object({ path: z.string() }),
       );
       return result.path;

@@ -15,7 +15,8 @@ const text = (value: string) => ({ type: "text" as const, text: value });
 const repository = { id: "trail", name: "trail-notes", path: "/work/trail-notes" };
 
 export const baseThread: Thread = {
-  id: "r_000000000000000000000001",
+  id: "claude-states",
+  kind: "session",
   title: "Durations in the export",
   createdAt: iso(90),
   updatedAt: at(4),
@@ -24,6 +25,7 @@ export const baseThread: Thread = {
   agent: "claude",
   state: "idle",
   changes: { files: 2, additions: 18, deletions: 4 },
+  reviews: [],
 };
 
 /** The thread in one state: its row's fields over the base thread's. */

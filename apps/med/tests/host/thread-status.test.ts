@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { SavedReview } from "../../src/shared/saved-review";
 import type { Thread, ThreadList } from "../../src/shared/threads";
 import { startHost, type RunningHost } from "../../src/host/server";
-import { claudeProjectFolder } from "../../src/host/found-sessions";
+import { claudeProjectFolder } from "../../src/host/session-index";
 import { readServerEvents } from "../../src/web/data/sse";
 import { removeFolder } from "./remove-folder";
 
@@ -283,7 +283,7 @@ test("each thread tells what its agent does now, what it said, and whether it as
     api<SavedReview>("/api/reviews", {
       title,
       targets: [{ repo: cwd, comparison }],
-      sessions: [{ agent: "claude", id, cwd }],
+      session: { agent: "claude", id, cwd },
     });
   const asked = await save("Daylight saving times", trees.ask, ids.ask, { kind: "working" });
   await save("Forgiving search", trees.done, ids.done, {
@@ -303,28 +303,37 @@ test("each thread tells what its agent does now, what it said, and whether it as
 
   // A found session that does not work is history, which Med does not
   // read; opened as a tab, it tells its turn too.
-  for (const id of [`found-claude-${ids.pick}`, `found-codex-${ids.feet}`])
+  for (const id of [`claude-${ids.pick}`, `codex-${ids.feet}`])
     await vi.waitFor(
       async () => expect((await api(`/api/threads/${id}/open`, {})).status).toBe(200),
       { timeout: 15_000 },
     );
   const latest = await list();
-  const thread = (title: string) =>
-    latest.value?.threads.find((entry) => entry.title === title) as Thread | undefined;
+  // A session is its thread, whichever review it handed off.
+  const rows = {
+    asked: `claude-${ids.ask}`,
+    done: `claude-${ids.done}`,
+    landed: `claude-${ids.landed}`,
+    busy: `claude-${ids.busy}`,
+    pick: `claude-${ids.pick}`,
+    feet: `codex-${ids.feet}`,
+  };
+  const thread = (id: string) =>
+    latest.value?.threads.find((entry) => entry.id === id) as Thread | undefined;
   await vi.waitFor(
     () => {
-      expect(thread("Daylight saving times")?.unlanded).toBeDefined();
-      expect(thread("Forgiving search")?.unlanded).toBeDefined();
-      expect(thread("Explain the model")?.unlanded).toBeDefined();
-      expect(thread("Add a glossary to the README")?.turn).toBeDefined();
-      expect(thread("Pick a colour for the chart")?.turn).toBeDefined();
-      expect(thread("Add feet")?.turn).toBeDefined();
+      expect(thread(rows.asked)?.unlanded).toBeDefined();
+      expect(thread(rows.done)?.unlanded).toBeDefined();
+      expect(thread(rows.landed)?.unlanded).toBeDefined();
+      expect(thread(rows.busy)?.turn).toBeDefined();
+      expect(thread(rows.pick)?.turn).toBeDefined();
+      expect(thread(rows.feet)?.turn).toBeDefined();
     },
     { timeout: 15_000 },
   );
 
   // The question: the last paragraph as plain text, its end time, and asks.
-  expect(thread("Daylight saving times")).toMatchObject({
+  expect(thread(rows.asked)).toMatchObject({
     state: "idle",
     turn: {
       asks: true,
@@ -340,48 +349,46 @@ test("each thread tells what its agent does now, what it said, and whether it as
     unlanded: { base: "main", ahead: 0, uncommitted: true },
   });
   // The working turn: what runs now, and since when.
-  const busy = thread("Add a glossary to the README")!;
-  expect(busy).toMatchObject({ found: true, state: "working" });
+  const busy = thread(rows.busy)!;
+  expect(busy).toMatchObject({ kind: "session", reviews: [], state: "working" });
   expect(busy.turn).toEqual({ startedAt: expect.any(Number), activity: "Running bun test" });
   expect(Date.now() - busy.turn!.startedAt!).toBeGreaterThan(200_000);
   // Ready: a commit ahead of main, and no question.
-  const done = thread("Forgiving search")!;
+  const done = thread(rows.done)!;
   expect(done.turn).toMatchObject({
     said: "The branch has one commit and is ready to review: find(a?)",
   });
   expect(done.turn?.asks).toBeUndefined();
   expect(done.unlanded).toEqual({ base: "main", ahead: 1, uncommitted: false });
   // Landed: nothing ahead of main, and main's own changes do not count.
-  expect(thread("Explain the model")?.unlanded).toEqual({
+  expect(thread(rows.landed)?.unlanded).toEqual({
     base: "main",
     ahead: 0,
     uncommitted: false,
   });
   // A question tool that waits, and a Codex question before its choices.
-  expect(thread("Pick a colour for the chart")?.turn).toMatchObject({
+  expect(thread(rows.pick)?.turn).toMatchObject({
     asks: true,
     activity: "Asks you a question",
     said: "Which colour should high tides use?",
   });
-  expect(thread("Add feet")?.turn).toMatchObject({ asks: true });
+  expect(thread(rows.feet)?.turn).toMatchObject({ asks: true });
 
   // A reply from Med answers the question: Med resumes the session with it,
   // and the list says so.
-  const sent = await api(`/api/reviews/${asked.data.id}/agent/messages`, {
-    sessionId: ids.ask,
+  expect(thread(rows.asked)?.reviews.map((review) => review.id)).toEqual([asked.data.id]);
+  const sent = await api(`/api/sessions/${rows.asked}/agent/messages`, {
     text: "Keep the station's own time.",
     noteIds: [],
   });
   expect(sent.status).toBe(200);
   await vi.waitFor(
     () =>
-      expect(thread("Daylight saving times")?.replied).toMatchObject({
+      expect(thread(rows.asked)?.replied).toMatchObject({
         text: "Keep the station's own time.",
         delivery: "delivered",
       }),
     { timeout: 5000 },
   );
-  expect(thread("Daylight saving times")!.replied!.at).toBeGreaterThan(
-    thread("Daylight saving times")!.turn!.endedAt!,
-  );
+  expect(thread(rows.asked)!.replied!.at).toBeGreaterThan(thread(rows.asked)!.turn!.endedAt!);
 });

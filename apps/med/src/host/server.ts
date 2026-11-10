@@ -18,7 +18,7 @@ import type { Duplex } from "node:stream";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
 import { basename, dirname, extname, resolve, relative, isAbsolute, join } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
@@ -110,8 +110,7 @@ import {
 } from "./superagent";
 import { acceptWebSocket } from "./runtime/websocket";
 import { CodexReviews } from "./codex-reviews";
-import { SavedReviewStore, type CommitLens } from "./saved-reviews";
-import { createThreadTabs } from "./thread-tabs";
+import { replyHelp, SavedReviewStore, type CommitLens } from "./saved-reviews";
 import { createThreadService } from "./thread-service";
 import { createThreadSubagents } from "./thread-subagents";
 import {
@@ -123,7 +122,6 @@ import {
 } from "./agent-transcripts";
 import { AgentInbox } from "./agent-inbox";
 import { createQueuedMessages } from "./queued-messages";
-import { createPrDrafts, MAX_PR_DRAFT_BODY, prDraftInputSchema } from "./pr-drafts";
 import {
   agentEnvironment as startedAgentEnvironment,
   CONTINUE_TURN,
@@ -133,7 +131,10 @@ import {
 } from "./owned-sessions";
 import { loadShellEnvironment } from "./shell-environment";
 import { createAgentStatus } from "./agent-status";
-import { createFoundSessions } from "./found-sessions";
+import { createSessionIndex } from "./session-index";
+import { createThreadStore } from "./thread-store";
+import { createThreadComments } from "./thread-comments";
+import { migrateTabs } from "./thread-migration";
 import { createSessionSearch, sessionEntry, type SessionInfo } from "./session-search";
 import { createCheckoutWork } from "./checkout-work";
 import { createPullRequestLinks } from "./pull-request-links";
@@ -176,29 +177,29 @@ import {
   threadNameSchema,
   threadPinSchema,
   threadSeenSchema,
-  threadGroupSchema,
-  threadShapeSchema,
   threadSlug,
   threadStartSchema,
   threadTitle,
+  parseSessionKey,
+  sessionKey,
+  REVIEW_ID,
+  threadOfReview,
 } from "../shared/threads";
 import {
   agentMessageInputSchema,
   type AgentInboxState,
+  type SentComment,
   type SessionPlace,
 } from "../shared/agent-inbox";
 import type { SessionEvent } from "../shared/agent-session";
 import {
-  pinMutationSchema,
-  briefCommentMutationSchema,
   fileCommentMutationSchema,
   reviewKeySchema,
   savedReviewCreateSchema,
   savedReviewDetailsSchema,
-  threadCheckout,
+  reviewCheckout,
   type AgentSession,
   type CapturedReviewTarget,
-  type SavedCheckout,
   type SavedReviewCreate,
 } from "../shared/saved-review";
 import { defaultStateDirectory, getPersistentToken, publishConnection } from "./runtime/connection";
@@ -280,8 +281,8 @@ function revealInFileManager(path: string) {
 const MAX_BODY = 128 * 1024;
 /** Definitions that a hover shows; `gd` lists all of them. */
 const MAX_HOVER_DEFINITIONS = 3;
-// A brief holds up to 100,000 characters; UTF-8 can need four bytes for one.
-const MAX_BRIEF_BODY = 512 * 1024;
+// A prompt holds up to 100,000 characters; UTF-8 can need four bytes for one.
+const MAX_PROMPT_BODY = 512 * 1024;
 // A guide holds up to 200,000 characters of JSON.
 const MAX_GUIDE_BODY = 1024 * 1024;
 // A message to an agent can hold ten images of 5 MB, in base64.
@@ -449,37 +450,22 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const isSuperagentRepo = (path: string) => path === superagentReal || path === superagentPath;
   const visibleRepositories = () =>
     registry.snapshot().filter((entry) => !isSuperagentRepo(entry.path));
-  // Open tabs and cold history (thread-tabs.ts). Past the byte budget, the
-  // threads that closed first give up their captures, as pruning does.
-  const tabs = createThreadTabs({ file: join(options.stateDir ?? temporaryState!, "tabs.json") });
-  const savedReviews = new SavedReviewStore(join(options.stateDir ?? temporaryState!, "reviews"), {
-    evictable: () =>
-      tabs
-        .closed()
-        .map((entry) => entry.id)
-        .reverse(),
-    evicted: (review) => {
-      // A thread without a Review names its checkout; the stub keeps it.
-      const checkout = threadCheckout(review);
-      tabs.setStub(review.id, {
-        title: review.pullRequestTitle ?? review.title,
-        createdAt: review.createdAt,
-        sessions: review.sessions ?? [],
-        ...(checkout && { checkout: checkout.repo }),
-        ...(checkout?.branch && { branch: checkout.branch }),
-        ...(review.pullRequestUrl && { pullRequestUrl: review.pullRequestUrl }),
-      });
-    },
+  // The threads: tabs and the archive (thread-store.ts). Past the byte
+  // budget, the reviews of the threads archived first give up their captures.
+  const store = createThreadStore({
+    file: join(options.stateDir ?? temporaryState!, "threads.json"),
   });
+  const savedReviews = new SavedReviewStore(join(options.stateDir ?? temporaryState!, "reviews"), {
+    evictable: () => threads.archivedReviews(),
+    evicted: () => {},
+  });
+  // Comments on lines of files, by thread (thread-comments.ts).
+  const threadComments = createThreadComments(
+    join(options.stateDir ?? temporaryState!, "thread-comments"),
+  );
   const inbox = new AgentInbox(join(options.stateDir ?? temporaryState!, "agent-messages"));
   const inboxStreams = new Set<ServerResponse>();
   const imageDirectory = join(options.stateDir ?? temporaryState!, "images");
-  const prDrafts = createPrDrafts({
-    directory: join(options.stateDir ?? temporaryState!, "pr-drafts"),
-    gh: options.gh ?? { command: "gh", args: [] },
-  });
-  /** Reviews whose pull request gh is opening, so a second Create waits. */
-  const creatingPullRequests = new Set<string>();
   void pruneImages(imageDirectory);
   const bin = options.cli ? join(options.stateDir ?? temporaryState!, "bin") : undefined;
   if (bin) await writeMedCommand(bin, options.cli!);
@@ -601,14 +587,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     stateDir: options.stateDir ?? temporaryState!,
     api: options.dependencyApi,
   });
-  // Claude Code and Codex sessions in the registered repositories that no
-  // saved review names; the thread list shows them too.
-  const found = createFoundSessions({
+  // Every agent session that Med lists, from its transcript: where it works
+  // now, and the recent ones that worked in a registered repository.
+  const found = createSessionIndex({
     repositories: () => registry.snapshot(),
     refreshRepositories: () => registry.list(),
-    owned: () => ownedSessions.agentSessions(),
     settingsFile: join(options.stateDir ?? temporaryState!, "found-sessions.json"),
-    changes: checkoutChanges,
     shown: options.foundSessions ?? true,
   });
   await found.restore();
@@ -616,23 +600,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const sessionSearch = createSessionSearch({
     codexNames: () => found.codexNames(),
   });
-  /** The saved thread that names a session: by its ID, or for a session
-   * that Med runs through ACP, by the agent's own ID. */
-  const sessionThreads = async (reviews?: Awaited<ReturnType<typeof savedReviews.list>>) => {
-    reviews ??= await savedReviews.list();
-    const threads = new Map<string, { id: string; archived?: boolean }>();
-    for (const review of reviews)
-      for (const session of review.sessions ?? [])
-        // `archived`: the thread is archived, not a tab.
-        threads.set(session.id, {
-          id: review.id,
-          ...(!tabs.isOpen(review.id) && { archived: true }),
-        });
-    for (const [own, id] of ownedSessions.agentSessions()) {
-      const thread = threads.get(id);
-      if (thread && !threads.has(own)) threads.set(own, thread);
+  /** The thread of each session that Med keeps: by its ID, or for a
+   * session that Med runs through ACP, by the agent's own ID. */
+  const sessionThreads = async () => {
+    const known = new Map<string, { id: string; archived?: boolean }>();
+    for (const id of store.ids()) {
+      const session = parseSessionKey(id);
+      // `archived`: the thread is archived, not a tab.
+      if (session) known.set(session.id, { id, ...(!store.isOpen(id) && { archived: true }) });
     }
-    return threads;
+    for (const [own, id] of ownedSessions.agentSessions()) {
+      const thread = known.get(id);
+      if (thread && !known.has(own)) known.set(own, thread);
+    }
+    return known;
   };
   /** Sessions for the API, with their threads and registered repositories. */
   const sessionEntries = async (sessions: readonly SessionInfo[]) => {
@@ -680,17 +661,153 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // The tabs and history; the thread list polls only the tabs.
   const threads = createThreadService({
     savedReviews,
-    tabs,
+    store,
+    sessions: found,
     repositories: visibleRepositories,
     status: reviewStatus,
-    lastMessage: (reviewId) => inbox.last(reviewId),
-    found,
+    lastMessage: (threadId) => inbox.last(threadId),
+    owned: () => ownedSessions.sessions(),
     checkoutWork,
     pullRequestLinks,
     checkoutChanges,
     subagents: createThreadSubagents(),
     removeWorktree: (path, signal) => removeLinkedWorktree(path, signal),
   });
+
+  /**
+   * The agent session of a thread, with the folder it works in now: a
+   * session thread's, by its key, or the session that handed off a review.
+   * Undefined for a review that no session handed off.
+   */
+  const threadSession = async (id: string): Promise<AgentSession | undefined> => {
+    const parsed = parseSessionKey(id);
+    if (!parsed) {
+      if (!REVIEW_ID.test(id))
+        throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
+      const review = await savedReviews.get(id);
+      return review.session && threadSession(sessionKey(review.session));
+    }
+    // Only a session that Med lists: one it keeps or runs, one that handed
+    // off a review, or one it found. Med does not read other transcripts.
+    const kept = store.entry(id)?.session ?? ownedSessions.get(parsed.id)?.session;
+    if (
+      !kept &&
+      !found.found().some((session) => session.key === id) &&
+      !(await threads.reviewsOf(id)).length
+    )
+      throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
+    const read =
+      parsed.agent === "acp"
+        ? undefined
+        : await found.session({ agent: parsed.agent, id: parsed.id }).catch(() => undefined);
+    const base = kept ?? (read && { agent: read.agent, id: read.id, cwd: read.cwd });
+    if (!base) throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
+    return read?.cwd ? { ...base, cwd: read.cwd } : base;
+  };
+  /** A thread's session, which a session route needs. */
+  const requireSession = async (id: string) => {
+    const session = await threadSession(id);
+    if (!session)
+      throw new HostError("session-not-found", "This thread has no agent session.", 404);
+    return session;
+  };
+
+  /** The key that a thread's agent hands its reviews off with: its newest
+   * review's, else a slug of its title. */
+  const threadKey = async (threadId: string) => {
+    const reviews = await threads.reviewsOf(threadId);
+    const keyed = reviews.find((review) => review.key)?.key;
+    if (keyed) return keyed;
+    const entry = threads.entry(threadId);
+    return threadSlug(entry?.name ?? entry?.title ?? reviews[0]?.title ?? "thread");
+  };
+  /** Open message boxes read a review's comments again: its thread's. */
+  const touchReview = async (reviewId: string) => {
+    const thread = await threads.threadOf(reviewId).catch(() => undefined);
+    if (thread) inbox.touch(thread);
+  };
+  /**
+   * The message for a thread's comments: each review's, then the comments on
+   * files, then how to answer one. `include` names the comments; without it,
+   * every open one.
+   */
+  const threadFeedback = async (threadId: string, include?: ReadonlySet<string>) => {
+    const parts: string[] = [];
+    const out = new Map<string, { version: string; comment: SentComment }>();
+    const ids: string[] = [];
+    let count = 0;
+    let example: string | undefined;
+    for (const review of await threads.reviewsOf(threadId)) {
+      const part = await savedReviews.feedback(review.id, include, { help: false });
+      ids.push(...part.ids);
+      if (!part.count) continue;
+      parts.push(part.text);
+      count += part.count;
+      example ??= part.example;
+      for (const [id, thread] of part.threads) out.set(id, thread);
+    }
+    const files = await threadComments.feedback(threadId, include, ids);
+    if (files.count) {
+      parts.push("# Comments on files", "", ...files.lines);
+      count += files.count;
+      for (const [id, thread] of files.threads) out.set(id, thread);
+    }
+    const shown = example ?? files.example;
+    if (shown) parts.push(replyHelp(shown, files.example).join("\n"));
+    return { text: parts.join("\n"), count, threads: out };
+  };
+  /** What a thread's message box shows: its messages, its comments that wait
+   * to be sent, and where its session is open. */
+  const threadInbox = async (threadId: string): Promise<AgentInboxState> => {
+    const messages = await inbox.messages(threadId);
+    // A comment is sent when a message holds its version. A message from
+    // before versions holds the comments as they were when it was made.
+    const versions = new Map<string, Set<string>>();
+    const sentAt = new Map<string, string>();
+    for (const message of messages)
+      for (const id of message.noteIds) {
+        const version = message.noteVersions?.[id];
+        if (version !== undefined) versions.set(id, (versions.get(id) ?? new Set()).add(version));
+        else if ((sentAt.get(id) ?? "") < message.createdAt) sentAt.set(id, message.createdAt);
+      }
+    const unsent = (comment: { id: string; updatedAt: string }) =>
+      !versions.get(comment.id)?.has(comment.updatedAt) &&
+      (sentAt.get(comment.id) ?? "") < comment.updatedAt;
+    const reviews = await threads.reviewsOf(threadId);
+    const comments = (
+      await Promise.all(reviews.map((review) => savedReviews.comments(review.id).catch(() => [])))
+    ).flat();
+    const fileComments = await threadComments.list(threadId);
+    const session = await threadSession(threadId).catch(() => undefined);
+    return {
+      messages,
+      ...(await sessionPlaces(session ? [session] : [])),
+      owned: session && ownedSessions.get(session.id) ? [session.id] : [],
+      revision:
+        reviews.reduce((sum, review) => sum + review.revision, 0) +
+        fileComments.reduce((sum, comment) => sum + 1 + comment.replies.length, 0),
+      drafts: [
+        ...comments.filter(unsent).map((comment) => ({
+          id: comment.id,
+          path: comment.path,
+          line: comment.line,
+          ...(comment.endLine ? { endLine: comment.endLine } : {}),
+          text: comment.text,
+          replies: comment.replies,
+        })),
+        ...fileComments
+          .filter((comment) => !comment.resolved && unsent(comment))
+          .map((comment) => ({
+            id: comment.id,
+            path: comment.path,
+            line: comment.line,
+            ...(comment.endLine ? { endLine: comment.endLine } : {}),
+            text: comment.text,
+            replies: comment.replies.length,
+          })),
+      ],
+    };
+  };
 
   const watchers = new Map<string, Promise<() => Promise<void>>>();
   const watcherModes = new Map<string, boolean>();
@@ -723,7 +840,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const STATUS_MS = 1500;
   // One thread list for all windows; a change to the tabs sends it at once.
   const threadFeed = createThreadFeed({ list: () => threads.list(), intervalMs: STATUS_MS });
-  tabs.subscribe(() => threadFeed.changed());
+  store.subscribe(() => threadFeed.changed());
+  savedReviews.subscribe(() => threadFeed.changed());
+  threadComments.subscribe((threadId) => inbox.touch(threadId));
   // An agent lives as long as its thread's tab: the sessions of closed tabs
   // go to OwnedSessions.release, which stops their agents when idle.
   let releasing: Promise<void> | undefined;
@@ -734,17 +853,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       return;
     }
     releasing = (async () => {
-      const closedAt = new Map(tabs.closed().map((entry) => [entry.id, entry.closedAt]));
-      const open = new Set<string>();
       const closed = new Map<string, number>();
-      for (const review of await savedReviews.list()) {
-        const at = closedAt.get(review.id);
-        for (const session of review.sessions ?? [])
-          if (at === undefined) open.add(session.id);
-          else closed.set(session.id, Math.max(closed.get(session.id) ?? 0, at));
+      for (const entry of store.closed()) {
+        const session = parseSessionKey(entry.id);
+        if (session) closed.set(session.id, entry.closedAt);
       }
-      // A session in an open tab too stays.
-      for (const id of open) closed.delete(id);
       ownedSessions.release(closed);
     })()
       .catch(() => {})
@@ -755,7 +868,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         releaseClosedTabs();
       });
   };
-  tabs.subscribe(releaseClosedTabs);
+  store.subscribe(releaseClosedTabs);
   listChanged = () => threadFeed.changed();
   const activeRequests = new Map<AbortController, Set<string>>();
   // Each checkout's revision: watcher events change it at once.
@@ -916,8 +1029,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // a restart; the service registers only its own sources.
   if (existsSync(join(superagentPath, ".git")))
     await registry.register(superagentPath).catch(() => {});
-  // Tabs come from the saved reviews on the first start; history prunes now and daily.
-  await threads.start();
+  // An older Med's tabs move to the thread store on the first start;
+  // history prunes now and daily.
+  await threads.start(async () => {
+    await migrateTabs({
+      tabsFile: join(options.stateDir ?? temporaryState!, "tabs.json"),
+      store,
+      savedReviews,
+    });
+  });
   releaseClosedTabs();
   const publish = (event: ChangeEvent) => {
     const frame = `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
@@ -1072,9 +1192,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     })),
     // A thread's spend and its session's context (session-usage.ts). An
     // agent that Med runs reports its window, and starts with Med's variables.
-    route(usageRoutes.thread, async ({ id, session }) => {
-      const sessions = (await found.session(id)) ?? (await savedReviews.get(id)).sessions ?? [];
-      return sessionUsage.thread(sessions, session, (sessionId) => {
+    route(usageRoutes.thread, async ({ id }) => {
+      const own = await threadSession(id);
+      return sessionUsage.thread(own ? [own] : [], own?.id, (sessionId) => {
         const runner = ownedSessions.get(sessionId);
         if (!runner) return undefined;
         const window = runner.state().context?.total;
@@ -1275,19 +1395,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         }
         // Earlier work of a long session: a page before a byte offset, and the
         // index of its prompts. Its transcript's path names it to another agent.
-        const sessionPage =
-          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/sessions\/([A-Za-z0-9_-]+)\/(page|turns|transcript)$/.exec(
-            url.pathname,
-          );
+        const sessionPage = /^\/api\/sessions\/([A-Za-z0-9_-]+)\/(page|turns|transcript)$/.exec(
+          url.pathname,
+        );
         if (sessionPage && request.method === "GET") {
-          const sessions =
-            (await found.session(sessionPage[1]!)) ??
-            (await savedReviews.get(sessionPage[1]!)).sessions;
-          const session = sessions?.find((entry) => entry.id === sessionPage[2]);
+          const session = await requireSession(sessionPage[1]!);
           const own = session && session.agent !== "acp" && (await findTranscript(session));
           // A fork before its first prompt reads the session that it forks.
           const fork =
-            session && !own && sessionPage[3] !== "transcript"
+            session && !own && sessionPage[2] !== "transcript"
               ? await forkSource(session)
               : undefined;
           const path = own || fork?.path;
@@ -1298,7 +1414,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               404,
             );
           if (fork) {
-            if (sessionPage[3] === "turns") {
+            if (sessionPage[2] === "turns") {
               const turns = await transcriptTurns(fork.session, fork.path);
               send({ turns: turns.filter((turn) => turn.offset < fork.end) });
               return;
@@ -1313,11 +1429,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send(await readTranscriptPage(fork.session, fork.path, before));
             return;
           }
-          if (sessionPage[3] === "turns") {
+          if (sessionPage[2] === "turns") {
             send({ turns: await transcriptTurns(session, path) });
             return;
           }
-          if (sessionPage[3] === "transcript") {
+          if (sessionPage[2] === "transcript") {
             send({ path });
             return;
           }
@@ -1327,20 +1443,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           send(await readTranscriptPage(session, path, before));
           return;
         }
-        // An agent session of a saved review: its transcript's updates, then
-        // new ones as the agent writes them.
-        const sessionRoute =
-          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/sessions\/([A-Za-z0-9_-]+)\/events$/.exec(
-            url.pathname,
-          );
+        // A thread's agent session: its transcript's updates, then new ones
+        // as the agent writes them.
+        const sessionRoute = /^\/api\/sessions\/([A-Za-z0-9_-]+)\/events$/.exec(url.pathname);
         if (sessionRoute && request.method === "GET") {
-          // A found thread's ID names its one session (found-sessions.ts).
-          const sessions =
-            (await found.session(sessionRoute[1]!)) ??
-            (await savedReviews.get(sessionRoute[1]!)).sessions;
-          const session = sessions?.find((entry) => entry.id === sessionRoute[2]);
-          if (!session)
-            throw new HostError("session-not-found", "This review has no such agent session.", 404);
+          const session = await requireSession(sessionRoute[1]!);
           const runner = ownedSessions.get(session.id);
           let path = session.agent === "acp" ? undefined : await findTranscript(session);
           if (!path && session.agent !== "acp" && !runner)
@@ -1602,79 +1709,74 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           send(await ownedSessions.choices(agentChoices[1]!));
           return;
         }
-        // Sessions that Med starts in a review's repository and runs itself.
+        // An agent that Med starts on a review, such as a pull request's, in
+        // its checkout: the review becomes the new session's.
+        const reviewStart = /^\/api\/reviews\/(r_[a-f0-9]{24})\/start$/.exec(url.pathname);
+        if (reviewStart && request.method === "POST") {
+          const reviewId = reviewStart[1]!;
+          const input = ownedStartSchema.parse(await readBody(request));
+          const review = await savedReviews.get(reviewId);
+          const checkout = reviewCheckout(review);
+          const entry =
+            checkout && registry.snapshot().find((item) => item.id === checkout.repositoryId);
+          if (!checkout || !entry)
+            throw new HostError(
+              "repository-unavailable",
+              `Register the repository for ${checkout?.repo ?? "this review"} to start an agent there.`,
+              409,
+            );
+          // The agent works in the reviewed checkout, such as a pull request's
+          // worktree, while that checkout stays.
+          const cwd = await requireRepo(checkout.repo).catch(() => requireRepo(entry.path));
+          assertRequestAccess();
+          const runner = await ownedSessions.start(input.preset, cwd, {
+            key: review.key ?? threadSlug(review.title),
+            ...(input.choices ? { choices: input.choices } : {}),
+          });
+          const thread = await threads.keep(runner.session, { title: review.title });
+          await savedReviews.details(reviewId, { session: runner.session }, assertRequestAccess);
+          // The review's tab gives way to its session's.
+          await threads.close(reviewId).catch(() => {});
+          send({ thread, state: runner.state() });
+          return;
+        }
+        // A session that Med runs: its state, its updates, and the reader's
+        // actions on it. Continue in Med forks a session that another process
+        // has open into one that Med runs, which takes the thread's place.
         const ownedRoute =
-          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/owned(?:\/([A-Za-z0-9_-]+)(\/events)?)?$/.exec(
-            url.pathname,
-          );
+          /^\/api\/sessions\/([A-Za-z0-9_-]+)\/(owned|owned\/events|continue)$/.exec(url.pathname);
         if (ownedRoute) {
-          const [, reviewId, sessionId, events] = ownedRoute;
-          const bundle = await savedReviews.get(reviewId!);
-          if (!sessionId && request.method === "POST") {
-            const input = ownedStartSchema.parse(await readBody(request));
-            if (input.fork) {
-              // Continue in Med: the terminal keeps its session, and the
-              // thread follows a fork that Med runs.
-              const from = bundle.sessions?.find((entry) => entry.id === input.fork);
-              if (!from || from.agent !== "claude")
-                throw new HostError(
-                  "session-not-found",
-                  "This thread has no such Claude session.",
-                  404,
-                );
-              const current = ownedSessions.get(from.id);
-              if (current && !current.dormant() && current.state().status !== "exited")
-                throw new HostError(
-                  "session-owned",
-                  "Med runs this session already. Send your message here.",
-                  409,
-                );
-              assertRequestAccess();
-              const runner = await ownedSessions.fork(from, bundle.key ? { key: bundle.key } : {});
-              const review = await savedReviews.details(
-                reviewId!,
-                { sessions: [runner.session] },
-                assertRequestAccess,
-              );
-              // The messages that waited for the other process start the fork.
-              await inbox.deliverPending(
-                reviewId!,
-                from.id,
-                (body) => runner.prompt(body),
-                runner.session,
-              );
-              send({ review, state: runner.state() });
-              return;
-            }
-            const target =
-              bundle.targets.find((entry) => entry.id === input.targetId) ??
-              threadCheckout(bundle)!;
-            const entry = registry.snapshot().find((item) => item.id === target.repositoryId);
-            if (!entry)
+          const [, threadId, kind] = ownedRoute;
+          const session = await requireSession(threadId!);
+          if (kind === "continue" && request.method === "POST") {
+            if (session.agent !== "claude")
+              throw new HostError("session-not-found", "Med continues Claude sessions only.", 404);
+            const current = ownedSessions.get(session.id);
+            if (current && !current.dormant() && current.state().status !== "exited")
               throw new HostError(
-                "repository-unavailable",
-                `Register the repository for ${target.repo} to start an agent there.`,
+                "session-owned",
+                "Med runs this session already. Send your message here.",
                 409,
               );
-            // The agent works in the reviewed checkout, such as a pull request's
-            // worktree, while that checkout stays.
-            const cwd = await requireRepo(target.repo).catch(() => requireRepo(entry.path));
             assertRequestAccess();
-            const runner = await ownedSessions.start(input.preset, cwd, {
-              ...(bundle.key ? { key: bundle.key } : {}),
-              ...(input.choices ? { choices: input.choices } : {}),
-            });
-            const review = await savedReviews.details(
-              reviewId!,
-              { sessions: [runner.session] },
-              assertRequestAccess,
+            const runner = await ownedSessions.fork(session, { key: await threadKey(threadId!) });
+            const thread = await threads.handOver(session, runner.session);
+            // The messages that waited for the other process start the fork.
+            await inbox.deliverPending(
+              threadId!,
+              session.id,
+              (body) => runner.prompt(body),
+              runner.session,
             );
-            send({ review, state: runner.state() });
+            // The thread's messages go with it.
+            await inbox.move(threadId!, thread);
+            send({ thread, state: runner.state() });
             return;
           }
-          const runner = sessionId ? ownedSessions.get(sessionId) : undefined;
-          if (!runner || !bundle.sessions?.some((entry) => entry.id === sessionId))
+          const runner = ownedSessions.get(session.id);
+          if (!runner)
             throw new HostError("session-not-owned", "Med does not run this session.", 404);
+          const events = kind === "owned/events";
           if (events && request.method === "GET") {
             if (ownedStreams.size >= 16)
               throw new HostError("too-many-streams", "Too many session streams are open.", 503);
@@ -1704,7 +1806,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           if (!events && request.method === "POST") {
-            const action = ownedActionSchema.parse(await readBody(request, MAX_BRIEF_BODY));
+            const action = ownedActionSchema.parse(await readBody(request, MAX_PROMPT_BODY));
             assertRequestAccess();
             if (action.action === "prompt") await runner.prompt(action.text);
             else if (action.action === "permission") {
@@ -1721,73 +1823,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           }
           throw new HostError("method-not-allowed", "This session action is not supported.", 405);
         }
-        // Messages from the review to its agent sessions.
+        // Messages from a thread to its agent session, and the agent's
+        // answers to comments.
         const agentRoute =
-          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/agent(?:\/(messages|events|take|send-now|reply))?$/.exec(
+          /^\/api\/sessions\/([A-Za-z0-9_-]+)\/agent(?:\/(messages|events|take|send-now))?$/.exec(
             url.pathname,
           );
         if (agentRoute) {
-          const reviewId = agentRoute[1]!;
+          const threadId = agentRoute[1]!;
           const action = agentRoute[2];
-          const bundle = await savedReviews.get(reviewId);
-          const inboxState = async (): Promise<AgentInboxState> => {
-            const messages = await inbox.messages(reviewId);
-            // A comment is sent when a message holds its version. A message
-            // from before versions holds the comments as they were when it
-            // was made.
-            const versions = new Map<string, Set<string>>();
-            const sentAt = new Map<string, string>();
-            for (const message of messages)
-              for (const id of message.noteIds) {
-                const version = message.noteVersions?.[id];
-                if (version !== undefined)
-                  versions.set(id, (versions.get(id) ?? new Set()).add(version));
-                else if ((sentAt.get(id) ?? "") < message.createdAt)
-                  sentAt.set(id, message.createdAt);
-              }
-            const comments = await savedReviews.comments(reviewId);
-            // The events stream asks again on each change; read the review again.
-            const { briefComments, fileComments, sessions, revision } =
-              await savedReviews.get(reviewId);
-            const unsent = (comment: { id: string; updatedAt: string }) =>
-              !versions.get(comment.id)?.has(comment.updatedAt) &&
-              (sentAt.get(comment.id) ?? "") < comment.updatedAt;
-            return {
-              messages,
-              ...(await sessionPlaces(sessions)),
-              owned: (sessions ?? []).flatMap((session) =>
-                ownedSessions.get(session.id) ? [session.id] : [],
-              ),
-              revision,
-              drafts: [
-                ...comments.filter(unsent).map((comment) => ({
-                  id: comment.id,
-                  path: comment.path,
-                  line: comment.line,
-                  ...(comment.endLine ? { endLine: comment.endLine } : {}),
-                  text: comment.text,
-                  replies: comment.replies,
-                })),
-                ...(briefComments ?? []).filter(unsent).map((comment) => ({
-                  id: comment.id,
-                  path: comment.section === "pr" ? "PR draft" : "Notes",
-                  quote: comment.quote,
-                  text: comment.text,
-                  replies: 0,
-                })),
-                ...(fileComments ?? [])
-                  .filter((comment) => !comment.resolved && unsent(comment))
-                  .map((comment) => ({
-                    id: comment.id,
-                    path: comment.path,
-                    line: comment.line,
-                    ...(comment.endLine ? { endLine: comment.endLine } : {}),
-                    text: comment.text,
-                    replies: comment.replies.length,
-                  })),
-              ],
-            };
-          };
+          const inboxState = () => threadInbox(threadId);
           if (!action && request.method === "GET") {
             send(await inboxState());
             return;
@@ -1819,7 +1864,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   .catch(() => {});
               }, 50);
             };
-            const unsubscribe = inbox.subscribe(reviewId, push);
+            const unsubscribe = inbox.subscribe(threadId, push);
             response.once("close", () => {
               inboxStreams.delete(response);
               unsubscribe();
@@ -1831,23 +1876,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const input = agentMessageInputSchema.parse(
               await readBody(request, MAX_AGENT_MESSAGE_BODY),
             );
-            const session = bundle.sessions?.find((entry) => entry.id === input.sessionId);
-            if (!session)
-              throw new HostError(
-                "session-not-found",
-                "This review has no such agent session.",
-                404,
-              );
+            const session = await requireSession(threadId);
             // The page sends a message again when it lost Med's answer, or
             // after a reload, with the same ID: Med sends it once.
-            const message = await inbox.once(reviewId, input.id, async () => {
+            const message = await inbox.once(threadId, input.id, async () => {
               const parts: string[] = [];
               if (input.text.trim()) parts.push(input.text.trim());
               // One read gives the agent's text, the thread's copy of each
               // comment, and the version that the message holds, so an edit
               // after it stays a draft.
               const feedback = input.noteIds.length
-                ? await savedReviews.feedback(reviewId, new Set(input.noteIds))
+                ? await threadFeedback(threadId, new Set(input.noteIds))
                 : undefined;
               // The text ends with how to answer a comment in its thread.
               if (feedback?.count) parts.push(feedback.text);
@@ -1923,10 +1962,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 );
               // A session that Med runs takes the message as its next prompt.
               const target = resume
-                ? await ownedSessions.resume(session, bundle.key ? { key: bundle.key } : {})
+                ? await ownedSessions.resume(session, { key: await threadKey(threadId) })
                 : live;
               const message = await inbox.send(
-                reviewId,
+                threadId,
                 session,
                 {
                   ...(input.id ? { id: input.id } : {}),
@@ -1945,7 +1984,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                     : {},
               );
               if (queue && message.delivery === "pending")
-                queuedMessages.watch(reviewId, session.id);
+                queuedMessages.watch(threadId, session.id);
               return message;
             });
             send({ message, state: await inboxState() });
@@ -1957,7 +1996,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const input = z
               .object({ id: z.string().min(1).max(128) })
               .parse(await readBody(request));
-            const message = await inbox.takeBack(reviewId, input.id);
+            const message = await inbox.takeBack(threadId, input.id);
             send({ message, state: await inboxState() });
             return;
           }
@@ -1967,12 +2006,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const input = z
               .object({ id: z.string().min(1).max(128) })
               .parse(await readBody(request));
-            const message = (await inbox.messages(reviewId)).find(
+            const message = (await inbox.messages(threadId)).find(
               (entry) => entry.id === input.id && entry.queued && entry.delivery === "pending",
             );
             if (!message)
               throw new HostError("message-gone", "The agent has this message already.", 409);
-            if (!(await queuedMessages.sendNow(reviewId, message.sessionId, input.id)))
+            if (!(await queuedMessages.sendNow(threadId, message.sessionId, input.id)))
               throw new HostError(
                 "steer-unsupported",
                 "This agent takes the message when its turn ends.",
@@ -1981,51 +2020,24 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send({ state: await inboxState() });
             return;
           }
-          // `med review reply`: the agent answers a comment in its thread.
-          if (action === "reply" && request.method === "POST") {
-            const input = z
-              .object({
-                commentId: z.string().min(1).max(128),
-                text: z.string().min(1).max(16384),
-                session: z
-                  .object({
-                    agent: z.enum(["claude", "codex", "acp"]),
-                    id: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
-                  })
-                  .optional(),
-                /** A comment on a file is done (`med reply --resolve`). */
-                resolve: z.boolean().optional(),
-              })
-              .parse(await readBody(request));
-            const session =
-              (input.session &&
-                bundle.sessions?.find(
-                  (entry) => entry.id === input.session!.id && entry.agent === input.session!.agent,
-                )) ??
-              bundle.sessions?.at(-1);
-            const author = session
-              ? {
-                  agent: session.agent,
-                  ...(session.name ? { name: session.name } : {}),
-                  sessionId: session.id,
-                }
-              : input.session
-                ? { agent: input.session.agent, sessionId: input.session.id }
-                : { agent: "acp" as const };
-            const note = await savedReviews.reply(
-              reviewId,
-              input.commentId,
-              input.text,
-              author,
-              undefined,
-              { resolve: input.resolve },
-            );
-            // Open pages read the comments again.
-            inbox.touch(reviewId);
-            send({ note });
+          throw new HostError("method-not-allowed", "This agent action is not supported.", 405);
+        }
+        // A thread's comments on lines of files (`gc` in a file).
+        const fileCommentsRoute = /^\/api\/threads\/([A-Za-z0-9_-]+)\/file-comments$/.exec(
+          url.pathname,
+        );
+        if (fileCommentsRoute) {
+          const threadId = threadIdSchema.parse(fileCommentsRoute[1]);
+          if (request.method === "GET") {
+            send({ comments: await threadComments.list(threadId) });
             return;
           }
-          throw new HostError("method-not-allowed", "This agent action is not supported.", 405);
+          if (request.method === "POST") {
+            const mutation = fileCommentMutationSchema.parse(await readBody(request));
+            assertRequestAccess();
+            send({ comments: await threadComments.mutate(threadId, mutation) });
+            return;
+          }
         }
         if (url.pathname === "/api/windows" && request.method === "GET") {
           if (windows.size >= 16)
@@ -2107,32 +2119,23 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 updated: z.boolean().default(false),
               })
               .parse(await readBody(request));
-            const bundle = await savedReviews.get(input.id);
+            // A review's ID, or a thread's (`med thread adopt --open`).
+            const bundle = REVIEW_ID.test(input.id) ? await savedReviews.get(input.id) : undefined;
+            const thread = bundle ? threadOfReview(bundle) : input.id;
+            const title = bundle?.title ?? (await threads.open(thread)).title;
             const event = {
               type: "review",
-              id: bundle.id,
-              title: bundle.title,
+              ...(bundle && { id: bundle.id }),
+              thread,
+              title,
               open: input.open,
               updated: input.updated,
-              sessions: bundle.sessions ?? [],
             };
             for (const window of windows)
               window.write(`event: review\ndata: ${JSON.stringify(event)}\n\n`);
             send({ windows: windows.size });
             return;
           }
-          /** A thread's checkout, which it keeps without a capture: its
-           * Changes are live until the agent hands off a Review. */
-          const placeCheckout = async (path: string): Promise<SavedCheckout> => {
-            const repo = await requireRepo(path);
-            const owner = await registry.require(repo, abort.signal);
-            const info = await resolveRepository(repo, abort.signal);
-            return {
-              repositoryId: owner.repository.id,
-              repo,
-              branch: info.branch === "Detached HEAD" ? null : info.branch,
-            };
-          };
           // A comparison of a saved review, with its sources and images.
           const captureTarget = async (
             target: SavedReviewCreate["targets"][number],
@@ -2213,20 +2216,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 "Start med with Git repositories to create a review.",
                 422,
               );
-            // The brief and the guide arrive in one body.
-            // A stack's or a set's guides come in the same body.
             const input = savedReviewCreateSchema.parse(
-              await readBody(request, MAX_BRIEF_BODY + 4 * MAX_GUIDE_BODY),
+              await readBody(request, MAX_GUIDE_BODY * 2),
             );
-            const review = await savedReviews.create(
-              input,
-              captureTarget,
-              assertRequestAccess,
-              undefined,
-              (id) => threads.isTab(id),
-            );
-            // A hand-off opens its thread as a tab, also a new iteration of a closed one.
-            await threads.opened(review);
+            // An agent that Med runs hands off with its thread's key, which
+            // names its session when its command could not.
+            input.session ??= input.key ? ownedSessions.sessionOfKey(input.key) : undefined;
+            if (!input.session) delete input.session;
+            const review = await savedReviews.create(input, captureTarget, assertRequestAccess);
+            // A hand-off opens its thread as a tab, also a new version of an archived one.
+            await threads.handedOff(review);
             send(review);
             return;
           }
@@ -2236,15 +2235,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           if (version && request.method === "POST") {
             const body = savedReviewCreateSchema
               .omit({ title: true })
-              .parse(await readBody(request, MAX_BRIEF_BODY + MAX_GUIDE_BODY));
+              .parse(await readBody(request, MAX_GUIDE_BODY * 2));
             const review = await savedReviews.addVersion(
               version[1]!,
               body,
               captureTarget,
               assertRequestAccess,
             );
-            // As a hand-off does, a new version opens a closed thread as a tab.
-            await threads.opened(review);
+            // As a hand-off does, a new version opens an archived thread as a tab.
+            await threads.handedOff(review);
             send(review);
             return;
           }
@@ -2259,9 +2258,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               throw new HostError("session-not-found", "Choose an agy conversation ID.", 400);
             const named = (await sessionThreads()).get(id);
             if (named) {
-              if (named.archived) await threads.open(named.id, { restore: true });
-              const review = await savedReviews.get(named.id);
-              return { id: review.id, title: review.title, created: false };
+              const thread = await threads.open(named.id);
+              return { id: thread.id, title: thread.title, created: false };
             }
             const agent = (await ownedSessions.agents()).find(
               (entry) => entry.kind === "agy" && entry.available,
@@ -2276,23 +2274,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               );
             const title = input.title ?? "Antigravity conversation";
             const key = `${threadSlug(title)}-${id.slice(0, 8)}`;
-            const created = await savedReviews.create(
-              { title, key, sessions: [], targets: [] },
-              captureTarget,
-              assertRequestAccess,
-              await placeCheckout(place.checkout.path),
-            );
+            assertRequestAccess();
             const runner = await ownedSessions.start(agent.id, input.repo, {
               key,
               conversation: id,
             });
-            const review = await savedReviews.details(
-              created.id,
-              { sessions: [runner.session] },
-              assertRequestAccess,
-            );
-            await threads.opened(review);
-            return { id: review.id, title: review.title, created: true };
+            const thread = await threads.keep(runner.session, { title });
+            return { id: thread, title, created: true };
           };
           // `med thread adopt`: a Claude Code or Codex session of any age
           // becomes a saved thread, as Keep in Med makes one. A session that
@@ -2314,53 +2302,19 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               );
             const info = matches[0]!;
             const [entry] = await sessionEntries([info]);
-            const named = (await sessionThreads()).get(info.id);
-            if (named) {
-              if (named.archived) await threads.open(named.id, { restore: true });
-              const review = await savedReviews.get(named.id);
-              send({
-                id: review.id,
-                title: review.title,
-                created: false,
-                session: entry!,
-              } satisfies SessionAdopted);
-              return;
-            }
-            let repo = input.repo;
-            if (!repo) {
-              const place = info.cwd ? await found.locate(info.cwd) : undefined;
-              if (!place?.checkout)
-                throw new HostError(
-                  "session-checkout",
-                  !info.cwd
-                    ? "The transcript does not name the session's folder. Choose a checkout with --repo <path>."
-                    : place?.state === "gone" || !existsSync(info.cwd)
-                      ? `The session's folder ${info.cwd} no longer exists. Choose a checkout with --repo <path>.`
-                      : `The session's folder ${info.cwd} is not in a registered repository. Run ${medCommand({ port, stateDir: options.stateDir }, "add", "<repository>")}, or choose a checkout with --repo <path>.`,
-                  409,
-                );
-              repo = place.checkout.path;
-            }
+            const key = sessionKey(info);
+            const known = store.known(key);
+            // A session works wherever it goes: it needs no checkout to be
+            // kept, and its Changes follow the folder it works in.
+            const cwd = info.cwd ?? input.repo ?? homedir();
             const title = input.title ?? info.title.slice(0, 200);
-            // The thread captures nothing: its Changes are live, and it has a
-            // Review once the agent shows one (`med thread show`).
-            const review = await savedReviews.create(
-              {
-                title,
-                key: `${threadSlug(title)}-${info.id.slice(0, 8)}`,
-                sessions: [{ agent: info.agent, id: info.id, cwd: info.cwd ?? repo }],
-                targets: [],
-              },
-              captureTarget,
-              assertRequestAccess,
-              await placeCheckout(repo),
-            );
-            // An adopted session is a new thread: it opens as a tab.
-            await threads.opened(review);
+            await threads.keep({ agent: info.agent, id: info.id, cwd }, { title });
+            if (input.title) await threads.rename(key, input.title);
+            const thread = await threads.open(key);
             send({
-              id: review.id,
-              title: review.title,
-              created: true,
+              id: key,
+              title: thread.title,
+              created: !known,
               session: entry!,
             } satisfies SessionAdopted);
             return;
@@ -2368,55 +2322,23 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           // Fork from here: a new thread on the session's checkout, whose
           // Claude Code session starts from this one's history up to a reply.
           // The thread it forks stays as it is.
-          const forkRoute =
-            /^\/api\/reviews\/([A-Za-z0-9_-]+)\/sessions\/([A-Za-z0-9_-]+)\/fork$/.exec(
-              url.pathname,
-            );
+          const forkRoute = /^\/api\/sessions\/([A-Za-z0-9_-]+)\/fork$/.exec(url.pathname);
           if (forkRoute && request.method === "POST") {
             const input = sessionForkSchema.parse(await readBody(request));
-            const foundSessions = await found.session(forkRoute[1]!);
-            const bundle = foundSessions ? undefined : await savedReviews.get(forkRoute[1]!);
-            const session = (foundSessions ?? bundle?.sessions)?.find(
-              (entry) => entry.id === forkRoute[2],
-            );
-            if (!session)
-              throw new HostError(
-                "session-not-found",
-                "This thread has no such agent session.",
-                404,
-              );
+            const session = await requireSession(forkRoute[1]!);
             if (session.agent !== "claude")
               throw new HostError("fork-unsupported", "Med forks Claude Code sessions only.", 409);
-            const place = await found.locate(session.cwd);
-            if (!place?.checkout)
-              throw new HostError(
-                "session-checkout",
-                `The session's folder ${session.cwd} is not in a registered repository. Run ${medCommand({ port, stateDir: options.stateDir }, "add", "<repository>")} first.`,
-                409,
-              );
-            const title = (input.title ?? `${bundle?.title ?? "Agent session"} (fork)`).slice(
-              0,
-              120,
-            );
+            const entry = threads.entry(forkRoute[1]!);
+            const title = (
+              input.title ?? `${entry?.name ?? entry?.title ?? "Agent session"} (fork)`
+            ).slice(0, 120);
             const key = `${threadSlug(title)}-${randomUUID().slice(0, 4)}`;
-            // The checkout passes the request's checks before an agent starts there.
-            const checkout = await placeCheckout(place.checkout.path);
             assertRequestAccess();
             const runner = await ownedSessions.fork(session, { key, at: input.at });
-            try {
-              const review = await savedReviews.create(
-                { title, key, sessions: [runner.session], targets: [] },
-                captureTarget,
-                assertRequestAccess,
-                checkout,
-              );
-              // A new thread: it opens as a tab.
-              await threads.opened(review);
-              send({ id: review.id, title: review.title } satisfies SessionForked);
-            } catch (error) {
-              ownedSessions.end(runner);
-              throw error;
-            }
+            // A new thread: it opens as a tab.
+            const thread = await threads.keep(runner.session, { title });
+            await threads.rename(thread, title);
+            send({ id: thread, title } satisfies SessionForked);
             return;
           }
           // The Superagent's thread: made, with its folder and session, the
@@ -2425,11 +2347,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const input = z
               .object({ preset: z.string().min(1).max(200).default("claude") })
               .parse(await readBody(request));
-            const known = await savedReviews.byKey(SUPERAGENT_KEY).catch(() => undefined);
+            const known = threads.superagent();
             if (known) {
               await registry.register(superagentPath, abort.signal).catch(() => {});
-              await threads.open(known.id, { restore: true }).catch(() => {});
-              send({ review: known, created: false });
+              await threads.open(known).catch(() => {});
+              send({ thread: known, created: false });
               return;
             }
             assertRequestAccess();
@@ -2441,25 +2363,22 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               key: SUPERAGENT_KEY,
               choices: { ...SUPERAGENT_CHOICES },
             });
-            const review = await savedReviews.create(
-              {
-                title: SUPERAGENT_TITLE,
-                key: SUPERAGENT_KEY,
-                sessions: [runner.session],
-                targets: [],
-              },
-              captureTarget,
-              assertRequestAccess,
-              await placeCheckout(cwd),
-            );
             const brief = superagentBrief();
-            await threads.opened(review, brief);
+            // An ordinary session, pinned on top.
+            const thread = await threads.keep(runner.session, {
+              title: SUPERAGENT_TITLE,
+              prompt: brief,
+              superagent: true,
+            });
+            await threads.rename(thread, SUPERAGENT_TITLE);
+            await threads.pin(thread, true, 0);
             await runner.prompt(brief);
-            send({ review, created: true });
+            send({ thread, created: true });
             return;
           }
           // A new thread: a branch in a new worktree (or the checkout itself),
-          // its review, and an agent that starts on the task there.
+          // and an agent that starts on the task there. It has no review
+          // until the agent hands one off.
           if (url.pathname === "/api/threads" && request.method === "POST") {
             const input = threadStartSchema.parse(await readBody(request));
             const entry = registry.snapshot().find((item) => item.id === input.repositoryId);
@@ -2496,20 +2415,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               key,
               ...(input.choices ? { choices: input.choices } : {}),
             });
-            const review = await savedReviews.create(
-              {
-                title,
-                key,
-                sessions: [runner.session],
-                targets: [],
-              },
-              captureTarget,
-              assertRequestAccess,
-              await placeCheckout(cwd),
-            );
-            await threads.opened(review, input.prompt);
+            const thread = await threads.keep(runner.session, { prompt: input.prompt, title });
             await runner.prompt(input.prompt);
-            send({ review });
+            send({ thread });
             return;
           }
           const browsingNotes =
@@ -2683,7 +2591,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   commentCapture,
                 ),
               );
-              inbox.touch(id!);
+              void touchReview(id!);
               return;
             }
             const state = await savedReviews.mutate(
@@ -2695,7 +2603,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               target ? undefined : commentCapture,
             );
             send({ ...state, reviewId });
-            inbox.touch(id!);
+            void touchReview(id!);
             return;
           }
           // `med reply <id>`: the reviews with a comment whose ID starts so.
@@ -2704,13 +2612,78 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             else send({ pulls: [...basePulls.last.values()] });
             return;
           }
-          const commentRoute = /^\/api\/comments\/([0-9a-fA-F-]{6,36})$/.exec(url.pathname);
-          if (commentRoute && request.method === "GET") {
-            const ids = await savedReviews.reviewsWithComment(commentRoute[1]!.toLowerCase());
-            const reviews = await Promise.all(
-              ids.map(async (id) => ({ id, title: (await savedReviews.get(id)).title })),
-            );
-            send({ reviews });
+          // `med reply`: the agent answers a comment in its thread, on a
+          // review's change or on a file. Med finds the comment by its ID's
+          // start; `key` names the review when two comments share one.
+          const commentRoute = /^\/api\/comments\/([0-9a-fA-F-]{6,36})\/reply$/.exec(url.pathname);
+          if (commentRoute && request.method === "POST") {
+            const input = z
+              .object({
+                text: z.string().min(1).max(16384),
+                key: z.string().min(1).max(200).optional(),
+                session: z
+                  .object({
+                    agent: z.enum(["claude", "codex", "acp"]),
+                    id: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+                  })
+                  .optional(),
+                /** A comment on a file is done (`med reply --resolve`). */
+                resolve: z.boolean().optional(),
+              })
+              .parse(await readBody(request));
+            const prefix = commentRoute[1]!.toLowerCase();
+            const keyed = input.key
+              ? REVIEW_ID.test(input.key)
+                ? input.key
+                : (await savedReviews.byKey(input.key)).id
+              : undefined;
+            const reviews = keyed ? [keyed] : await savedReviews.reviewsWithComment(prefix);
+            const onFiles = keyed ? [] : await threadComments.threadsWith(prefix);
+            if (!reviews.length && !onFiles.length)
+              throw new HostError(
+                "note-not-found",
+                `No thread in Med has a comment with ID ${prefix}.`,
+                404,
+              );
+            if (reviews.length + onFiles.length > 1) {
+              const names = await Promise.all(
+                reviews.map(async (id) => `"${(await savedReviews.get(id)).title}" (--key ${id})`),
+              );
+              throw new HostError(
+                "comment-ambiguous",
+                `Comments in ${reviews.length + onFiles.length} places have an ID that starts with ${prefix}${names.length ? `: ${names.join(", ")}` : ""}. Give more of the ID${names.length ? ", or add --key with the review's ID" : ""}.`,
+                409,
+              );
+            }
+            const thread = reviews[0] ? await threads.threadOf(reviews[0]) : onFiles[0]!;
+            const own = thread ? await threadSession(thread).catch(() => undefined) : undefined;
+            const author = input.session
+              ? {
+                  agent: input.session.agent,
+                  ...(own?.id === input.session.id && own.name ? { name: own.name } : {}),
+                  sessionId: input.session.id,
+                }
+              : own
+                ? { agent: own.agent, ...(own.name ? { name: own.name } : {}), sessionId: own.id }
+                : { agent: "acp" as const };
+            if (reviews[0]) {
+              const note = await savedReviews.reply(
+                reviews[0],
+                prefix,
+                input.text,
+                author,
+                undefined,
+                { resolve: input.resolve },
+              );
+              // Open pages read the comments again.
+              void touchReview(reviews[0]);
+              send({ note });
+            } else {
+              const note = await threadComments.reply(onFiles[0]!, prefix, input.text, author, {
+                resolve: input.resolve,
+              });
+              send({ note });
+            }
             return;
           }
           if (url.pathname === "/api/reviews/by-key" && request.method === "POST") {
@@ -2718,8 +2691,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send(await savedReviews.byKey(key));
             return;
           }
+          // The thread of a review key (`MED_THREAD_KEY`): its review's, or,
+          // before a hand-off, the session's that Med runs with the key.
+          if (url.pathname === "/api/threads/by-key" && request.method === "POST") {
+            const { key } = z.object({ key: reviewKeySchema }).parse(await readBody(request));
+            const review = await savedReviews.byKey(key).catch(() => undefined);
+            const running = ownedSessions.sessionOfKey(key);
+            const thread = review ? threadOfReview(review) : running && sessionKey(running);
+            if (!thread)
+              throw new HostError("thread-not-found", `Med has no thread with key ${key}.`, 404);
+            send({ thread });
+            return;
+          }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes|drift)|\/(feedback|clear|brief|guide|brief-comments|file-comments|pins|iterations|delete-notes|details|pull-request|pull-request-live|pull-request-log|pull-request-image|codex-reviews|since|approval|read|pr-draft|pr-draft-create))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes|drift)|\/(feedback|clear|guide|refresh|details|pull-request|pull-request-live|pull-request-log|pull-request-image|codex-reviews|since|read))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -2830,7 +2815,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 send({ since: (await savedReviews.since(id!, version)) ?? null });
               } else if (action === "feedback") {
                 const { threads: _threads, ...feedback } = await savedReviews.feedback(id!);
-                send(feedback);
+                // Copy comments copies what a message to the thread's agent
+                // takes: its reviews' comments and its comments on files.
+                const thread = await threadFeedback(threadOfReview(bundle));
+                send({ ...feedback, text: thread.text });
               } else if (action === "pull-request") {
                 if (!bundle.pullRequestUrl)
                   throw new HostError("no-pull-request", "This review has no pull request.", 404);
@@ -2896,17 +2884,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                     )
                     .slice(0, 20),
                 });
-              } else if (action === "pr-draft") {
-                // An image of the pull request draft, which Med keeps.
-                const image = await prDrafts.image(id!, url.searchParams.get("image") ?? "");
-                response.writeHead(200, {
-                  "Content-Type": image.mime,
-                  "Content-Length": image.bytes.length,
-                  "Cache-Control": "private, max-age=31536000, immutable",
-                  "X-Content-Type-Options": "nosniff",
-                  "Content-Security-Policy": "default-src 'none'; sandbox",
-                });
-                response.end(image.bytes);
               } else if (!action) send(bundle);
               else
                 throw new HostError(
@@ -2941,7 +2918,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   ),
                 ),
               );
-              inbox.touch(id!);
+              void touchReview(id!);
               return;
             }
             if (request.method === "POST" && action === "read") {
@@ -2952,119 +2929,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               send(await savedReviews.markRead(id!, input.version, assertRequestAccess));
               return;
             }
-            if (request.method === "POST" && action === "approval") {
-              const input = z
-                .object({ version: z.number().int().positive(), approved: z.boolean() })
-                .parse(await readBody(request));
-              assertRequestAccess();
-              send(
-                await savedReviews.approve(id!, input.version, input.approved, assertRequestAccess),
-              );
-              return;
-            }
-            if (request.method === "POST" && action === "brief") {
-              const input = z
-                .object({ brief: z.string().nullable() })
-                .parse(await readBody(request, MAX_BRIEF_BODY));
-              assertRequestAccess();
-              send(await savedReviews.setBrief(id!, input.brief, assertRequestAccess));
-              return;
-            }
             if (request.method === "POST" && action === "guide") {
-              // `part`: the key of a stack's or a set's part.
               const input = z
-                .object({ guide: z.unknown(), part: z.string().max(400).optional() })
+                .object({ guide: z.unknown() })
                 .parse(await readBody(request, MAX_GUIDE_BODY));
               assertRequestAccess();
-              send(
-                await savedReviews.setGuide(
-                  id!,
-                  input.guide ?? null,
-                  assertRequestAccess,
-                  input.part,
-                ),
-              );
+              send(await savedReviews.setGuide(id!, input.guide ?? null, assertRequestAccess));
               return;
             }
-            if (request.method === "POST" && action === "file-comments") {
-              const input = fileCommentMutationSchema.parse(await readBody(request));
+            // Refresh: the review's comparisons, captured again as a new version.
+            if (request.method === "POST" && action === "refresh") {
               assertRequestAccess();
-              send(await savedReviews.commentFile(id!, input, assertRequestAccess));
-              inbox.touch(id!);
-              return;
-            }
-            if (request.method === "POST" && action === "brief-comments") {
-              const input = briefCommentMutationSchema.parse(await readBody(request));
-              assertRequestAccess();
-              send(await savedReviews.commentBrief(id!, input, assertRequestAccess));
-              inbox.touch(id!);
-              return;
-            }
-            if (request.method === "POST" && action === "delete-notes") {
-              const input = z
-                .object({
-                  iteration: z.number().int().positive().optional(),
-                  briefFrom: z.number().int().positive().optional(),
-                })
-                .parse(await readBody(request));
-              assertRequestAccess();
-              send(await savedReviews.deleteNotes(id!, input, assertRequestAccess));
-              inbox.touch(id!);
-              return;
-            }
-            if (request.method === "POST" && action === "iterations") {
-              assertRequestAccess();
-              send(await savedReviews.startNotes(id!, captureTarget, assertRequestAccess));
-              return;
-            }
-            // The pull request draft that the agent wrote (med pr draft), its
-            // images, and Create, which opens the pull request with gh.
-            if (request.method === "POST" && action === "pr-draft") {
-              const input = prDraftInputSchema.parse(await readBody(request, MAX_PR_DRAFT_BODY));
-              const checkout = input.repo ?? threadCheckout(bundle)?.repo;
-              const repo = checkout
-                ? (await registry.require(checkout, abort.signal)).path
-                : undefined;
-              const draft = await prDrafts.prepare(id!, { ...input, repo });
-              assertRequestAccess();
-              send(await savedReviews.setPrDraft(id!, { draft }, assertRequestAccess));
-              inbox.touch(id!);
-              return;
-            }
-            if (request.method === "POST" && action === "pr-draft-create") {
-              const input = z.object({ draft: z.boolean() }).parse(await readBody(request));
-              const draft = bundle.prDraft;
-              if (!draft)
-                throw new HostError("no-pr-draft", "This review has no pull request draft.", 404);
-              if (draft.pullRequestUrl)
-                throw new HostError(
-                  "pr-created",
-                  `The pull request is open already: ${draft.pullRequestUrl}`,
-                  409,
-                );
-              const checkout = draft.repo ?? threadCheckout(bundle)?.repo;
-              if (!checkout)
-                throw new HostError("no-checkout", "The draft names no checkout.", 409);
-              const repo = (await registry.require(checkout, abort.signal)).path;
-              if (creatingPullRequests.has(id!))
-                throw new HostError("pr-creating", "Med is opening this pull request.", 409);
-              creatingPullRequests.add(id!);
-              try {
-                // Without the request's signal: once gh runs, GitHub may open
-                // the pull request, so Med records its URL even when the
-                // window closes meanwhile.
-                const created = await prDrafts.create(draft, repo, input.draft);
-                const review = await savedReviews.setPrDraft(id!, { created: created.url });
-                send({ review, url: created.url, left: created.left });
-              } finally {
-                creatingPullRequests.delete(id!);
-              }
-              return;
-            }
-            if (request.method === "POST" && action === "pins") {
-              const input = pinMutationSchema.parse(await readBody(request, MAX_BRIEF_BODY));
-              assertRequestAccess();
-              send(await savedReviews.pin(id!, input, assertRequestAccess));
+              send(await savedReviews.refresh(id!, captureTarget, assertRequestAccess));
               return;
             }
             // The reader's pending review on GitHub: a Med comment or a reply
@@ -3139,12 +3015,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             }
             if (request.method === "POST" && action === "details") {
               const input = savedReviewDetailsSchema.parse(await readBody(request));
-              // A thread works only in a checkout of a registered repository.
-              if (input.checkout) {
-                const owned = await registry.require(input.checkout.repo, abort.signal);
-                input.checkout.repo = owned.path;
-                input.checkout.repositoryId = owned.repository.id;
-              }
               assertRequestAccess();
               send(await savedReviews.details(id!, input, assertRequestAccess));
               return;
@@ -3155,7 +3025,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 .parse(await readBody(request));
               assertRequestAccess();
               send(await savedReviews.clear(id!, input.expectedRevision, assertRequestAccess));
-              inbox.touch(id!);
+              void touchReview(id!);
               return;
             }
             throw new HostError(
@@ -3593,33 +3463,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send({ thread });
             return;
           }
-          // Stacks and sets (docs/STACKS.md): a thread goes on top of
-          // another's stack, a stack splits into threads, or changes shape.
-          const partAction = /^\/api\/threads\/(r_[a-f0-9]{24})\/(group|ungroup|shape)$/.exec(
-            url.pathname,
-          );
-          if (partAction && request.method === "POST") {
-            const [, id, action] = partAction;
-            const body = await readBody(request).catch(() => ({}));
-            if (action === "group") {
-              const { onto } = threadGroupSchema.parse(body ?? {});
-              const review = await savedReviews.group(id!, onto, assertRequestAccess);
-              await threads.close(id!);
-              await threads.opened(review);
-              send({ thread: review.id });
-            } else if (action === "ungroup") {
-              const made = await savedReviews.ungroup(id!, assertRequestAccess);
-              for (const review of made.toReversed()) await threads.opened(review);
-              send({ threads: made.map((review) => review.id) });
-            } else {
-              const { shape } = threadShapeSchema.parse(body ?? {});
-              await savedReviews.setShape(id!, shape, assertRequestAccess);
-              send({ ok: true });
-            }
-            return;
-          }
           const threadAction =
-            /^\/api\/threads\/([\w-]+)\/(open|close|delete|archive|name|pin|seen)$/.exec(
+            /^\/api\/threads\/([\w-]+)\/(open|close|delete|archive|name|pin|seen|base)$/.exec(
               url.pathname,
             );
           if (threadAction && request.method === "POST") {
@@ -3627,7 +3472,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const action = threadAction[2];
             const body = await readBody(request).catch(() => ({}));
             if (action === "open") {
-              send({ thread: await threads.open(id, threadOpenSchema.parse(body ?? {})) });
+              threadOpenSchema.parse(body ?? {});
+              send({ thread: await threads.open(id) });
             } else if (action === "close") {
               const input = threadCloseSchema.parse(body ?? {});
               send({ closed: await threads.close(id, input, abort.signal) });
@@ -3644,6 +3490,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             } else if (action === "seen") {
               await threads.see(id, threadSeenSchema.parse(body ?? {}).at);
               send({ ok: true });
+            } else if (action === "base") {
+              // The branch that the thread's Changes start from; null for the base.
+              const input = z
+                .object({ base: z.string().trim().min(1).max(256).nullable() })
+                .parse(body ?? {});
+              await threads.setBase(id, input.base ?? undefined);
+              send({ ok: true });
             } else {
               // Archive, from before tabs: it closes the thread, or opens it again.
               const input = z
@@ -3651,7 +3504,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 .parse(body);
               if (input.archived)
                 await threads.close(id, { removeWorktree: input.removeWorktree }, abort.signal);
-              else await threads.open(id, { restore: true });
+              else await threads.open(id);
               send({ ok: true });
             }
             return;

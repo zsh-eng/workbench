@@ -93,13 +93,22 @@ async function fixture() {
   };
   const repositoryId = (await api<{ repositories: { id: string }[] }>("/api/repositories")).data
     .repositories[0]!.id;
-  return { api, list, repo, repositoryId, home, host, stateDir: join(directory, "state") };
+  /** A thread as the list shows it, once it does. */
+  const listed = async (id: string) =>
+    vi.waitFor(async () => {
+      const found = (await api<ThreadList>("/api/threads")).data.threads.find(
+        (thread) => thread.id === id,
+      );
+      expect(found).toBeDefined();
+      return found!;
+    });
+  return { api, list, listed, repo, repositoryId, home, host, stateDir: join(directory, "state") };
 }
 
 test("a thread starts its agent on a new branch in a worktree, and archiving can remove it", async () => {
-  const { api, list, repo, repositoryId } = await fixture();
+  const { api, list, listed, repo, repositoryId } = await fixture();
   const start = (prompt: string, choices?: { model: string }) =>
-    api<{ review: SavedReview }>("/api/threads", {
+    api<{ thread: string }>("/api/threads", {
       repositoryId,
       prompt,
       preset: "claude",
@@ -107,44 +116,50 @@ test("a thread starts its agent on a new branch in a worktree, and archiving can
     });
 
   // The task names the thread and its branch; the agent starts on it at once.
+  // A thread is its agent's session, with no review until the agent hands one off.
   const first = await start("Show each result's age in the list, as relative times.");
   expect(first.status).toBe(200);
-  const review = first.data.review;
-  expect(review.title).toBe("Show each result's age in the list");
-  const worktree = review.checkout!.repo;
+  const review = { id: first.data.thread };
+  expect(review.id).toMatch(/^claude-/);
+  const shown = await listed(review.id);
+  expect(shown).toMatchObject({
+    kind: "session",
+    title: "Show each result's age in the list",
+    reviews: [],
+  });
+  const worktree = shown.checkout!;
   expect(git(worktree, ["branch", "--show-current"])).toBe("show-each-results-age-list");
   expect(git(repo, ["branch", "--show-current"])).toBe("main");
-  const session = review.sessions![0]!;
-  expect(session.cwd).toBe(worktree);
+  expect(shown.session!.cwd).toBe(worktree);
   await vi.waitFor(
     async () => {
-      const state = (await api<OwnedState>(`/api/reviews/${review.id}/owned/${session.id}`)).data;
+      const state = (await api<OwnedState>(`/api/sessions/${review.id}/owned`)).data;
       expect(state).toMatchObject({ status: "idle", turns: 1 });
     },
     { timeout: 5000 },
   );
 
   // The same task again takes the next free branch name, here with a chosen model.
-  const second = (await start("Show each result's age in the list", { model: "haiku" })).data
-    .review;
-  expect(git(second.checkout!.repo, ["branch", "--show-current"])).toBe(
-    "show-each-results-age-list-2",
-  );
+  const second = {
+    id: (await start("Show each result's age in the list", { model: "haiku" })).data.thread,
+  };
+  const secondCheckout = (await listed(second.id)).checkout!;
+  expect(git(secondCheckout, ["branch", "--show-current"])).toBe("show-each-results-age-list-2");
   await vi.waitFor(async () => {
-    const owned = await api<OwnedState>(
-      `/api/reviews/${second.id}/owned/${second.sessions![0]!.id}`,
-    );
+    const owned = await api<OwnedState>(`/api/sessions/${second.id}/owned`);
     expect(owned.data.settings.find((setting) => setting.id === "model")?.value).toBe("haiku");
   });
 
-  // The list shows both, newest first, each in its own linked worktree.
+  // The list shows both, each in its own linked worktree.
   const threads = await list();
+  const rows = () =>
+    threads
+      .value!.threads.map((thread) => [thread.id, thread.branch, thread.linked])
+      .toSorted((a, b) => String(a[1]).localeCompare(String(b[1])));
   await vi.waitFor(() =>
-    expect(
-      threads.value!.threads.map((thread) => [thread.id, thread.branch, thread.linked]),
-    ).toEqual([
-      [second.id, "show-each-results-age-list-2", true],
+    expect(rows()).toEqual([
       [review.id, "show-each-results-age-list", true],
+      [second.id, "show-each-results-age-list-2", true],
     ]),
   );
   expect(threads.value!.threads[0]!.repository).toMatchObject({
@@ -157,7 +172,7 @@ test("a thread starts its agent on a new branch in a worktree, and archiving can
   ]);
 
   // Git keeps a worktree with changes, and the tab stays.
-  await writeFile(join(second.checkout!.repo, "summary.ts"), "export const best = 2;\n");
+  await writeFile(join(secondCheckout, "summary.ts"), "export const best = 2;\n");
   const kept = await api<{ error: { code: string } }>(`/api/threads/${second.id}/close`, {
     removeWorktree: true,
   });
@@ -185,10 +200,10 @@ test("a thread starts its agent on a new branch in a worktree, and archiving can
 
   // Undo opens it again at its place.
   await api(`/api/threads/${review.id}/open`, { restore: true });
-  await vi.waitFor(
-    () => expect(threads.value!.threads.map((thread) => thread.id)).toEqual([second.id, review.id]),
-    { timeout: 5000 },
-  );
+  const ids = () => threads.value!.threads.map((thread) => thread.id).toSorted();
+  await vi.waitFor(() => expect(ids()).toEqual([review.id, second.id].toSorted()), {
+    timeout: 5000,
+  });
 
   // Closing is not work on a thread: it keeps its time, and ⌘⌥T its place.
   const time = () => threads.value!.threads.find((thread) => thread.id === second.id)?.updatedAt;
@@ -198,7 +213,7 @@ test("a thread starts its agent on a new branch in a worktree, and archiving can
   const reopened = await api<{ thread: Thread }>("/api/threads/reopen", {});
   expect(reopened.data.thread).toMatchObject({ id: second.id, open: true });
   await vi.waitFor(() => expect(time()).toBe(before), { timeout: 5000 });
-  expect(threads.value!.threads.map((thread) => thread.id)).toEqual([second.id, review.id]);
+  expect(ids()).toEqual([review.id, second.id].toSorted());
   // Nothing left to reopen.
   expect((await api("/api/threads/reopen", {})).status).toBe(404);
 
@@ -210,16 +225,17 @@ test("a thread starts its agent on a new branch in a worktree, and archiving can
 });
 
 test("a thread's agent hands off its work as the setup instructions say, with no flags for the thread", async () => {
-  const { api, home, host, repositoryId, stateDir } = await fixture();
-  const review = (
-    await api<{ review: SavedReview }>("/api/threads", {
+  const { api, listed, home, host, repositoryId, stateDir } = await fixture();
+  const { thread } = (
+    await api<{ thread: string }>("/api/threads", {
       repositoryId,
       prompt: "Make the best result two.",
       preset: "claude",
     })
-  ).data.review;
-  const worktree = review.checkout!.repo;
-  const session = review.sessions![0]!;
+  ).data;
+  const shown = await listed(thread);
+  const worktree = shown.checkout!;
+  const session = shown.session!;
   const project = join(home, ".claude", "projects", "-fake-repo");
   const args = await vi.waitFor(
     async () =>
@@ -235,7 +251,8 @@ test("a thread's agent hands off its work as the setup instructions say, with no
     MED_SESSION: "owned",
     MED_PORT: String(host.port),
     MED_STATE_DIR: stateDir,
-    MED_THREAD_KEY: review.key,
+    // The thread's branch is the key of the reviews that it hands off.
+    MED_THREAD_KEY: shown.branch,
     MED_THREAD_REPO: worktree,
   });
   // `med` on the agent's PATH is this host's command, with the arguments intact.
@@ -267,10 +284,12 @@ test("a thread's agent hands off its work as the setup instructions say, with no
     runReviewCommand(words, { environment, home, print: (line) => printed.push(line) });
   await run(["create", "--working", "--title", "Best result", "--guide", guide]);
 
-  // The thread captured nothing at its start; the hand-off is its Review's
-  // version 1, with the change and its guide.
-  expect(review.targets).toEqual([]);
-  const saved = (await api<SavedReview>(`/api/reviews/${review.id}`)).data;
+  // The thread had no review before; the hand-off is its review's version 1,
+  // with the change and its guide, linked to the thread's session.
+  expect(shown.reviews).toEqual([]);
+  const [handedOff] = (await listed(thread)).reviews;
+  const saved = (await api<SavedReview>(`/api/reviews/${handedOff!.id}`)).data;
+  expect(saved.session).toMatchObject({ agent: "claude", id: session.id });
   expect(saved.iterations).toHaveLength(1);
   expect(saved.totals).toMatchObject({ files: 1, additions: 1, deletions: 1 });
   expect(saved.iterations![0]!.guide?.segments.map((segment) => segment.title)).toEqual([

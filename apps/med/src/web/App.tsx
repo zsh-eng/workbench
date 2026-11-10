@@ -68,7 +68,7 @@ import { GENERATED_LABELS } from "../shared/generated";
 import { NoteCard, NoteComposer, type NoteTarget } from "./components/NoteCard";
 import { Icon, type IconName } from "./components/Icon";
 import "./pierre-theme";
-import { hydratePartialDiff } from "@pierre/diffs";
+import { DEFAULT_CODE_VIEW_FILE_METRICS, hydratePartialDiff } from "@pierre/diffs";
 import { useTheme } from "./themes";
 import { ThemePicker } from "./components/ThemePicker";
 import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTabs";
@@ -80,9 +80,8 @@ import {
   useShell,
   useTabCommands,
   useThread,
-  useSessionReviews,
+  useThreadReviews,
   useThreadReader,
-  useThreadState,
   useWorkspace,
   useWorkspaceEntry,
   useWorkspaceShown,
@@ -96,7 +95,6 @@ import type { BrowseSource } from "../shared/browse";
 import {
   agentName,
   handoffTargets,
-  threadCheckout,
   type AgentSession,
   type SavedReviewTarget,
   type Since,
@@ -128,6 +126,8 @@ import { FileViewTabs } from "./components/FileViewTabs";
 import { checkoutNameFor } from "./data/checkout-names";
 import { readBrowserToken } from "./data/auth";
 import { createApi } from "./data/api";
+import { browserFetch } from "./data/live";
+import { z } from "zod";
 import { COMMIT_KEY, createCommitApi, type CommitApi } from "./data/commit";
 import {
   PullRequestThreadCard,
@@ -192,15 +192,11 @@ interface DiffTokenEvent {
   tokenText: string;
   tokenElement: HTMLElement;
 }
-import { matchReviewFile, parseBriefHref } from "./data/brief";
-import type { BriefLocation } from "./components/BriefView";
-import { prDraftImageUrl } from "./data/pr-draft";
+import { matchReviewFile, parseBriefHref } from "./data/file-links";
 import { GuideRail } from "./components/guide/GuideRail";
 import { GuideStepper } from "./components/guide/GuideStepper";
 import { HandoffContext } from "./components/session/HandoffCard";
 import { ChangesRail } from "./components/ChangesRail";
-import { LayerMenu, StackRail, type StackMode } from "./components/StackRail";
-import { layerRange, rangeOf, subscribeLayers, takeLayer, stackOf } from "./data/stack";
 import { GuideOverview } from "./components/guide/GuideOverview";
 import type { Offer, OverviewProof } from "./components/guide/OverviewParts";
 import { isOpenFinding, readReviewOutput, withoutProof } from "../shared/review-output";
@@ -221,6 +217,7 @@ import {
 } from "./data/guide";
 import type { ParsedReviewFile } from "../shared/review";
 import type { SavedCommit } from "../shared/review-guide";
+import { sessionKey } from "../shared/threads";
 import type { PathActions } from "./components/PathMenu";
 import { diffSurfaceStyle, EXPANSION_LINES } from "./components/diff-surface";
 import { highlightRules } from "./code-colors";
@@ -237,8 +234,6 @@ import { createFileIndex } from "./data/file-refs";
 import { CommentRefsContext, type FileRefs } from "./components/FileRefs";
 import { HIGHLIGHTER } from "./pierre-theme";
 
-// The brief loads its Markdown worker and excerpt renderer only when shown.
-const BriefView = lazy(() => import("./components/BriefView"));
 const PullRequestView = lazy(() => import("./components/PullRequestView"));
 // Memoized: the tab stays mounted once shown, and the review around it
 // renders again for unrelated state, such as an open palette.
@@ -270,11 +265,6 @@ const SessionStart = lazy(() =>
     default: module.SessionStart,
   })),
 );
-const FoundSessionPane = lazy(() =>
-  import("./components/session/FoundSession").then((module) => ({
-    default: module.FoundSessionPane,
-  })),
-);
 const NO_SESSIONS: AgentSession[] = [];
 /** What "Ask the agent to explain" puts in the session's message box (docs/PRACTICES.md). */
 const EXPLAIN_REQUEST =
@@ -285,6 +275,8 @@ const NO_SECTIONS: GuideSection[] = [];
 const NO_GUIDE_NOTES: GuideNote[] = [];
 // Pierre's view renders its file headers and comments again whenever it renders.
 const ReviewCodeView = memo(CodeView) as typeof CodeView;
+/** The review stream's file header, which sticks at its top. */
+const STICKY_FILE_HEADER = DEFAULT_CODE_VIEW_FILE_METRICS.diffHeaderHeight;
 
 /** A file's two sides for Pierre, from its full text. The cache keys name
  * the review's version, so a read ahead and an expansion share highlighting. */
@@ -418,8 +410,6 @@ export function App({
   const workspace = useWorkspace();
   const workspaceId = workspace?.id;
   const shown = useWorkspaceShown();
-  // While the thread's agent works, its changes are expected: the drift bar waits.
-  const agentWorking = useThreadState(state.savedReview?.id) === "working";
   // Several workspaces can be mounted; their landmarks need distinct ids.
   const idPrefix = workspace ? `${workspace.id}-` : "";
   const gitAvailable = state.session?.repository.git !== false;
@@ -446,18 +436,37 @@ export function App({
   // The workspace's panes: the review, its thread, the file trees, and the
   // preview, tiled as the reader leaves them. Each workspace keeps its own.
   const entry = useWorkspaceEntry();
-  // A session that Med found: a thread on this checkout, without a review.
-  const found = entry?.kind === "repository" ? entry.found : undefined;
-  const layoutKey = found
-    ? `found:${found.agent}:${found.id}`
-    : entry?.kind === "review"
-      ? `review:${entry.reviewId}`
+  // The thread that the workspace shows: its session, its reviews, and where
+  // it works now.
+  const threadId = entry?.kind === "thread" ? entry.threadId : undefined;
+  const thread = useThread(threadId);
+  const layoutKey =
+    entry?.kind === "thread"
+      ? `thread:${entry.threadId}`
       : entry?.kind === "repository"
         ? `repository:${entry.path ?? "default"}`
         : entry?.kind === "pull"
           ? `pull:${entry.url}`
           : undefined;
-  const threadLayout = entry?.kind === "review" || entry?.kind === "pull" || !!found;
+  const threadLayout = entry?.kind === "thread" || entry?.kind === "pull";
+  // While the thread's agent works, its changes are expected: the drift bar waits.
+  const agentWorking = thread?.state === "working";
+  // The session works somewhere else now, such as another repository or
+  // branch: its Changes and Commit follow.
+  const placePath = thread?.checkout;
+  const placeRepository = thread?.repository?.id;
+  const placeBase = thread?.base;
+  useEffect(() => {
+    if (!threadId) return;
+    void controller
+      .follow({
+        id: threadId,
+        ...(placePath && { path: placePath }),
+        ...(placeRepository && { repositoryId: placeRepository }),
+        ...(placeBase && { base: placeBase }),
+      })
+      .catch(() => {});
+  }, [controller, threadId, placePath, placeRepository, placeBase]);
   const foundCommands = useFoundCommands(sessionFetch);
   const tabCommands = useTabCommands();
   // A tab closes with "Close tab"; "Close workspace" is for the others.
@@ -651,17 +660,15 @@ export function App({
       ? `Commit ${browseSource.oid.slice(0, 7)} · ${state.activeBranch ?? "snapshot"}`
       : `Working files · ${state.activeBranch ?? "detached worktree"}`;
   const pendingSavedChanges = useRef<string | null>(null);
-  // An iteration chosen in the brief: its comparison loads, then the brief shows.
-  const pendingIteration = useRef<string | null>(null);
   const pendingTab = useRef<"review" | "changes" | null>(null);
   useEffect(() => {
-    // The Notes and the Guide belong to the saved review, so they stay in front
-    // while another iteration's comparison, or a commit of the guide, loads.
+    // The Pull request and the Guide belong to the saved review, so they stay
+    // in front while another version's comparison, or a commit of the guide, loads.
     fileWorkspace.configure(
       workspaceKey,
       browseSource,
       sourceLabel,
-      state.savedReview ? ["brief", "guide"] : [],
+      state.savedReview ? ["pull", "guide"] : [],
     );
     if (
       pendingSavedChanges.current &&
@@ -671,15 +678,6 @@ export function App({
     ) {
       fileWorkspace.select("changes");
       pendingSavedChanges.current = null;
-    }
-    if (
-      pendingIteration.current &&
-      state.savedView &&
-      state.status === "ready" &&
-      state.savedTargetId === pendingIteration.current
-    ) {
-      fileWorkspace.select("brief");
-      pendingIteration.current = null;
     }
     // The Review or Changes tab, chosen while another checkout's diff loads:
     // that checkout's own tab choice does not replace it.
@@ -780,16 +778,6 @@ export function App({
     }),
     [fileIndex, fileWorkspace],
   );
-  // Notes show the cited lines of files that the change does not touch.
-  const readCheckoutFile = useCallback(
-    async (path: string) => {
-      if (!browseSource) throw new Error("No checkout");
-      const file = await browseApi.read(browseSource, path);
-      if (file.kind !== "text" || file.text === undefined) throw new Error(`${path} is not text`);
-      return file.text;
-    },
-    [browseApi, browseSource],
-  );
   const openFromPane = useCallback(
     (path: string, line?: number) => {
       fileWorkspace.open(path, line);
@@ -821,9 +809,7 @@ export function App({
     () => setBlameTab(blameEnabled || !activeFile ? null : activeFile.id),
     [blameEnabled, activeFile],
   );
-  // The thread in the window's list: its state, and the name that the reader
-  // gave it, which shows in place of the agent's title.
-  const thread = useThread(state.savedReview?.id);
+  // The name that the reader gave the thread shows in place of the agent's title.
   const threadName = thread?.agentTitle !== undefined ? thread.title : undefined;
   useDocumentTitle(
     threadName ??
@@ -1199,7 +1185,9 @@ export function App({
     restoringScroll.current = true;
     const position = reviewScroll.current.get(streamScope) ?? 0;
     const frame = requestAnimationFrame(() => {
-      viewer.current?.scrollTo({ type: "position", position });
+      // The stream reports its scroll position, but places a position below
+      // its sticky file header: the place comes back with the header added.
+      viewer.current?.scrollTo({ type: "position", position: position + STICKY_FILE_HEADER });
       restoringScroll.current = false;
     });
     return () => {
@@ -1277,9 +1265,19 @@ export function App({
     [state.files],
   );
   const notes = state.notes?.notes ?? emptyNotes;
-  const agentSessions = state.savedReview?.sessions ?? NO_SESSIONS;
+  // The thread's agent session: one, for a session's thread; none for a lone
+  // review. A review that opens without its thread, as a link does until the
+  // thread list arrives, shows the session that handed it off.
+  const reviewSession = thread ? undefined : state.savedReview?.session;
+  const threadSession = thread?.session ?? reviewSession;
+  /** The thread whose session routes serve the session: its key. */
+  const sessionThreadId = reviewSession ? sessionKey(reviewSession) : threadId;
+  const agentSessions = useMemo(
+    () => (threadSession ? [threadSession] : NO_SESSIONS),
+    [threadSession],
+  );
   const agentInbox = useAgentInbox(
-    agentSessions.length && state.savedReview ? state.savedReview.id : null,
+    threadSession && sessionThreadId ? sessionThreadId : null,
     sessionFetch,
   );
   const [agentAttachments, setAgentAttachments] = useState<ComposerAttachment[]>([]);
@@ -1298,37 +1296,46 @@ export function App({
     return whenIdle(() => setSessionReady(true));
   }, [sessionReady, hasSessions]);
   useEffect(() => (panesPreloaded ? undefined : whenFree(preloadPanes)), []);
-  // The agents that Med can start in a saved review's repository, or in a
-  // pull request's worktree from the branch picker.
+  // The agents that Med can start on a lone review, or in a pull request's
+  // worktree from the branch picker.
   const agentPresets = useAgentPresets(!!state.savedReview || branchPickerOpen, sessionFetch);
+  // An agent that starts on a lone review takes it: the session's thread
+  // replaces the review's.
   const sessionStarter = useMemo<SessionStarter>(
     () => ({
       agents: agentPresets,
       start: async (preset) => {
-        await controller.startSession(preset);
-        showPane("session");
+        const started = await controller.startSession(preset);
+        const reviewId = controller.getSnapshot().savedReview?.id;
+        workspace?.open({ kind: "thread", threadId: started, ...(reviewId && { reviewId }) });
+        if (workspace && started !== threadId) workspace.close(workspace.id);
       },
     }),
-    [agentPresets, controller, showPane],
+    [agentPresets, controller, workspace, threadId],
   );
   // Continue in Med: a fork of a Claude session that a terminal runs. The
-  // thread follows the fork; the terminal keeps its session.
-  const continueInMed = useCallback(
-    async (sessionId: string) => {
-      await controller.startSession("claude", { fork: sessionId });
-      showPane("session");
-    },
-    [controller, showPane],
-  );
+  // fork takes the thread's place; the terminal keeps its session.
+  const continueInMed = useCallback(async () => {
+    if (!sessionThreadId) return;
+    const { thread: next } = await createApi(sessionFetch ?? browserFetch, readBrowserToken()).json(
+      `/api/sessions/${encodeURIComponent(sessionThreadId)}/continue`,
+      z.object({ thread: z.string() }),
+      { method: "POST" },
+    );
+    // The host links the thread's reviews to the fork.
+    await controller.refreshSavedReview().catch(() => {});
+    workspace?.open({ kind: "thread", threadId: next });
+    if (workspace && next !== threadId) workspace.close(workspace.id);
+    showPane("session");
+  }, [sessionThreadId, threadId, sessionFetch, workspace, showPane, controller]);
   // Fork from here: the new thread opens as a tab of its own, in front.
   const forkFromHere = useCallback(
-    async (sessionId: string, at: string) => {
-      const reviewId = state.savedReview?.id;
-      if (!reviewId) return;
-      const forked = await forkSession(reviewId, sessionId, { at }, sessionFetch);
-      workspace?.open({ kind: "review", reviewId: forked.id, title: forked.title });
+    async (_sessionId: string, at: string) => {
+      if (!sessionThreadId) return;
+      const forked = await forkSession(sessionThreadId, { at }, sessionFetch);
+      workspace?.open({ kind: "thread", threadId: forked.id, title: forked.title });
     },
-    [state.savedReview?.id, sessionFetch, workspace],
+    [sessionThreadId, sessionFetch, workspace],
   );
   // The lead session: the latest one. Its agent names the reply controls.
   const leadSession = agentSessions.at(-1);
@@ -1371,7 +1378,6 @@ export function App({
       send: async (id) => {
         await sendAgentMessage({
           id: crypto.randomUUID(),
-          sessionId: leadSession.id,
           text: "",
           noteIds: [id],
           attachments: [],
@@ -1627,109 +1633,45 @@ export function App({
     [controller, showInStream, generatedFiles, openGenerated],
   );
 
-  // A brief explains a saved review. Paste one with Command-V; its links open
-  // the cited lines in Changes.
-  // An agent's review can have iterations, each with its comparisons and
-  // brief. The brief follows the shown comparison's iteration; choosing an
-  // iteration in the brief shows its comparison too.
+  // A review has versions, each with its comparisons and guide. The guide
+  // follows the shown comparison's version.
   const iterations = state.savedReview?.iterations ?? [];
-  const [briefIteration, setBriefIteration] = useState<number | null>(null);
-  const [briefTarget, setBriefTarget] = useState(state.savedTargetId);
-  if (briefTarget !== state.savedTargetId) {
-    setBriefTarget(state.savedTargetId);
-    setBriefIteration(null);
-  }
-  // A stack's layer that a later version kept is in that version too: the latest one.
   const shownIteration =
-    briefIteration ??
     iterations.findLast(
       (entry) => state.savedTargetId && entry.targetIds.includes(state.savedTargetId),
-    )?.number ??
-    iterations.at(-1)?.number;
-  // An iteration without a brief keeps the one before it, unless the reader
-  // started its notes anew.
-  const briefSource = shownIteration
-    ? iterations.findLast((entry) => entry.number <= shownIteration && (entry.brief || entry.fresh))
-    : undefined;
-  // The Notes belong to the Review's version, also while Changes show.
-  const savedBrief = shownIteration ? briefSource?.brief : state.savedReview?.brief;
-  // The Notes are the brief and the agent replies pinned to the shown iteration.
-  const savedPins = shownIteration
-    ? iterations.find((entry) => entry.number === shownIteration)?.pins
-    : state.savedReview?.pins;
-  // The agent's pull request draft is the first note of every version.
-  const prDraft = state.savedReview?.prDraft;
-  const draftReviewId = state.savedReview?.id;
-  const prDraftImage = useCallback(
-    (href: string) =>
-      prDraft && draftReviewId ? prDraftImageUrl(draftReviewId, prDraft, href) : undefined,
-    [prDraft, draftReviewId],
-  );
-  // The Notes tab is gone (docs/AGENT_WORKSPACES.md#notes-removed): its tab is Pull
-  // request, for an agent's draft or a real pull request. Med keeps the briefs
-  // and pins, which feed the review's checks. A stack's layers each have a
-  // pull request, which the review's one link does not stand for.
-  const livePullUrl = state.savedReview?.parts ? undefined : state.savedReview?.pullRequestUrl;
-  const hasPullTab = !!prDraft || !!livePullUrl;
-  // A draft revised after its pull request opened stays one click away.
-  const [draftShownFor, setDraftShownFor] = useState<string | null>(null);
-  const showLivePull = !!livePullUrl && !(prDraft && draftShownFor === state.savedReview?.id);
+    )?.number ?? iterations.at(-1)?.number;
+  // The Pull request tab: the review's pull request on GitHub.
+  const livePullUrl = state.savedReview?.pullRequestUrl;
+  const hasPullTab = !!livePullUrl;
+  const showLivePull = hasPullTab;
   /** Increases to make the live view read GitHub now. */
   const [pullRefreshes, setPullRefreshes] = useState(0);
-  /** The images that Create left out, for the live view to name. */
-  const [pullImagesLeft, setPullImagesLeft] = useState<{ id: string; names: string[] } | null>(
-    null,
-  );
   const loadLivePull = useCallback(
     (refresh: boolean) => controller.loadLivePullRequest(refresh),
     [controller],
   );
   const loadCheckLog = useCallback((job: number) => controller.loadCheckLog(job), [controller]);
-  // Comments on passages of the shown brief and pins.
-  const allBriefComments = state.savedReview?.briefComments;
-  const briefComments = useMemo(
-    () => (allBriefComments ?? []).filter((comment) => comment.section === "pr" && !!prDraft),
-    [allBriefComments, prDraft],
-  );
   // The Guide: the agent's segments over the saved comparison, and the range's
-  // commits, to review one part at a time. An iteration without a guide keeps
-  // the one before it, as the brief does.
-  // A stack's or a set's part has its own Guide, which a version without
-  // one keeps from the one before (docs/STACKS.md).
-  const guidePart = state.savedReview?.parts ? savedTarget?.part : undefined;
+  // commits, to review one part at a time. A version without a guide keeps
+  // the one before it.
   const guideSource = shownIteration
-    ? iterations.findLast(
-        (entry) =>
-          entry.number <= shownIteration && (guidePart ? entry.guides?.[guidePart] : entry.guide),
-      )
+    ? iterations.findLast((entry) => entry.number <= shownIteration && entry.guide)
     : undefined;
   const savedGuide = !state.savedReview
     ? undefined
     : shownIteration
-      ? guidePart
-        ? guideSource?.guides?.[guidePart]
-        : guideSource?.guide
+      ? guideSource?.guide
       : state.savedReview.guide;
   const guideTarget = savedTarget;
   const guideCommits = guideTarget?.commits ?? NO_COMMITS;
   // The review output of the shown version (docs/PRACTICES.md): its proof,
-  // findings, and explainer, read from its own notes and guide only, since an
-  // earlier version's proof is not this version's.
-  const ownBrief =
-    shownIteration === undefined || briefSource?.number === shownIteration ? savedBrief : undefined;
+  // findings, and explainer, read from its own guide only, since an earlier
+  // version's proof is not this version's.
   const ownGuideSummary =
     shownIteration === undefined || guideSource?.number === shownIteration
       ? savedGuide?.summary
       : undefined;
-  const reviewOutput = useMemo(
-    () =>
-      readReviewOutput([
-        ownGuideSummary,
-        ownBrief?.text,
-        ...(savedPins ?? []).map((pin) => pin.text),
-      ]),
-    [ownGuideSummary, ownBrief, savedPins],
-  );
+  const reviewOutput = useMemo(() => readReviewOutput([ownGuideSummary]), [ownGuideSummary]);
   const openFindings = reviewOutput.findings.filter(isOpenFinding).length;
   // A later version of a thread shows what changed since the reader's last review.
   const capturedVersions = iterations.filter((entry) => entry.targetIds.length);
@@ -1795,12 +1737,11 @@ export function App({
       (guideScope.kind === "since" && state.savedView && !!state.savedSince));
   const guideOverview = guideTab && !guideDiff;
   // What changed since the reader's last review: the host compares the
-  // captures, and answers again when an approval, a comment, or opening a
-  // version moves the basis.
-  const approvals = state.savedReview?.approvals;
+  // captures, and answers again when a comment, or opening a version, moves
+  // the basis.
   const sinceKey =
     laterVersion && state.savedReview
-      ? `${state.savedReview.id} ${shownIteration} ${state.savedReview.revision} ${(approvals ?? []).map((entry) => entry.version).join(",")} ${(state.savedReview.readVersions ?? []).join(",")}`
+      ? `${state.savedReview.id} ${shownIteration} ${state.savedReview.revision} ${(state.savedReview.readVersions ?? []).join(",")}`
       : null;
   const sinceScope = `${state.savedReview?.id} ${shownIteration}`;
   const [since, setSince] = useState<{ scope: string; value: Since | null } | null>(null);
@@ -1815,7 +1756,7 @@ export function App({
       live = false;
     };
   }, [controller, sinceKey, sinceScope, shownIteration]);
-  // While a new answer loads, as after an approval, the last one for this version stays.
+  // While a new answer loads, the last one for this version stays.
   const shownSince = sinceKey && since?.scope === sinceScope ? since.value : null;
   const sinceFrom = shownSince?.from;
   // The rail's Since row: the shown comparison's files, and the new commits.
@@ -1846,7 +1787,7 @@ export function App({
         ? [{ value: "commit", label: "Commit", icon: "git" as const }]
         : []),
       ...(hasPullTab
-        ? [{ value: "brief", label: "Pull request", icon: "pullRequest" as const }]
+        ? [{ value: "pull", label: "Pull request", icon: "pullRequest" as const }]
         : []),
     ],
     [reviewAvailable, commitApi, livePullUrl, hasPullTab],
@@ -1888,57 +1829,6 @@ export function App({
   // ⌘B shows or hides the window's thread list; alone, the page's sidebar.
   const toggleReviewSidebar = shell?.toggleSidebar ?? toggleRail;
   const sidebarShown = railShown || guideRailShown;
-  // A stack's or a set's layers (docs/STACKS.md): the Review shows one layer,
-  // the whole stack, or a range of layers, from one checkout.
-  const stack = useMemo(
-    () => stackOf(state.savedReview, state.savedTargetId),
-    [state.savedReview, state.savedTargetId],
-  );
-  const layerIndex = stack
-    ? stack.layers.findIndex((layer) => layer.target.id === state.savedTargetId)
-    : -1;
-  const shownLayer = layerIndex >= 0 ? stack?.layers[layerIndex] : undefined;
-  const layerSpan =
-    stack && reviewShown && !state.savedView ? rangeOf(stack.layers, state.comparison) : null;
-  const stackMode: StackMode = !layerSpan
-    ? { kind: "layer" }
-    : layerSpan.from === 0 && layerSpan.to === stack!.layers.length - 1
-      ? { kind: "whole" }
-      : { kind: "range", ...layerSpan };
-  const showLayer = useCallback(
-    (index: number) => {
-      const layer = stack?.layers[index];
-      if (!layer) return;
-      if (state.savedView && layer.target.id === state.savedTargetId) return;
-      // The Guide stays on its tab; anywhere else, the layer's diff shows.
-      if (fileState.active !== "guide") {
-        pendingSavedChanges.current = layer.target.id;
-        pendingIteration.current = null;
-        fileWorkspace.select("changes");
-      }
-      void controller.selectSavedTarget(layer.target.id);
-    },
-    [stack, state.savedView, state.savedTargetId, fileState.active, fileWorkspace, controller],
-  );
-  const showLayers = useCallback(
-    (from: number, to: number) => {
-      if (!stack) return;
-      if (from === to) return showLayer(from);
-      fileWorkspace.select("changes");
-      void controller.selectComparison(layerRange(stack.layers, from, to), true);
-    },
-    [stack, showLayer, fileWorkspace, controller],
-  );
-  // ⌥↑ and ⌥↓ go up and down the stack, from the shown layer.
-  const stepLayer = useCallback(
-    (by: 1 | -1) => {
-      if (!stack || !reviewShown || layerIndex < 0) return false;
-      const next = Math.max(0, Math.min(stack.layers.length - 1, layerIndex + by));
-      if (next !== layerIndex || !state.savedView) showLayer(next);
-      return true;
-    },
-    [stack, reviewShown, layerIndex, state.savedView, showLayer],
-  );
   // Outside the Guide, whose order the agent chose, generated files come
   // last, and only while their group is open.
   const fileGroups = useMemo(() => splitGenerated(files, generatedFiles), [files, generatedFiles]);
@@ -1960,20 +1850,6 @@ export function App({
     () => setCollapsed(allCollapsed ? new Set() : new Set(streamFiles.map((file) => file.id))),
     [allCollapsed, streamFiles],
   );
-  const stackReview = state.savedReview?.id;
-  // A layer that the sidebar picked shows once the thread's review is read.
-  const stackReady = !!stack && !!stackReview;
-  useEffect(() => {
-    if (!stackReady || !stackReview) return;
-    const take = () => {
-      const part = takeLayer(stackReview);
-      if (!part) return;
-      const index = stack?.layers.findIndex((layer) => layer.id === part) ?? -1;
-      if (index >= 0) showLayer(index);
-    };
-    take();
-    return subscribeLayers(take);
-  }, [stackReady, stackReview, stack, showLayer]);
   // The reader looked at the version on screen: the next version's "since"
   // starts here.
   const lookedIteration =
@@ -2040,7 +1916,7 @@ export function App({
     },
     [controller, fileWorkspace, sinceFrom],
   );
-  // Since follows its basis: a new answer, such as after an approval, or another version.
+  // Since follows its basis: a new answer, such as after a comment, or another version.
   useEffect(() => {
     if (guideTab && guideScope.kind === "since" && sinceFrom && state.savedSince !== sinceFrom)
       void controller.showSince(sinceFrom);
@@ -2088,9 +1964,9 @@ export function App({
     });
     return () => cancelAnimationFrame(frame);
   }, [pendingGuideFile, guideDiff, streamFiles]);
-  // Keep the brief mounted once shown, so its scroll position survives tab changes.
-  const [briefMounted, setBriefMounted] = useState(false);
-  if (fileState.active === "brief" && !briefMounted) setBriefMounted(true);
+  // Keep the pull request mounted once shown, so its scroll position survives tab changes.
+  const [pullMounted, setPullMounted] = useState(false);
+  if (fileState.active === "pull" && !pullMounted) setPullMounted(true);
   // The Commit tab also stays mounted once shown, with its message and place.
   const [commitMounted, setCommitMounted] = useState(false);
   if (fileState.active === "commit" && commitApi && !commitMounted) setCommitMounted(true);
@@ -2100,7 +1976,7 @@ export function App({
       fileWorkspace.setAvailable((id) =>
         id === "guide"
           ? hasGuide
-          : id === "brief"
+          : id === "pull"
             ? hasPullTab
             : id === "commit"
               ? !!commitApi
@@ -2120,7 +1996,7 @@ export function App({
     return {
       order: [
         ...(reviewAvailable ? ["review"] : []),
-        ...(hasPullTab ? ["brief"] : []),
+        ...(hasPullTab ? ["pull"] : []),
         "changes",
         ...(commitApi ? ["commit"] : []),
         ...(search !== undefined ? ["search"] : []),
@@ -2210,74 +2086,70 @@ export function App({
     [controller, showToast],
   );
   useEffect(() => {
-    if (!hasPullTab && fileState.active === "brief") fileWorkspace.select("changes");
+    if (!hasPullTab && fileState.active === "pull") fileWorkspace.select("changes");
   }, [hasPullTab, fileState.active, fileWorkspace]);
   useEffect(() => {
     if (!hasGuide && fileState.active === "guide") fileWorkspace.select("changes");
   }, [hasGuide, fileState.active, fileWorkspace]);
   // A thread opens on its Review once the agent has handed one off: on its
-  // Guide, or on its brief in Notes, or on its diff. Before a hand-off, it
-  // opens on its Changes. A hand-off that arrives later adds the Review tab
+  // Guide, or on its diff. Before a hand-off, it opens on its Changes. A hand-off that arrives later adds the Review tab
   // and does not move the reader. Tab choices stay until the next open.
-  const reviewOpened = useRef<string | null>(null);
+  const reviewOpened = useRef<{ controller: ReviewController; review?: string } | null>(null);
   useEffect(() => {
-    if (state.status !== "ready" || !state.savedReview) return;
-    if (reviewOpened.current === state.savedReview.id) return;
-    reviewOpened.current = state.savedReview.id;
+    if (state.status !== "ready") return;
+    const opened = reviewOpened.current;
+    // Once per review that the workspace opens on; a first hand-off that
+    // joins the open workspace (attachSavedReview) keeps the reader's place.
+    if (
+      opened?.controller === controller &&
+      (!opened.review || opened.review === state.savedReview?.id)
+    ) {
+      if (!opened.review && state.savedReview) opened.review = state.savedReview.id;
+      return;
+    }
+    reviewOpened.current = { controller, review: state.savedReview?.id };
+    if (!state.savedReview) return;
     // The controller opens a thread with a hand-off on its Review's diff.
-    // A later version with only a brief opens on the brief, which tells what
-    // the round changed; its Overview is the Review tab.
     if (reviewAvailable) fileWorkspace.select(hasGuide ? "guide" : "changes");
-    else if (fileState.active === "guide" || fileState.active === "brief")
+    else if (fileState.active === "guide" || fileState.active === "pull")
       fileWorkspace.select("changes");
-  }, [reviewAvailable, hasGuide, state.savedReview, state.status, fileState.active, fileWorkspace]);
+  }, [
+    controller,
+    reviewAvailable,
+    hasGuide,
+    state.savedReview,
+    state.status,
+    fileState.active,
+    fileWorkspace,
+  ]);
   useEffect(() => {
     if (fileState.active === "commit" && !commitApi) fileWorkspace.select("changes");
   }, [commitApi, fileState.active, fileWorkspace]);
-  const copyNotes = useCallback(
-    (text: string) => {
-      if (text)
-        navigator.clipboard.writeText(text).then(
-          () => showToast("Copied."),
-          () => showToast("Copying needs clipboard access."),
-        );
-    },
-    [showToast],
-  );
-  // New notes: a new iteration of the current comparisons, which later pins go to.
-  // A refresh does the same for a review whose checkout changed after its capture.
+  // A refresh captures the review again as its next version, for a review
+  // whose checkout changed after its capture.
   const [refreshing, setRefreshing] = useState(false);
-  const startNotes = useCallback(
-    (refresh = false) => {
-      if (refresh) setRefreshing(true);
-      controller
-        .startNotes()
-        .then(
-          (iteration) => {
-            const first = iteration?.targetIds[0];
-            if (!iteration || !first) return;
-            setBriefIteration(iteration.number);
-            pendingIteration.current = first;
-            pendingSavedChanges.current = null;
-            void controller.selectSavedTarget(first);
-            showToast(refresh ? "Refreshed the Review." : "Started new notes.");
-          },
-          (error: unknown) =>
-            showToast(
-              error instanceof Error
-                ? error.message
-                : refresh
-                  ? "The review could not refresh."
-                  : "New notes could not start.",
-            ),
-        )
-        .finally(() => setRefreshing(false));
-    },
-    [controller, showToast],
-  );
+  const refreshReview = useCallback(() => {
+    setRefreshing(true);
+    controller
+      .refreshReview()
+      .then(
+        (iteration) => {
+          const first = iteration?.targetIds[0];
+          if (!iteration || !first) return;
+          // The new version's diff shows once it loads.
+          pendingSavedChanges.current = first;
+          void controller.selectSavedTarget(first);
+          showToast("Refreshed the Review.");
+        },
+        (error: unknown) =>
+          showToast(error instanceof Error ? error.message : "The review could not refresh."),
+      )
+      .finally(() => setRefreshing(false));
+  }, [controller, showToast]);
   const [dismissedDrift, setDismissedDrift] = useState<string | null>(null);
-  const openBriefLocation = useCallback(
-    (location: BriefLocation) => {
+  /** Shows a file of the review, or lines of it, as a guide's link names them. */
+  const openFileLocation = useCallback(
+    (location: { fileId: string; start?: number; end?: number; side?: "old" | "new" }) => {
       const snapshot = controller.getSnapshot();
       if (!snapshot.visibleFiles.some((file) => file.id === location.fileId))
         controller.setFilter("");
@@ -2310,7 +2182,7 @@ export function App({
     [notes, controller, reviewVisible, showPane, revealLine],
   );
   // All comments, in the review's header: the diff's and the files'.
-  const savedFileComments = state.savedReview?.fileComments;
+  const savedFileComments = state.fileComments;
   const draftIds = inboxState?.drafts;
   const listedComments = useMemo(
     () =>
@@ -2333,14 +2205,14 @@ export function App({
     (thread: PullRequestThread) => {
       const file = files.find((entry) => entry.path === thread.path);
       if (file && thread.line !== null)
-        openBriefLocation({
+        openFileLocation({
           fileId: file.id,
           side: thread.side,
           start: thread.line,
           end: thread.line,
         });
     },
-    [files, openBriefLocation],
+    [files, openFileLocation],
   );
   useEffect(() => {
     if (!state.selectedFileId || lineJump.current?.id === state.selectedFileId) return;
@@ -2840,11 +2712,11 @@ export function App({
   // Comments on the open file's lines go to the thread's agent as the
   // review's comments do: they wait in the message box until sent, and the
   // agent answers and resolves them in their threads (FileComments.tsx).
-  const savedThread = state.savedReview;
+  const threadFileComments = state.fileComments;
   const activeFileSource = activeFile?.source;
   const activeFilePath = activeFile?.path;
   const fileComments = useMemo<FileComments | undefined>(() => {
-    if (!savedThread || activeFilePath === undefined || !activeFileSource) return undefined;
+    if (!threadId || activeFilePath === undefined || !activeFileSource) return undefined;
     if (activeFileSource.kind === "vault") return undefined;
     const source = activeFileSource;
     const same = (other: BrowseSource) =>
@@ -2855,7 +2727,6 @@ export function App({
       if (!leadSession) throw new Error("This thread has no agent to send to.");
       await sendAgentMessage({
         id: crypto.randomUUID(),
-        sessionId: leadSession.id,
         text: "",
         noteIds: [id],
         attachments: [],
@@ -2863,19 +2734,17 @@ export function App({
       });
     };
     return {
-      threads: (savedThread.fileComments ?? []).filter(
+      threads: threadFileComments.filter(
         (comment) => comment.path === activeFilePath && same(comment.source),
       ),
       unsent: new Set(inboxState?.drafts.map((draft) => draft.id) ?? []),
       agent: commentAgent ? { name: commentAgent.name, mark: commentAgent.mark } : null,
       async add(lines, text, how) {
-        const before = new Set(
-          (controller.getSnapshot().savedReview?.fileComments ?? []).map((comment) => comment.id),
-        );
+        const before = new Set(controller.getSnapshot().fileComments.map((comment) => comment.id));
         const next = await controller.commentFile({
           add: { source, path: activeFilePath, ...lines, text },
         });
-        const added = next?.fileComments?.find((comment) => !before.has(comment.id));
+        const added = next.find((comment) => !before.has(comment.id));
         if (how !== "send" || !added) return;
         // A send that fails leaves the comment saved, with its Send button.
         await send(added.id).catch((error: unknown) =>
@@ -2892,7 +2761,8 @@ export function App({
       send,
     };
   }, [
-    savedThread,
+    threadId,
+    threadFileComments,
     activeFileSource,
     activeFilePath,
     leadSession,
@@ -3059,16 +2929,6 @@ export function App({
           const place = Number(key.slice(5));
           const id = place === 9 ? row.order.at(-1) : row.order[place - 1];
           if (id && id !== row.active) selectTab(id);
-          return;
-        }
-        // ⌥↑ and ⌥↓ go up and down a stack.
-        if (
-          (key === "ArrowUp" || key === "ArrowDown") &&
-          !event.shiftKey &&
-          stepLayer(key === "ArrowUp" ? 1 : -1)
-        ) {
-          event.preventDefault();
-          event.stopPropagation();
           return;
         }
         if (["KeyW", "KeyO", "KeyB", "KeyR", "KeyZ"].includes(key)) {
@@ -3366,7 +3226,6 @@ export function App({
     guideDiff,
     stepGuide,
     shown,
-    stepLayer,
     changesRail,
     guideRail,
     toggleRail,
@@ -3416,25 +3275,9 @@ export function App({
     else if (!existing && newWorkspace) workspace.open(target);
     else if (!existing) entry.run();
   };
-  // In a thread, ⌘⇧G picks the checkout that the thread shows: ↵ moves the
-  // thread there, and its Changes follow. A branch that no checkout has opens
+  // A thread follows its session's checkout, so a branch picked in it opens
   // in a new workspace, as Med never switches branches.
-  const threadPicker = !!state.savedReview && !!workspace && gitAvailable;
-  const moveThreadTo = (entry: BranchEntry) => {
-    if (!entry.path) return openBranch(entry, true);
-    fileWorkspace.select("changes");
-    if (entry.path === threadCheckout(state.savedReview!)?.repo) return;
-    controller
-      .moveThread({
-        repositoryId: entry.repositoryId,
-        repo: entry.path,
-        branch: entry.branch ?? null,
-      })
-      .then(
-        () => showToast(`This thread shows ${entry.label} now.`),
-        (error: unknown) => showToast(error instanceof Error ? error.message : String(error)),
-      );
-  };
+  const threadPicker = entry?.kind === "thread" && !!workspace && gitAvailable;
   // The workspace list names each workspace and shows its changed-file count.
   const reportTo = workspace?.update;
   const reportTitle =
@@ -3447,10 +3290,9 @@ export function App({
   const reportRepository = state.session?.repository.name;
   const reportReady = state.status === "ready";
   const reportCount = state.files.length;
-  // Compared as text, so a reloaded review with the same sessions reports nothing.
-  const reportSessions = state.savedReview?.sessions?.length
-    ? JSON.stringify(state.savedReview.sessions)
-    : undefined;
+  // A thread's place is its session's, as the thread list says, not the
+  // checkout that a Review shows.
+  const reportPlace = entry?.kind !== "thread";
   // With every repository removed, the workspace opens the host's default.
   const reportEmpty =
     !state.session && !state.repositories.length && state.status === "idle" && !state.error;
@@ -3466,11 +3308,10 @@ export function App({
       });
     reportTo(workspaceId, {
       ...(reportTitle ? { title: reportTitle } : {}),
-      ...(reportSessions ? { sessions: JSON.parse(reportSessions) } : {}),
       ...(reportReady ? { detail: reportCount ? String(reportCount) : undefined } : {}),
-      ...(reportPath
+      ...(reportPath && { worktree: reportWorktree }),
+      ...(reportPath && reportPlace
         ? {
-            worktree: reportWorktree,
             path: reportPath,
             repository: reportRepository,
             repositoryId: state.activeRepositoryId ?? undefined,
@@ -3483,7 +3324,7 @@ export function App({
     workspaceId,
     reportEmpty,
     reportTitle,
-    reportSessions,
+    reportPlace,
     reportReady,
     reportCount,
     reportPath,
@@ -3753,15 +3594,14 @@ export function App({
   };
   // Changes on a branch other than the base start at the base: the branch's
   // commits and its uncommitted changes. A thread keeps the base that the
-  // reader chose for its checkout.
-  const ownCheckout = state.savedReview ? threadCheckout(state.savedReview) : undefined;
-  const onOwnCheckout = !!ownCheckout && ownCheckout.repo === state.session?.repository.path;
+  // reader chose for the checkout where it works.
+  const onOwnCheckout = !!thread?.checkout && thread.checkout === state.session?.repository.path;
   const branchBase =
     (state.comparison.kind === "working" ? state.comparison.base : undefined) ??
     changesBase(
       state.repositories.find((entry) => entry.id === state.activeRepositoryId),
       state.activeBranch,
-      onOwnCheckout ? ownCheckout.base : undefined,
+      onOwnCheckout ? thread.base : undefined,
     );
   const liveValue =
     state.comparison.kind === "working" && state.comparison.base ? "branch" : state.comparison.kind;
@@ -3790,15 +3630,7 @@ export function App({
         ? [comparisonLabel(target.comparison, target.names).long]
         : []),
     ].join(" · ");
-  // A stack's version is one item: the shown layer in that version, or its
-  // bottom layer; the rail picks the layer.
-  const versionHandoffs = state.savedReview?.parts
-    ? handoffs.filter((target) => {
-        const mates = handoffs.filter((other) => versionOf(other) === versionOf(target));
-        const part = savedTarget?.part;
-        return (mates.find((other) => !!part && other.part === part) ?? mates[0]) === target;
-      })
-    : handoffs;
+  const versionHandoffs = handoffs;
   const versionChoices = reviewShown
     ? [
         ...versionHandoffs
@@ -4036,7 +3868,6 @@ export function App({
     if (reviewShown) {
       if (value === reviewCommit) return;
       pendingSavedChanges.current = value;
-      pendingIteration.current = null;
       fileWorkspace.select("changes");
       void controller.selectSavedTarget(value);
       return;
@@ -4048,34 +3879,6 @@ export function App({
       void controller.selectComparison({ kind: value, ...session });
   };
   const commands: ReviewCommand[] = [
-    ...(stack && reviewAvailable
-      ? [
-          ...(stack.shape === "stack"
-            ? [
-                {
-                  id: "stack-up",
-                  label: "Layer above",
-                  shortcut: "⌥ ↑",
-                  disabled: layerIndex < 0 || layerIndex >= stack.layers.length - 1,
-                  run: () => showLayer(layerIndex + 1),
-                },
-                {
-                  id: "stack-down",
-                  label: "Layer below",
-                  shortcut: "⌥ ↓",
-                  disabled: layerIndex <= 0,
-                  run: () => showLayer(layerIndex - 1),
-                },
-                {
-                  id: "stack-whole",
-                  label: "Show the whole stack",
-                  disabled: stackMode.kind === "whole",
-                  run: () => showLayers(0, stack.layers.length - 1),
-                },
-              ]
-            : []),
-        ]
-      : []),
     {
       id: "find-file-text",
       managesFocus: true,
@@ -4154,7 +3957,7 @@ export function App({
     {
       id: "open-branch",
       managesFocus: true,
-      label: threadPicker ? "Move thread to a branch or worktree" : "Open branch or worktree",
+      label: "Open branch or worktree",
       shortcut: "⌘ ⇧ G",
       disabled: !gitAvailable,
       run: () => openBranchPicker(false),
@@ -4306,9 +4109,9 @@ export function App({
     ...(hasPullTab
       ? [
           {
-            id: "brief",
+            id: "pull",
             label: showLivePull ? "Open the pull request" : "Open the pull request draft",
-            run: () => fileWorkspace.select("brief"),
+            run: () => fileWorkspace.select("pull"),
           },
         ]
       : []),
@@ -4318,7 +4121,7 @@ export function App({
             id: "pull-request-refresh",
             label: "Read the pull request again from GitHub",
             run: () => {
-              fileWorkspace.select("brief");
+              fileWorkspace.select("pull");
               setPullRefreshes((count) => count + 1);
             },
           },
@@ -4387,7 +4190,7 @@ export function App({
                 },
               ]
             : []),
-          ...(found
+          ...(state.savedReview || hasSessions
             ? [
                 {
                   id: "agent-session",
@@ -4405,31 +4208,12 @@ export function App({
                       },
                     ]
                   : []),
-              ]
-            : []),
-          ...(state.savedReview
-            ? [
-                {
-                  id: "agent-session",
-                  label: sessionVisible ? "Hide agent session" : "Show agent session",
-                  shortcut: "⌘⇧B",
-                  run: toggleSession,
-                },
-                // The review hides only beside the session.
-                ...(sessionVisible || !reviewVisible
-                  ? [
-                      {
-                        id: "review-pane",
-                        label: reviewVisible ? "Hide review" : "Show review",
-                        run: toggleReview,
-                      },
-                    ]
-                  : []),
-                ...(agentPresets ?? [])
+                // A lone review takes an agent: the session then holds it.
+                ...(hasSessions ? [] : (agentPresets ?? []))
                   .filter((agent) => agent.available)
                   .map((agent) => ({
                     id: `new-session-${agent.id}`,
-                    label: `New ${agent.name} session`,
+                    label: `New ${agent.name} session on this review`,
                     run: () => void sessionStarter.start(agent.id).catch(() => {}),
                   })),
                 // The lead session is open in a terminal or another app, where
@@ -4440,7 +4224,7 @@ export function App({
                         id: "continue-in-med",
                         label: "Continue in Med",
                         run: () =>
-                          void continueInMed(leadSession.id).catch((error: unknown) =>
+                          void continueInMed().catch((error: unknown) =>
                             showToast(
                               error instanceof Error ? error.message : "Med did not continue it.",
                             ),
@@ -4503,6 +4287,8 @@ export function App({
     },
     {
       id: "find",
+      // The find box takes the focus, not what had it before the palette.
+      managesFocus: true,
       label: "Find in diff contents",
       shortcut: "⌘ F",
       run: () => {
@@ -4512,6 +4298,7 @@ export function App({
     },
     {
       id: "filter",
+      managesFocus: true,
       label: "Filter changed files",
       run: () => {
         // The Changes sidebar's filter: the page and its sidebar show first.
@@ -4698,7 +4485,7 @@ export function App({
     // The file opens after that, so that the choice does not replace it.
     if (
       state.savedReview &&
-      reviewOpened.current !== state.savedReview.id &&
+      reviewOpened.current?.review !== state.savedReview.id &&
       state.status !== "error"
     )
       return;
@@ -4888,15 +4675,17 @@ export function App({
     [fileState.active, streamScope],
   );
   // What the generated files and the dependency changes say in words, and
-  // what the thread's agents did to the generated files (docs/GENERATED.md).
+  // what the agent did to the generated files (docs/GENERATED.md): the
+  // thread's session, else the session that handed off the review.
+  const editSession = threadSession ?? state.savedReview?.session;
+  const editAgent = editSession?.agent;
+  const editSessionId = editSession?.id;
   const transcriptSessions = useMemo(
     () =>
-      agentSessions.flatMap((session) =>
-        session.agent === "claude" || session.agent === "codex"
-          ? [{ agent: session.agent, id: session.id }]
-          : [],
-      ),
-    [agentSessions],
+      editSessionId && (editAgent === "claude" || editAgent === "codex")
+        ? [{ agent: editAgent, id: editSessionId }]
+        : [],
+    [editAgent, editSessionId],
   );
   const provenance = useProvenance(
     sessionFetch,
@@ -5549,17 +5338,7 @@ export function App({
           },
         ]
       : []),
-    // The checkout that the thread shows, and the base of its changes: each
-    // shows its value and opens its picker.
-    ...(threadPicker && !reviewShown
-      ? [
-          {
-            label: "Thread checkout…",
-            hint: state.activeBranch ?? state.session?.repository.path.split("/").at(-1),
-            onSelect: () => openBranchPicker(false),
-          },
-        ]
-      : []),
+    // The base of the thread's changes shows its value and opens its picker.
     ...(!reviewShown && comparisonActionsShown
       ? [
           workingAvailable
@@ -5581,25 +5360,6 @@ export function App({
   const comparisonFit = useRowFit(
     comparisonSlot,
     streamChrome && !comparisonInRail && comparisonShown ? comparisonText : null,
-  );
-  const stackRail = stack && reviewShown && (
-    <StackRail
-      stack={stack}
-      current={Math.max(0, layerIndex)}
-      mode={stackMode}
-      onLayer={showLayer}
-      onRange={showLayers}
-    />
-  );
-  // Where the rail hides, the layers are a menu in the review's row.
-  const layerMenu = stack && reviewShown && !sidebarShown && (
-    <LayerMenu
-      stack={stack}
-      current={Math.max(0, layerIndex)}
-      mode={stackMode}
-      onLayer={showLayer}
-      onRange={showLayers}
-    />
   );
   const comparisonSelect = comparisonShown && (
     <ChoiceSelect
@@ -5727,7 +5487,6 @@ export function App({
           {comparisonFit !== "menu" && comparisonSelect}
         </span>
       )}
-      {streamChrome && layerMenu}
       {totals}
       {/* The Commit tab's Stage all; its header would repeat the band's branch. */}
       {fileState.active === "commit" && commitApi && (
@@ -5753,19 +5512,12 @@ export function App({
     </ActionMenu>
   );
   // The review's name: its pull request's, when it has one.
-  const pullName = shownLayer?.pullRequestUrl ? (
+  const pullName = state.savedReview?.pullRequestUrl && (
     <PullRequestTitle
-      url={shownLayer.pullRequestUrl}
-      title={shownLayer.pullRequestTitle ?? shownLayer.title}
+      url={state.savedReview.pullRequestUrl}
+      title={state.savedReview.pullRequestTitle ?? state.savedReview.title}
+      pull={pullRequest.data?.pull}
     />
-  ) : (
-    state.savedReview?.pullRequestUrl && (
-      <PullRequestTitle
-        url={state.savedReview.pullRequestUrl}
-        title={state.savedReview.pullRequestTitle ?? state.savedReview.title}
-        pull={pullRequest.data?.pull}
-      />
-    )
   );
   const shownPage = reviewPages.some((entry) => entry.value === shownTab) ? shownTab : null;
   const display: DisplayOptions = {
@@ -5789,8 +5541,7 @@ export function App({
   // the thread, and the page on screen, clicked again, hides it, so the
   // thread fills the workspace again.
   const choosePage = (value: string) => {
-    if (reviewVisible && value === shownPage && sessionVisible && (hasSessions || found))
-      closePane("review");
+    if (reviewVisible && value === shownPage && sessionVisible && hasSessions) closePane("review");
     else selectTab(value);
   };
   const reviewTools = (
@@ -5865,21 +5616,14 @@ export function App({
   );
   // Where the thread works: its repository, and its branch or worktree. The
   // window's title band names it; without the shell, the session header does.
-  const threadTarget = state.savedReview && threadCheckout(state.savedReview);
-  const threadRepository =
-    threadTarget &&
-    state.repositories.find(
-      (item) =>
-        item.path === threadTarget.repo ||
-        item.worktrees.some((tree) => tree.path === threadTarget.repo),
-    );
-  const threadPlace = threadTarget
-    ? [threadRepository?.name ?? threadTarget.repo.split("/").at(-1), threadTarget.branch]
+  const threadCheckout = thread?.checkout;
+  const threadPlace = threadCheckout
+    ? [thread.repository?.name ?? threadCheckout.split("/").at(-1), thread.branch]
         .filter(Boolean)
         .join(" · ")
     : undefined;
   // A hand-off's card in the conversation opens the Review (HandoffCard.tsx).
-  const siblingReviews = useSessionReviews(state.savedReview?.id);
+  const siblingReviews = useThreadReviews(threadId);
   const reviewsClock = useMinuteClock(siblingReviews.length > 1);
   const handoffTitle = reviewAvailable
     ? (state.savedReview?.pullRequestTitle ?? state.savedReview?.title ?? "Review")
@@ -5895,19 +5639,13 @@ export function App({
               selectTab("review");
             },
             id: savedReviewId,
-            titles: new Map(siblingReviews.map((thread) => [thread.id, thread.title])),
+            titles: new Map(siblingReviews.map((review) => [review.id, review.title])),
             openReview: (id: string) => {
-              if (id === savedReviewId) {
-                revealPane("review");
-                selectTab("review");
-                return;
-              }
-              const thread = siblingReviews.find((each) => each.id === id);
-              if (!workspace || !thread) return;
-              const target = { kind: "review" as const, reviewId: id, title: thread.title };
-              const existing = workspace.match(target);
-              if (existing) workspace.activate(existing);
-              else workspace.open(target);
+              // Another of the thread's reviews shows in its place.
+              if (id !== savedReviewId && workspace)
+                workspace.update(workspace.id, { reviewId: id });
+              revealPane("review");
+              selectTab("review");
             },
           },
     [handoffTitle, revealPane, selectTab, savedReviewId, siblingReviews, workspace],
@@ -5934,25 +5672,19 @@ export function App({
     : [];
   const sessionLinks: ThreadLink[] = [
     ...(siblingReviews.length > 1
-      ? siblingReviews.flatMap((thread): ThreadLink[] =>
-          thread.id === state.savedReview?.id
+      ? siblingReviews.flatMap((review): ThreadLink[] =>
+          review.id === state.savedReview?.id
             ? ownReview
             : [
                 {
-                  id: `review-${thread.id}`,
+                  id: `review-${review.id}`,
                   icon: "guide",
-                  label: thread.title,
-                  detail: shortAge(thread.updatedAt, reviewsClock),
+                  label: review.title,
+                  detail: shortAge(review.updatedAt, reviewsClock),
                   onOpen: () => {
-                    if (!workspace) return;
-                    const target = {
-                      kind: "review" as const,
-                      reviewId: thread.id,
-                      title: thread.title,
-                    };
-                    const existing = workspace.match(target);
-                    if (existing) workspace.activate(existing);
-                    else workspace.open(target);
+                    workspace?.update(workspace.id, { reviewId: review.id });
+                    revealPane("review");
+                    selectTab("review");
                   },
                 },
               ],
@@ -5980,7 +5712,7 @@ export function App({
               ? {
                   onOpen: () => {
                     revealPane("review");
-                    selectTab("brief");
+                    selectTab("pull");
                   },
                 }
               : { href: state.savedReview.pullRequestUrl }),
@@ -5992,7 +5724,8 @@ export function App({
   // the review does not fill the workspace.
   const sessionBandTools = sessionVisible && panes.zoom !== "review";
   const sidePanes: PaneSpec[] = [
-    ...(state.savedReview
+    // A thread's session, or the session of a review that opens on its own.
+    ...(entry?.kind === "thread" || state.savedReview
       ? [
           {
             id: "session" as const,
@@ -6018,9 +5751,9 @@ export function App({
                   />
                 ) : (
                   <SessionPanel
-                    key={state.savedReview!.id}
-                    reviewId={state.savedReview!.id}
-                    sessions={agentSessions}
+                    key={sessionThreadId}
+                    threadId={sessionThreadId!}
+                    session={agentSessions[0]!}
                     root={state.review?.repo}
                     fetcher={sessionFetch}
                     inbox={agentInbox}
@@ -6042,42 +5775,15 @@ export function App({
                     onFork={forkFromHere}
                     links={sessionLinks}
                     place={
-                      threadTarget
+                      threadCheckout
                         ? {
-                            folder: threadTarget.repo,
-                            ...(threadTarget.branch ? { branch: threadTarget.branch } : {}),
+                            folder: threadCheckout,
+                            ...(thread.branch && { branch: thread.branch }),
                           }
                         : undefined
                     }
                   />
                 )}
-              </Suspense>
-            ),
-          },
-        ]
-      : []),
-    ...(found
-      ? [
-          {
-            id: "session" as const,
-            label: "Session",
-            ariaLabel: "Agent session",
-            icon: found.agent,
-            onClose: hideSession,
-            preload: true,
-            render: () => (
-              <Suspense fallback={null}>
-                <FoundSessionPane
-                  key={found.id}
-                  session={found}
-                  root={state.review?.repo}
-                  fetcher={sessionFetch}
-                  bandTools={sessionBandTools}
-                  onOpenPath={openFromPane}
-                  fileRefs={fileRefs}
-                  onSideRoom={setSessionSideRoom}
-                  openAgent={openAgent}
-                />
               </Suspense>
             ),
           },
@@ -6121,18 +5827,11 @@ export function App({
       onSelect={(entry, newWorkspace) =>
         !workspace
           ? branches.open(entry)
-          : threadPicker && !newWorkspace && !branchPickerNew && !branchPickerRepos
-            ? moveThreadTo(entry)
-            : // A repository opened from a thread opens beside it.
-              openBranch(
-                entry,
-                newWorkspace || branchPickerNew || (branchPickerRepos && !!threadPicker),
-              )
+          : // A branch opened from a thread opens beside it.
+            openBranch(entry, newWorkspace || branchPickerNew || threadPicker)
       }
       repositoriesFirst={branchPickerRepos}
-      workspaces={
-        workspace ? (branchPickerNew ? "new" : threadPicker ? "thread" : "here") : undefined
-      }
+      workspaces={workspace ? (branchPickerNew || threadPicker ? "new" : "here") : undefined}
       onPullRequest={workspace?.openPull}
       agents={agentPresets?.filter((agent) => agent.available)}
       onAddRepository={controller.addRepository}
@@ -6174,7 +5873,7 @@ export function App({
       fixed: true,
       // While the session hides, the review's Expand is Restore, which shows it.
       ...(!sessionVisible &&
-        (state.savedReview || found) && {
+        (state.savedReview || hasSessions) && {
           restore: {
             label: "Show agent session",
             shortcut: "Mod+Shift+B",
@@ -6203,7 +5902,7 @@ export function App({
                   <button
                     type="button"
                     disabled={refreshing}
-                    onClick={() => startNotes(true)}
+                    onClick={refreshReview}
                     {...stylex.props(ui.button, ui.pressable, styles.driftAction)}
                   >
                     {refreshing ? "Refreshing…" : "Refresh review"}
@@ -6229,7 +5928,7 @@ export function App({
             aria-label={
               activeFile
                 ? `File ${activeFile.path}`
-                : fileState.active === "brief"
+                : fileState.active === "pull"
                   ? "Pull request"
                   : fileState.active === "guide"
                     ? "Guide"
@@ -6265,7 +5964,6 @@ export function App({
                         openGuide({ kind: "segment", key }, id);
                       }
                     }}
-                    top={stackRail}
                     since={sinceRow}
                     controls={railHide}
                   />
@@ -6273,7 +5971,6 @@ export function App({
                 {changesRail && (
                   <ChangesRail
                     hidden={!railShown}
-                    top={stackRail}
                     controls={railHide}
                     range={
                       comparisonInRail && (
@@ -6533,22 +6230,22 @@ export function App({
                 </div>
               </div>
             </div>
-            {hasPullTab && briefMounted && state.savedReview && (
+            {hasPullTab && pullMounted && state.savedReview && (
               <div
                 {...stylex.props(
                   styles.reviewSurface,
-                  fileState.active !== "brief" && styles.hiddenSurface,
+                  fileState.active !== "pull" && styles.hiddenSurface,
                 )}
-                aria-hidden={fileState.active !== "brief"}
+                aria-hidden={fileState.active !== "pull"}
               >
                 <Suspense fallback={null}>
-                  {showLivePull ? (
+                  {showLivePull && (
                     <PullRequestView
                       key={`${state.savedReview.id} ${livePullUrl}`}
                       reviewId={state.savedReview.id}
                       url={livePullUrl!}
                       title={state.savedReview.pullRequestTitle ?? state.savedReview.title}
-                      active={fileState.active === "brief"}
+                      active={fileState.active === "pull"}
                       comments={pullRequest}
                       placement={pullRequestThreads.placement}
                       root={state.review?.repo}
@@ -6556,43 +6253,6 @@ export function App({
                       loadLog={loadCheckLog}
                       refreshes={pullRefreshes}
                       onShowThread={showPullThread}
-                      onShowDraft={
-                        prDraft ? () => setDraftShownFor(state.savedReview!.id) : undefined
-                      }
-                      left={
-                        pullImagesLeft?.id === state.savedReview.id
-                          ? pullImagesLeft.names
-                          : undefined
-                      }
-                      onDismissLeft={() => setPullImagesLeft(null)}
-                    />
-                  ) : (
-                    <BriefView
-                      key={state.savedReview.id}
-                      files={state.files}
-                      root={state.review?.repo}
-                      active={fileState.active === "brief"}
-                      loadSource={controller.loadSources}
-                      onOpen={openBriefLocation}
-                      onOpenPath={(path, line) => fileWorkspace.open(path, line)}
-                      fileRefs={fileRefs}
-                      readFile={readCheckoutFile}
-                      onCopy={copyNotes}
-                      notes={notes}
-                      onMutateNote={mutateNote}
-                      comments={briefComments}
-                      onCommentBrief={(mutation) => controller.commentBrief(mutation)}
-                      prDraft={prDraft}
-                      prDraftImage={prDraftImage}
-                      onCreatePullRequest={(asDraft) => {
-                        const id = state.savedReview!.id;
-                        return controller.createPullRequest(asDraft).then((created) => {
-                          setDraftShownFor(null);
-                          setPullImagesLeft({ id, names: created.left });
-                          return created;
-                        });
-                      }}
-                      onShowLive={livePullUrl ? () => setDraftShownFor(null) : undefined}
                     />
                   )}
                 </Suspense>

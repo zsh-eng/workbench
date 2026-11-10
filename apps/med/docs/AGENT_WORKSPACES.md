@@ -365,21 +365,12 @@ which you submit yourself ([pull requests](usage/pull-requests.md)).
 
 Med had a **Notes** tab: the agent's brief (a Markdown explanation of the
 change, from `--brief` or pasted with `⌘V`) and the replies that you pinned
-from its session with **Pin to review**, with excerpts of the lines that they
-cited and comments on their words. Agent replies already read in the session's
-thread, so the tab, **Pin to review**, and the brief's paste went. Med still
-keeps what was saved: briefs and pins stay in each review and its versions,
-`--brief` and `POST /api/reviews/:id/pins` still store them, and the review's
-checks still read a brief's Proof section. Nothing saved is lost.
-
-If they return, they would fold into **Review** as a **From the agent**
-section at the top of the Overview: the brief, then the pinned replies, with
-comments on their words. `BriefView` still renders a brief and pins, so that
-section can reuse it.
-
-The right column holds **Session**, **Files**, and **Preview** panes, at most
-two stacked, with one shared, resizable width. **Show side panes as tabs**
-switches to tabs.
+from its session with **Pin to review**. Agent replies already read in the
+session's thread, so the tab, the brief, and pins went, with pull request
+drafts and approvals, when threads became sessions. A review is the captured
+change, its guide, and its comments; the guide's summary holds proof and
+findings. Old reviews keep their comparisons, guides, and comments; their
+briefs and pins are dropped.
 
 ## Long sessions: load earlier work
 

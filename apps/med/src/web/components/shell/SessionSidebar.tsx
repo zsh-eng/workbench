@@ -13,13 +13,12 @@ import {
 import type { Thread } from "../../../shared/threads";
 import { resumeCommand } from "../../data/workspaces";
 import type { ReadState } from "../../data/tabs";
-import { needsYou, tabOrder, type SessionRow } from "../../data/threads";
+import { needsYou, tabOrder } from "../../data/threads";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
 import { RenameField } from "./RenameField";
 import { newThreadKeys } from "../../data/title-bar";
 import { tooltip } from "../ToolButton";
-import { motion } from "../session/session-styles";
 
 /** Where a dragged row would land: a place among the pins, or Recent. */
 type DropTarget = { pinned: true; at: number } | { pinned: false };
@@ -100,19 +99,14 @@ export function SessionSidebar({
   onPrefetch(thread: Thread): void;
   onRenaming(thread: Thread | null): void;
   /** Names the session; an empty name gives it its agent's title again. */
-  onRename(thread: SessionRow, name: string): void;
+  onRename(thread: Thread, name: string): void;
   /** Pins the session at `at` among the pins (under the others without it),
    * moves a pinned one there, or unpins it. */
-  onPin(thread: SessionRow, pinned: boolean, at?: number): void;
+  onPin(thread: Thread, pinned: boolean, at?: number): void;
 }) {
   // A drop shows at once: the pins as dropped, until the host's list agrees.
   const [placed, setPlaced] = useState<readonly string[] | null>(null);
-  // The Superagent has its own row on top, apart from the sessions.
-  const superagent = threads.find((thread) => thread.superagent);
-  const ordered = tabOrder(
-    threads.filter((thread) => !thread.superagent),
-    current,
-  );
+  const ordered = tabOrder(threads);
   const pinnedIds = ordered.filter((thread) => thread.pinned).map((thread) => thread.id);
   const settled =
     placed !== null &&
@@ -157,7 +151,7 @@ export function SessionSidebar({
     return { pinned: true, at };
   };
 
-  const press = (thread: SessionRow, event: ReactPointerEvent<HTMLElement>) => {
+  const press = (thread: Thread, event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
     const row = event.currentTarget.closest<HTMLElement>("[data-session-row]");
     if (!row) return;
@@ -227,7 +221,7 @@ export function SessionSidebar({
   };
 
   /** Moves a pinned session one place up or down, as a drag would. */
-  const move = (thread: SessionRow, by: -1 | 1) => {
+  const move = (thread: Thread, by: -1 | 1) => {
     const from = pins.indexOf(thread.id);
     const to = from + by;
     if (from < 0 || to < 0 || to >= pins.length) return;
@@ -252,15 +246,13 @@ export function SessionSidebar({
   })();
   useFlip(scroller, drag ? JSON.stringify(drag.target) : null);
 
-  const row = (thread: SessionRow, index: number, list: readonly SessionRow[]) => (
+  const row = (thread: Thread, index: number, list: readonly Thread[]) => (
     <SessionRow
       key={thread.id}
       thread={thread}
       placeholder={drag?.id === thread.id}
       menuBoundary={nav}
-      current={
-        !newThread && (thread.id === current || (!!current && !!thread.members?.includes(current)))
-      }
+      current={!newThread && thread.id === current}
       unread={read.isUnread(thread)}
       editing={renaming === thread.id}
       actions={{
@@ -273,13 +265,7 @@ export function SessionSidebar({
         },
         pin: () => onPin(thread, !thread.pinned),
         unread: (unread) => read.setUnread(thread, unread),
-        // Archiving the session archives each review it handed off.
-        archive: () => {
-          for (const member of thread.members ?? [thread.id]) {
-            const each = threads.find((entry) => entry.id === member);
-            if (each) onArchive(each);
-          }
-        },
+        archive: () => onArchive(thread),
         delete: () => onDelete(thread),
         press: (event) => press(thread, event),
         dragged: () => dragged.current,
@@ -323,26 +309,18 @@ export function SessionSidebar({
       </div>
       <div ref={scroller} {...stylex.props(styles.scroll)}>
         {onSuperagent && (
+          // The Superagent is a pinned session; this opens it, and makes it
+          // the first time.
           <button
             type="button"
-            aria-current={superagent && superagent.id === current ? "page" : undefined}
             {...tooltip("Superagent: one thread that sees the others")}
-            onClick={() => (superagent ? onOpen(superagent) : onSuperagent())}
-            {...stylex.props(
-              styles.row,
-              styles.superagent,
-              !newThread && !!superagent && superagent.id === current && styles.current,
-            )}
+            onClick={onSuperagent}
+            {...stylex.props(styles.row, styles.superagent)}
           >
             <span {...stylex.props(styles.mark, styles.spark)}>
               <Icon name="superagent" size={14} />
             </span>
-            <span {...stylex.props(styles.name, superagent?.state === "working" && motion.shimmer)}>
-              Superagent
-            </span>
-            {superagent && read.isUnread(superagent) && (
-              <span aria-label="New" {...stylex.props(styles.newDot)} />
-            )}
+            <span {...stylex.props(styles.name)}>Superagent</span>
           </button>
         )}
         {/* While a row drags, Pinned shows even with no pins, to drop into. */}
@@ -569,7 +547,7 @@ function SessionMenu({
   unread: boolean;
   actions: RowActions;
 }) {
-  const session = thread.sessions?.findLast((entry) => entry.agent !== "acp");
+  const session = thread.session;
   const resume =
     session && session.agent !== "acp" && session.cwd
       ? resumeCommand({ agent: session.agent, id: session.id, cwd: session.cwd })

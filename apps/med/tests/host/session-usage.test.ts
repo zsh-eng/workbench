@@ -158,21 +158,22 @@ test("counts each response once, subagents included, at list price, and the cont
       ...init,
       headers: { authorization: `Bearer ${host.token}`, "content-type": "application/json" },
     });
-  const { id } = (await (
+  // Each session hands off a review, so each is a thread.
+  for (const session of [
+    { agent: "claude", id: claude, cwd: repo },
+    { agent: "codex", id: codex, cwd: repo },
+  ])
     await api("/api/reviews", {
       method: "POST",
       body: JSON.stringify({
         title: "Usage",
         targets: [{ repo, comparison: { kind: "working" } }],
-        sessions: [
-          { agent: "claude", id: claude, cwd: repo },
-          { agent: "codex", id: codex, cwd: repo },
-        ],
+        session,
       }),
-    })
-  ).json()) as { id: string };
-  const usage = async () =>
-    (await (await api(`/api/thread-usage?id=${id}&session=${claude}`)).json()) as ThreadUsage;
+    });
+  const usageOf = async (thread: string) =>
+    (await (await api(`/api/thread-usage?id=${thread}`)).json()) as ThreadUsage;
+  const usage = () => usageOf(`claude-${claude}`);
 
   const first = await usage();
   const cost = (model: string) => first.spend.models.find((entry) => entry.model === model)?.cost;
@@ -186,15 +187,7 @@ test("counts each response once, subagents included, at list price, and the cont
     output: 10,
     cost: null,
   });
-  expect(first.spend.models.find((entry) => entry.model === "gpt-test")).toMatchObject({
-    input: 1000,
-    cacheRead: 4000,
-    output: 300,
-    cost: null,
-  });
-  // 100,000 × $20 + 200,000 × $2 (cached) + 1,000 × $75, per million.
-  expect(cost("gpt-6-astra")).toBeCloseTo(2.475, 8);
-  expect(first.spend.total).toBeCloseTo(2.60609, 8);
+  expect(first.spend.total).toBeCloseTo(0.13109, 8);
   expect(first.spend.subagents).toEqual({ count: 1, cost: expect.closeTo(0.012, 8) });
   expect(first.context).toMatchObject({
     sessionId: claude,
@@ -214,9 +207,22 @@ test("counts each response once, subagents included, at list price, and the cont
   await appendFile(transcript, line({ type: "system", subtype: "compact_boundary", uuid: "c1" }));
   const second = await usage();
   expect(second.context?.compacted).toBe(true);
-  expect(second.spend.total).toBeCloseTo(2.60609, 8);
-  // The thread's latest session is Codex's, which reports its own window.
-  const latest = (await (await api(`/api/thread-usage?id=${id}`)).json()) as ThreadUsage;
+  expect(second.spend.total).toBeCloseTo(0.13109, 8);
+
+  // Codex's thread: its spend, and the window that Codex reports.
+  const latest = await usageOf(`codex-${codex}`);
+  expect(latest.spend.models.find((entry) => entry.model === "gpt-test")).toMatchObject({
+    input: 1000,
+    cacheRead: 4000,
+    output: 300,
+    cost: null,
+  });
+  // 100,000 × $20 + 200,000 × $2 (cached) + 1,000 × $75, per million.
+  expect(latest.spend.models.find((entry) => entry.model === "gpt-6-astra")?.cost).toBeCloseTo(
+    2.475,
+    8,
+  );
+  expect(latest.spend.total).toBeCloseTo(2.475, 8);
   expect(latest.context).toMatchObject({
     agent: "codex",
     model: "gpt-6-astra",
@@ -263,18 +269,16 @@ test("a session with hundreds of subagents reads each transcript once, not on ev
       ...init,
       headers: { authorization: `Bearer ${host.token}`, "content-type": "application/json" },
     });
-  const { id } = (await (
-    await api("/api/reviews", {
-      method: "POST",
-      body: JSON.stringify({
-        title: "Many subagents",
-        targets: [{ repo, comparison: { kind: "working" } }],
-        sessions: [{ agent: "claude", id: claude, cwd: repo }],
-      }),
-    })
-  ).json()) as { id: string };
+  await api("/api/reviews", {
+    method: "POST",
+    body: JSON.stringify({
+      title: "Many subagents",
+      targets: [{ repo, comparison: { kind: "working" } }],
+      session: { agent: "claude", id: claude, cwd: repo },
+    }),
+  });
   const usage = async () =>
-    (await (await api(`/api/thread-usage?id=${id}&session=${claude}`)).json()) as ThreadUsage;
+    (await (await api(`/api/thread-usage?id=claude-${claude}`)).json()) as ThreadUsage;
 
   const first = await usage();
   expect(first.spend.subagents?.count).toBe(300);

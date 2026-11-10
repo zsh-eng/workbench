@@ -1,62 +1,65 @@
-import { SUPERAGENT_KEY } from "./superagent";
 import type { AgentStatus } from "../shared/agent-status";
 import type { AgentMessage } from "../shared/agent-inbox";
-import {
-  FOUND_DAYS,
-  foundThreadId,
-  parseFoundThreadId,
-  type FoundUpdate,
-} from "../shared/found-sessions";
+import type { FoundUpdate } from "../shared/found-sessions";
 import { baseOf, changesBase, type RegisteredRepository } from "../shared/protocol";
 import {
   handoffTargets,
-  threadCheckout,
+  reviewCheckout,
   type AgentSession,
   type SavedReview,
 } from "../shared/saved-review";
-import { threadParts, type Thread, type ThreadList } from "../shared/threads";
+import {
+  parseSessionKey,
+  REVIEW_ID,
+  sessionKey,
+  threadOfReview,
+  type Thread,
+  type ThreadList,
+  type ThreadReview,
+} from "../shared/threads";
 import { findTranscript, transcriptPrompt } from "./agent-transcripts";
 import { HostError } from "./runtime/errors";
 import type { SavedReviewStore } from "./saved-reviews";
-import { CAPTURES_KEPT_MS, STUBS_KEPT_MS, type TabStub, type ThreadTabs } from "./thread-tabs";
+import type { Checkout, IndexedSession, SessionIndex } from "./session-index";
+import type { ThreadPlace, ThreadStore } from "./thread-store";
 import type { createThreadSubagents } from "./thread-subagents";
 import type { createCheckoutWork } from "./checkout-work";
 import type { createPullRequestLinks } from "./pull-request-links";
 import type { createCheckoutChanges } from "./checkout-changes";
 
-// The threads of the host: the tabs, which the thread list polls, and history,
-// which a picker reads when it opens. See thread-tabs.ts for the store, and
+// The threads of the host: the tabs, which the thread list polls, and the
+// archive, which a picker reads when it opens. A thread is an agent session,
+// whatever folder it works in, with the reviews that it handed off; or a
+// review that no session handed off. See thread-store.ts for the store, and
 // docs/usage/threads.md for the rules.
 
 const DAY = 24 * 60 * 60 * 1000;
-/** The first start with tabs opens the threads that changed in this time, the
- * window of found sessions, and at most `FIRST_TABS` of them. */
-const FIRST_TABS_MS = FOUND_DAYS * DAY;
-const FIRST_TABS = 8;
 /** A tab lists subagents while its session changed within this time. */
 const SUBAGENTS_MS = DAY;
 /** The list of saved reviews is read again after this time, or after a write. */
 const INDEX_MS = 30_000;
-const REVIEW_ID = /^r_[a-f0-9]{24}$/;
+/** An archived thread is forgotten this long after it was archived; a
+ * review's captures go with it. */
+export const ARCHIVE_KEPT_MS = 180 * DAY;
 
 type IndexedReview = SavedReview & { modifiedAt: number };
 
 export interface ThreadServiceOptions {
   savedReviews: SavedReviewStore;
-  tabs: ThreadTabs;
+  store: ThreadStore;
+  sessions: Pick<SessionIndex, "found" | "session" | "known" | "place" | "update" | "settings">;
   repositories(): RegisteredRepository[];
-  status(reviewId: string, sessions: AgentSession[]): Promise<AgentStatus | undefined>;
-  lastMessage(reviewId: string): Promise<AgentMessage | undefined>;
-  found: {
-    threads(reviews: readonly { sessions?: readonly AgentSession[] }[]): Thread[];
-    session(threadId: string): Promise<AgentSession[] | undefined>;
-    update(input: FoundUpdate): Promise<unknown>;
-    settings(): { shown: boolean };
-  };
+  /** The state of a thread's session: Med's runner, else its transcript. */
+  status(threadId: string, sessions: AgentSession[]): Promise<AgentStatus | undefined>;
+  lastMessage(threadId: string): Promise<AgentMessage | undefined>;
+  /** The sessions that Med runs, with the agent's own ID of one that runs
+   * through ACP, such as a Codex rollout's: that transcript is the same
+   * session, not a thread of its own. */
+  owned(): { session: AgentSession; agentId?: string }[];
   checkoutWork: ReturnType<typeof createCheckoutWork>;
   /** Finds the pull request that a tab's branch opened later. */
   pullRequestLinks?: Pick<ReturnType<typeof createPullRequestLinks>, "check">;
-  /** The counts of a checkout's live Changes, for a tab without a Review. */
+  /** The counts of a checkout's live Changes. */
   checkoutChanges?: Pick<ReturnType<typeof createCheckoutChanges>, "get">;
   subagents: ReturnType<typeof createThreadSubagents>;
   /** Removes a linked worktree that Med made, as `git worktree remove` does. */
@@ -65,18 +68,48 @@ export interface ThreadServiceOptions {
   home?: () => string;
 }
 
-/** Where a review's thread works: its checkout, else its first comparison
- * that is not a comment's. */
-const primary = (review: SavedReview) => threadCheckout(review);
+/** A review's thread: its session's key, or the review's own ID. */
+
+/** What a thread lists of one of its reviews. */
+function reviewSummary(review: IndexedReview): ThreadReview {
+  const checkout = reviewCheckout(review);
+  return {
+    id: review.id,
+    title: review.pullRequestTitle ?? review.title,
+    createdAt: review.createdAt,
+    updatedAt: review.modifiedAt,
+    ...(checkout && { repo: checkout.repo }),
+    ...(checkout?.branch && { branch: checkout.branch }),
+    ...(review.pullRequestUrl && { pullRequestUrl: review.pullRequestUrl }),
+    ...(review.totals &&
+      handoffTargets(review).length && {
+        changes: {
+          files: review.totals.files,
+          additions: review.totals.additions,
+          deletions: review.totals.deletions,
+        },
+      }),
+  };
+}
+
+/** The place of a registered checkout, as a thread shows it. */
+function placeOf(checkout: Checkout): ThreadPlace {
+  return {
+    repository: checkout.repository,
+    checkout: checkout.path,
+    ...(checkout.branch && checkout.branch !== "Detached HEAD" && { branch: checkout.branch }),
+    ...(checkout.linked && { linked: true }),
+  };
+}
 
 /**
  * Marks the tabs whose checkout is shared: a repository's main checkout, or
- * a worktree where more than one tab works. Their Changes offer "Only this
- * session's files".
+ * a worktree where more than one session works. Their Changes offer "Only
+ * this session's files".
  */
 function markShared(threads: Thread[]) {
   const transcript = (thread: Thread) =>
-    !!thread.checkout && !!thread.sessions?.some((session) => session.agent !== "acp");
+    !!thread.checkout && !!thread.session && thread.session.agent !== "acp";
   const counts = new Map<string, number>();
   for (const thread of threads)
     if (transcript(thread)) counts.set(thread.checkout!, (counts.get(thread.checkout!) ?? 0) + 1);
@@ -86,122 +119,19 @@ function markShared(threads: Thread[]) {
 }
 
 export function createThreadService(options: ThreadServiceOptions) {
-  const { savedReviews, tabs } = options;
+  const { savedReviews, store } = options;
   const now = options.now ?? Date.now;
   let index: { at: number; changes: number; reviews: IndexedReview[] } | undefined;
   let indexing: Promise<IndexedReview[]> | undefined;
   let pruneTimer: ReturnType<typeof setInterval> | undefined;
-  /** Closed threads whose first prompt was looked for. */
+  /** Archived sessions whose first prompt was looked for. */
   const prompted = new Set<string>();
-  /** First prompts of found sessions in history, by thread ID. */
-  const foundPrompts = new Map<string, string | null>();
   let prompting: Promise<void> | undefined;
-
-  const familyOf = (repositories: readonly RegisteredRepository[], path?: string, id?: string) =>
-    repositories.find((entry) => entry.id === id) ??
-    (path
-      ? repositories.find(
-          (entry) => entry.path === path || entry.worktrees.some((tree) => tree.path === path),
-        )
-      : undefined);
-
-  /** The sidebar's group of a thread: its repository, else its checkout. */
-  const groupOf = (thread: Pick<Thread, "repository" | "checkout">) =>
-    thread.repository?.id ?? thread.checkout ?? "other";
-
-  /** What every list says of a review, without its agent's state or Git work. */
-  const describe = (review: IndexedReview, repositories: readonly RegisteredRepository[]) => {
-    const target = primary(review);
-    const family = familyOf(repositories, target?.repo, target?.repositoryId);
-    // The checkout's branch as it is now: an agent can switch it. A detached
-    // checkout shows by its folder.
-    const tree = family?.worktrees.find((entry) => entry.path === target?.repo);
-    const branch = tree
-      ? tree.branch && tree.branch !== "Detached HEAD"
-        ? tree.branch
-        : undefined
-      : target?.branch;
-    const lead = review.sessions?.at(-1);
-    return {
-      id: review.id,
-      title: review.pullRequestTitle ?? review.title,
-      createdAt: review.createdAt,
-      updatedAt: review.modifiedAt,
-      ...(family && { repository: { id: family.id, name: family.name, path: family.path } }),
-      ...(target && { checkout: target.repo }),
-      ...(family?.worktrees.some((tree) => tree.path === target?.repo && tree.linked) && {
-        linked: true,
-      }),
-      ...(branch && { branch }),
-      ...(lead && { agent: lead.agent }),
-      ...(review.sessions?.length && { sessions: review.sessions }),
-      // A thread's Review counts its hand-offs; before one, its tab counts
-      // the live Changes (`reviewTab`).
-      ...(review.totals &&
-        handoffTargets(review).length && {
-          changes: {
-            files: review.totals.files,
-            additions: review.totals.additions,
-            deletions: review.totals.deletions,
-          },
-        }),
-      ...(review.pullRequestUrl && { pullRequestUrl: review.pullRequestUrl }),
-      ...(review.parts && { parts: threadParts(review) }),
-      // The Superagent's thread (superagent.ts), which the sidebar pins on top.
-      ...(review.key === SUPERAGENT_KEY && { superagent: true }),
-    } satisfies Thread;
-  };
-
-  const stubOf = (thread: Thread): TabStub => ({
-    title: thread.title,
-    createdAt: thread.createdAt,
-    ...(thread.repository && { repository: thread.repository }),
-    ...(thread.checkout && { checkout: thread.checkout }),
-    ...(thread.linked && { linked: true }),
-    ...(thread.branch && { branch: thread.branch }),
-    sessions: thread.sessions ?? [],
-    ...(thread.pullRequestUrl && { pullRequestUrl: thread.pullRequestUrl }),
-    updatedAt: thread.updatedAt,
-  });
-
-  /** A thread with the name that the reader gave it, if any. The agent's
-   * title stays in `agentTitle`, and stubs keep it. */
-  const named = (thread: Thread): Thread => {
-    const name = tabs.entry(thread.id)?.name;
-    const place = tabs.pins().indexOf(thread.id);
-    if (!name && place < 0) return thread;
-    return {
-      ...thread,
-      ...(name && { title: name, agentTitle: thread.title }),
-      ...(place >= 0 && { pinned: place + 1 }),
-    };
-  };
-
-  /** A thread from what history keeps of it. */
-  const fromStub = (id: string, stub: TabStub): Thread => {
-    const lead = stub.sessions.at(-1);
-    const entry = tabs.entry(id);
-    return {
-      id,
-      title: stub.title,
-      createdAt: stub.createdAt ?? new Date(stub.updatedAt ?? 0).toISOString(),
-      updatedAt: stub.updatedAt ?? entry?.closedAt ?? 0,
-      ...(stub.repository && { repository: stub.repository }),
-      ...(stub.checkout && { checkout: stub.checkout }),
-      ...(stub.linked && { linked: true }),
-      ...(stub.branch && { branch: stub.branch }),
-      ...(lead && { agent: lead.agent }),
-      ...(stub.sessions.length && { sessions: stub.sessions }),
-      ...(stub.pullRequestUrl && { pullRequestUrl: stub.pullRequestUrl }),
-      ...(parseFoundThreadId(id) ? { found: true, state: "idle" as const } : { stub: true }),
-      ...(entry?.prompt && { prompt: entry.prompt }),
-    };
-  };
 
   /**
    * Every saved review's description, read again after a write or after
-   * INDEX_MS. A review that the tabs do not know, such as one that an older
-   * Med saved, opens as a tab, as a hand-off does.
+   * INDEX_MS. A review that the store does not know, such as a hand-off from
+   * a terminal, opens its thread as a tab.
    */
   const reviewIndex = async (): Promise<IndexedReview[]> => {
     if (index && index.changes === savedReviews.changes && now() - index.at < INDEX_MS)
@@ -209,10 +139,16 @@ export function createThreadService(options: ThreadServiceOptions) {
     indexing ??= (async () => {
       const changes = savedReviews.changes;
       const reviews = await savedReviews.list();
-      const repositories = options.repositories();
-      for (const review of reviews)
-        if (!tabs.known(review.id))
-          tabs.open(review.id, { group: groupOf(describe(review, repositories)) });
+      const known = new Set(index?.reviews.map((review) => review.id));
+      for (const review of reviews) {
+        if (index && known.has(review.id)) continue;
+        const id = threadOfReview(review);
+        if (!store.known(id))
+          store.open(id, review.session ? { session: review.session, kept: true } : {});
+        // A session that hands off a review is kept, wherever it works.
+        else if (review.session && !store.entry(id)?.kept)
+          store.remember(id, { kept: true, session: store.entry(id)?.session ?? review.session });
+      }
       index = { at: now(), changes, reviews };
       return reviews;
     })().finally(() => {
@@ -221,50 +157,176 @@ export function createThreadService(options: ThreadServiceOptions) {
     return indexing;
   };
 
-  /** A tab of a saved review, with its agent's state. */
-  const reviewTab = async (
+  /** The reviews of each thread, newest first. */
+  const reviewsByThread = (reviews: readonly IndexedReview[]) => {
+    const byThread = new Map<string, IndexedReview[]>();
+    for (const review of reviews) {
+      const id = threadOfReview(review);
+      byThread.set(id, [...(byThread.get(id) ?? []), review]);
+    }
+    for (const list of byThread.values()) list.sort((a, b) => b.modifiedAt - a.modifiedAt);
+    return byThread;
+  };
+
+  /** The repository of a checkout's path. */
+  const familyOf = (repositories: readonly RegisteredRepository[], path?: string) =>
+    path
+      ? repositories.find(
+          (entry) => entry.path === path || entry.worktrees.some((tree) => tree.path === path),
+        )
+      : undefined;
+
+  /** The place of a review: its checkout, with the branch as it is now. */
+  const reviewPlace = (
     review: IndexedReview,
     repositories: readonly RegisteredRepository[],
-  ): Promise<Thread> => {
-    const base = describe(review, repositories);
-    const status = review.sessions?.length
-      ? await options.status(review.id, review.sessions).catch(() => undefined)
-      : undefined;
-    const reply = review.sessions?.length
-      ? await options.lastMessage(review.id).catch(() => undefined)
-      : undefined;
-    // Before the agent hands off a Review, the tab counts the live Changes.
-    const target = primary(review);
-    const family = familyOf(repositories, target?.repo, target?.repositoryId);
-    const tree = family?.worktrees.find((entry) => entry.path === target?.repo);
-    const branch = tree ? tree.branch : target?.branch;
-    const live =
-      target && !handoffTargets(review).length
-        ? options.checkoutChanges?.get(
-            target.repo,
-            changesBase(family, branch, target.base),
-            status?.updatedAt,
-          )
-        : undefined;
-    // A branch other than the base can have a pull request that opened after
-    // the thread did.
-    if (
-      target &&
-      branch &&
-      branch !== "Detached HEAD" &&
-      !review.pullRequestUrl &&
-      // A stack's layers have their own pull requests.
-      !review.parts &&
-      changesBase(family, branch, target.base)
-    )
-      options.pullRequestLinks?.check(review.id, target.repo, branch);
+  ): ThreadPlace => {
+    const checkout = reviewCheckout(review);
+    if (!checkout) return {};
+    const family =
+      repositories.find((entry) => entry.id === checkout.repositoryId) ??
+      familyOf(repositories, checkout.repo);
+    // The checkout's branch as it is now: an agent can switch it.
+    const tree = family?.worktrees.find((entry) => entry.path === checkout.repo);
+    const branch = tree
+      ? tree.branch && tree.branch !== "Detached HEAD"
+        ? tree.branch
+        : undefined
+      : (checkout.branch ?? undefined);
     return {
-      ...base,
-      updatedAt: Math.max(review.modifiedAt, status?.updatedAt ?? 0),
-      ...(live && { changes: live }),
-      ...(status && { agent: status.agent, state: status.state }),
+      ...(family && { repository: { id: family.id, name: family.name, path: family.path } }),
+      checkout: checkout.repo,
+      ...(branch && { branch }),
+      ...(tree?.linked && { linked: true }),
+    };
+  };
+
+  /** A thread with the reader's name, pin, and marks. */
+  const named = (thread: Thread): Thread => {
+    const entry = store.entry(thread.id);
+    const place = store.pins().indexOf(thread.id);
+    return {
+      ...thread,
+      ...(entry?.name && { title: entry.name, agentTitle: thread.title }),
+      ...(place >= 0 && { pinned: place + 1 }),
+      ...(entry?.closedAt !== undefined && { closedAt: entry.closedAt }),
+      ...(entry?.prompt && !thread.prompt && { prompt: entry.prompt }),
+    };
+  };
+
+  /** The session of a session thread: the store's, else its newest review's,
+   * else its key's, without a folder yet. */
+  const sessionOf = (id: string, reviews: readonly IndexedReview[]): AgentSession | undefined => {
+    const entry = store.entry(id);
+    if (entry?.session) return entry.session;
+    const handed = reviews.find((review) => review.session)?.session;
+    if (handed) return handed;
+    const parsed = parseSessionKey(id);
+    return parsed && { ...parsed, cwd: "/" };
+  };
+
+  /** A session thread as the store and its reviews know it, without reading
+   * its agent: for the archive. */
+  const coldSession = (
+    id: string,
+    session: AgentSession,
+    reviews: readonly IndexedReview[],
+  ): Thread => {
+    const entry = store.entry(id);
+    const newest = reviews[0];
+    const place = entry?.place ?? {};
+    // The last scan's read, without reading the transcript again.
+    const scanned = options.sessions.known(id);
+    return {
+      id,
+      kind: "session",
+      title: entry?.title ?? newest?.title ?? "Agent session",
+      createdAt:
+        entry?.createdAt ??
+        reviews.at(-1)?.createdAt ??
+        new Date(entry?.updatedAt ?? now()).toISOString(),
+      updatedAt: Math.max(entry?.updatedAt ?? 0, newest?.modifiedAt ?? 0, scanned?.mtimeMs ?? 0),
+      ...place,
+      ...(entry?.base && { base: entry.base }),
+      agent: session.agent,
+      ...(scanned && { state: scanned.working ? "working" : "idle" }),
+      session,
+      reviews: reviews.map(reviewSummary),
+      ...(newest?.pullRequestUrl && { pullRequestUrl: newest.pullRequestUrl }),
+    };
+  };
+
+  /** A tab of a session, with its agent's state and where it works now. */
+  const sessionTab = async (
+    id: string,
+    reviews: readonly IndexedReview[],
+    repositories: readonly RegisteredRepository[],
+  ): Promise<Thread | undefined> => {
+    const known = sessionOf(id, reviews);
+    if (!known) return undefined;
+    const entry = store.entry(id);
+    const read =
+      known.agent === "acp"
+        ? undefined
+        : await options.sessions
+            .session({ agent: known.agent, id: known.id })
+            .catch(() => undefined);
+    const session: AgentSession = { ...known, ...(read?.cwd && { cwd: read.cwd }) };
+    const status = await options.status(id, [session]).catch(() => undefined);
+    // Where it works now: the newest of its folders in a checkout; a session
+    // that Med runs through ACP has no transcript, only its folder.
+    const checkout =
+      read?.checkout ??
+      (session.cwd !== "/" ? await options.sessions.place([session.cwd]) : undefined);
+    const place = checkout ? placeOf(checkout) : read ? {} : (entry?.place ?? {});
+    const newest = reviews[0];
+    const family = repositories.find((repository) => repository.id === place.repository?.id);
+    const base = place.checkout ? changesBase(family, place.branch, entry?.base) : undefined;
+    const live =
+      place.checkout && base !== undefined
+        ? options.checkoutChanges?.get(place.checkout, base, status?.updatedAt)
+        : undefined;
+    const pullRequestUrl = newest?.pullRequestUrl;
+    // A branch other than the base can have a pull request that opened after
+    // the review did; it links to the newest review on that branch.
+    const onBranch = reviews.find(
+      (review) => reviewCheckout(review)?.repo === place.checkout && !review.pullRequestUrl,
+    );
+    if (onBranch && place.checkout && place.branch && base)
+      options.pullRequestLinks?.check(onBranch.id, place.checkout, place.branch);
+    const reply = await options.lastMessage(id).catch(() => undefined);
+    const thread: Thread = {
+      id,
+      kind: "session",
+      title: read?.title ?? entry?.title ?? newest?.title ?? "Agent session",
+      createdAt:
+        (read && new Date(read.createdAt).toISOString()) ??
+        entry?.createdAt ??
+        new Date(now()).toISOString(),
+      updatedAt: Math.max(
+        read?.mtimeMs ?? 0,
+        status?.updatedAt ?? 0,
+        newest?.modifiedAt ?? 0,
+        entry?.updatedAt ?? 0,
+      ),
+      ...place,
+      ...(entry?.base && { base: entry.base }),
+      agent: session.agent,
+      state: status?.state ?? (read?.working ? "working" : "idle"),
+      session,
+      reviews: reviews.map(reviewSummary),
+      ...((live ?? newest?.totals) && {
+        changes: live ?? {
+          files: newest!.totals!.files,
+          additions: newest!.totals!.additions,
+          deletions: newest!.totals!.deletions,
+        },
+      }),
+      ...(pullRequestUrl && { pullRequestUrl }),
+      ...(options.owned().some((owned) => owned.session.id === session.id) && { owned: true }),
+      ...((status?.turn ?? read?.turn) && { turn: status?.turn ?? read?.turn }),
       ...(status?.halt && { halt: status.halt }),
-      ...(status?.turn && { turn: status.turn }),
+      ...(read?.prompt && { prompt: read.prompt }),
       ...(reply && {
         replied: {
           at: Date.parse(reply.createdAt),
@@ -274,113 +336,147 @@ export function createThreadService(options: ThreadServiceOptions) {
       }),
       open: true,
     };
+    store.remember(id, {
+      session,
+      title: thread.title,
+      createdAt: thread.createdAt,
+      updatedAt: thread.updatedAt,
+      place,
+      ...(read?.prompt && !entry?.prompt && { prompt: read.prompt }),
+    });
+    return thread;
   };
 
-  /** Adds the subagents of a tab's lead Claude session that changed lately. */
+  /** A tab of a review that no session handed off. */
+  const reviewTab = (review: IndexedReview, repositories: readonly RegisteredRepository[]) => {
+    const summary = reviewSummary(review);
+    return {
+      id: review.id,
+      kind: "review",
+      title: summary.title,
+      createdAt: review.createdAt,
+      updatedAt: review.modifiedAt,
+      ...reviewPlace(review, repositories),
+      reviews: [summary],
+      ...(summary.changes && { changes: summary.changes }),
+      ...(review.pullRequestUrl && { pullRequestUrl: review.pullRequestUrl }),
+    } satisfies Thread;
+  };
+
+  /** Adds the subagents of a tab's Claude session that changed lately. */
   const withSubagents = async (thread: Thread): Promise<Thread> => {
-    const lead = thread.sessions?.findLast((session) => session.agent === "claude");
-    if (!lead || now() - thread.updatedAt > SUBAGENTS_MS) return thread;
-    const subagents = await options.subagents.of(lead).catch(() => []);
+    const session = thread.session;
+    if (session?.agent !== "claude" || now() - thread.updatedAt > SUBAGENTS_MS) return thread;
+    const subagents = await options.subagents.of(session).catch(() => []);
     return subagents.length ? { ...thread, subagents } : thread;
   };
 
-  /** Looks for the first prompts of closed threads, a few at a time. */
+  /** The agent's own IDs of the sessions that Med runs through ACP: the same
+   * sessions, not threads of their own. */
+  const aliasIds = () =>
+    new Set(options.owned().flatMap((entry) => (entry.agentId ? [entry.agentId] : [])));
+
+  /** Found sessions that work now open as tabs, once each. The result names
+   * the aliases (`aliasIds`), which never do. */
+  const openNewSessions = () => {
+    const aliases = aliasIds();
+    for (const session of options.sessions.found()) {
+      if (aliases.has(session.id) || store.known(session.key)) continue;
+      // A found session opens as a tab once: when Med first sees it work.
+      if (session.working)
+        store.open(session.key, {
+          session: { agent: session.agent, id: session.id, cwd: session.cwd },
+        });
+    }
+    return aliases;
+  };
+
+  /** Looks for the first prompts of archived sessions, a few at a time. */
   const fillPrompts = (threads: readonly Thread[]) => {
     if (prompting) return;
     const due = threads
-      .filter((thread) => !thread.prompt && !prompted.has(thread.id) && thread.sessions?.length)
+      .filter(
+        (thread) =>
+          !thread.prompt &&
+          !prompted.has(thread.id) &&
+          thread.session &&
+          thread.session.agent !== "acp",
+      )
       .slice(0, 20);
     if (!due.length) return;
     prompting = (async () => {
       for (const thread of due) {
         prompted.add(thread.id);
-        const session = thread.sessions!.find((entry) => entry.agent !== "acp");
-        if (!session) continue;
+        const session = thread.session!;
         const path = await findTranscript(session, options.home?.()).catch(() => undefined);
         const prompt = path
           ? await transcriptPrompt(session, path).catch(() => undefined)
           : undefined;
-        if (thread.found) foundPrompts.set(thread.id, prompt ?? null);
-        else if (prompt) tabs.setPrompt(thread.id, prompt);
+        if (prompt) store.setPrompt(thread.id, prompt);
       }
-      await tabs.save().catch(() => {});
+      await store.save().catch(() => {});
     })().finally(() => {
       prompting = undefined;
     });
   };
 
+  const requireKnown = async (id: string) => {
+    await reviewIndex();
+    if (!store.known(id))
+      throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
+  };
+
   const service = {
-    /** The tabs, in the user's order, with their agents' states and Git work. */
+    /** The tabs, with their agents' states and Git work. */
     async list(): Promise<ThreadList> {
       const repositories = options.repositories();
       const reviews = await reviewIndex();
       const byId = new Map(reviews.map((review) => [review.id, review]));
-      const found = options.found.threads(reviews);
-      // A found session opens as a tab once: when Med first sees it work.
-      for (const thread of found) {
-        if (thread.state === "working" && !tabs.known(thread.id))
-          tabs.open(thread.id, { group: groupOf(thread) });
-        if (tabs.isOpen(thread.id)) tabs.setStub(thread.id, stubOf(thread));
-      }
-      // A found tab whose session a saved review now names gives that review its place.
-      const owners = new Map<string, string>();
-      for (const review of reviews)
-        for (const session of review.sessions ?? []) owners.set(session.id, review.id);
-      for (const id of [...tabs.order()]) {
-        const session = parseFoundThreadId(id);
-        const owner = session && owners.get(session.id);
-        if (!owner) continue;
-        // The review keeps the name and the pin that the reader gave the session.
-        const name = tabs.entry(id)?.name;
-        if (name && !tabs.entry(owner)?.name) tabs.setName(owner, name);
-        if (tabs.isOpen(owner)) {
-          tabs.handPin(id, owner);
-          tabs.forget(id);
-        } else tabs.open(owner, { replace: id });
-      }
-      const live = new Map(found.map((thread) => [thread.id, thread]));
-      // The tabs as this read lists them: a tab that opens while it waits is
-      // not one of them.
-      const order = [...tabs.order()];
+      const byThread = reviewsByThread(reviews);
+      const aliases = openNewSessions();
+      const ids = store.openIds();
       const listed = await Promise.all(
-        order.map(async (id) => {
-          const review = byId.get(id);
-          if (review) return reviewTab(review, repositories);
-          const thread = live.get(id);
-          if (thread) return { ...thread, open: true };
-          const stub = tabs.entry(id)?.stub;
-          return stub && parseFoundThreadId(id) ? { ...fromStub(id, stub), open: true } : undefined;
+        ids.map(async (id) => {
+          if (REVIEW_ID.test(id)) {
+            const review = byId.get(id);
+            // A review that a session handed off is in the session's thread.
+            if (!review || review.session) return undefined;
+            const tab = reviewTab(review, repositories);
+            // Its branch can have a pull request that opened after the review.
+            const family = repositories.find((entry) => entry.id === tab.repository?.id);
+            if (
+              !tab.pullRequestUrl &&
+              tab.checkout &&
+              tab.branch &&
+              changesBase(family, tab.branch)
+            )
+              options.pullRequestLinks?.check(review.id, tab.checkout, tab.branch);
+            return { ...tab, open: true };
+          }
+          const parsed = parseSessionKey(id);
+          if (!parsed || aliases.has(parsed.id)) return undefined;
+          return sessionTab(id, byThread.get(id) ?? [], repositories);
         }),
       );
-      // A tab whose record is gone, such as one deleted outside Med, leaves.
-      // Only with an index that has every saved review: a review saved while
-      // this read ran is a tab that the index does not have yet.
+      // A tab whose record is gone, such as a review deleted outside Med,
+      // leaves. Only with an index that has every saved review: a review saved
+      // while this read ran is a tab that the index does not have yet.
       if (index?.changes === savedReviews.changes)
-        order.forEach((id, at) => {
-          if (!listed[at] && tabs.isOpen(id)) tabs.forget(id);
+        ids.forEach((id, at) => {
+          if (!listed[at] && REVIEW_ID.test(id)) store.forget(id);
         });
       const threads = await Promise.all(
         listed.flatMap((thread) => (thread ? [withSubagents(thread)] : [])),
       );
-      for (const thread of threads) tabs.setGroup(thread.id, groupOf(thread));
-      void tabs.save().catch(() => {});
+      void store.save().catch(() => {});
       markShared(threads);
-      // A tab's work counts the uncommitted changes when its Changes or its
-      // Review shows them.
-      const onWorking = new Set(
-        reviews
-          .filter(
-            (review) =>
-              !handoffTargets(review).length ||
-              review.targets.some((entry) => entry.comparison.kind === "working"),
-          )
-          .map((review) => review.id),
-      );
       return {
         threads: options.checkoutWork.annotate(
-          threads.map((thread) => ({ ...named(thread), seen: tabs.seen(thread.id) })),
+          threads.map((thread) => ({ ...named(thread), seen: store.seen(thread.id) })),
           repositories,
-          (thread) => !!thread.found || onWorking.has(thread.id),
+          // Uncommitted changes are a session's work in a checkout of its own;
+          // in a shared one, such as the main checkout, they may be others'.
+          (thread) => thread.kind === "session" && !thread.shared,
         ),
         repositories: repositories.map((entry) => {
           const branch = baseOf(entry);
@@ -391,144 +487,163 @@ export function createThreadService(options: ThreadServiceOptions) {
             ...(branch && branch !== "Detached HEAD" && { branch }),
           };
         }),
-        found: options.found.settings(),
+        found: options.sessions.settings(),
       };
     },
 
-    /** Closed threads and found sessions that are not tabs, newest first. */
+    /** Archived threads, and found sessions that are not tabs, newest first. */
     async history(): Promise<Thread[]> {
-      const repositories = options.repositories();
       const reviews = await reviewIndex();
+      const repositories = options.repositories();
+      const byThread = reviewsByThread(reviews);
       const threads: Thread[] = [];
       const listed = new Set<string>();
-      for (const review of reviews) {
-        if (tabs.isOpen(review.id)) continue;
-        const entry = tabs.entry(review.id);
-        listed.add(review.id);
+      for (const entry of store.closed()) {
+        if (REVIEW_ID.test(entry.id)) {
+          const review = reviews.find((item) => item.id === entry.id);
+          if (review && !review.session)
+            threads.push({ ...reviewTab(review, repositories), open: false });
+          listed.add(entry.id);
+          continue;
+        }
+        const own = byThread.get(entry.id) ?? [];
+        const session = sessionOf(entry.id, own);
+        if (!session) continue;
+        listed.add(entry.id);
+        threads.push({ ...coldSession(entry.id, session, own), open: false });
+      }
+      const aliases = aliasIds();
+      for (const session of options.sessions.found()) {
+        if (listed.has(session.key) || store.isOpen(session.key) || aliases.has(session.id))
+          continue;
         threads.push({
-          ...describe(review, repositories),
+          ...foundThread(session, byThread.get(session.key) ?? []),
           open: false,
-          ...(entry?.closedAt !== undefined && { closedAt: entry.closedAt }),
-          ...(entry?.prompt && { prompt: entry.prompt }),
         });
       }
-      for (const thread of options.found.threads(reviews)) {
-        if (tabs.isOpen(thread.id)) continue;
-        const closedAt = tabs.entry(thread.id)?.closedAt;
-        const prompt = foundPrompts.get(thread.id);
-        listed.add(thread.id);
-        threads.push({
-          ...thread,
-          open: false,
-          ...(closedAt !== undefined && { closedAt }),
-          ...(prompt && { prompt }),
-        });
-      }
-      for (const entry of tabs.closed())
-        if (!listed.has(entry.id) && entry.stub)
-          threads.push({
-            ...fromStub(entry.id, entry.stub),
-            open: false,
-            closedAt: entry.closedAt,
-          });
-      // Newest first; the threads that closed together, as at the first start
-      // with tabs, by their last change.
+      // Newest first, by when they were archived; the threads archived
+      // together by their last change.
+      const listedThreads = threads.map(named);
       const time = (thread: Thread) => Math.max(thread.closedAt ?? 0, thread.updatedAt);
-      threads.sort((a, b) => time(b) - time(a) || b.updatedAt - a.updatedAt);
-      fillPrompts(threads);
-      return threads.map(named);
+      listedThreads.sort((a, b) => time(b) - time(a) || b.updatedAt - a.updatedAt);
+      fillPrompts(listedThreads);
+      return listedThreads;
     },
 
-    /**
-     * Opens a thread as a tab and returns it. A thread whose captures are gone
-     * opens as its newest session, under that session's found ID.
-     */
-    async open(id: string, place: { restore?: boolean } = {}): Promise<Thread> {
-      const repositories = options.repositories();
+    /** Opens a thread as a tab and returns it. */
+    async open(id: string): Promise<Thread> {
       const reviews = await reviewIndex();
-      const review = reviews.find((entry) => entry.id === id);
-      if (review) {
-        const thread = describe(review, repositories);
-        tabs.open(id, { group: groupOf(thread), ...place });
-        await tabs.save();
-        return named({ ...thread, open: true });
-      }
-      const stub = tabs.entry(id)?.stub;
       if (REVIEW_ID.test(id)) {
-        const session = stub?.sessions.findLast((entry) => entry.agent !== "acp");
-        if (!stub) throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
-        if (!session || session.agent === "acp")
-          throw new HostError(
-            "thread-no-session",
-            "Med kept no session to resume for this archived thread.",
-            409,
-          );
-        const foundId = foundThreadId(session.agent, session.id);
-        // A session that Med finds again shows as it finds it.
-        const thread =
-          options.found.threads(reviews).find((entry) => entry.id === foundId) ??
-          fromStub(foundId, stub);
-        const name = tabs.entry(id)?.name;
-        tabs.handPin(id, foundId);
-        tabs.forget(id);
-        tabs.open(foundId, { group: groupOf(thread), ...place });
-        if (name) tabs.setName(foundId, name);
-        tabs.setStub(foundId, stub);
-        await tabs.save();
-        return named({ ...thread, open: true });
-      }
-      const parsed = parseFoundThreadId(id);
-      if (!parsed) throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
-      let thread = options.found.threads(reviews).find((entry) => entry.id === id);
-      if (!thread && stub) thread = fromStub(id, stub);
-      if (!thread) {
-        const sessions = await options.found.session(id);
-        const session = sessions?.[0];
-        if (!session)
+        const review = reviews.find((entry) => entry.id === id);
+        if (!review)
           throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
-        const family = familyOf(repositories, session.cwd);
-        thread = {
-          id,
-          title: "Agent session",
-          createdAt: new Date(now()).toISOString(),
-          updatedAt: now(),
-          ...(family && { repository: { id: family.id, name: family.name, path: family.path } }),
-          checkout: session.cwd,
-          agent: session.agent,
-          sessions,
-          found: true,
-        };
+        // A session's review opens its session's thread.
+        if (review.session) return service.open(threadOfReview(review));
+        store.open(id);
+        await store.save();
+        return named({ ...reviewTab(review, options.repositories()), open: true });
       }
-      tabs.open(id, { group: groupOf(thread), ...place });
-      tabs.setStub(id, stubOf(thread));
-      await tabs.save();
+      const parsed = parseSessionKey(id);
+      if (!parsed) throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
+      const own = reviewsByThread(reviews).get(id) ?? [];
+      let session = sessionOf(id, own);
+      if (!store.known(id) && parsed.agent !== "acp") {
+        const read = await options.sessions
+          .session({ agent: parsed.agent, id: parsed.id })
+          .catch(() => undefined);
+        if (!read) throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
+        session = { agent: read.agent, id: read.id, cwd: read.cwd };
+      }
+      store.open(id, { ...(session && { session }) });
+      await store.save();
+      const thread =
+        (await sessionTab(id, own, options.repositories()).catch(() => undefined)) ??
+        coldSession(id, session!, own);
+      await store.save().catch(() => {});
       return named({ ...thread, open: true });
     },
 
-    /** Opens the review that a hand-off or a new thread saved, in the place
-     * of the found session that it saves, if that is a tab. */
-    async opened(review: SavedReview, prompt?: string) {
-      const replace = (review.sessions ?? [])
-        .flatMap((session) =>
-          session.agent === "acp" ? [] : [foundThreadId(session.agent, session.id)],
-        )
-        .find((id) => tabs.isOpen(id));
-      const target = primary(review);
-      const family = familyOf(options.repositories(), target?.repo, target?.repositoryId);
-      tabs.open(review.id, {
-        group: family?.id ?? target?.repo ?? "other",
-        ...(replace && { replace }),
-        ...(prompt && { prompt }),
+    /** Keeps a session in Med as a tab: Med started it, or the reader kept
+     * it. `prompt` names a session that Med starts with it. */
+    async keep(
+      session: AgentSession,
+      details: { prompt?: string; title?: string; superagent?: boolean } = {},
+    ) {
+      const id = sessionKey(session);
+      store.open(id, {
+        session,
+        kept: true,
+        ...(details.prompt && { prompt: details.prompt }),
+        ...(details.superagent && { superagent: true }),
       });
-      await tabs.save();
+      if (details.title && !store.entry(id)?.title) store.remember(id, { title: details.title });
+      await store.save();
+      return id;
+    },
+
+    /** A hand-off opens its thread as a tab, also a new version of an
+     * archived one. */
+    async handedOff(review: SavedReview) {
+      const id = threadOfReview(review);
+      store.open(id, review.session ? { session: review.session, kept: true } : {});
+      await store.save();
+      return id;
+    },
+
+    /** The Superagent's thread, once Med made it. */
+    superagent(): string | undefined {
+      return store.ids().find((id) => store.entry(id)?.superagent);
+    },
+
+    /** Med continues a session in a fork: the fork's thread takes the old
+     * one's place, with its reviews, name, and pin. */
+    async handOver(from: AgentSession, to: AgentSession) {
+      const old = sessionKey(from);
+      const next = sessionKey(to);
+      store.handOver(old, next, { session: to, kept: true });
+      await store.save();
+      for (const review of (await reviewIndex()).filter(
+        (entry) => entry.session && sessionKey(entry.session) === old,
+      ))
+        await savedReviews.details(review.id, { session: to }).catch(() => {});
+      return next;
+    },
+
+    /** The reviews of archived threads, archived longest ago first: past the
+     * byte budget, they give up their captures first. */
+    archivedReviews(): string[] {
+      const byThread = reviewsByThread(index?.reviews ?? []);
+      return store
+        .closed()
+        .reverse()
+        .flatMap((entry) => (byThread.get(entry.id) ?? []).map((review) => review.id));
     },
 
     /** Whether the thread is a tab. */
     isTab(id: string) {
-      return tabs.isOpen(id);
+      return store.isOpen(id);
     },
 
-    /** Sends a tab to history. True when this call closed it. Closing never
+    /** The thread's entry in the store, for its routes. */
+    entry(id: string) {
+      return store.entry(id);
+    },
+
+    /** The thread of a review. */
+    async threadOf(reviewId: string) {
+      const review = (await reviewIndex()).find((entry) => entry.id === reviewId);
+      return review && threadOfReview(review);
+    },
+
+    /** The reviews of a thread, newest first. */
+    async reviewsOf(id: string): Promise<IndexedReview[]> {
+      const reviews = await reviewIndex();
+      return REVIEW_ID.test(id)
+        ? reviews.filter((review) => review.id === id)
+        : (reviewsByThread(reviews).get(id) ?? []);
+    },
+
+    /** Archives a tab. True when this call archived it. Archiving never
      * stops the agent. `removeWorktree` also removes the linked worktree that
      * Med made for it, unless another tab works there. */
     async close(
@@ -536,185 +651,115 @@ export function createThreadService(options: ThreadServiceOptions) {
       details: { auto?: boolean; removeWorktree?: boolean } = {},
       signal: AbortSignal = new AbortController().signal,
     ) {
-      if (details.removeWorktree && REVIEW_ID.test(id)) {
-        const reviews = await reviewIndex();
-        const review = reviews.find((entry) => entry.id === id);
-        const path = review && primary(review)?.repo;
-        const linked =
-          !!path &&
-          familyOf(options.repositories(), path)?.worktrees.some(
-            (tree) => tree.path === path && tree.linked,
-          );
-        if (linked) {
+      if (details.removeWorktree) {
+        const path = store.entry(id)?.place?.checkout;
+        const linked = !!path && !!store.entry(id)?.place?.linked;
+        if (path && linked) {
           // Another tab that works there keeps the worktree.
-          const other = reviews.find(
-            (entry) =>
-              entry.id !== id &&
-              tabs.isOpen(entry.id) &&
-              (primary(entry)?.repo === path ||
-                entry.targets.some((target) => target.repo === path)),
-          );
+          const other = store
+            .openIds()
+            .find((other) => other !== id && store.entry(other)?.place?.checkout === path);
           if (other)
             throw new HostError(
               "worktree-shared",
-              `"${other.title}" works in this worktree too.`,
+              `"${store.entry(other)?.name ?? store.entry(other)?.title ?? "Another thread"}" works in this worktree too.`,
               409,
             );
           await options.removeWorktree(path, signal);
         }
       }
-      const closed = tabs.close(id, { ...(details.auto && { auto: true }) });
-      await tabs.save();
+      const closed = store.close(id, { ...(details.auto && { auto: true }) });
+      await store.save();
       return closed;
     },
 
-    /** Opens the thread that closed last, at its place. */
+    /** Opens the thread that was archived last. */
     async reopen(): Promise<Thread | undefined> {
-      const reviews = new Set((await reviewIndex()).map((review) => review.id));
-      for (const entry of tabs.closed()) {
-        if (!reviews.has(entry.id) && !entry.stub) continue;
-        const thread = await service.open(entry.id, { restore: true }).catch(() => undefined);
+      for (const entry of store.closed()) {
+        const thread = await service.open(entry.id).catch(() => undefined);
         if (thread) return thread;
       }
       return undefined;
     },
 
     /**
-     * Names a tab or a thread in history. Med keeps the name, not the agent:
-     * a hand-off that changes the review's title does not change it. An empty
-     * name gives the thread its agent's title again.
+     * Names a thread. Med keeps the name, not the agent: a new title from the
+     * agent does not change it. An empty name gives the thread its agent's
+     * title again.
      */
     async rename(id: string, name: string) {
-      await reviewIndex();
-      if (!tabs.known(id))
-        throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
-      tabs.setName(id, name.trim() || undefined);
-      await tabs.save();
+      await requireKnown(id);
+      store.setName(id, name.trim() || undefined);
+      await store.save();
+    },
+
+    /** The branch that the thread's Changes start from; none for the base. */
+    async setBase(id: string, base: string | undefined) {
+      await requireKnown(id);
+      if (store.setBase(id, base)) await store.save();
     },
 
     /** The reader saw the tab's changes up to `at`, in some window: every
      * window and the CLI read it as seen. A lower mark makes the later
      * changes new again (Mark as unread). */
     async see(id: string, at: number) {
-      if (!tabs.known(id))
-        throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
-      if (tabs.see(id, at)) await tabs.save();
+      await requireKnown(id);
+      if (store.see(id, at)) await store.save();
     },
 
     /** The marks that a browser kept before the host kept them. */
     async mergeSeen(marks: Readonly<Record<string, number>>) {
-      if (tabs.mergeSeen(marks)) await tabs.save();
+      if (store.mergeSeen(marks)) await store.save();
     },
 
     /** Pins a thread at `at` among the pins (under the others without it),
      * moves a pinned one there, or unpins it. */
     async pin(id: string, pinned: boolean, at?: number) {
-      await reviewIndex();
-      if (!tabs.known(id))
-        throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
-      if (tabs.setPinned(id, pinned, at)) await tabs.save();
+      await requireKnown(id);
+      if (store.setPinned(id, pinned, at)) await store.save();
     },
 
     /**
-     * Deletes a thread: its saved review, with its captures and comments, and
-     * its place in tabs and history. Its sessions stay in Claude Code and
-     * Codex; Med hides them, so they do not come back as found sessions.
+     * Deletes a thread: its reviews, with their captures and comments, and its
+     * place in tabs and the archive. A session stays in Claude Code or Codex;
+     * Med hides it, so it does not come back as a found session.
      */
     async delete(id: string) {
-      const found = parseFoundThreadId(id);
-      if (!found && !REVIEW_ID.test(id))
+      const reviews = await service.reviewsOf(id);
+      if (!reviews.length && !store.known(id))
         throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
-      let sessions = tabs.entry(id)?.stub?.sessions ?? [];
-      if (!found) {
-        const review = await savedReviews.summary(id).catch(() => undefined);
-        if (!review && !tabs.known(id))
-          throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
-        sessions = review?.sessions ?? sessions;
-        if (review) await savedReviews.delete(id);
-      } else sessions = [{ agent: found.agent, id: found.id, cwd: "" }];
-      tabs.forget(id);
-      await tabs.save();
-      for (const session of sessions)
-        if (session.agent !== "acp")
-          await options.found
-            .update({ hide: { id: foundThreadId(session.agent, session.id), hidden: true } })
-            .catch(() => {});
+      for (const review of reviews) await savedReviews.delete(review.id).catch(() => {});
+      store.forget(id);
+      await store.save();
+      const session = parseSessionKey(id);
+      if (session && session.agent !== "acp")
+        await options.sessions.update({ hide: { id, hidden: true } }).catch(() => {});
     },
 
-    /**
-     * Prunes history: 30 days after a thread closed, its saved review gives
-     * way to a stub; 180 days after, the stub goes too.
-     */
+    /** The archive does not grow without limit: a thread archived 180 days
+     * ago is forgotten, with its reviews. */
     async prune() {
       const time = now();
-      const stubbed: string[] = [];
-      const deleted: string[] = [];
-      const repositories = options.repositories();
-      for (const entry of tabs.closed()) {
-        const age = time - entry.closedAt;
-        if (age > STUBS_KEPT_MS) {
-          if (REVIEW_ID.test(entry.id)) deleted.push(entry.id);
-          tabs.forget(entry.id);
-        } else if (age > CAPTURES_KEPT_MS && REVIEW_ID.test(entry.id)) {
-          const review = await savedReviews.summary(entry.id).catch(() => undefined);
-          if (!review) continue;
-          tabs.setStub(entry.id, stubOf(describe(review, repositories)));
-          stubbed.push(entry.id);
+      const reviews = await reviewIndex();
+      const byThread = reviewsByThread(reviews);
+      let deleted = 0;
+      for (const entry of store.closed()) {
+        if (time - entry.closedAt <= ARCHIVE_KEPT_MS) continue;
+        for (const review of byThread.get(entry.id) ?? []) {
+          await savedReviews.delete(review.id).catch(() => {});
+          deleted++;
         }
+        store.forget(entry.id);
       }
-      tabs.setPrunedAt(time);
-      // The stubs are on disk before their records go.
-      await tabs.save();
-      for (const id of [...stubbed, ...deleted]) await savedReviews.delete(id).catch(() => {});
-      return { stubbed: stubbed.length, deleted: deleted.length };
+      store.setPrunedAt(time);
+      await store.save();
+      return { deleted };
     },
 
-    /** The first start with tabs makes them from the saved reviews. */
-    async migrate() {
-      const time = now();
-      const repositories = options.repositories();
-      const reviews = await savedReviews.list();
-      const rows = await Promise.all(
-        reviews.map(async (review) => {
-          const group = groupOf(describe(review, repositories));
-          // Archived threads close when they were archived.
-          if (review.archivedAt)
-            return {
-              id: review.id,
-              open: false,
-              archived: true,
-              closedAt: Date.parse(review.archivedAt) || time,
-              updatedAt: review.modifiedAt,
-              group,
-            };
-          // A thread's last change is its record's, or its session's.
-          let updatedAt = review.modifiedAt;
-          if (review.sessions?.length && time - updatedAt >= FIRST_TABS_MS) {
-            const status = await options.status(review.id, review.sessions).catch(() => undefined);
-            updatedAt = Math.max(updatedAt, status?.updatedAt ?? 0);
-          }
-          return { id: review.id, open: false, archived: false, closedAt: time, updatedAt, group };
-        }),
-      );
-      // The newest threads of the last 7 days open; the others close now.
-      rows.sort((a, b) => b.updatedAt - a.updatedAt);
-      const recent = rows.filter((row) => !row.archived && time - row.updatedAt < FIRST_TABS_MS);
-      for (const row of recent.slice(0, FIRST_TABS)) row.open = true;
-      // The sidebar's order: the repository with the newest thread first, and
-      // each repository's threads newest first.
-      const groups = [...new Set(rows.map((row) => row.group))];
-      rows.sort((a, b) => groups.indexOf(a.group) - groups.indexOf(b.group));
-      tabs.migrate(rows);
-      await tabs.save();
-      return {
-        open: rows.filter((row) => row.open).length,
-        closed: rows.filter((row) => !row.open).length,
-      };
-    },
-
-    /** Loads the tabs, or makes them on the first start, and prunes now and once a day. */
-    async start() {
-      if (!(await tabs.load())) await service.migrate();
+    /** Loads the store, and prunes now and once a day. A first start reads
+     * an older Med's tabs (`migrate`). */
+    async start(migrate?: () => Promise<void>) {
+      if (!(await store.load()) && migrate) await migrate();
       await service.prune().catch(() => {});
       pruneTimer = setInterval(() => void service.prune().catch(() => {}), DAY);
       pruneTimer.unref?.();
@@ -724,7 +769,28 @@ export function createThreadService(options: ThreadServiceOptions) {
     stop() {
       clearInterval(pruneTimer);
     },
+
+    /** Shows or hides found sessions, or one of them. */
+    updateFound: (input: FoundUpdate) => options.sessions.update(input),
   };
+
+  /** A found session that is not a tab, as the archive lists it. */
+  function foundThread(session: IndexedSession, reviews: readonly IndexedReview[]): Thread {
+    return {
+      id: session.key,
+      kind: "session",
+      title: session.title,
+      createdAt: new Date(session.createdAt).toISOString(),
+      updatedAt: session.mtimeMs,
+      ...(session.checkout && placeOf(session.checkout)),
+      agent: session.agent,
+      state: session.working ? "working" : "idle",
+      session: { agent: session.agent, id: session.id, cwd: session.cwd },
+      reviews: reviews.map(reviewSummary),
+      ...(session.prompt && { prompt: session.prompt }),
+    };
+  }
+
   return service;
 }
 

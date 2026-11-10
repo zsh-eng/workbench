@@ -177,13 +177,13 @@ adopted session, and the transcript tells, in the thread and in the thread list.
 ## Found sessions
 
 Med also finds the Claude Code and Codex sessions that no agent handed off
-(`src/host/found-sessions.ts`). Med finds a session when its transcript
+(`src/host/session-index.ts`). Med finds a session when its transcript
 changed in the last 7 days (`FOUND_DAYS`, one window for both agents) and the
 folder where it works now, its transcript's last `cwd`, is in a registered
 repository or one of its worktrees. Claude Code files a transcript under the
 folder where the session started, which can be outside them, such as a notes
-folder, so Med reads every project folder. Its thread ID is
-`found-<agent>-<session>`, and the session routes accept it. A server of
+folder, so Med reads every project folder. Its thread ID is the session's
+key, `<agent>-<session>`, as for every session thread. A server of
 another state folder than `~/.local/state/med` starts with found sessions
 hidden (`startHost({ foundSessions: false })`), so a second Med lists only its
 own threads until the reader shows the others.
@@ -192,7 +192,7 @@ A found session opens as a tab once, when Med first sees its agent work
 (`src/host/thread-service.ts`). The others, and the ones that the user
 closed, are archived, where `⌃Tab`, the Archived page (`/archived`), and
 `med thread list --archived` find them. A found tab keeps a short record
-(title, checkout, branch, sessions), so it stays a tab after its session
+(title, checkout, branch, session), so it stays a tab after its session
 leaves the 7-day window.
 
 - Claude Code: the project folders of the registered checkouts.
@@ -200,17 +200,16 @@ leaves the 7-day window.
   reads the day folders of the window. Every 60 seconds, Med lists all day
   folders, so a session that started earlier and runs again shows within a
   minute. Codex's archived sessions do not show.
-- A session that a saved review names shows only as that thread. Codex
-  threads that Med runs have Codex's thread ID, so their rollouts are that
-  thread's. Med keeps an agy conversation's ID with its session
+- A session's reviews are listed in its thread. Codex threads that Med runs
+  have Codex's thread ID, so their rollouts are that thread's. Med keeps an agy conversation's ID with its session
   (`owned-sessions.json`) in the same way.
 - Codex's guardian reviews and subagents do not show
   ([Codex subagents](#codex-subagents)).
 
-**Keep in Med** saves a found session as a thread on its checkout
-(`POST /api/sessions/adopt`). It captures nothing: the thread shows the
-checkout's live Changes, and a Review once the agent shows one with `med
-thread show`. A row counts the Changes (the branch's changes since the base,
+**Keep in Med** keeps a found session in the list however old it gets
+(`POST /api/sessions/adopt`). It captures nothing: the thread shows the live
+Changes of the checkout where the session works, and its reviews once the
+agent hands them off with `med review create`. A row counts the Changes (the branch's changes since the base,
 or the working changes on the base) until the first hand-off
 (`src/host/checkout-changes.ts`), and marks a checkout that is shared: the
 main checkout, or one where another tab's session works too. Keep in Med

@@ -2696,6 +2696,19 @@ export class OwnedSessions {
       record.agentSessionId ? [[record.agentSessionId, id] as [string, string]] : [],
     );
   }
+  /** Every session that Med started and keeps, with an ACP agent's own ID
+   * for it. */
+  sessions(): { session: AgentSession; agentId?: string }[] {
+    return Object.entries(this.records).map(([id, record]) => ({
+      session: {
+        agent: record.kind === "agy" ? "acp" : record.kind,
+        ...(record.kind === "acp" || record.kind === "agy" ? { name: record.name } : {}),
+        id,
+        cwd: record.cwd,
+      },
+      ...(record.agentSessionId && { agentId: record.agentSessionId }),
+    }));
+  }
   /** What Med keeps of a session that it started: its agent, its model and
    * effort, and an ACP agent's own ID for it. */
   recorded(sessionId: string) {
@@ -2718,6 +2731,17 @@ export class OwnedSessions {
   }
   get(sessionId: string) {
     return this.runners.get(sessionId);
+  }
+  /** The newest session that Med runs for a thread's review key
+   * (`MED_THREAD_KEY`), which a hand-off without a session belongs to. */
+  sessionOfKey(key: string): AgentSession | undefined {
+    let newest: { at: number; session: AgentSession } | undefined;
+    for (const [id, record] of Object.entries(this.records)) {
+      const runner = record.key === key ? this.runners.get(id) : undefined;
+      if (runner && (!newest || record.updatedAt > newest.at))
+        newest = { at: record.updatedAt, session: runner.session };
+    }
+    return newest?.session;
   }
   /** When the session's state or updates last changed. */
   updatedAt(sessionId: string) {

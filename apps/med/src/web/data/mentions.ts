@@ -166,13 +166,13 @@ export async function expandMentions(text: string, mentions: readonly Mention[])
   return message;
 }
 
-/** The absolute path that names a thread to an agent: its latest session's
+/** The absolute path that names a thread to an agent: its session's
  * transcript, or else its checkout. */
 export async function threadPath(api: BrowseApi, thread: Thread) {
-  const session = thread.sessions?.at(-1);
+  const session = thread.session;
   const transcript =
     session && session.agent !== "acp" && api.transcript
-      ? await api.transcript(thread.id, session.id).catch(() => undefined)
+      ? await api.transcript(thread.id).catch(() => undefined)
       : undefined;
   const path = transcript ?? thread.checkout;
   if (!path) throw new Error("This thread has no transcript or checkout on this computer.");

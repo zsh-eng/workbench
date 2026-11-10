@@ -46,8 +46,7 @@ Agents pass a guide with [`--guide`](../AGENT_INTEGRATION.md#attach-a-guide).
 
 ## Proof, findings, and later hand-offs
 
-The Overview also shows what a version's notes and guide summary say about
-it, in whatever format the agent or your own review skills wrote it
+The Overview also shows what a version's guide summary says about it, in whatever format the agent or your own review skills wrote it
 ([review practices](../PRACTICES.md#b-read-review-output-from-any-source)). A
 Review opens on the Overview when its hand-off has a guide, proof, or
 findings. A later hand-off opens on what is new since you looked, with the

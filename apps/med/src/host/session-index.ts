@@ -19,8 +19,6 @@ import {
 import {
   FOUND_DAYS,
   foundSettingsSchema,
-  foundThreadId,
-  parseFoundThreadId,
   type FoundAgent,
   type FoundSettings,
   type FoundUpdate,
@@ -28,18 +26,17 @@ import {
 import type { RegisteredRepository } from "../shared/protocol";
 import type { SessionEvent } from "../shared/agent-session";
 import type { ThreadTurn } from "../shared/agent-status";
-import type { AgentSession } from "../shared/saved-review";
-import { threadTitle, type Thread } from "../shared/threads";
+import { sessionKey, threadTitle } from "../shared/threads";
 import { findTranscript } from "./agent-transcripts";
-import { createCheckoutChanges } from "./checkout-changes";
-import { changesBase } from "./checkout-work";
 import { summarizeTurn } from "./thread-turns";
 import { userHome } from "./service/discover";
 
-// Med lists the threads that `med review create` or New thread saved. The
-// user's other agent work runs in Claude Code and Codex, in the same
-// repositories. This module finds those sessions from their transcripts, so
-// the thread list shows all agent work on the registered repositories:
+// Every agent session that Med lists, from its transcript: the sessions that
+// Med runs or keeps, and the ones it finds by itself because they worked in a
+// registered repository lately. A session is not tied to the folder it
+// started in: the index keeps the folders it worked in, and its place is the
+// newest of them that is in a registered checkout. Transcripts are at
+//
 //
 //   ~/.claude/projects/<cwd with each character other than A–Z, a–z, 0–9, and - as ->/<id>.jsonl
 //   ~/.codex/sessions/YYYY/MM/DD/rollout-…-<id>.jsonl
@@ -57,7 +54,7 @@ const WINDOW_MS = FOUND_DAYS * DAY;
  * day folders of the window, and the older folders that held a rollout in the
  * window at the last full listing; a full listing runs this often. */
 const CODEX_ALL_MS = 60_000;
-/** At most this many found threads show; the newest stay. */
+/** At most this many found sessions show; the newest stay. */
 const MAX_FOUND = 40;
 /** At most this many transcripts are read in one scan, newest first. */
 const MAX_READS = 120;
@@ -72,10 +69,12 @@ const WORKTREES_SOON_MS = 10_000;
 export const HEAD_BYTES = 64 * 1024;
 /** Codex's first line holds its instructions and can be long. */
 const META_BYTES = 1024 * 1024;
-/** The tail gives the turn's state, the latest title, and the directory. */
+/** The tail gives the turn's state, the latest title, and the directories. */
 const TAIL_BYTES = 256 * 1024;
 /** A turn whose transcript has not changed for this long has stopped. */
-const STALE_MS = 5 * 60_000;
+export const STALE_MS = 5 * 60_000;
+/** The folders that the index keeps of a session, the newest last. */
+const MAX_FOLDERS = 8;
 
 type Json = Record<string, unknown>;
 const record = (value: unknown) =>
@@ -122,7 +121,10 @@ interface SessionFile {
   path: string;
   mtimeMs: number;
   size: number;
+  /** The folder it works in now. */
   cwd?: string;
+  /** The folders it worked in, the newest last. */
+  cwds: string[];
   createdAt: number;
   /** The user's first prompt, through `threadTitle`. */
   prompt?: string;
@@ -156,6 +158,7 @@ export function scanLines(
   { turn = false, early = false }: { turn?: boolean; early?: boolean } = {},
 ) {
   const reader = agent === "codex" ? createCodexRolloutReader() : createClaudeTranscriptReader();
+  const cwds: string[] = [];
   const found: {
     cwd?: string;
     createdAt?: number;
@@ -178,7 +181,14 @@ export function scanLines(
           ? text(payload?.cwd)
           : undefined
         : text(entry.cwd);
-    if (cwd) found.cwd = cwd;
+    if (cwd) {
+      found.cwd = cwd;
+      if (cwds.at(-1) !== cwd) {
+        const at = cwds.indexOf(cwd);
+        if (at >= 0) cwds.splice(at, 1);
+        cwds.push(cwd);
+      }
+    }
     const at = Date.parse(text(entry.timestamp) ?? "");
     if (!Number.isNaN(at)) found.createdAt ??= at;
     if (agent === "codex" && entry.type === "session_meta") {
@@ -206,7 +216,7 @@ export function scanLines(
     }
   }
   const idle = reader.idle();
-  return { ...found, idle, ...(turn && { turn: summarizeTurn(updates, idle) }) };
+  return { ...found, cwds, idle, ...(turn && { turn: summarizeTurn(updates, idle) }) };
 }
 
 async function readSession(
@@ -225,6 +235,10 @@ async function readSession(
     agent === "claude" ? basename(path, ".jsonl") : (first?.id ?? known?.id ?? rolloutId(path));
   if (!id || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) return undefined;
   const cwd = tail.cwd ?? first?.cwd ?? known?.cwd;
+  const cwds = [...(known?.cwds ?? []), ...(first?.cwds ?? []), ...tail.cwds].reduce<string[]>(
+    (all, folder) => [...all.filter((other) => other !== folder), folder],
+    [],
+  );
   const source = first?.source?.kind ?? known?.automatic;
   return {
     agent,
@@ -234,6 +248,7 @@ async function readSession(
     mtimeMs: info.mtimeMs,
     size: info.size,
     ...(cwd ? { cwd } : {}),
+    cwds: cwds.slice(-MAX_FOLDERS),
     createdAt: first?.createdAt ?? known?.createdAt ?? info.mtimeMs,
     ...((first?.prompt ?? known?.prompt) ? { prompt: first?.prompt ?? known?.prompt } : {}),
     ...((tail.name ?? first?.name ?? known?.name)
@@ -248,7 +263,8 @@ async function readSession(
   };
 }
 
-interface Checkout {
+/** A registered checkout: a repository's own, or one of its worktrees. */
+export interface Checkout {
   path: string;
   repository: { id: string; name: string; path: string };
   branch?: string;
@@ -350,43 +366,53 @@ async function codexFiles(folders: Iterable<string>, since: number) {
   return files;
 }
 
-/** A found session in its checkout. */
-interface Found extends SessionFile {
-  threadId: string;
+/** A session as the index has it: what its transcript says, and where it
+ * works now. */
+export interface IndexedSession extends SessionFile {
+  /** The folder it works in now. */
   cwd: string;
-  checkout: Checkout;
+  /** Its thread's ID (`sessionKey`). */
+  key: string;
+  /** Its name: the agent's title, its summary, or its first prompt. */
+  title: string;
+  /** The registered checkout that it works in now: the newest of its folders
+   * that is in one. A session with none works outside the repositories. */
+  checkout?: Checkout;
+  /** Its turn has not ended, and its transcript changed lately. */
+  working: boolean;
 }
 
+/** Sessions that the index read on their own, outside a scan, at most. */
+const MAX_READ_ALONE = 256;
+
 /**
- * Finds the recent Claude Code and Codex sessions of the registered
- * repositories. `threads()` gives them as threads for the thread list; the
- * reader can hide one, or all of them (`found-sessions.json` in the state
- * directory keeps the choice).
+ * The index of agent sessions. `found()` gives the recent sessions that
+ * worked in a registered repository, which the thread list shows by itself;
+ * `session()` reads any session that Med keeps, wherever it works. The
+ * reader can hide one found session, or all of them (`found-sessions.json`
+ * in the state directory keeps the choice).
  */
-export function createFoundSessions(options: {
+export function createSessionIndex(options: {
   repositories(): RegisteredRepository[];
   /** Reads the repositories' worktrees again from Git. */
   refreshRepositories?(): Promise<unknown>;
-  /** The sessions that Med runs through ACP: the agent's own session ID,
-   * such as a Codex rollout's, and Med's ID for the session. */
-  owned?(): Iterable<readonly [string, string]>;
   settingsFile: string;
   /** Whether found sessions show before the reader chooses (default true). */
   shown?: boolean;
-  /** The change counts of checkouts, which the thread list shares. */
-  changes?: ReturnType<typeof createCheckoutChanges>;
   home?: () => string;
   now?: () => number;
 }) {
   const home = options.home ?? userHome;
   const now = options.now ?? Date.now;
-  const counts = options.changes ?? createCheckoutChanges({ now });
   const abort = new AbortController();
   let settings: FoundSettings = { shown: options.shown ?? true, hidden: [] };
   const files = new Map<string, SessionFile>();
   /** Real paths of session directories that are not a registered path. */
   const realPaths = new Map<string, string>();
-  let found: Found[] = [];
+  /** The sessions of the last scan, newest first. */
+  let recent: IndexedSession[] = [];
+  /** Sessions read on their own, by key, the latest read last. */
+  const alone = new Map<string, IndexedSession>();
   let scanned = 0;
   let scanning: Promise<void> | undefined;
   let worktreesRead = now();
@@ -451,11 +477,37 @@ export function createFoundSessions(options: {
     return state === "own" ? { state, checkout } : { state };
   };
 
-  const place = async (cwd: string, checkouts: readonly Checkout[]) => {
-    const { state, checkout } = await where(cwd, checkouts);
-    // Read the worktrees again soon; the session waits for its own checkout.
-    if (state === "nested") worktreesWanted = true;
-    return checkout;
+  /** Where a session works now: the newest of its folders in a checkout. */
+  const place = async (cwds: readonly string[], checkouts: readonly Checkout[]) => {
+    for (const cwd of cwds.toReversed()) {
+      const { state, checkout } = await where(cwd, checkouts);
+      // Read the worktrees again soon; the session waits for its own checkout.
+      if (state === "nested") worktreesWanted = true;
+      if (checkout) return checkout;
+    }
+    return undefined;
+  };
+
+  /** A session file as the index lists it, or undefined when it has done
+   * nothing to show: no folder, or no prompt or name. */
+  const indexed = async (
+    session: SessionFile,
+    names: ReadonlyMap<string, string>,
+    checkouts: readonly Checkout[],
+  ): Promise<IndexedSession | undefined> => {
+    const name = session.agent === "codex" ? names.get(session.id) : undefined;
+    if (!session.cwd || session.automatic || !(session.prompt || session.name || name))
+      return undefined;
+    const checkout = await place(session.cwds.length ? session.cwds : [session.cwd], checkouts);
+    return {
+      ...session,
+      cwd: session.cwd,
+      ...(name ? { name } : {}),
+      key: sessionKey(session),
+      title: name ?? session.name ?? session.summary ?? session.prompt ?? "Agent session",
+      ...(checkout && { checkout }),
+      working: !session.idle && now() - session.mtimeMs < STALE_MS,
+    };
   };
 
   /** Codex rollouts that changed in the window. A session that started before
@@ -463,11 +515,11 @@ export function createFoundSessions(options: {
    * finds it, and later scans read its folder too. */
   const recentCodex = async (since: number) => {
     const root = join(home(), ".codex", "sessions");
-    const recent = windowFolders(root, now());
+    const listedNow = windowFolders(root, now());
     if (now() - codexOlder.at < CODEX_ALL_MS)
-      return codexFiles(new Set([...recent, ...codexOlder.folders]), since);
+      return codexFiles(new Set([...listedNow, ...codexOlder.folders]), since);
     const listed = await codexFiles(await codexDayFolders(root), since);
-    const inWindow = new Set(recent);
+    const inWindow = new Set(listedNow);
     codexOlder = {
       at: now(),
       folders: new Set(
@@ -477,7 +529,7 @@ export function createFoundSessions(options: {
     return listed;
   };
 
-  const scan = async () => {
+  const refreshWorktrees = async () => {
     const age = now() - worktreesRead;
     if (options.refreshRepositories && age > (worktreesWanted ? WORKTREES_SOON_MS : WORKTREES_MS)) {
       worktreesRead = now();
@@ -485,11 +537,11 @@ export function createFoundSessions(options: {
       inside.clear();
       await options.refreshRepositories().catch(() => {});
     }
+  };
+
+  const scan = async () => {
+    await refreshWorktrees();
     const checkouts = checkoutsOf(options.repositories());
-    if (!checkouts.length) {
-      found = [];
-      return;
-    }
     const since = now() - WINDOW_MS;
     const listed = [...(await claudeFiles(home(), since)), ...(await recentCodex(since))]
       .sort((a, b) => b.mtimeMs - a.mtimeMs)
@@ -497,7 +549,7 @@ export function createFoundSessions(options: {
     const names = listed.some((file) => file.agent === "codex")
       ? await readCodexNames()
       : new Map<string, string>();
-    const next: Found[] = [];
+    const next: IndexedSession[] = [];
     const seen = new Set<string>();
     for (const file of listed) {
       if (abort.signal.aborted) return;
@@ -507,30 +559,23 @@ export function createFoundSessions(options: {
         if (!session) continue;
         files.set(file.path, session);
       }
-      const key = `${session.agent}:${session.id}`;
-      if (!session.cwd || session.automatic || seen.has(key)) continue;
-      seen.add(key);
-      const checkout = await place(session.cwd, checkouts);
-      const name = session.agent === "codex" ? names.get(session.id) : undefined;
-      // A session without a prompt or a name has done nothing to show.
-      if (!checkout || !(session.prompt || session.name || name)) continue;
-      next.push({
-        ...session,
-        ...(name ? { name } : {}),
-        cwd: session.cwd,
-        threadId: foundThreadId(session.agent, session.id),
-        checkout,
-      });
+      const entry = await indexed(session, names, checkouts);
+      if (!entry || seen.has(entry.key)) continue;
+      seen.add(entry.key);
+      next.push(entry);
     }
-    // Forget files that left the listing.
-    const kept = new Set(listed.map((file) => file.path));
+    // Forget files that left the listing, but for the sessions read alone.
+    const kept = new Set([
+      ...listed.map((file) => file.path),
+      ...[...alone.values()].map((s) => s.path),
+    ]);
     for (const path of files.keys()) if (!kept.has(path)) files.delete(path);
-    found = next;
+    recent = next;
   };
 
   /** Starts a scan when the last one is old; never waits for it. */
   const refresh = (force = false) => {
-    if (scanning || !settings.shown || (!force && now() - scanned < SCAN_MS)) return scanning;
+    if (scanning || (!force && now() - scanned < SCAN_MS)) return scanning;
     scanned = now();
     scanning = scan()
       .catch(() => {})
@@ -562,7 +607,7 @@ export function createFoundSessions(options: {
     settings: () => ({ shown: settings.shown }),
     /** Scans now, or joins the scan that runs, for measurements. */
     scan: () => refresh(true) ?? Promise.resolve(),
-    /** Shows or hides found sessions, or one thread. */
+    /** Shows or hides found sessions, or one of them. */
     async update(input: FoundUpdate) {
       if (input.shown !== undefined) settings = { ...settings, shown: input.shown };
       if (input.hide) {
@@ -574,69 +619,55 @@ export function createFoundSessions(options: {
       if (settings.shown) scanned = 0;
       return settings;
     },
-    /**
-     * The found sessions as threads, newest first: those that no saved
-     * review names (archived ones too) and that the reader did not hide.
-     */
-    threads(reviews: readonly { sessions?: readonly AgentSession[] }[]): Thread[] {
+    /** The recent sessions that worked in a registered checkout, newest
+     * first, without those that the reader hid. */
+    found(): IndexedSession[] {
       refresh();
       if (!settings.shown) return [];
-      const claimed = new Set(
-        reviews.flatMap((review) => (review.sessions ?? []).map((session) => session.id)),
-      );
-      // A Codex session that Med runs through ACP has a rollout with Codex's ID.
-      for (const [own, id] of options.owned?.() ?? []) if (claimed.has(id)) claimed.add(own);
       const hidden = new Set(settings.hidden);
-      const listed = found
-        .filter((session) => !claimed.has(session.id) && !hidden.has(session.threadId))
+      return recent
+        .filter((session) => session.checkout && !hidden.has(session.key))
         .slice(0, MAX_FOUND);
-      const time = now();
-      const repositories = options.repositories();
-      return listed.map((session): Thread => {
-        const { checkout } = session;
-        // The counts of the checkout's Changes: the branch's, or the uncommitted ones.
-        const base = changesBase(
-          repositories.find((entry) => entry.id === checkout.repository.id),
-          checkout.branch,
-        );
-        const changes = counts.get(checkout.path, base, session.mtimeMs);
-        const working = !session.idle && time - session.mtimeMs < STALE_MS;
-        return {
-          id: session.threadId,
-          title: session.name ?? session.summary ?? session.prompt ?? "Agent session",
-          createdAt: new Date(session.createdAt).toISOString(),
-          updatedAt: session.mtimeMs,
-          repository: checkout.repository,
-          checkout: checkout.path,
-          ...(checkout.linked ? { linked: true } : {}),
-          ...(checkout.branch ? { branch: checkout.branch } : {}),
-          agent: session.agent,
-          state: working ? "working" : "idle",
-          sessions: [{ agent: session.agent, id: session.id, cwd: session.cwd }],
-          ...(changes ? { changes } : {}),
-          ...(session.turn && { turn: session.turn }),
-          found: true,
-        };
-      });
+    },
+    /** The last read of a session, without reading it again. */
+    known(key: string): IndexedSession | undefined {
+      return alone.get(key) ?? recent.find((session) => session.key === key);
     },
     /**
-     * The session of a found thread's ID, for the session routes: one in a
-     * registered checkout, also before the first scan and after the reader
-     * hid it or kept it in Med. Undefined for an ID that is not a found one.
+     * A session as its transcript says now: from the last scan, else read on
+     * its own, as for a session that Med keeps outside the window or the
+     * repositories. Undefined when Med finds no transcript.
      */
-    async session(threadId: string): Promise<AgentSession[] | undefined> {
-      const parsed = parseFoundThreadId(threadId);
-      if (!parsed) return undefined;
-      const known = found.find((session) => session.threadId === threadId);
-      if (known) return [{ agent: known.agent, id: known.id, cwd: known.cwd }];
-      const path = await findTranscript(parsed, home());
-      if (!path) return [];
-      const info = await stat(path);
-      const session = await readSession(parsed.agent, path, info).catch(() => undefined);
-      const checkouts = checkoutsOf(options.repositories());
-      if (!session?.cwd || session.id !== parsed.id || !(await place(session.cwd, checkouts)))
-        return [];
-      return [{ agent: parsed.agent, id: parsed.id, cwd: session.cwd }];
+    async session(session: { agent: FoundAgent; id: string }): Promise<IndexedSession | undefined> {
+      const key = sessionKey(session);
+      const scanned = recent.find((entry) => entry.key === key);
+      const path = scanned?.path ?? alone.get(key)?.path ?? (await findTranscript(session, home()));
+      if (!path) return undefined;
+      const info = await stat(path).catch(() => undefined);
+      if (!info) return undefined;
+      const before = files.get(path);
+      if (scanned && before?.mtimeMs === info.mtimeMs && before.size === info.size) return scanned;
+      const last = alone.get(key);
+      if (last && last.mtimeMs === info.mtimeMs && last.size === info.size) {
+        // A turn ends by the clock as well as by its transcript.
+        return { ...last, working: !last.idle && now() - last.mtimeMs < STALE_MS };
+      }
+      const file = await readSession(session.agent, path, info, before).catch(() => undefined);
+      if (!file || file.id !== session.id) return undefined;
+      files.set(path, file);
+      const names = session.agent === "codex" ? await readCodexNames() : new Map<string, string>();
+      const entry = await indexed(file, names, checkoutsOf(options.repositories()));
+      if (!entry) return undefined;
+      alone.delete(key);
+      alone.set(key, entry);
+      if (alone.size > MAX_READ_ALONE) alone.delete(alone.keys().next().value!);
+      return entry;
+    },
+    /** Where a folder is: its registered checkout, for a session that Med
+     * starts there or keeps. */
+    async place(cwds: readonly string[]) {
+      await refreshWorktrees();
+      return place(cwds, checkoutsOf(options.repositories()));
     },
     /**
      * The registered checkout of a session's directory, for adopt. A folder
@@ -645,20 +676,20 @@ export function createFoundSessions(options: {
      * again once.
      */
     async locate(cwd: string, refresh = true) {
-      let place = await where(cwd, checkoutsOf(options.repositories()));
-      if (refresh && place.state === "nested" && options.refreshRepositories) {
+      let found = await where(cwd, checkoutsOf(options.repositories()));
+      if (refresh && found.state === "nested" && options.refreshRepositories) {
         await options.refreshRepositories().catch(() => {});
         worktreesRead = now();
         inside.clear();
-        place = await where(cwd, checkoutsOf(options.repositories()));
+        found = await where(cwd, checkoutsOf(options.repositories()));
       }
-      return place;
+      return found;
     },
     /** Codex Desktop's thread names, by session ID. */
     codexNames: readCodexNames,
     close() {
       abort.abort();
-      if (!options.changes) counts.close();
     },
   };
 }
+export type SessionIndex = ReturnType<typeof createSessionIndex>;

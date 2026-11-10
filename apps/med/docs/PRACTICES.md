@@ -81,9 +81,8 @@ are at the end.
 
 ## B. Read review output from any source
 
-`src/shared/review-output.ts` reads Markdown leniently. The sources are a
-version's notes: the brief (`--brief`), its pinned replies, and the
-guide's summary. So output from the user's skills, `/code-review`, a pasted
+`src/shared/review-output.ts` reads Markdown leniently. Its source is the
+version's guide summary. So output from the user's skills, `/code-review`, a pasted
 Codex review, or a GitHub review reads the same. It recognises, where present:
 
 - **Proof:** a section named Proof, Checks, Tests, Verification, Evidence, or
@@ -99,12 +98,8 @@ Codex review, or a GitHub review reads the same. It recognises, where present:
   A counts line ("2 Important, 1 Nit, 0 Pre-existing") is kept.
 - **Explainer:** a section named Explainer, Why, What changed, Context, or
   Overview; the guide's summary counts too.
-- **Generated files:** a Generated section or line with paths and globs. The
-  CLI passes them as `--generated` (round 4) when the brief comes with
-  `create`.
-
-Med keeps the whole text; since the Notes tab went, only these parts show
-([Notes (removed)](AGENT_WORKSPACES.md#notes-removed)).
+- **Generated files:** a Generated section or line with paths and globs,
+  which join `--generated`.
 
 ## C. Views
 
@@ -116,7 +111,7 @@ version with none of them opens as today.
    and what the checks miss. Without written proof, the checks that the
    session ran in the turn that made this version (`turn.checks`).
 2. **New since you looked** (after the first hand-off): the files that changed
-   since the last version that you approved, commented on, or opened
+   since the last version that you commented on or opened
    (`POST /api/reviews/:id/read`), or else the version before, and
    the files no longer in the change. The host compares the captured texts;
    where the base moved too, it replays the earlier change on the new base
@@ -125,9 +120,7 @@ version with none of them opens as today.
    later hand-off opens on it. The UI names no version numbers.
 3. **Findings**, with a count of the open ones in the Overview's start row.
    Each row opens its line.
-4. **Approvals** (`POST /api/reviews/:id/approval`) are kept for older
-   records and still move "since", but the Review has no Approve button:
-   opening a hand-off records where "since" starts.
+   Opening a hand-off records where "since" starts.
 
 ## D. Suggestion pack
 
@@ -177,8 +170,8 @@ exploration.
 - **A default key merges hand-offs.** Two tasks on one branch become versions
   of one review. That matches "one key per task, such as the branch". The key
   is printed, and `--key` still wins. No default on the base branch.
-- **"Since your last review" needs a "last review".** Med uses approvals,
-  comments, and opening a version, then the version before. The host keeps
+- **"Since your last review" needs a "last review".** Med uses comments and
+  opening a version, then the version before. The host keeps
   the version numbers. A review submitted on GitHub does not count.
 - **Session edits miss files that commands wrote** (formatters, codegen).
   The shared-checkout warning says "not edited by this session", not "not
@@ -221,6 +214,6 @@ weaker grader. The 24 runs cost $1.84.
 - `med review update` by repository and branch; the key or the review ID
   still names the review.
 - Codex review runs and GitHub threads keep their own panels; the Overview
-  counts only findings written in a version's notes and guide summary.
+  counts only findings written in a version's guide summary.
 - The opt-in checks run on `med review create` only, not on
-  `update --paths` or `med thread show`.
+  `update --paths`.

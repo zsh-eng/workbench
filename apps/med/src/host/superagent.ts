@@ -10,7 +10,7 @@ import { runProcess } from "./runtime/process";
 // the lists of repositories. The first time, Med starts it with the brief
 // below; after that it is the user's, model and all.
 
-/** The Superagent thread's key, which its saved review keeps. */
+/** The review key that the Superagent's session hands off with (`MED_THREAD_KEY`). */
 export const SUPERAGENT_KEY = "superagent";
 /** The thread's title. */
 export const SUPERAGENT_TITLE = "Superagent";
@@ -63,7 +63,7 @@ What you do:
 - Keep track of what the user asks you to follow up on.
 
 How you work, through Med's command line (\`${command}\`):
-- \`${command} thread list --json\`: the open threads, each with its ID, title, repository, branch, state as "attention" (needs-you, done: finished since the user looked, working, idle), its last turn, its changes, and its sessions (each with its transcript's session ID and folder).
+- \`${command} thread list --json\`: the open threads, each with its ID, title, repository, branch, state as "attention" (needs-you, done: finished since the user looked, working, idle), its last turn, its changes, and its session (its transcript's session ID and the folder it works in now).
 - \`${command} thread send <id> "<message>"\`: sends a message to a thread's agent. While the agent works, the message joins its turn at its next step; add \`--after-turn\` to wait until its turn ends. The thread's agent reads it as a report from you, not as the user's words.
 - \`${command} thread wait [<id>...]\`: waits until a thread comes to need the user or finishes its work, then prints each thread's state. A timeout (100 s by default) is a check-in: wait again. Use it instead of listing again and again.
 - \`${command} thread open <id>\`, \`${command} thread close <id>\`: opens an archived thread as a tab, or archives a tab.

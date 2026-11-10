@@ -44,10 +44,10 @@ interface FileWorkspaceSnapshot extends Workspace {
   stale: boolean;
   error: string | null;
 }
-/** Tabs that are not files: the diff stream, a saved review's guide and
- * brief, Commit, and Search. */
+/** Tabs that are not files: the diff stream, a saved review's guide, its
+ * pull request, Commit, and Search. */
 export const isFileTab = (id: string) =>
-  id !== "changes" && id !== "brief" && id !== "guide" && id !== "commit" && id !== "search";
+  id !== "changes" && id !== "pull" && id !== "guide" && id !== "commit" && id !== "search";
 
 export function sourceKey(source: TabSource) {
   return JSON.stringify(

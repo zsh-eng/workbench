@@ -27,6 +27,4 @@ Proof section, before the explanation:
   performance claim needs a trace.
 - Name the checks you did not run, and why. "Not covered" is the list the
   reviewer reads first.
-- In Med, put it in the guide's `summary`, or write it to a file and pass
-  `--brief <file>` with `--guide -`: only one option can read standard
-  input. Med shows Proof first.
+- In Med, put it in the guide's `summary`. Med shows Proof first.

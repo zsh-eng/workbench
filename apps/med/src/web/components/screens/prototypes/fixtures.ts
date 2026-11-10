@@ -63,6 +63,8 @@ export function sidebarThreads(): Thread[] {
   return [
     {
       id: "search",
+      kind: "session",
+      reviews: [],
       title: "Search filters",
       createdAt: at(90),
       updatedAt: NOW - 20_000,
@@ -74,6 +76,8 @@ export function sidebarThreads(): Thread[] {
     },
     {
       id: "badges",
+      kind: "session",
+      reviews: [],
       title: "Difficulty badges",
       createdAt: at(200),
       updatedAt: NOW - 18 * 60_000,
@@ -85,6 +89,8 @@ export function sidebarThreads(): Thread[] {
     },
     {
       id: "offline",
+      kind: "session",
+      reviews: [],
       title: "Offline map tiles",
       createdAt: at(1500),
       updatedAt: NOW - 26 * 3600_000,
