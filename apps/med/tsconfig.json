@@ -11,7 +11,11 @@
     "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
-    "types": ["node", "vite/client"]
+    "types": ["node", "vite/client"],
+    // One vitest for the tests and for @vitest/browser's matchers (expect.element):
+    // Bun links a peer variant of the same version for each, and the matchers
+    // would extend the other one.
+    "paths": { "vitest": ["./node_modules/vitest"] }
   },
   "include": ["src", "tests", "*.config.ts"]
 }
