@@ -225,3 +225,65 @@ test("counts each response once, subagents included, at list price, and the cont
   });
   expect(latest.context?.compaction).toBeUndefined();
 });
+
+test("a session with hundreds of subagents reads each transcript once, not on every pass", async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "med usage many ")));
+  directories.push(directory);
+  const repo = join(directory, "repo");
+  await mkdir(repo);
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
+  const home = join(directory, "home");
+  const project = join(home, ".claude", "projects", "-work-repo");
+  const subagents = join(project, claude, "subagents");
+  await mkdir(subagents, { recursive: true });
+  await writeFile(
+    join(project, `${claude}.jsonl`),
+    response("msg_main", "claude-sonnet-5-5", { input_tokens: 1000, output_tokens: 100 }),
+  );
+  // More transcripts than Med once kept reads for (128): each pass evicted
+  // the reads that the next pass needed, and read every file again.
+  const agent = (n: number, output: number) =>
+    response(
+      `msg_${n}`,
+      "claude-sonnet-5-5",
+      { input_tokens: 100, output_tokens: output },
+      { isSidechain: true },
+    );
+  for (let n = 0; n < 300; n++) await writeFile(join(subagents, `agent-${n}.jsonl`), agent(n, 500));
+  vi.stubEnv("MED_HOME_DIR", home);
+  const host = await startHost({
+    repo,
+    repos: [repo],
+    stateDir: join(directory, "state"),
+    port: 0,
+  });
+  hosts.push(host);
+  const api = (path: string, init: RequestInit = {}) =>
+    fetch(`http://127.0.0.1:${host.port}${path}`, {
+      ...init,
+      headers: { authorization: `Bearer ${host.token}`, "content-type": "application/json" },
+    });
+  const { id } = (await (
+    await api("/api/reviews", {
+      method: "POST",
+      body: JSON.stringify({
+        title: "Many subagents",
+        targets: [{ repo, comparison: { kind: "working" } }],
+        sessions: [{ agent: "claude", id: claude, cwd: repo }],
+      }),
+    })
+  ).json()) as { id: string };
+  const usage = async () =>
+    (await (await api(`/api/thread-usage?id=${id}&session=${claude}`)).json()) as ThreadUsage;
+
+  const first = await usage();
+  expect(first.spend.subagents?.count).toBe(300);
+  // The first subagent's file changes, at the same size: Med, which read it
+  // to its end already, does not read it again, so the totals stay.
+  await writeFile(join(subagents, "agent-0.jsonl"), agent(0, 900));
+  const second = await usage();
+  expect(second.spend.total).toBe(first.spend.total);
+  // A transcript that grows is read from where Med stopped.
+  await appendFile(join(subagents, "agent-1.jsonl"), agent(1001, 500));
+  expect((await usage()).spend.total).toBeGreaterThan(first.spend.total);
+});

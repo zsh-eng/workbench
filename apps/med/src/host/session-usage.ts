@@ -12,6 +12,7 @@ import {
 import { agentName, type AgentSession } from "../shared/saved-review";
 import { findTranscript } from "./agent-transcripts";
 import { userHome } from "./service/discover";
+import { changedSince, transcriptReads } from "./transcript-reads";
 
 // A thread's spend and its current session's context, from the agents'
 // transcripts (docs/SESSIONS.md#spend-and-context). Each transcript is read
@@ -27,8 +28,6 @@ import { userHome } from "./service/discover";
 //   the long-context rate. A subagent's own rollout counts with its parent.
 
 const CHUNK = 4 * 1024 * 1024;
-/** Transcripts whose reads Med keeps, at most. */
-const MAX_FILES = 128;
 
 type Json = Record<string, unknown>;
 const record = (value: unknown) =>
@@ -199,6 +198,8 @@ function codexLine(line: string, state: Read) {
 
 /** Reads the lines that a transcript gained since the last read. */
 async function readMore(agent: "claude" | "codex", path: string, state: Read) {
+  // A finished transcript, such as a done subagent's, costs one stat.
+  if (!(await changedSince(path, state.offset))) return;
   const handle = await open(path, "r");
   try {
     const { size } = await handle.stat();
@@ -332,19 +333,18 @@ export async function claudeCompaction(
 
 export function createSessionUsage(options: { home?: () => string } = {}) {
   const home = options.home ?? userHome;
-  const reads = new Map<string, Read>();
+  const reads = transcriptReads<Read>(() => ({
+    offset: 0,
+    rest: Buffer.alloc(0),
+    requests: new Map(),
+    compacted: false,
+  }));
   const running = new Map<string, Promise<Read>>();
 
   const readFile = (agent: "claude" | "codex", path: string) => {
     let read = running.get(path);
     if (read) return read;
-    let state = reads.get(path);
-    if (!state) {
-      state = { offset: 0, rest: Buffer.alloc(0), requests: new Map(), compacted: false };
-      if (reads.size >= MAX_FILES) reads.delete(reads.keys().next().value!);
-      reads.set(path, state);
-    }
-    const current = state;
+    const current = reads.get(path);
     read = readMore(agent, path, current)
       .then(() => current)
       .finally(() => running.delete(path));

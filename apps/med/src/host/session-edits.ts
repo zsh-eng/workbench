@@ -5,6 +5,7 @@ import { commandWrites, type GeneratedKind, type Provenance } from "../shared/ge
 import type { EditSession } from "../shared/protocol";
 import { findTranscript } from "./agent-transcripts";
 import { userHome } from "./service/discover";
+import { changedSince, transcriptReads } from "./transcript-reads";
 
 // The files that an agent session edited, from its transcript. Changes uses
 // them for "Only this session's files" in a checkout that several sessions
@@ -186,6 +187,8 @@ function codexCwd(line: string, state: Read) {
 
 /** Reads the lines that a transcript gained since the last read. */
 async function readMore(agent: EditSession["agent"], path: string, state: Read) {
+  // A finished transcript, such as a done subagent's, costs one stat.
+  if (!(await changedSince(path, state.offset))) return;
   const handle = await open(path, "r");
   try {
     const { size } = await handle.stat();
@@ -223,7 +226,13 @@ async function readMore(agent: EditSession["agent"], path: string, state: Read) 
 
 export function createSessionEdits(options: { home?: () => string } = {}) {
   const home = options.home ?? userHome;
-  const reads = new Map<string, Read>();
+  const reads = transcriptReads<Read>(() => ({
+    offset: 0,
+    rest: Buffer.alloc(0),
+    files: new Map(),
+    commands: [],
+    order: 0,
+  }));
   const transcripts = new Map<string, string>();
   /** Real paths of the folders of edited files outside the checkout's path. */
   const folders = new Map<string, string>();
@@ -240,12 +249,7 @@ export function createSessionEdits(options: { home?: () => string } = {}) {
   };
 
   const readFile = async (agent: EditSession["agent"], path: string) => {
-    let state = reads.get(path);
-    if (!state) {
-      state = { offset: 0, rest: Buffer.alloc(0), files: new Map(), commands: [], order: 0 };
-      if (reads.size > 256) reads.clear();
-      reads.set(path, state);
-    }
+    const state = reads.get(path);
     await readMore(agent, path, state);
     return state;
   };
