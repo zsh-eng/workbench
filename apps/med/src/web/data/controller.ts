@@ -74,6 +74,7 @@ import {
 import { browserFetch } from "./live";
 import { generatedMark } from "./generated";
 import { readServerEvents } from "./sse";
+import { reviewPlace } from "./review-place";
 
 export type { ParsedReviewFile } from "../../shared/review";
 const driftSchema = z.object({ changed: z.boolean() });
@@ -1383,13 +1384,9 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
             (entry) => entry.id === savedTarget.repositoryId,
           );
           update({ repositories: result.repositories });
-          if (surviving && surviving.path !== path) {
-            await openWorkspace(
-              surviving.path,
-              surviving.branches.find((entry) => entry.name === savedTarget.branch),
-              surviving.id,
-              savedTarget,
-            );
+          const place = surviving && reviewPlace(surviving, savedTarget);
+          if (surviving && place && place.checkout !== path) {
+            await openWorkspace(place.checkout, place.branch, surviving.id, savedTarget);
             return;
           }
         } catch {
@@ -1683,25 +1680,24 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         savedTargetId: id,
         savedView: true,
         status: "error",
-        error: `Repository unavailable: ${target.repo}. Add this repository in Open branch, then select this review target again.`,
+        error: `Repository unavailable: Med doesn't have ${target.repo} in Sources. Add it to open this review.`,
       });
       return;
     }
-    const branch = repository.branches.find((entry) => entry.name === target.branch);
-    const checkout = repository.worktrees.some((worktree) => worktree.path === target.repo)
-      ? target.repo
-      : repository.path;
-    // Another iteration in the same checkout, or the Review after its Changes,
+    // The workspace moves to where the review's code is now, as its branch,
+    // so its files are the ones a click opens.
+    const { checkout, branch } = reviewPlace(repository, target);
+    // Another iteration in the same place, or the Review after its Changes,
     // keeps the session, history, and open files; only the comparison loads,
     // so the view never goes blank and the checkout's file list stays.
     const current = snapshot.savedReview?.targets.find(
       (entry) => entry.id === snapshot.savedTargetId,
     );
     if (
+      current &&
       snapshot.session?.repository.path === checkout &&
-      current?.repositoryId === target.repositoryId &&
-      current.repo === target.repo &&
-      current.branch === target.branch
+      snapshot.activeRepositoryId === target.repositoryId &&
+      (!branch || snapshot.activeBranch === branch.name)
     )
       await loadSavedTarget(target);
     else await openWorkspace(checkout, branch, target.repositoryId, target);
@@ -2235,10 +2231,21 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     },
     async showChanges() {
       reviewSide = false;
-      // A Review of another checkout: Changes are where the thread works now.
-      if (place?.path && snapshot.session && snapshot.session.repository.path !== place.path) {
+      // A Review of another checkout, or of a branch that no checkout has
+      // checked out: Changes are where the thread works now.
+      const fromReview = snapshot.savedView || snapshot.inReview;
+      const home = place?.path ?? snapshot.session?.repository.path;
+      if (
+        home &&
+        snapshot.session &&
+        (snapshot.session.repository.path !== home || (fromReview && snapshot.historyRef))
+      ) {
         liveChoice = choiceBeforeCommit = null;
-        return openWorkspace(place.path, undefined, place.repositoryId);
+        return openWorkspace(
+          home,
+          undefined,
+          place?.path ? place.repositoryId : (snapshot.activeRepositoryId ?? undefined),
+        );
       }
       const live = liveChoice ?? defaultChanges();
       if (

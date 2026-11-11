@@ -1,68 +1,13 @@
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useState, type Ref } from "react";
-import type { Thread, ThreadList } from "../../../shared/threads";
-import type { Workspace } from "../../data/workspaces";
+import type { Thread } from "../../../shared/threads";
+import { basename, type BarContext } from "../../data/bar-context";
 import { tokens, ui } from "../../theme.stylex";
-import { Icon, type IconName } from "../Icon";
+import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
 import { RenameField } from "./RenameField";
 
-const basename = (path: string) =>
-  path
-    .replace(/[\\/]+$/, "")
-    .split(/[\\/]/)
-    .at(-1) ?? path;
-
-/** What the band names: a checkout, or a vault or pull request by its title. A
- * thread's checkout also carries the thread's title. */
-export type BarContext =
-  | {
-      kind: "checkout";
-      repository: string;
-      branch?: string;
-      path: string;
-      linked: boolean;
-      title?: string;
-    }
-  | { kind: "label"; icon: IconName; text: string };
-
-/** A thread names the checkout it works in; a repository workspace, the one
- * it reports once it loads. A worktree goes by its repository's name. */
-export function barContext(
-  workspace: Workspace | undefined,
-  list: ThreadList | null,
-  /** The thread's name. */
-  name?: string,
-) {
-  if (!workspace) return undefined;
-  if (workspace.kind === "vault")
-    return { kind: "label", icon: "vault", text: workspace.title ?? "Vault" } as const;
-  if (workspace.kind === "thread") {
-    const thread = list?.threads.find((entry) => entry.id === workspace.threadId);
-    if (!thread?.checkout) return undefined;
-    return {
-      kind: "checkout",
-      repository: thread.repository?.name ?? basename(thread.checkout),
-      branch: thread.branch,
-      path: thread.checkout,
-      linked: !!thread.linked,
-      title: name ?? thread.title,
-    } as const;
-  }
-  if (workspace.kind === "pull")
-    return { kind: "label", icon: "pullRequest", text: workspace.title ?? "Pull request" } as const;
-  if (!workspace.path) return undefined;
-  return {
-    kind: "checkout",
-    repository:
-      list?.repositories.find((entry) => entry.id === workspace.repositoryId)?.name ??
-      workspace.repository ??
-      basename(workspace.path),
-    branch: workspace.branch,
-    path: workspace.path,
-    linked: !!workspace.worktree,
-  } as const;
-}
+export { barContext, type BarContext } from "../../data/bar-context";
 
 /**
  * The workspace's title band, above its panes: what the workspace has checked

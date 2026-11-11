@@ -213,6 +213,11 @@ scheduling when you ask for a check later.
   language icon. When the checkout changes after a version, a bar offers
   **Refresh review**, which saves the checkout again as a new version, and
   **Show Changes**.
+- Selecting a review moves the workspace to where its code is: the checkout
+  that has it checked out, or else its branch, as a read-only snapshot when no
+  checkout has the branch. Its files are then a click away. **Changes** go back
+  to where the thread's session works. A review whose repository Med no
+  longer has offers **Add repository**, which adds it and opens the review.
 - The band above the workspace names the checkout that it shows: the
   repository, the branch, and a linked worktree's folder. Click the branch to
   copy its name, or the repository or the folder to copy the checkout's path;

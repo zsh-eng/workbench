@@ -277,6 +277,8 @@ const NO_GUIDE_NOTES: GuideNote[] = [];
 const ReviewCodeView = memo(CodeView) as typeof CodeView;
 /** The review stream's file header, which sticks at its top. */
 const STICKY_FILE_HEADER = DEFAULT_CODE_VIEW_FILE_METRICS.diffHeaderHeight;
+/** A full commit ID (SHA-1 or SHA-256), not a name such as `worktree`. */
+const FULL_OID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 
 /** A file's two sides for Pierre, from its full text. The cache keys name
  * the review's version, so a read ahead and an expansion share highlighting. */
@@ -641,13 +643,50 @@ export function App({
   );
   const fileState = useFileWorkspace(fileWorkspace);
   const branchHead = state.branches.find((branch) => branch.name === state.activeBranch)?.head;
+  /** The checkout and the head that the diff on screen came from. */
+  const diffRepo = state.review?.repo;
+  const diffHead = state.review?.head;
   const browseSource = useMemo<BrowseSource | null>(() => {
     const repository = state.session?.repository;
-    if (!repository || repository.git === false) return null;
+    if (repository?.git === false) return null;
+    // The checkout did not load, as when Med could not read it: the diff
+    // still names its own checkout, so its files open from there.
+    if (!repository) return diffRepo ? { kind: "worktree", repo: diffRepo } : null;
+    // A saved review's files are the reviewed commit's, as the review shows
+    // them; when the checkout has that commit checked out, its working files.
+    if (
+      state.savedView &&
+      diffRepo &&
+      diffHead &&
+      FULL_OID.test(diffHead) &&
+      (state.historyRef || repository.head !== diffHead)
+    )
+      return { kind: "commit", repo: diffRepo, oid: diffHead };
     if (state.historyRef)
       return branchHead ? { kind: "commit", repo: repository.path, oid: branchHead } : null;
     return { kind: "worktree", repo: repository.path };
-  }, [state.session?.repository, state.historyRef, branchHead]);
+  }, [
+    state.session?.repository,
+    state.savedView,
+    state.historyRef,
+    branchHead,
+    diffRepo,
+    diffHead,
+  ]);
+  /** What a file action says when this workspace has no files to open. */
+  const cannotBrowse =
+    state.session?.repository.git === false
+      ? "This comparison has no Git checkout, so Med can't open its files."
+      : `Med couldn't load this checkout, so it can't open its files${state.error ? `: ${state.error}` : ". Reload the page, or check the repository in Sources."}`;
+  /** The saved review on screen, when Med no longer has its repository. */
+  const missingRepository = useMemo(() => {
+    if (!state.savedView || !state.error) return undefined;
+    const target = state.savedReview?.targets.find((entry) => entry.id === state.savedTargetId);
+    return target && !state.repositories.some((entry) => entry.id === target.repositoryId)
+      ? target
+      : undefined;
+  }, [state.savedView, state.error, state.savedReview, state.savedTargetId, state.repositories]);
+  const [addingRepository, setAddingRepository] = useState(false);
   const workspaceKey = state.session
     ? JSON.stringify([
         state.activeRepositoryId,
@@ -2501,7 +2540,7 @@ export function App({
               const file = (context as { item: { fileDiff: FileDiffMetadata } }).item.fileDiff;
               const old = token.side === "deletions";
               const oid = old ? review.base : review.head;
-              const commit = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(oid);
+              const commit = FULL_OID.test(oid);
               if (old && !commit) return diffHoverLeave();
               const source: BrowseSource = commit
                 ? { kind: "commit", repo: review.repo, oid }
@@ -3072,10 +3111,11 @@ export function App({
         return;
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        if (event.shiftKey && !browseSource) return;
         event.preventDefault();
         event.stopPropagation();
         if (event.repeat) return;
+        // Find file says why it can't, rather than do nothing.
+        if (event.shiftKey && !browseSource) return showToast(cannotBrowse);
         if (event.shiftKey) {
           setCommandsOpen(false);
           openFilePicker();
@@ -3206,6 +3246,8 @@ export function App({
     toggleSession,
     state.savedReview,
     browseSource,
+    cannotBrowse,
+    showToast,
     openFilePicker,
     openSearch,
     resumeFilePicker,
@@ -3291,8 +3333,9 @@ export function App({
   const reportReady = state.status === "ready";
   const reportCount = state.files.length;
   // A thread's place is its session's, as the thread list says, not the
-  // checkout that a Review shows.
+  // checkout that a Review shows: that is what it views, which its band names.
   const reportPlace = entry?.kind !== "thread";
+  const reportViewing = entry?.kind === "thread";
   // With every repository removed, the workspace opens the host's default.
   const reportEmpty =
     !state.session && !state.repositories.length && state.status === "idle" && !state.error;
@@ -3305,6 +3348,9 @@ export function App({
         branch: undefined,
         detail: undefined,
         worktree: undefined,
+        viewingPath: undefined,
+        viewingBranch: undefined,
+        viewingRepository: undefined,
       });
     reportTo(workspaceId, {
       ...(reportTitle ? { title: reportTitle } : {}),
@@ -3318,6 +3364,13 @@ export function App({
             branch: state.activeBranch ?? undefined,
           }
         : {}),
+      ...(reportPath && reportViewing
+        ? {
+            viewingPath: reportPath,
+            viewingBranch: state.activeBranch ?? undefined,
+            viewingRepository: reportRepository,
+          }
+        : {}),
     });
   }, [
     reportTo,
@@ -3325,6 +3378,7 @@ export function App({
     reportEmpty,
     reportTitle,
     reportPlace,
+    reportViewing,
     reportReady,
     reportCount,
     reportPath,
@@ -3340,13 +3394,44 @@ export function App({
       fileWorkspace.open(path, undefined, undefined, undefined, undefined, { background }),
     [fileWorkspace],
   );
+  /** Opens a file of the diff from the workspace's files, which follow the
+   * diff on screen. A deleted file opens as it was. Without files, a toast
+   * says why. */
+  const openDiffFile = useCallback(
+    (path: string, background = false) => {
+      const review = state.review;
+      const file = state.files.find((item) => item.path === path);
+      if (review && file?.info.status.startsWith("D") && FULL_OID.test(review.base)) {
+        fileWorkspace.open(
+          path,
+          undefined,
+          { kind: "commit", repo: review.repo, oid: review.base },
+          `Before · ${review.base.slice(0, 7)}`,
+          undefined,
+          { background },
+        );
+        return;
+      }
+      if (!browseSource) return showToast(cannotBrowse);
+      openWorkingFile(path, background);
+    },
+    [
+      state.review,
+      state.files,
+      browseSource,
+      cannotBrowse,
+      fileWorkspace,
+      openWorkingFile,
+      showToast,
+    ],
+  );
   const hideFilesSidebar = useCallback(() => closePane("files"), [closePane]);
   const openChangedFile = useCallback(
     (id: string, background?: boolean) => {
       const file = files.find((item) => item.id === id);
-      if (file) openWorkingFile(file.path, background);
+      if (file) openDiffFile(file.path, background);
     },
-    [files, openWorkingFile],
+    [files, openDiffFile],
   );
   const openVersion = useCallback(
     (path: string, side: "old" | "new") => {
@@ -3355,7 +3440,7 @@ export function App({
       const file = state.files.find((item) => item.path === path);
       const oid = side === "old" ? review.base : review.head;
       const name = side === "old" ? (file?.info.previousPath ?? path) : path;
-      if (/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(oid))
+      if (FULL_OID.test(oid))
         fileWorkspace.open(
           name,
           undefined,
@@ -3577,7 +3662,7 @@ export function App({
         state.comparison.kind === "working" &&
         !!state.comparison.base)) &&
     state.session?.repository.git !== false;
-  const pushable = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(actionHead);
+  const pushable = FULL_OID.test(actionHead);
   const gitTargets = useGitTargets(comparisonActionsShown ? actionRepo : undefined, actionHead);
   // Why Push… cannot open yet: its dialog needs a commit and the remotes.
   const pushBlocked = !pushable
@@ -4010,15 +4095,13 @@ export function App({
     {
       id: "file-before",
       label: "Open before version of current file",
-      disabled:
-        !activeDiffFile || !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(state.review?.base ?? ""),
+      disabled: !activeDiffFile || !FULL_OID.test(state.review?.base ?? ""),
       run: () => activeDiffFile && openVersion(activeDiffFile.path, "old"),
     },
     {
       id: "file-after",
       label: "Open after version of current file",
-      disabled:
-        !activeDiffFile || !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(state.review?.head ?? ""),
+      disabled: !activeDiffFile || !FULL_OID.test(state.review?.head ?? ""),
       run: () => activeDiffFile && openVersion(activeDiffFile.path, "new"),
     },
     {
@@ -4573,7 +4656,7 @@ export function App({
                     return next;
                   })
                 }
-                onOpen={() => openWorkingFile(file.path)}
+                onOpen={() => openDiffFile(file.path)}
               />
             ) : (
               <>
@@ -4583,7 +4666,7 @@ export function App({
                   {...stylex.props(styles.fileLink)}
                   onPointerEnter={() => prefetchFile(file.path)}
                   onFocus={() => prefetchFile(file.path)}
-                  onClick={(event) => openWorkingFile(file.path, event.metaKey || event.ctrlKey)}
+                  onClick={(event) => openDiffFile(file.path, event.metaKey || event.ctrlKey)}
                 >
                   {file.path}
                 </button>
@@ -4601,7 +4684,7 @@ export function App({
         ))}
       </div>
     ),
-    [skipped, reviewId, savedReviewId, savedImages, collapsed, openWorkingFile, prefetchFile],
+    [skipped, reviewId, savedReviewId, savedImages, collapsed, openDiffFile, prefetchFile],
   );
   // Once the reader pauses, the changed files in sight read their full text
   // ahead, and the workers highlight it, so that a first context expansion
@@ -4823,7 +4906,7 @@ export function App({
             {...stylex.props(styles.fileLink)}
             onPointerEnter={() => prefetchFile(path)}
             onFocus={() => prefetchFile(path)}
-            onClick={(event) => openWorkingFile(path, event.metaKey || event.ctrlKey)}
+            onClick={(event) => openDiffFile(path, event.metaKey || event.ctrlKey)}
             title={`Open full file · ${path}`}
           >
             <span {...stylex.props(styles.fileDirectory)}>{path.slice(0, slash)}</span>
@@ -4871,7 +4954,7 @@ export function App({
         </div>
       );
     },
-    [fileInfoById, collapsed, prefetchFile, openWorkingFile, generatedFiles, provenance],
+    [fileInfoById, collapsed, prefetchFile, openDiffFile, generatedFiles, provenance],
   );
   // A link to a file in a comment opens the file at its line.
   const openCommentLink = useCallback(
@@ -6074,12 +6157,33 @@ export function App({
                   {state.error && (
                     <div role="alert" {...stylex.props(styles.notice, styles.error)}>
                       <span>{state.error}</span>
-                      <button
-                        {...stylex.props(ui.button)}
-                        onClick={() => void controller.refresh()}
-                      >
-                        Retry
-                      </button>
+                      {missingRepository ? (
+                        // Adding it back opens the review again.
+                        <button
+                          {...stylex.props(ui.button)}
+                          disabled={addingRepository}
+                          onClick={() => {
+                            setAddingRepository(true);
+                            controller
+                              .addRepository(missingRepository.repo)
+                              .catch((error: unknown) =>
+                                showToast(
+                                  `Couldn't add ${missingRepository.repo}: ${error instanceof Error ? error.message : String(error)}`,
+                                ),
+                              )
+                              .finally(() => setAddingRepository(false));
+                          }}
+                        >
+                          {addingRepository ? "Adding…" : "Add repository"}
+                        </button>
+                      ) : (
+                        <button
+                          {...stylex.props(ui.button)}
+                          onClick={() => void controller.refresh()}
+                        >
+                          Retry
+                        </button>
+                      )}
                     </div>
                   )}
                   {state.notesError && (
@@ -6546,7 +6650,7 @@ const toastRise = stylex.keyframes({
 });
 /** Abbreviate object IDs; keep symbolic endpoints such as "worktree" whole. */
 function shortRevision(revision: string) {
-  return /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(revision) ? revision.slice(0, 7) : revision;
+  return FULL_OID.test(revision) ? revision.slice(0, 7) : revision;
 }
 
 const styles = stylex.create({

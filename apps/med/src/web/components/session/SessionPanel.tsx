@@ -727,6 +727,7 @@ export function SessionPanel({
             owned={ownedState ? { state: ownedState, act: owned.act } : undefined}
             restore={restore}
             onOpenComment={onOpenComment}
+            onDeleteComments={inbox.deleteComments}
             onTakeBack={
               queued.length
                 ? () =>

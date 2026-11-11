@@ -36,6 +36,11 @@ export interface ThreadWorkspace extends WorkspaceBase {
   path?: string;
   repositoryId?: string;
   branch?: string;
+  /** What the workspace shows, which a Review moves to the review's branch,
+   * as the workspace reported it last; not kept across reloads. */
+  viewingPath?: string;
+  viewingBranch?: string;
+  viewingRepository?: string;
 }
 export interface RepositoryWorkspace extends WorkspaceBase {
   kind: "repository";
@@ -78,6 +83,9 @@ export interface WorkspacePatch {
   repositoryId?: string;
   branch?: string;
   worktree?: string;
+  viewingPath?: string;
+  viewingBranch?: string;
+  viewingRepository?: string;
 }
 export interface WorkspaceSnapshot {
   workspaces: Workspace[];
@@ -419,6 +427,9 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
                 "branch",
                 "worktree",
                 "reviewId",
+                "viewingPath",
+                "viewingBranch",
+                "viewingRepository",
               ]
             : current.kind === "pull"
               ? ["title", "repository", "detail", "jobId"]

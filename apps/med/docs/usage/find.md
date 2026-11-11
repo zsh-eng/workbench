@@ -28,6 +28,14 @@ one. `⌘`-click opens a file in the background. A middle click on a tab closes
 it. A workspace holds 24 file tabs; when the row is full, a new file takes the
 place of the oldest tab without an unsaved draft.
 
+Files come from what the workspace shows. On **Changes**, they are the
+checkout's working files, to edit. On a saved review, they are the reviewed
+commit's, read-only, as the review shows them; when the checkout has that
+commit checked out, its working files. This holds for Find file, the Files
+pane, and a file name in the diff. A deleted file opens as it was.
+When Med could not load the checkout, Find file and the file names say why in
+a message at the bottom of the window.
+
 Right-click a file in a tree or tab for **Open on GitHub** (the code host's
 page of the branch, once it is pushed), **Open in Sourcegraph** and the other
 links of Settings › Open in, then **Reveal in Finder**, **Copy path**, and

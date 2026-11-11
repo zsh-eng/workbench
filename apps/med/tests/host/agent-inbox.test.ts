@@ -197,3 +197,69 @@ test("a comment on a file belongs to the thread: it goes to the agent with its l
   const removed = (await comment({ remove: id })).data as Comments;
   expect(removed.comments).toEqual([]);
 });
+
+test("the message box deletes the comments that wait in it: from the review and the files, with their replies", async () => {
+  const { api, repo, saved, commentId } = await fixture();
+  const notesPath = `/api/reviews/${saved.id}/targets/${saved.targets[0]!.id}/notes`;
+  type Notes = { revision: number; notes: { id: string; parentId?: string }[] };
+  const read = async () => (await api(notesPath)).data as Notes;
+  // The user answers their own comment; the reply goes with it.
+  await api(notesPath, {
+    expectedRevision: (await read()).revision,
+    mutation: {
+      type: "add",
+      note: {
+        path: "summary.ts",
+        side: "new",
+        line: 1,
+        text: "Or seconds.",
+        parentId: commentId,
+      },
+    },
+  });
+  expect((await read()).notes).toHaveLength(2);
+  const kept = (
+    (await api(notesPath, {
+      expectedRevision: (await read()).revision,
+      mutation: {
+        type: "add",
+        note: { path: "summary.ts", side: "new", line: 1, text: "Name it formatDuration." },
+      },
+    })) as { data: Notes }
+  ).data.notes.at(-1)!.id;
+  const file = (
+    (await api(`/api/threads/${threads.claude}/file-comments`, {
+      add: {
+        source: { kind: "worktree", repo },
+        path: "src/queue.ts",
+        line: 3,
+        quote: "return null;",
+        text: "Park it in the dead-letter list.",
+      },
+    })) as { data: { comments: FileComment[] } }
+  ).data.comments[0]!.id;
+  const inbox = inboxOf(api, threads.claude);
+  expect((await inbox()).drafts.map((draft) => draft.id)).toEqual([commentId, kept, file]);
+
+  const removed = await api(`/api/sessions/${threads.claude}/agent/delete-comments`, {
+    ids: [commentId, file, "not-a-comment"],
+  });
+  expect(removed.status).toBe(200);
+  expect(
+    (removed.data as { state: AgentInboxState }).state.drafts.map((draft) => draft.id),
+  ).toEqual([kept]);
+  // Gone from the review, with the reply, and from the thread's file comments.
+  expect((await read()).notes.map((note) => note.id)).toEqual([kept]);
+  expect(
+    ((await api(`/api/threads/${threads.claude}/file-comments`)).data as { comments: [] }).comments,
+  ).toEqual([]);
+  // The other session's review is not this thread's to clear.
+  expect(
+    (await api(`/api/sessions/${threads.codex}/agent/delete-comments`, { ids: [kept] })).status,
+  ).toBe(200);
+  expect((await read()).notes.map((note) => note.id)).toEqual([kept]);
+  // An empty list is a mistake.
+  expect(
+    (await api(`/api/sessions/${threads.claude}/agent/delete-comments`, { ids: [] })).status,
+  ).toBe(400);
+});

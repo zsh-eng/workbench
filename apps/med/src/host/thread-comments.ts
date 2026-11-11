@@ -180,6 +180,15 @@ export function createThreadComments(directory: string) {
     async remove(threadId: string) {
       await change(threadId, (comments) => comments.splice(0));
     },
+    /** Deletes the named comments with their replies; returns how many went. */
+    async removeComments(threadId: string, ids: ReadonlySet<string>) {
+      if (!(await read(threadId)).some((comment) => ids.has(comment.id))) return 0;
+      return change(threadId, (comments) => {
+        const before = comments.length;
+        comments.splice(0, comments.length, ...comments.filter((comment) => !ids.has(comment.id)));
+        return before - comments.length;
+      });
+    },
     /** The comments as the agent's message has them: open ones, or those in
      * `include`. `others` are the IDs of the review comments beside them,
      * which their short IDs must not clash with. */

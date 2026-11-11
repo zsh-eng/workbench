@@ -148,7 +148,8 @@ async function mountApp(
     drift?: boolean;
     /** The first target is a range of the two fixture commits. */
     rangeCommits?: boolean;
-    /** Both iterations are commits on the main branch of one repository. */
+    /** Both iterations are commits of one repository; the second is the tip
+     * of tax-rates, which no checkout has. */
     oneBranch?: boolean;
     /** Branch changes since main have the two fixture commits. */
     branchCommits?: boolean;
@@ -191,6 +192,8 @@ async function mountApp(
     noteConflict?: boolean;
     /** The thread's spend and context, as the host reads them from transcripts. */
     usage?: ThreadUsage;
+    /** The host cannot read the checkout, so the session does not load. */
+    sessionFails?: string;
   } = {},
 ) {
   initializeTheme();
@@ -255,6 +258,7 @@ async function mountApp(
   /** Queued messages that the agent gets just before the user takes them back. */
   const goneOnTake = new Set<string>();
   const steered: string[] = [];
+  const deletedComments: string[][] = [];
   let ownedKind: "claude" | "codex" | "acp" = "claude";
   const agentMessages: unknown[] = [];
   // The host's answers to the messages that wait, in order: an error, or
@@ -271,6 +275,7 @@ async function mountApp(
         worktreePath: target.repo,
         current: true,
       },
+      ...(options.oneBranch ? [{ name: "tax-rates", head: secondCommit, current: false }] : []),
     ],
     worktrees: [{ path: target.repo, head: firstCommit, branch: target.branch }],
   }));
@@ -547,6 +552,15 @@ async function mountApp(
         };
         return Response.json({ state: inboxState() });
       }
+      if (sessionRoute && sessionPart === "agent/delete-comments" && inbox) {
+        // As the host: the comments go from the review and the files.
+        const { ids } = JSON.parse(String(init?.body)) as { ids: string[] };
+        deletedComments.push(ids);
+        inbox = { ...inbox, drafts: inbox.drafts.filter((draft) => !ids.includes(draft.id)) };
+        for (let index = savedNotes.length - 1; index >= 0; index--)
+          if (ids.includes(savedNotes[index]!.id)) savedNotes.splice(index, 1);
+        return Response.json({ state: inboxState() });
+      }
       if (sessionRoute && sessionPart === "agent/take" && inbox) {
         const { id } = JSON.parse(String(init?.body)) as { id: string };
         const message = inbox.messages.find((entry) => entry.id === id && entry.queued);
@@ -742,6 +756,8 @@ async function mountApp(
           : {}),
       });
     }
+    if (url.pathname === "/api/session" && options.sessionFails)
+      return Response.json({ error: { message: options.sessionFails } }, { status: 500 });
     if (url.pathname === "/api/session")
       return Response.json({
         protocol: 1,
@@ -906,7 +922,7 @@ async function mountApp(
   );
   await expect
     .poll(() => document.querySelector("[data-review-status]")?.getAttribute("data-review-status"))
-    .toBe("ready");
+    .toBe(options.sessionFails ? "error" : "ready");
   // A saved review with a guide opens on its Overview. Its hidden diff views
   // have no box, so they render when Changes shows.
   const guideFirst =
@@ -914,7 +930,7 @@ async function mountApp(
   // The first diff in a page loads Pierre's highlighter on the main thread.
   await expect
     .poll(() => document.querySelectorAll("diffs-container").length, { timeout: 5_000 })
-    .toBeGreaterThanOrEqual(guideFirst ? 0 : options.review ? 1 : 2);
+    .toBeGreaterThanOrEqual(guideFirst || options.sessionFails ? 0 : options.review ? 1 : 2);
   return {
     controller,
     requests,
@@ -929,6 +945,7 @@ async function mountApp(
     setOwnedTranscript,
     goneOnTake,
     steered,
+    deletedComments,
     ownedActions,
     ownedStarts,
     pageReads,
@@ -1000,6 +1017,42 @@ describe("graphical review", () => {
       .element(page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true }))
       .toBeVisible();
     expect(fileRequests).toHaveLength(1);
+  });
+
+  test("a saved review moves the workspace to its branch, and its files open from there", async () => {
+    const { controller, fileRequests } = await mountApp({ savedReview: true, oneBranch: true });
+    // The checkout has the first commit checked out: its files are the working files.
+    const link = page.getByRole("link", { name: "src/alpha.ts", exact: true });
+    await link.click();
+    await expect
+      .poll(() => fileRequests.at(-1)?.source)
+      .toEqual({ kind: "worktree", repo: "/test/repo" });
+    await page.getByRole("button", { name: "Close src/alpha.ts" }).click();
+    // The second is the tip of tax-rates, which no checkout has, though the
+    // review was captured on main: the workspace shows tax-rates.
+    await controller.selectSavedTarget("target-1");
+    await expect.poll(() => controller.getSnapshot().review?.head).toBe(secondCommit);
+    expect(controller.getSnapshot()).toMatchObject({
+      activeBranch: "tax-rates",
+      historyRef: "refs/heads/tax-rates",
+    });
+    await link.click();
+    await expect
+      .poll(() => fileRequests.at(-1))
+      .toEqual({
+        source: { kind: "commit", repo: "/test/repo", oid: secondCommit },
+        path: "src/alpha.ts",
+      });
+    await expect.element(page.getByRole("tab", { name: /alpha\.ts/ })).toBeVisible();
+  });
+
+  test("Find file says why it can't open files when the checkout did not load", async () => {
+    await mountApp({ sessionFails: "Permission denied: /test/repo" });
+    await userEvent.keyboard("{Meta>}{Shift>}K{/Shift}{/Meta}");
+    await expect
+      .element(page.getByRole("status").filter({ hasText: "Permission denied: /test/repo" }))
+      .toBeVisible();
+    expect(page.getByRole("dialog", { name: /Find file/ }).query()).toBeNull();
   });
 
   test("Command-click opens background tabs from diff filenames and the changes tree", async () => {
@@ -4653,6 +4706,57 @@ describe("agent session", () => {
     await expect
       .poll(() => agentMessages.at(-1))
       .toMatchObject({ thread: "claude-s1", text: "", noteIds: ["n2"] });
+  });
+
+  test("the message box clears its comments: one, or all, each after asking", async () => {
+    const draft = (id: string, path: string, text: string) => ({
+      id,
+      path,
+      line: 1,
+      text,
+      replies: 0,
+    });
+    const { deletedComments, agentMessages } = await mountApp({
+      savedReview: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      inbox: {
+        messages: [],
+        drafts: [
+          draft("c1", "src/alpha.ts", "Rename it."),
+          draft("c2", "src/beta.ts", "Keep this one."),
+          draft("c3", "src/gamma.ts", "Old note."),
+        ],
+      },
+    });
+    await page.getByRole("button", { name: "Show agent session" }).click();
+    const panel = page.getByRole("region", { name: "Agent session" });
+    await panel.getByRole("button", { name: "3 comments" }).click();
+
+    // A comment's Delete asks first; Escape keeps it.
+    const remove = panel.getByRole("button", { name: "Delete the comment on alpha.ts:1" });
+    await remove.click();
+    const confirm = panel.getByRole("button", { name: "Confirm delete the comment on alpha.ts:1" });
+    await expect.element(confirm).toHaveTextContent("Delete");
+    await userEvent.keyboard("{Escape}");
+    await expect.element(remove).toBeVisible();
+    expect(deletedComments).toEqual([]);
+    // The second click deletes it, from the review too.
+    await remove.click();
+    await confirm.click();
+    await expect.element(panel.getByRole("button", { name: "2 comments" })).toBeVisible();
+    await expect.element(panel.getByText("Rename it.")).not.toBeInTheDocument();
+    expect(deletedComments).toEqual([["c1"]]);
+
+    // Delete all says how many, then clears the box.
+    const all = panel.getByRole("button", { name: "Delete all" });
+    await all.click();
+    await panel.getByRole("button", { name: "Delete 2 comments" }).click();
+    expect(deletedComments.at(-1)).toEqual(["c2", "c3"]);
+    await expect.element(panel.getByRole("button", { name: /comments?$/ })).not.toBeInTheDocument();
+    await expect
+      .element(panel.getByRole("list", { name: "Comments to send" }))
+      .not.toBeInTheDocument();
+    expect(agentMessages).toEqual([]);
   });
 
   test("a draft and the messages that Med did not take stay after a reload", async () => {

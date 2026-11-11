@@ -1826,7 +1826,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         // Messages from a thread to its agent session, and the agent's
         // answers to comments.
         const agentRoute =
-          /^\/api\/sessions\/([A-Za-z0-9_-]+)\/agent(?:\/(messages|events|take|send-now))?$/.exec(
+          /^\/api\/sessions\/([A-Za-z0-9_-]+)\/agent(?:\/(messages|events|take|send-now|delete-comments))?$/.exec(
             url.pathname,
           );
         if (agentRoute) {
@@ -2017,6 +2017,21 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 "This agent takes the message when its turn ends.",
                 409,
               );
+            send({ state: await inboxState() });
+            return;
+          }
+          // Deletes comments from the message box, as from the review or the
+          // file that holds them, with their replies.
+          if (action === "delete-comments" && request.method === "POST") {
+            const input = z
+              .object({ ids: z.array(z.string().min(1).max(128)).min(1).max(500) })
+              .parse(await readBody(request));
+            assertRequestAccess();
+            const ids = new Set(input.ids);
+            for (const review of await threads.reviewsOf(threadId))
+              await savedReviews.removeComments(review.id, ids, assertRequestAccess);
+            await threadComments.removeComments(threadId, ids);
+            inbox.touch(threadId);
             send({ state: await inboxState() });
             return;
           }

@@ -74,15 +74,23 @@ test("a long document lists its headings on the left, marks the one being read, 
 
   // Scrolling marks the heading being read; the ones above it read as passed.
   const retries = reading.getByRole("heading", { name: "Retries" }).element() as HTMLElement;
-  pane.scrollTop = retries.offsetTop - 40;
-  await expect.element(entry("Retries")).toHaveAttribute("aria-current", "location");
+  // The preview can still be placing itself as it opens, so the scroll goes
+  // again until it holds.
+  const scrollTo = async (top: () => number, name: string) => {
+    await expect
+      .poll(() => {
+        pane.scrollTop = top();
+        return entry(name).element().getAttribute("aria-current");
+      })
+      .toBe("location");
+  };
+  await scrollTo(() => retries.offsetTop - 40, "Retries");
   expect(entry("Goals").element().hasAttribute("data-read")).toBe(true);
   expect(entry("Rollout").element().hasAttribute("data-read")).toBe(false);
   // The list stays in view while the text scrolls.
   expect(contents.element().getBoundingClientRect().top).toBeGreaterThanOrEqual(box.top);
   // At the end, the last heading is the one being read.
-  pane.scrollTop = pane.scrollHeight;
-  await expect.element(entry("Rollout")).toHaveAttribute("aria-current", "location");
+  await scrollTo(() => pane.scrollHeight, "Rollout");
   await userEvent.click(entry("Goals"));
   await expect.element(entry("Goals")).toHaveAttribute("aria-current", "location");
 
@@ -144,8 +152,11 @@ test("Full screen draws a diagram larger over the page, with zoom; Escape closes
   const large = dialog.getByRole("img", { name: "Mermaid diagram" });
   await expect.element(large).toBeVisible();
   // Three times the page's size for a small diagram, the most that it grows.
-  const svg = large.element().querySelector("svg")!;
-  await expect.poll(() => svg.getBoundingClientRect().width).toBeCloseTo(inline.width * 3, -1);
+  // The dialog can draw the diagram again, so each look finds its SVG anew: a
+  // replaced one measures 0.
+  await expect
+    .poll(() => large.element().querySelector("svg")?.getBoundingClientRect().width ?? 0)
+    .toBeCloseTo(inline.width * 3, -1);
   await expect.element(dialog.getByRole("button", { name: "Zoom in" })).toBeVisible();
   await userEvent.keyboard("{Escape}");
   await expect.element(dialog).not.toBeInTheDocument();

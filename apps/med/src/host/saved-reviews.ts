@@ -1639,6 +1639,31 @@ export class SavedReviewStore {
     }, beforeCommit);
   }
 
+  /**
+   * Deletes the named comments with their replies, from the message box of
+   * the review's session; an ID that the review lacks is skipped. Returns how
+   * many went.
+   */
+  removeComments(id: string, ids: ReadonlySet<string>, beforeCommit?: () => void) {
+    return this.writing(async () => {
+      const record = await this.read(id, true);
+      let removed = 0;
+      for (const target of record.captures) {
+        const notes = target.notes.notes;
+        const named = notes.filter((note) => !note.parentId && ids.has(note.id));
+        if (!named.length) continue;
+        for (const note of named) removeReviewNote(note.id, notes);
+        removed += named.length;
+        target.notes.revision++;
+      }
+      if (!removed) return 0;
+      record.saved.revision++;
+      record.saved.commentCount = countComments(record);
+      await this.write(record, beforeCommit);
+      return removed;
+    }, beforeCommit);
+  }
+
   /** Top-level comments across the review's targets, for the agent's drafts. */
   comments(id: string): Promise<(Note & { replies: number })[]> {
     return this.serial(async () => {

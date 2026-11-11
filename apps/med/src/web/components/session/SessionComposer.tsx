@@ -1,5 +1,13 @@
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import {
   MAX_PROMPT_IMAGE_BYTES,
   PROMPT_IMAGE_TYPES,
@@ -141,7 +149,7 @@ export function SessionComposer({
   name,
   presence,
   onContinue,
-  drafts,
+  drafts: waiting,
   attachments,
   onRemoveAttachment,
   onSend,
@@ -153,7 +161,10 @@ export function SessionComposer({
   restore,
   onTakeBack,
   onOpenComment,
+  onDeleteComments,
 }: {
+  /** Deletes comments, with their replies, from the review or file that has them. */
+  onDeleteComments?(ids: string[]): Promise<void>;
   /** Text that comes back into the box, such as a queued message to edit;
    * each nonce comes once, before what the box holds. */
   restore?: { text: string; nonce: number };
@@ -207,7 +218,44 @@ export function SessionComposer({
   const [confirming, setConfirming] = useState<{ setting: string; value: string } | null>(null);
   const cardKeys = useRef<CardKeys>(undefined);
   const menuId = useId();
+  // Comments that go while the host deletes them, and the Delete that asks
+  // first: a comment's ID, or "all".
+  const [deleting, setDeleting] = useState<ReadonlySet<string>>(new Set());
+  const [asking, setAsking] = useState<string | null>(null);
+  const drafts = deleting.size ? waiting.filter((draft) => !deleting.has(draft.id)) : waiting;
   const chosen = drafts.filter((draft) => !left.has(draft.id));
+  const deleteComments = async (ids: string[]) => {
+    if (!onDeleteComments) return;
+    setAsking(null);
+    if (ids.length >= drafts.length) setOpen(false);
+    setDeleting((current) => new Set([...current, ...ids]));
+    try {
+      await onDeleteComments(ids);
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Med could not delete the comments.");
+    } finally {
+      setDeleting((current) => new Set([...current].filter((id) => !ids.includes(id))));
+    }
+  };
+  /** A Delete that asks first: the first click asks, the second deletes;
+   * Escape or leaving it keeps the comments. */
+  const askFirst = (key: string, ids: () => string[]) => ({
+    onClick: (event: MouseEvent<HTMLButtonElement>) => {
+      if (asking === key) return void deleteComments(ids());
+      // Safari does not focus a button that it clicks; the question goes
+      // when the focus does.
+      event.currentTarget.focus();
+      setAsking(key);
+    },
+    onBlur: () => setAsking((current) => (current === key ? null : current)),
+    onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => {
+      if (event.key !== "Escape" || asking !== key) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setAsking(null);
+    },
+  });
   const empty = !text.trim() && !chosen.length && !attachments.length && !images.length;
   const addImages = async (files: File[]) => {
     const found = files.filter((file) => file.type.startsWith("image/"));
@@ -516,6 +564,21 @@ export function SessionComposer({
                   : `${chosen.length} of ${drafts.length} comments`}
               </button>
             )}
+            {/* Clears the box of comments, from the review too, when its own
+                page does not show them. */}
+            {open && onDeleteComments && drafts.length > 1 && (
+              <button
+                type="button"
+                {...askFirst("all", () => drafts.map((draft) => draft.id))}
+                {...stylex.props(
+                  styles.chip,
+                  styles.deleteAll,
+                  asking === "all" && styles.deleteAsking,
+                )}
+              >
+                {asking === "all" ? `Delete ${drafts.length} comments` : "Delete all"}
+              </button>
+            )}
             {/* Comments wait here as one line, and go on their own. */}
             {chosen.length > 0 && !text.trim() && !stopped && (
               <button
@@ -579,6 +642,24 @@ export function SessionComposer({
                     <span {...stylex.props(styles.draftPath)}>{name}</span>
                     <span {...stylex.props(styles.draftText)}>{draft.text}</span>
                   </button>
+                  {onDeleteComments && (
+                    <button
+                      type="button"
+                      aria-label={
+                        asking === draft.id
+                          ? `Confirm delete the comment on ${name}`
+                          : `Delete the comment on ${name}`
+                      }
+                      {...askFirst(draft.id, () => [draft.id])}
+                      {...tooltip(asking === draft.id ? undefined : "Delete")}
+                      {...stylex.props(
+                        styles.draftDelete,
+                        asking === draft.id && styles.deleteAsking,
+                      )}
+                    >
+                      {asking === draft.id ? "Delete" : <Icon name="trash" size={12} />}
+                    </button>
+                  )}
                 </li>
               );
             })}
@@ -929,6 +1010,34 @@ const styles = stylex.create({
     textAlign: "start",
     cursor: { default: "pointer", ":disabled": "default" },
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
+  draftDelete: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    minWidth: 22,
+    height: 22,
+    padding: 0,
+    borderWidth: 0,
+    borderRadius: `calc(5px * ${tokens.round})`,
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
+    color: { default: tokens.faint, ":hover": tokens.red },
+    fontFamily: tokens.ui,
+    fontSize: 11.5,
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
+  deleteAll: {
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
+    color: { default: tokens.muted, ":hover": tokens.red },
+  },
+  // The second click on a Delete: what it does, in words.
+  deleteAsking: {
+    paddingInline: 8,
+    color: { default: tokens.red, ":hover": tokens.red },
+    fontWeight: 550,
+    whiteSpace: "nowrap",
   },
   check: { flexShrink: 0, margin: 0, accentColor: tokens.accent, cursor: "pointer" },
   draftPath: { flexShrink: 0, color: tokens.text, fontFamily: tokens.code, fontSize: 11 },

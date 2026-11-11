@@ -345,7 +345,10 @@ Desktop's messaging socket is not documented.
    agent mark sends that one comment. The message has your text, then each
    comment with its file, lines, the diff hunk, and your words, then how to
    answer in a thread. The card then reads **Sent to Claude**; an edit after
-   that makes it a draft again.
+   that makes it a draft again. The line's list also deletes drafts, one or
+   all, after asking (`POST /api/sessions/:id/agent/delete-comments` with
+   `{ ids }`): each goes with its replies from the session's review or file
+   that holds it, so the box clears even when the review will not open.
 3. **Copy.** **Copy comments** (the review's header, or ⌘K) copies the same
    text for every comment, for an agent that Med does not run. Copying marks
    nothing sent.

@@ -59,6 +59,8 @@ export interface AgentInbox {
   /** Send now on a queued message: the agent takes it at its next step, not
    * at its turn's end. */
   sendNow?(id: string): Promise<void>;
+  /** Deletes comments that wait in the message box, from wherever they are. */
+  deleteComments?(ids: string[]): Promise<void>;
 }
 
 /** A thread's agent inbox while `threadId` is set. */
@@ -131,11 +133,29 @@ export function useAgentInbox(
     },
     [threadId, fetcher],
   );
+  const deleteComments = useCallback(
+    async (ids: string[]) => {
+      if (!threadId) throw new Error("This thread has no agent session.");
+      const api = createApi(fetcher, readBrowserToken());
+      const result = await api.json(
+        `/api/sessions/${encodeURIComponent(threadId)}/agent/delete-comments`,
+        z.object({ state: agentInboxStateSchema }),
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ids }),
+        },
+      );
+      setState({ id: threadId, value: result.state });
+    },
+    [threadId, fetcher],
+  );
   return {
     state: state && state.id === threadId ? state.value : null,
     send,
     takeBack,
     sendNow,
+    deleteComments,
   };
 }
 

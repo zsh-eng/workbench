@@ -262,6 +262,9 @@ function ReplyDemo() {
           name="Claude"
           presence={mode === "elsewhere" ? "terminal" : "resumable"}
           drafts={drafts}
+          onDeleteComments={async (ids) =>
+            setDrafts((list) => list.filter((draft) => !ids.includes(draft.id)))
+          }
           attachments={attachments}
           onRemoveAttachment={(id) =>
             setAttachments((list) => list.filter((entry) => entry.id !== id))
