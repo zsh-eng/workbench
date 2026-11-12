@@ -16,7 +16,9 @@ repository. The sidebar lists the sessions that Med started or that you
 kept, the sessions that handed off a review, and those that worked in a
 registered repository in the last 7 days. A session that handed off several
 reviews, such as one for each branch, is one row; its session rail's
-**Reviews** lists them, newest first, and opens each one. Among several, a
+**Reviews** lists them, newest first, and opens each one. The caret after
+the review's name in the review's header lists them too, also while the
+window is too narrow for the rail. Among several, a
 review with a pull request names it, such as "#333 open": the number, and
 the state once Med has read the pull request. A row's name is the
 name you gave it, else the session's title. `⌘1`–`⌘9` open the thread at that

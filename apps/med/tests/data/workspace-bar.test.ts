@@ -59,4 +59,40 @@ describe("a thread's band", () => {
       title: "Tax rates",
     });
   });
+
+  test("names a review's worktree by its repository, not by its folder", () => {
+    const withReview = {
+      ...list,
+      threads: [
+        {
+          ...list.threads[0]!,
+          reviews: [
+            {
+              id: "r_1",
+              title: "Glossary",
+              createdAt: "2026-11-12T00:00:00Z",
+              updatedAt: 0,
+              place: {
+                repository: { id: "repo-0", name: "tide", path: "/code/tide" },
+                checkout: "/code/tide.worktrees/glossary",
+                branch: "glossary",
+                linked: true,
+              },
+            },
+          ],
+        },
+      ],
+    } as unknown as ThreadList;
+    expect(
+      barContext(
+        {
+          ...thread,
+          viewingPath: "/code/tide.worktrees/glossary",
+          viewingBranch: "glossary",
+          viewingRepository: "glossary",
+        },
+        withReview,
+      ),
+    ).toMatchObject({ repository: "tide", branch: "glossary", linked: true });
+  });
 });

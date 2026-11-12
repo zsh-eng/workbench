@@ -468,6 +468,48 @@ test("a session's reviews show in its one thread, and the session stays on scree
   expect(document.querySelectorAll('[data-workspace-slot$="claude-s1"]').length).toBe(1);
 });
 
+test("the review's name lists the thread's reviews, also while the rail hides; a choice shows that review", async () => {
+  render(createHost([sessionThread(Date.now())]));
+  // A window too narrow for the session's rail beside the review.
+  await page.viewport(1280, 800);
+  await userEvent.click(
+    page.getByRole("navigation", { name: "Sessions" }).getByRole("button", { name: /^Tide times/ }),
+  );
+  await expect.poll(shown).toBe("rev-a-target");
+  // The review opens beside the session: its row has the name.
+  await userEvent.click(pages().getByRole("radio", { name: /^Review/ }));
+  // The session is narrow beside the review: its rail, with Reviews, hides.
+  await expect
+    .poll(
+      () =>
+        document.querySelector('[role="region"][aria-label="Reviews"]')?.checkVisibility() ?? false,
+    )
+    .toBe(false);
+  await userEvent.click(page.getByRole("button", { name: "Reviews of this thread" }));
+  // The review on screen is the checked one.
+  await expect
+    .element(page.getByRole("menuitemcheckbox", { name: "Week view" }))
+    .toHaveAttribute("aria-checked", "true");
+  await userEvent.click(page.getByRole("menuitemcheckbox", { name: "Month view" }));
+  await expect.poll(shown).toBe("rev-b-target");
+  expect(sessionShown()).toBe(true);
+});
+
+test("a thread with one review has no list at the review's name", async () => {
+  const thread = sessionThread(Date.now());
+  render(createHost([{ ...thread, reviews: thread.reviews.slice(0, 1) }]));
+  await page.viewport(1280, 800);
+  await userEvent.click(
+    page.getByRole("navigation", { name: "Sessions" }).getByRole("button", { name: /^Tide times/ }),
+  );
+  await expect.poll(shown).toBe("rev-a-target");
+  await userEvent.click(pages().getByRole("radio", { name: /^Review/ }));
+  await expect
+    .poll(() => document.querySelector('header[aria-label="Review header"]')?.checkVisibility())
+    .toBe(true);
+  expect(document.querySelector('[aria-label="Reviews of this thread"]')).toBeNull();
+});
+
 const pages = () => page.getByRole("radiogroup", { name: "Page" });
 /** Opens the thread in a window wide enough for the session's rail, with its
  * Reviews, to stay beside the review. */

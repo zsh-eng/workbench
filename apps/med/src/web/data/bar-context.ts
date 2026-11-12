@@ -37,13 +37,16 @@ export function barContext(
     // What the workspace shows, such as a review's branch, else where the
     // thread works.
     const viewing = workspace.viewingPath;
+    // The place of the review on screen knows its repository: a worktree
+    // goes by that name here too, not by its folder's.
+    const place = thread?.reviews.find((review) => review.place?.checkout === viewing)?.place;
     if (viewing && viewing !== thread?.checkout)
       return {
         kind: "checkout",
-        repository: workspace.viewingRepository ?? basename(viewing),
+        repository: place?.repository?.name ?? workspace.viewingRepository ?? basename(viewing),
         branch: workspace.viewingBranch,
         path: viewing,
-        linked: workspace.worktree === viewing,
+        linked: place?.linked ?? workspace.worktree === viewing,
         title: name ?? thread?.title,
       } as const;
     if (!thread?.checkout) return undefined;

@@ -74,3 +74,8 @@ node scripts/explorations/run.mjs --record       # the whole video, 2x
 
 `scripts/explorations/world.mjs` builds the world under a scratch HOME, so
 Med shows `~/code/tide`. Nothing touches your own state or repositories.
+
+## November 2026
+
+[One model under the panes](one-model.md): an exploration of one page for each
+thread was dropped, and its simpler model was kept under the panes.

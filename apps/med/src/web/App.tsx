@@ -5678,6 +5678,40 @@ export function App({
       }
     />
   );
+  // A thread with several reviews: a caret at the name's end lists them, and
+  // a choice shows that review in this one's place, with its checkout. The
+  // rail's list hides while the session is narrow; the name never does.
+  const reviewLabels = siblingReviews.map((review) =>
+    review.pullRequest
+      ? `#${review.pullRequest.number} ${review.pullRequest.title ?? review.title}`
+      : review.title,
+  );
+  const reviewSwitch = siblingReviews.length > 1 && workspace && (
+    <ActionMenu
+      label="Reviews of this thread"
+      align="start"
+      trigger={[ui.button, styles.reviewSwitch]}
+      sections={[
+        siblingReviews.map((review, at) => ({
+          // Two reviews with one title, such as one for each branch: each
+          // names its branch, or else its place in the list.
+          label:
+            reviewLabels.indexOf(reviewLabels[at]!) === reviewLabels.lastIndexOf(reviewLabels[at]!)
+              ? reviewLabels[at]!
+              : `${reviewLabels[at]} · ${review.place?.branch ?? at + 1}`,
+          checked: review.id === state.savedReview?.id,
+          choice: true,
+          onClick: () => {
+            if (review.id !== state.savedReview?.id)
+              workspace.update(workspace.id, { reviewId: review.id });
+            selectTab("review");
+          },
+        })),
+      ]}
+    >
+      <Icon name="chevron" size={12} />
+    </ActionMenu>
+  );
   // The pages, and what acts on the whole review, at the title band's end:
   // they show whether or not the review does. A page opens the review beside
   // the thread, and the page on screen, clicked again, hides it, so the
@@ -5704,6 +5738,7 @@ export function App({
       <ReviewHeader
         lead={leading}
         name={reviewName}
+        choice={reviewSwitch}
         tools={pageTools}
         more={rowMore}
         end={!bandShown && reviewTools}
@@ -6957,6 +6992,16 @@ const styles = stylex.create({
   railRange: { display: "flex", minWidth: 0, paddingInline: 6, paddingBottom: 6 },
   // Empty while Stage all has no room here, and then no gap in the row.
   rowStage: { display: { default: "flex", ":empty": "none" }, flexShrink: 0 },
+  // The caret after the review's name: faint until the pointer or focus.
+  reviewSwitch: {
+    flexShrink: 0,
+    width: 20,
+    height: 24,
+    marginInlineStart: -4,
+    padding: 0,
+    justifyContent: "center",
+    color: { default: tokens.faint, ":hover": tokens.text, ":focus-visible": tokens.text },
+  },
   rowPane: {
     display: { default: "flex", ":empty": "none" },
     alignItems: "center",

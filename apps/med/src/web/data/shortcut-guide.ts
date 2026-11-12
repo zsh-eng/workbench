@@ -363,6 +363,11 @@ export const guideContexts: GuideContext[] = [
           { label: "Select characters / lines", keys: ["v", "V"] },
           { label: "Move the other end", keys: ["o"], note: "In a selection" },
           { label: "Copy the selection", keys: ["y", "Mod+C"] },
+          {
+            label: "Comment on the line or the selection",
+            keys: ["g c"],
+            note: "In a thread",
+          },
           { label: "Clear the selection and highlights", keys: ["Esc"] },
         ],
       },
@@ -410,6 +415,11 @@ export const guideContexts: GuideContext[] = [
           { label: "Undo / redo", keys: ["u", "Ctrl+R"] },
           { label: "Indent / outdent the line", keys: ["> >", "< <"] },
           { label: "Change inside quotes", keys: ['c i "'], note: "Any text object works" },
+          {
+            label: "Comment on the line or the selection",
+            keys: ["g c"],
+            note: "In a thread",
+          },
         ],
       },
       {

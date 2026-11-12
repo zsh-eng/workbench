@@ -43,6 +43,7 @@ export interface ReviewPages {
 export function ReviewHeader({
   lead,
   name,
+  choice,
   tools,
   more,
   end,
@@ -51,6 +52,9 @@ export function ReviewHeader({
   /** The review's sidebar's toggle, while the sidebar hides. */
   lead?: ReactNode;
   name: ReactNode;
+  /** The list of the thread's reviews, at the name's end: the name keeps
+   * room for it when the row is narrow. */
+  choice?: ReactNode;
   /** The page's own controls, after the name. */
   tools?: ReactNode;
   /** ⋯, with what the row folds away when narrow. */
@@ -63,8 +67,9 @@ export function ReviewHeader({
   return (
     <header aria-label="Review header" {...paneHandle} {...stylex.props(styles.header)}>
       {lead}
-      <span data-row-yields="" {...stylex.props(styles.nameBox)}>
+      <span data-row-yields="" {...stylex.props(styles.nameBox, !!choice && styles.nameChoice)}>
         {name}
+        {choice}
       </span>
       {tools}
       <span data-row-grow="" {...stylex.props(styles.grow)} />
@@ -387,6 +392,8 @@ const styles = stylex.create({
   // (QuietChrome's rowRoom), and it takes the room they leave. It shrinks
   // far ahead of the comparison, which shrinks ahead of the rest.
   nameBox: { display: "flex", alignItems: "center", flexShrink: 100000, minWidth: 34 },
+  // The name at its least width, and the caret (20 wide, drawn 4 into it).
+  nameChoice: { minWidth: 50 },
   // The branch hides first, then the title shortens, so the row never
   // overflows. No cap in percent: in the title band its box is its own size.
   title: {
