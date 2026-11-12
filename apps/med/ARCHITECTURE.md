@@ -317,12 +317,20 @@ Commit tab's `q`, and a full row's eviction all use that order.
 
 ### Threads
 
-A thread is an agent session, keyed `<agent>-<session id>`, with the reviews
-that it handed off; a review that no session handed off is a thread of its
-own, keyed by the review's ID (`threadOfReview` in `src/shared/threads.ts`).
-A session is not tied to a folder: its thread's place is the checkout where
-it works now, the newest of its transcript's folders in a registered
-checkout, so Changes follow it. The sidebar lists the sessions that Med
+A thread is an agent session, keyed `<agent>-<session id>`, with its reviews:
+the ones that it handed off, and the pull requests added to it. A review
+that no session handed off is a thread of its own, keyed by the review's ID
+(`threadOfReview` in `src/shared/threads.ts`). A review joins a thread
+through its `session`, so a thread lists many (`ThreadReview`: the change,
+its place, and its pull request) and shows one at a time. The review on
+screen projects its place: selecting a review moves the workspace to its
+checkout, and Review, Changes, Commit, the file list, search, and open files
+are that checkout's (`reviewPlace` and `reviewChanges` in
+`src/web/data/review-place.ts`). A session is not tied to a folder: its
+thread's place is the checkout where it works now, the newest of its
+transcript's folders in a registered checkout. Changes are the thread's place
+only with no review, or when the review's checkout is gone or no checkout
+has its branch. The sidebar lists the sessions that Med
 started or the user kept, the sessions that handed off a review, and those
 that worked in a registered repository in the last 7 days
 (`src/host/session-index.ts`, [found sessions](docs/SESSIONS.md#found-sessions)).
@@ -509,8 +517,11 @@ path, branch) and no target. Its **Changes** are a live comparison of that
 checkout, which Med never saves: a `working` comparison with `base`, from the
 merge base of the base branch and HEAD to the working files, on a branch
 other than the base, and plain working changes on the base. The base is the
-repository's main checkout's branch unless the reader chose another
-(`checkout.base`). `POST /api/reviews/:id/details` with `checkout` moves the
+one that the reader chose for the thread's checkout (`POST
+/api/threads/:id/base`), else the base branch that the review on screen
+names for its checkout (`reviewBase` in `src/shared/saved-review.ts`: the
+`main` of a range `main..week-view`, while the repository has that branch),
+else the repository's main checkout's branch. `POST /api/reviews/:id/details` with `checkout` moves the
 thread to another checkout of a registered repository or keeps a base; the
 host, the thread list, and the browser read both through `threadCheckout` and
 `changesBase`. A review's ID names its diff, so two bases with one merge base
@@ -553,6 +564,20 @@ asks `gh pr list --head <branch> --state open` for its branch: at once, after
 its refs change, and at most every 5 minutes. It links the first open pull
 request that it finds, and then stops. It does not ask for threads in history,
 for the base branch, or when `gh` is missing or not signed in.
+
+Each review has at most one pull request, and a thread row carries each
+review's (`reviews[].pullRequest`: the link, the number, the title, and the
+state). The thread list asks GitHub nothing: the state is what the host's
+last read of that pull request said, from the comments or the Pull request
+tab of a review on screen, or from a pull request's job, kept in memory. A
+pull request that no read has asked about since the host started has no
+state. `POST /api/pulls` with `thread` (⌘K **Add a pull request…**, `med
+thread pr`) runs the job of a pasted link (`src/host/pull-workspace.ts`) and
+saves the review with the thread's session, so it is one more of the
+thread's reviews. A review that is another session's stays there: the job
+fails when it has read the pull request, before it touches the worktree. A pull request's review has its own key
+(`pullReviewKey`), which is a thread's hand-off key only when Med started
+the session on that pull request.
 
 The Pull request tab shows the agent's draft until the review has a pull
 request, then `src/web/components/PullRequestView.tsx`, for a review that is not

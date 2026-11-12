@@ -74,7 +74,7 @@ import {
 import { browserFetch } from "./live";
 import { generatedMark } from "./generated";
 import { readServerEvents } from "./sse";
-import { reviewPlace } from "./review-place";
+import { reviewChanges, reviewPlace } from "./review-place";
 
 export type { ParsedReviewFile } from "../../shared/review";
 const driftSchema = z.object({ changed: z.boolean() });
@@ -161,8 +161,9 @@ export interface ReviewControllerOptions {
   events?: boolean;
   /** A workspace's repository and branch; without it the host's default opens. */
   start?: { path?: string; repositoryId?: string; branch?: string };
-  /** The thread that the workspace shows: where its session works now, which
-   * its Changes show, and the base that the reader chose for them. */
+  /** The thread that the workspace shows: where its session works now, and
+   * the base that the reader chose for that checkout's Changes. Changes show
+   * it when the review on screen has no live checkout of its own. */
   thread?: ThreadPlace;
   /** Resolves when the pane that leads the workspace, such as its agent
    * session, is ready. A saved diff and the checkout's Git state wait for it
@@ -197,15 +198,17 @@ export interface ReviewController {
   placeLines(
     lines: readonly { path: string; side: "old" | "new"; line: number; endLine?: number }[],
   ): Promise<({ line: number; endLine?: number } | null)[]>;
-  /** The Changes tab: the checkout's live comparison that the reader chose
-   * last, or by default the branch's changes on a branch other than its
-   * base, and the working changes on the base. */
+  /** The Changes tab: the live comparison of the checkout of the review on
+   * screen, or of the thread's checkout when the review has none. It is the
+   * one that the reader chose last, or by default the branch's changes on a
+   * branch other than its base, and the working changes on the base. */
   showChanges(): Promise<void>;
   /** Changes again after a commit of the list beside them: the live
    * comparison that showed before it. */
   showAllChanges(): Promise<void>;
   /** The thread works somewhere else now, such as another repository or
-   * branch, or the reader chose another base: its Changes follow. */
+   * branch, or the reader chose another base. Its Changes follow, unless
+   * they are the Changes of the review on screen, which stay in its checkout. */
   follow(place: ThreadPlace): Promise<void>;
   /** Shows the branch's changes since `comparison.base`. On the thread's own
    * checkout, the thread keeps that base. */
@@ -311,6 +314,16 @@ export function currentTargets(saved: SavedReview) {
   const own = saved.targets.filter((target) => !target.commentReviewId);
   return ids ? own.filter((target) => ids.includes(target.id)) : own;
 }
+
+/** The comparison of a review that its Changes belong to: the one that
+ * shows, else its current version's first. */
+export const changesTarget = (
+  saved: SavedReview | null | undefined,
+  shown: string | null | undefined,
+) =>
+  saved
+    ? (saved.targets.find((entry) => entry.id === shown) ?? currentTargets(saved)[0])
+    : undefined;
 
 /** Whether the saved review has a comparison of its own to show. */
 export const hasReview = (saved: SavedReview) =>
@@ -1070,9 +1083,19 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   };
   /** Where the thread works now, as its workspace said last. */
   let place = options.thread;
-  /** The base that the reader chose for the thread, when `path` is its checkout. */
-  const ownBase = (path: string | undefined) =>
-    place && place.path === path ? place.base : undefined;
+  /** The Changes of the review on screen: the live checkout of the
+   * comparison that shows, else of its current version's first. None with
+   * no review, or when no checkout has its code: Changes are the thread's. */
+  const ownChanges = (repositories = snapshot.repositories) =>
+    reviewChanges(repositories, changesTarget(snapshot.savedReview, snapshot.savedTargetId));
+  /** The base that Changes of the checkout at `path` start from, when one is
+   * chosen: the reader's, for the thread's own checkout; else the base that
+   * the review on screen names, for its checkout. */
+  const ownBase = (path: string | undefined, repositories = snapshot.repositories) => {
+    if (place?.base && place.path === path) return place.base;
+    const own = ownChanges(repositories);
+    return own && own.path === path ? own.base : undefined;
+  };
   /** Saves the base of the thread's Changes; none for the repository's usual one. */
   async function saveBase(base: string | undefined) {
     if (!place) return;
@@ -1327,7 +1350,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       const base = changesBase(
         repositories.find((entry) => entry.id === id),
         session.repository.branch,
-        ownBase(session.repository.path),
+        ownBase(session.repository.path, repositories),
       );
       const initialComparison: Comparison = branchSnapshot
         ? { kind: "commit" as const, commit: branch.head }
@@ -2231,10 +2254,12 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     },
     async showChanges() {
       reviewSide = false;
-      // A Review of another checkout, or of a branch that no checkout has
-      // checked out: Changes are where the thread works now.
+      // Changes are the checkout of the review on screen. Without a review,
+      // or for a Review of a branch that no checkout has checked out, they
+      // are where the thread works now.
       const fromReview = snapshot.savedView || snapshot.inReview;
-      const home = place?.path ?? snapshot.session?.repository.path;
+      const own = ownChanges();
+      const home = own?.path ?? place?.path ?? snapshot.session?.repository.path;
       if (
         home &&
         snapshot.session &&
@@ -2244,7 +2269,11 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         return openWorkspace(
           home,
           undefined,
-          place?.path ? place.repositoryId : (snapshot.activeRepositoryId ?? undefined),
+          own
+            ? own.repositoryId
+            : place?.path
+              ? place.repositoryId
+              : (snapshot.activeRepositoryId ?? undefined),
         );
       }
       const live = liveChoice ?? defaultChanges();
@@ -2265,22 +2294,28 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       const moved = next.path !== place?.path;
       place = next;
       if (!moved || !next.path) return;
+      // The Review stays on screen. Its Changes stay in its checkout; a
+      // review without one shows the new checkout next time.
+      const reviewing = reviewSide || snapshot.savedView;
+      const own = ownChanges();
+      if (own && (reviewing || snapshot.session?.repository.path === own.path)) return;
       liveChoice = choiceBeforeCommit = null;
-      // The Review stays on screen; Changes show the new checkout next time.
-      if (reviewSide || snapshot.savedView) return;
+      if (reviewing) return;
       await openWorkspace(next.path, undefined, next.repositoryId);
     },
     async setChangesBase(comparison) {
-      // The repository's usual base is not saved, so the thread follows it.
+      // The base that the checkout has without a choice is not saved, so
+      // the thread follows it: the one that the review on screen names for
+      // this checkout, else the repository's usual one.
+      const path = snapshot.session?.repository.path;
+      const own = ownChanges();
       const usual = changesBase(
         snapshot.repositories.find((entry) => entry.id === snapshot.activeRepositoryId),
         snapshot.session?.repository.branch,
+        own && own.path === path ? own.base : undefined,
       );
       const saving =
-        place &&
-        comparison.base &&
-        place.path === snapshot.session?.repository.path &&
-        (place.base ?? usual) !== comparison.base
+        place && comparison.base && place.path === path && (place.base ?? usual) !== comparison.base
           ? saveBase(comparison.base === usual ? undefined : comparison.base)
           : undefined;
       await selectComparison(comparison);

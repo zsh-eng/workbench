@@ -48,7 +48,7 @@ import { readServerEvents } from "../data/sse";
 import { renderBriefs } from "../markdown/brief-render";
 import { endReplies } from "./session/thread-model";
 import { themeController } from "../themes";
-import { parsePullUrl } from "../../shared/pull-workspace";
+import { parsePullUrl, samePull } from "../../shared/pull-workspace";
 import { startPull, usePullJob } from "../data/pull-jobs";
 import { HistoryPage, isArchivedAddress, openHistoryPage } from "./HistoryPage";
 import { OPEN_PULL_EVENT, openPullRequests, type OpenPull } from "./PullRequestsPage";
@@ -64,7 +64,7 @@ import {
   useThreads,
   workspaceThread,
 } from "../data/threads";
-import { REVIEW_ID } from "../../shared/threads";
+import { parseSessionKey, REVIEW_ID } from "../../shared/threads";
 import {
   closeThread,
   deleteThread,
@@ -426,6 +426,95 @@ const NO_REVIEWS: readonly ThreadReview[] = [];
  * or a lone review itself. */
 export function useThreadReviews(id: string | undefined): readonly ThreadReview[] {
   return useThread(id)?.reviews ?? NO_REVIEWS;
+}
+
+/** A pull request that Med adds to the workspace's thread, with its job. */
+export interface AddingPull {
+  url: string;
+  state: PullState;
+}
+
+/**
+ * Adds a GitHub pull request to the workspace's thread as one more of its
+ * reviews (⌘K, "Add a pull request…"). The host runs the job that a pasted
+ * link runs, and saves the review in the thread; no workspace opens for it.
+ * `onReview` shows a review of the thread: the new one when its job ends, or
+ * at once the one that the thread has for the link already. Only a session's
+ * thread takes more reviews; elsewhere `add` is undefined.
+ */
+export function useAddPullRequest(onReview: (reviewId: string) => void) {
+  const entry = use(Entry);
+  const threads = use(Threads);
+  const fetcher = use(HostFetch);
+  const threadId =
+    entry?.kind === "thread" && parseSessionKey(entry.threadId) ? entry.threadId : undefined;
+  const [pending, setPending] = useState<{ url: string; jobId?: string; error?: string } | null>(
+    null,
+  );
+  const job = usePullJob(pending?.jobId, fetcher);
+  const show = useRef(onReview);
+  useLayoutEffect(() => {
+    show.current = onReview;
+  });
+  const begin = useCallback(
+    (url: string) => {
+      if (!threadId) return;
+      setPending({ url });
+      const settle = (next: { jobId: string } | { error: string }) =>
+        setPending((current) =>
+          current?.url === url && !current.jobId ? { url, ...next } : current,
+        );
+      startPull(url, undefined, fetcher, threadId).then(
+        (started) => settle({ jobId: started.id }),
+        (error: unknown) =>
+          settle({
+            error: error instanceof Error ? error.message : "Med could not open this link.",
+          }),
+      );
+    },
+    [fetcher, threadId],
+  );
+  const add = useCallback(
+    (link: string) => {
+      const address = parsePullUrl(link);
+      if (!address || !threadId) return;
+      // A pull request that the thread has already shows its review.
+      const known = threads
+        .get()
+        .get(threadId)
+        ?.reviews.find(
+          (review) => review.pullRequest && samePull(review.pullRequest.url, address.url),
+        );
+      if (!known) return begin(address.url);
+      setPending(null);
+      show.current(known.id);
+    },
+    [begin, threadId, threads],
+  );
+  // The saved review is one of the thread's now: it shows, once. A workspace
+  // that comes back on screen runs its effects again, and keeps its review.
+  const saved = job && job !== "lost" && job.status === "done" ? job.reviewId : undefined;
+  const jobId = pending?.jobId;
+  const shownJob = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!saved || shownJob.current === jobId) return;
+    shownJob.current = jobId;
+    show.current(saved);
+  }, [saved, jobId]);
+  const adding: AddingPull | null =
+    pending && !saved
+      ? {
+          url: pending.url,
+          state: job === "lost" ? { error: LOST } : { job, error: pending.error },
+        }
+      : null;
+  return {
+    add: threadId ? add : undefined,
+    adding,
+    retry: () => pending && begin(pending.url),
+    /** Hides the job. It goes on in the host, and its review joins the thread. */
+    dismiss: () => setPending(null),
+  };
 }
 
 /** Reads the window's threads, the most recently changed first, when called.
@@ -1939,8 +2028,8 @@ export function WorkspaceHost({
 }
 
 /** One controller per mounted workspace, with the disposers of the objects
- * its review owns. Only the one on screen listens for changes; the rest catch
- * up when they are shown again. */
+ * its view owns, such as its open files. Only the one on screen listens for
+ * changes; the rest catch up when they are shown again. */
 function createControllerPool(
   options: ControllerOptions,
   threads: ThreadStore,
@@ -1963,6 +2052,7 @@ function createControllerPool(
     if (!entry) return;
     live.delete(id);
     entry.controller.dispose();
+    entry.parser?.dispose();
     for (const dispose of entry.disposers) dispose();
   };
   return {
@@ -1992,8 +2082,15 @@ function createControllerPool(
         entry.reviewId = reviewId;
         void entry.controller.attachSavedReview(reviewId);
       }
+      // Another review of the thread takes the controller's place. The
+      // workspace's view stays mounted, so what it owns stays too: its open
+      // files, its drafts, and what it read ahead.
+      let disposers: Set<() => void> | undefined;
       if (entry && entry.reviewId !== reviewId) {
-        end(workspace.id);
+        live.delete(workspace.id);
+        entry.controller.dispose();
+        entry.parser?.dispose();
+        disposers = entry.disposers;
         entry = undefined;
       }
       if (!entry) {
@@ -2024,7 +2121,7 @@ function createControllerPool(
           ...(reviewId && { reviewId }),
           listed: !!thread,
           parser,
-          disposers: new Set(parser ? [parser.dispose] : []),
+          disposers: disposers ?? new Set(),
         };
         live.set(workspace.id, entry);
         void controller.initialize();

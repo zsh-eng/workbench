@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { agentStatusSchema, sessionHaltSchema, threadTurnSchema } from "./agent-status";
 import { agentChoicesSchema } from "./owned-session";
-import { agentSessionSchema } from "./saved-review";
+import { agentSessionSchema, pullRequestStateSchema, type PullRequestState } from "./saved-review";
 
 /** The agent of a session, as its key starts. */
 export const SESSION_AGENTS = ["claude", "codex", "acp"] as const;
@@ -52,27 +52,78 @@ export type ThreadSubagent = z.infer<typeof threadSubagentSchema>;
 const count = z.number().int().nonnegative();
 const changesSchema = z.object({ files: count, additions: count, deletions: count });
 
-/** A review of a thread: a captured change with its details. */
+const repositorySchema = z.object({ id: z.string(), name: z.string(), path: z.string() });
+
+/** The place of a review: the checkout whose change it captured, as that
+ * checkout is now. The review on screen projects its place: Review, Changes,
+ * Commit, and the files are that checkout's. */
+export const threadReviewPlaceSchema = z.object({
+  /** The registered repository of the checkout; a worktree names its main checkout here. */
+  repository: repositorySchema.optional(),
+  checkout: z.string(),
+  /** The checkout's branch now; none on a detached HEAD. */
+  branch: z.string().optional(),
+  /** The base branch that the review's comparison names, such as main for
+   * `main..week-view`, while the repository has it: its Changes start there. */
+  base: z.string().optional(),
+  /** The checkout is a linked worktree, such as a pull request's. */
+  linked: z.boolean().optional(),
+});
+export type ThreadReviewPlace = z.infer<typeof threadReviewPlaceSchema>;
+
+/** The pull request of a review. */
+export const reviewPullRequestSchema = z.object({
+  url: z.string(),
+  number: z.number().int().positive(),
+  /** The pull request's own title. */
+  title: z.string().optional(),
+  /** What GitHub said of it last, once a read by this host asked. The thread
+   * list asks GitHub nothing itself. */
+  state: pullRequestStateSchema.optional(),
+});
+export type ReviewPullRequest = z.infer<typeof reviewPullRequestSchema>;
+
+/**
+ * A review of a thread: a captured change, the place that it projects, and
+ * its pull request. A thread lists many and shows one at a time: selecting a
+ * review moves the workspace to its place.
+ */
 export const threadReviewSchema = z.object({
   id: z.string(),
   title: z.string(),
   createdAt: z.string(),
   /** Its latest change, in milliseconds. */
   updatedAt: z.number(),
-  /** The checkout and branch of its first comparison. */
-  repo: z.string().optional(),
-  branch: z.string().optional(),
-  pullRequestUrl: z.string().optional(),
+  /** None when Med no longer has its repository. */
+  place: threadReviewPlaceSchema.optional(),
+  pullRequest: reviewPullRequestSchema.optional(),
   changes: changesSchema.optional(),
 });
 export type ThreadReview = z.infer<typeof threadReviewSchema>;
 
+/** The pull request of a link, as a review names it. */
+export function reviewPullRequest(
+  url: string,
+  details: { title?: string; state?: PullRequestState } = {},
+): ReviewPullRequest | undefined {
+  const number = Number(/\/pull\/([1-9]\d*)/.exec(url)?.[1]);
+  if (!number) return undefined;
+  return {
+    url,
+    number,
+    ...(details.title && { title: details.title }),
+    ...(details.state && { state: details.state }),
+  };
+}
+
 /**
  * A thread: an agent session, or a review that no session handed off. A
- * session is not tied to a folder: its checkout is where it works now, so
- * Changes and Commit follow it from one repository or branch to another. Its
- * reviews are the ones it handed off. A thread is a tab (open) or archived;
- * the host keeps which (src/host/thread-store.ts).
+ * session is not tied to a folder: its checkout is where it works now. Its
+ * reviews are the ones it handed off and the pull requests added to it. The
+ * workspace shows one review at a time, at that review's place; Changes and
+ * Commit are the thread's checkout only with no review, or when the review's
+ * checkout is gone. A thread is a tab (open) or archived; the host keeps
+ * which (src/host/thread-store.ts).
  */
 export const threadSchema = z.object({
   /** The session's key, or the review's ID. */
@@ -87,7 +138,7 @@ export const threadSchema = z.object({
   /** The latest change to the session or to one of its reviews, in milliseconds. */
   updatedAt: z.number(),
   /** The registered repository of the checkout; a worktree names its main checkout here. */
-  repository: z.object({ id: z.string(), name: z.string(), path: z.string() }).optional(),
+  repository: repositorySchema.optional(),
   /** Where the session works now (its latest folder in a checkout), or the
    * review's checkout. */
   checkout: z.string().optional(),
@@ -101,10 +152,12 @@ export const threadSchema = z.object({
   state: agentStatusSchema.shape.state.optional(),
   /** The agent session, with the folder it works in now. A review thread has none. */
   session: agentSessionSchema.optional(),
-  /** Its reviews, newest first. A review thread lists itself. */
+  /** Its reviews, newest first, each with its place and its pull request. A
+   * review thread lists itself. */
   reviews: z.array(threadReviewSchema),
   /** The counts of the newest review, or of the checkout's live Changes. */
   changes: changesSchema.optional(),
+  /** The newest review's pull request; `reviews` has each review's. */
   pullRequestUrl: z.string().optional(),
   /** Its place among the pins, from 1, when the reader pinned it: the
    * sidebar lists the pinned threads first, in the order they were pinned. */

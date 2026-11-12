@@ -5,6 +5,7 @@ import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
 import { Elapsed, formatDuration } from "./session/Elapsed";
 import { motion } from "./session/session-styles";
+import { ToolButton } from "./ToolButton";
 
 /** What a pull request's workspace knows about its job. */
 export interface PullState {
@@ -61,12 +62,15 @@ export function PullProgress({
   state,
   now: fixedNow,
   onRetry,
+  onClose,
 }: {
   url: string;
   state: PullState;
   /** A fixed clock, for the Elements page. */
   now?: number;
   onRetry?(): void;
+  /** Hides the steps where they cover a thread's review; the job goes on. */
+  onClose?(): void;
 }) {
   const { job, error } = state;
   const failed = !!error || job?.status === "failed";
@@ -96,6 +100,12 @@ export function PullProgress({
             <Icon name="external" size={11} />
           </a>
         </div>
+        {onClose && (
+          <>
+            <span {...stylex.props(ui.grow)} />
+            <ToolButton label={running ? "Hide" : "Dismiss"} icon="close" onClick={onClose} />
+          </>
+        )}
       </header>
       <div {...stylex.props(styles.steps)}>
         <div {...stylex.props(styles.stepsHead)}>

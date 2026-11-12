@@ -7,12 +7,18 @@ import { readServerEvents } from "./sse";
 import { reconnectPause } from "./reconnect";
 
 /** Asks the host to open a pull request: find its repository, check it out
- * in a worktree, save its review, and start `agent` there if set. */
-export function startPull(url: string, agent: string | undefined, fetcher = browserFetch) {
+ * in a worktree, save its review, and start `agent` there if set. With
+ * `thread`, the review joins that session's thread as one more review. */
+export function startPull(
+  url: string,
+  agent: string | undefined,
+  fetcher = browserFetch,
+  thread?: string,
+) {
   return createApi(fetcher, readBrowserToken()).json("/api/pulls", pullJobSchema, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, ...(agent ? { agent } : {}) }),
+    body: JSON.stringify({ url, ...(agent ? { agent } : {}), ...(thread ? { thread } : {}) }),
   });
 }
 

@@ -492,7 +492,14 @@ med thread close claude-5f0c…            # archives a tab; its agent keeps wor
 med thread close --key "$MED_THREAD_KEY" --remove-worktree
 med thread reopen                        # opens the tab that closed last
 med thread delete claude-5f0c…           # deletes the thread with its reviews and their comments
+med thread pr claude-5f0c… https://github.com/owner/repo/pull/333
+                                         # adds the pull request as one more review of the thread
 ```
+
+`med thread pr` asks the host to check out the pull request in a worktree of
+its own, as a link pasted in Med does, and saves its review in the thread;
+`--key` names the thread too. It prints the review's ID and the worktree.
+A pull request that is a review of another session's thread stays there.
 
 The lines have tabs between the fields. The state is, as `⌘0` ranks them,
 `needs-you` (a permission request, a question, or work that stopped), `done`

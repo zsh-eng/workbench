@@ -1,5 +1,5 @@
 import type { Branch, RegisteredRepository } from "../../shared/protocol";
-import type { SavedReviewTarget } from "../../shared/saved-review";
+import { reviewBase, type SavedReviewTarget } from "../../shared/saved-review";
 
 /** A full commit ID (SHA-1 or SHA-256), not a name such as `working`. */
 const FULL_OID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
@@ -46,4 +46,43 @@ export function reviewPlace(
     return { checkout: branch.worktreePath, branch };
   if (branch) return { checkout: home, branch };
   return { checkout: home, branch: named(target.branch) };
+}
+
+/**
+ * The checkout whose live Changes are the review's: its place, when that is
+ * a checkout with the review's branch or commit checked out, or the checkout
+ * that the review came from. None when the place is a read-only snapshot of
+ * a branch, or the main checkout in place of a checkout that is gone: the
+ * review then has no Changes of its own, and the thread's checkout shows.
+ */
+export function liveReviewCheckout(
+  repository: Pick<RegisteredRepository, "path" | "branches" | "worktrees">,
+  target: Pick<SavedReviewTarget, "repo" | "branch" | "head" | "names">,
+): string | undefined {
+  const { checkout, branch } = reviewPlace(repository, target);
+  const tree = repository.worktrees.find((entry) => !entry.bare && entry.path === checkout);
+  if (!tree) return undefined;
+  if (branch) return branch.worktreePath === checkout ? checkout : undefined;
+  return checkout === target.repo || tree.head === target.head ? checkout : undefined;
+}
+
+/** The Changes of a review: its live checkout, and the base branch that its
+ * comparison names for them. */
+export interface ReviewChanges {
+  path: string;
+  repositoryId: string;
+  base?: string;
+}
+
+/** The Changes that belong to the review's comparison on screen; none
+ * without one, or when it has no live checkout (`liveReviewCheckout`). */
+export function reviewChanges(
+  repositories: readonly RegisteredRepository[],
+  target: SavedReviewTarget | undefined,
+): ReviewChanges | undefined {
+  const repository = target && repositories.find((entry) => entry.id === target.repositoryId);
+  const path = repository && liveReviewCheckout(repository, target);
+  if (!path) return undefined;
+  const base = reviewBase(repository, target);
+  return { path, repositoryId: repository.id, ...(base && { base }) };
 }

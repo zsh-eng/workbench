@@ -161,6 +161,7 @@ the user names.
 med thread list [--archived] [--json]    # ID, state, repository/branch, title
 med thread open <id> | close <id>        # close keeps the agent running
 med thread send <id> "<message>"         # to a thread's agent; --after-turn waits
+med thread pr <id> <pull request link>   # one more review of the thread, in its own worktree
 med thread find tide prediction          # sessions of any age, newest first
 med thread adopt claude:<session-id>     # keep a session in Med; prints its link
 ```

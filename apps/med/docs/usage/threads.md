@@ -1,11 +1,14 @@
 # Threads
 
-A thread is a Claude Code or Codex session, with the reviews that it handed
-off. A session is not tied to a folder: it can move to another branch or
-repository, and its thread's Changes follow the checkout where it works now.
-A review is a captured change with its guide and comments; a review that no
-session handed off is a thread of its own. The threads that you have open
-are **tabs**. All other threads are **archived**.
+A thread is a Claude Code or Codex session, with its reviews: the ones that
+it handed off, and the pull requests that you added to it. A review is a
+captured change with its guide and comments, and it has its own place: the
+checkout and branch of its change. The thread shows one review at a time,
+and its Review, Changes, Commit, and files are that review's place. A
+session is not tied to a folder: it can move to another branch or
+repository, and its row names the checkout where it works now. A review
+that no session handed off is a thread of its own. The threads that you have
+open are **tabs**. All other threads are **archived**.
 
 The sidebar lists the tabs, one row each: **Pinned**, in the order you
 pinned them, then **Recent**, newest activity first. There is no grouping by
@@ -13,7 +16,9 @@ repository. The sidebar lists the sessions that Med started or that you
 kept, the sessions that handed off a review, and those that worked in a
 registered repository in the last 7 days. A session that handed off several
 reviews, such as one for each branch, is one row; its session rail's
-**Reviews** lists them, newest first, and opens each one. A row's name is the
+**Reviews** lists them, newest first, and opens each one. Among several, a
+review with a pull request names it, such as "#333 open": the number, and
+the state once Med has read the pull request. A row's name is the
 name you gave it, else the session's title. `⌘1`–`⌘9` open the thread at that
 place in the list.
 A row shows the agent's mark and the session's name, and at most one dot: blue
@@ -186,21 +191,31 @@ scheduling when you ask for a check later.
   checkout that other sessions share, such as the main checkout, **Only this
   session's files** keeps the files that the thread's Claude Code or Codex
   session edited.
-- **A thread follows its session.** When the agent moves to another branch,
-  worktree, or repository, the thread's Changes, its row, and the title band
-  show the checkout where it works now. A session that works outside the
+- **Changes are the checkout of the review on screen.** A review of the
+  session's worktree shows that worktree's changes; a pull request's review
+  shows its own worktree's. With no review, or when the review's checkout is
+  gone or no checkout has its branch, they are the checkout where the
+  session works now. **A thread's row follows its session:** when the agent
+  moves to another branch, worktree, or repository, the row names the
+  checkout where it works now. Changes move there too, unless they are the
+  Changes of a review on screen. A session that works outside the
   registered repositories has no Changes until it works in one. The
   comparison menu's button names the branch and its base, such as
-  "station-search since main". **Base branch…** chooses what the branch's
-  changes start from: the commits since that branch, and the uncommitted
-  changes. The thread keeps the base, and its row counts the changes since
-  it. Choose the repository's usual base to go back to it.
+  "station-search since main". The base is the one that you chose, else the
+  base branch that the review names for its checkout (the `main` of a review
+  of `main..station-search`), else the repository's. **Base branch…** chooses
+  what the branch's changes start from: the commits since that branch, and
+  the uncommitted changes. The thread keeps the base that you choose in the
+  checkout where its session works, and its row counts the changes since it.
+  Choose the usual base to go back to it.
 - **Review** is what the agent hands off with `med review create`: its
   Guide or its diff. A hand-off with the same `--key` adds a version to that
   review, which opens on what is new since you looked; Med shows no version
   numbers. A hand-off with another key is another review of the thread:
   **Reviews** in the session rail chooses which one shows, the newest at
-  first. A hand-off of several checkouts has a
+  first. **Add a pull request…** in the palette (`⌘K`) takes a GitHub pull
+  request link and adds it as one more review
+  ([Pull requests](pull-requests.md#a-pull-request-in-a-thread)). A hand-off of several checkouts has a
   menu of them above the diff. Git's comparisons are only in **Changes**. In a thread with a Review, the **Changes** tab has no file
   count, so that the tabs keep their places. A thread opens on **Review**
   after a hand-off and on **Changes** before one. A hand-off that arrives
@@ -215,9 +230,10 @@ scheduling when you ask for a check later.
   **Show Changes**.
 - Selecting a review moves the workspace to where its code is: the checkout
   that has it checked out, or else its branch, as a read-only snapshot when no
-  checkout has the branch. Its files are then a click away. **Changes** go back
-  to where the thread's session works. A review whose repository Med no
-  longer has offers **Add repository**, which adds it and opens the review.
+  checkout has the branch. Its files are then a click away, and **Changes**
+  and **Commit** are that checkout's. From a snapshot, **Changes** go to
+  where the thread's session works. A review whose repository Med no longer
+  has offers **Add repository**, which adds it and opens the review.
 - The band above the workspace names the checkout that it shows: the
   repository, the branch, and a linked worktree's folder. Click the branch to
   copy its name, or the repository or the folder to copy the checkout's path;

@@ -4,8 +4,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import type { RegisteredRepository } from "../shared/protocol";
-import type { PullAddress, PullJob, PullStep } from "../shared/pull-workspace";
-import type { SavedReview } from "../shared/saved-review";
+import {
+  pullReviewKey,
+  type PullAddress,
+  type PullJob,
+  type PullStep,
+} from "../shared/pull-workspace";
+import type { AgentSession, PullRequestState, SavedReview } from "../shared/saved-review";
+import { threadOfReview } from "../shared/threads";
 import { HostError } from "./runtime/errors";
 import { remoteSlug } from "./pull-inbox";
 import { runProcess } from "./runtime/process";
@@ -21,6 +27,15 @@ export interface PullHost {
   gh: { command: string; args: string[] };
   /** The folder for the worktrees that Med makes. */
   worktrees: string;
+  /** What GitHub says of the pull request now, for the thread list. */
+  remember?(url: string, state: PullRequestState): void;
+}
+
+/** What starts with a pull request's job: an agent that reviews it in its
+ * worktree, or the session's thread that its review joins. */
+export interface PullStart {
+  agent?: { id: string; name: string };
+  thread?: { id: string; session: AgentSession };
 }
 
 const QUIET = { GH_PROMPT_DISABLED: "1", GIT_TERMINAL_PROMPT: "0" };
@@ -32,20 +47,39 @@ const pullRequestSchema = z.object({
   baseRefOid: z.string().regex(/^[0-9a-f]{40,64}$/),
   headRefName: z.string().min(1),
   headRefOid: z.string().regex(/^[0-9a-f]{40,64}$/),
+  /** OPEN, CLOSED, or MERGED, as gh prints it. */
+  state: z.string().optional(),
+  isDraft: z.boolean().optional(),
 });
+/** The pull request's state in Med's words. */
+const stateOf = (pull: z.infer<typeof pullRequestSchema>): PullRequestState | undefined =>
+  pull.state === "MERGED"
+    ? "merged"
+    : pull.state === "CLOSED"
+      ? "closed"
+      : pull.state === "OPEN"
+        ? pull.isDraft
+          ? "draft"
+          : "open"
+        : undefined;
 
 /** A path as people read it, with ~ for the home folder. */
 const shown = (path: string) =>
   path.startsWith(`${homedir()}/`) ? `~${path.slice(homedir().length)}` : path;
 
 /**
- * Opens GitHub pull requests as workspaces. Each job finds the repository by
- * its remotes, reads the pull request with gh, checks it out in a worktree of
- * its own, saves the review, and starts an agent there if asked. The
- * repository's own checkout and branches stay as they are.
+ * Opens GitHub pull requests as workspaces, or adds one to a thread. Each job
+ * finds the repository by its remotes, reads the pull request with gh, checks
+ * it out in a worktree of its own, saves the review, and starts an agent
+ * there if asked. With a thread, the review is saved as one more of that
+ * session's reviews. The repository's own checkout and branches stay as they
+ * are.
  */
 export class PullJobs {
-  private jobs = new Map<string, { job: PullJob; listeners: Set<() => void> }>();
+  private jobs = new Map<
+    string,
+    { job: PullJob; listeners: Set<() => void>; ended: Promise<void> }
+  >();
 
   constructor(private host: PullHost) {}
 
@@ -59,10 +93,14 @@ export class PullJobs {
     return () => void entry?.listeners.delete(listener);
   }
 
-  start(address: PullAddress, agent?: { id: string; name: string }): PullJob {
+  start(address: PullAddress, { agent, thread }: PullStart = {}): PullJob {
     // The same pull request twice at once shares one job, and one worktree.
-    for (const { job } of this.jobs.values())
-      if (job.url === address.url && job.status === "running") return job;
+    // One for another thread waits for it: both use the same worktree.
+    const running = [...this.jobs.values()].filter(
+      ({ job }) => job.url === address.url && job.status === "running",
+    );
+    const shared = running.find(({ job }) => job.thread === thread?.id);
+    if (shared) return shared.job;
     const job: PullJob = {
       id: randomUUID(),
       url: address.url,
@@ -80,13 +118,15 @@ export class PullJobs {
           ? [{ id: "agent" as const, label: `Start ${agent.name}`, state: "pending" as const }]
           : []),
       ],
+      ...(thread && { thread: thread.id }),
     };
-    this.jobs.set(job.id, { job, listeners: new Set() });
+    const before = Promise.all(running.map((entry) => entry.ended));
+    const ended = before.then(() => this.run(job, address, { agent, thread }));
+    this.jobs.set(job.id, { job, listeners: new Set(), ended });
     // Finished jobs stay a while, so a page that reloads can read the result.
     const finished = [...this.jobs.values()].filter((entry) => entry.job.status !== "running");
     for (const entry of finished.slice(0, Math.max(0, this.jobs.size - 32)))
       this.jobs.delete(entry.job.id);
-    void this.run(job, address, agent);
     return job;
   }
 
@@ -119,7 +159,7 @@ export class PullJobs {
     }
   }
 
-  private async run(job: PullJob, address: PullAddress, agent?: { id: string; name: string }) {
+  private async run(job: PullJob, address: PullAddress, { agent, thread }: PullStart) {
     const { host } = this;
     const git = (cwd: string, args: string[], timeoutMs?: number) =>
       this.command("git", args, cwd, timeoutMs);
@@ -130,6 +170,11 @@ export class PullJobs {
         () => true,
         () => false,
       );
+    /** The review that Med has for the pull request, if any. */
+    const reviewOf = (number: number) =>
+      host
+        .api<SavedReview>("/api/reviews/by-key", { key: pullReviewKey({ ...address, number }) })
+        .catch(() => undefined);
     try {
       const { repository, remote } = await this.step(job, "repository", async () => {
         const slug = `${address.host}/${address.owner}/${address.name}`.toLowerCase();
@@ -151,11 +196,23 @@ export class PullJobs {
       });
 
       const pull = await this.step(job, "pull", async () => {
-        const fields = "number,title,url,baseRefName,baseRefOid,headRefName,headRefOid";
+        const fields =
+          "number,title,url,baseRefName,baseRefOid,headRefName,headRefOid,state,isDraft";
         const pull = pullRequestSchema.parse(
           JSON.parse(await gh(repository.path, ["pr", "view", address.url, "--json", fields])),
         );
+        const state = stateOf(pull);
+        if (state) host.remember?.(address.url, state);
         this.publish(job, { title: pull.title });
+        // A review belongs to one thread. Another session's keeps it, and
+        // its worktree stays as that session has it.
+        const known = thread && (await reviewOf(pull.number));
+        if (known?.session && threadOfReview(known) !== thread!.id)
+          throw new HostError(
+            "review-in-another-thread",
+            `Pull request #${pull.number} is a review of another thread. Open it there.`,
+            409,
+          );
         this.setStep(job, "pull", { detail: pull.title });
         this.setStep(job, "checkout", { label: `Check out ${pull.headRefName}` });
         this.setStep(job, "base", { label: `Fetch ${pull.baseRefName}` });
@@ -209,32 +266,39 @@ export class PullJobs {
 
       const review = await this.step(job, "review", async () => {
         await host.refresh(repository.path);
-        const key = `${address.host}/${address.owner}/${address.name}#${pull.number}`;
-        const known = await host
-          .api<SavedReview>("/api/reviews/by-key", { key })
-          .catch(() => undefined);
+        const key = pullReviewKey({ ...address, number: pull.number });
+        const known = await reviewOf(pull.number);
         const latest = known?.iterations?.at(-1)?.targetIds ?? known?.targets.map((t) => t.id);
-        if (
+        const current =
           known &&
           known.targets.some(
             (target) => latest?.includes(target.id) && target.head === pull.headRefOid,
-          )
-        ) {
-          this.setStep(job, "review", { detail: "Up to date" });
-          return known;
-        }
-        return host.api<SavedReview>("/api/reviews", {
-          key,
-          title: `#${pull.number} ${pull.title}`.slice(0, 200),
-          pullRequestUrl: address.url,
-          pullRequestTitle: pull.title,
-          targets: [
-            {
-              repo: worktree,
-              comparison: { kind: "range", base, head: pull.headRefOid, mergeBase: true },
-            },
-          ],
-        });
+          );
+        if (current) this.setStep(job, "review", { detail: "Up to date" });
+        const saved =
+          current && !(thread && !known.session)
+            ? known
+            : current
+              ? await host.api<SavedReview>(`/api/reviews/${known.id}/details`, {
+                  session: thread!.session,
+                })
+              : await host.api<SavedReview>("/api/reviews", {
+                  key,
+                  title: `#${pull.number} ${pull.title}`.slice(0, 200),
+                  pullRequestUrl: address.url,
+                  pullRequestTitle: pull.title,
+                  ...(thread && { session: thread.session }),
+                  targets: [
+                    {
+                      repo: worktree,
+                      comparison: { kind: "range", base, head: pull.headRefOid, mergeBase: true },
+                    },
+                  ],
+                });
+        // A review that was a thread of its own gives its tab to the session's.
+        if (thread && known && !known.session)
+          await host.api(`/api/threads/${known.id}/close`, {}).catch(() => {});
+        return saved;
       });
       this.publish(job, { reviewId: review.id, worktree });
 

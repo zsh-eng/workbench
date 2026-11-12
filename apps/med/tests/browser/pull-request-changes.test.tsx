@@ -216,7 +216,7 @@ const threads: Thread[] = [
         title: savedReview.title,
         createdAt: "2026-10-01T00:00:00Z",
         updatedAt: Date.now() - 60_000,
-        pullRequestUrl: pullUrl,
+        pullRequest: { url: pullUrl, number: 7 },
       },
     ],
     repository: { id: "repo-0", name: "fixture", path: "/test/repo" },

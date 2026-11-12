@@ -2,6 +2,7 @@ import { parseArgs } from "node:util";
 import { z } from "zod";
 import { clientPort, getStateDirectory, readConnection } from "../host/runtime/connection";
 import { medCommand } from "../host/runtime/med-command";
+import { parsePullUrl, pullJobSchema } from "../shared/pull-workspace";
 import { reviewKeySchema } from "../shared/saved-review";
 import {
   THREAD_WAITS,
@@ -26,6 +27,7 @@ export const threadHelp = `Usage: med thread list [--archived] [--json]
        med thread reopen
        med thread delete <id> | --key <key>
        med thread send <id> | --key <key> [--after-turn] <message>
+       med thread pr <id> | --key <key> <pull request link>
        med thread wait [<id>... | --key <key>...] [--until needs-you|done|idle] [--timeout <seconds>] [--json]
        med thread find [<words>] [--limit <n>] [--json]
        med thread adopt <session> [--title <title>] [--open] [--json]
@@ -54,6 +56,12 @@ send         sends a message to the thread's agent, which Med runs. While the
              --after-turn waits until the turn ends. From another thread that
              Med started, such as the Superagent, the message says so: the
              agent reads it as a report from that thread, not as the user's.
+pr           adds a GitHub pull request to a session's thread as one more of
+             its reviews. Med checks it out in a worktree of its own, as a
+             link pasted in Med does, and saves its review in the thread; the
+             repository's checkout stays as it is. Add the repository to Med
+             first. A pull request that is a review of another thread stays
+             there.
 wait         waits until a thread's agent stops: it comes to need the user, or
              its work finishes. Name the threads by ID or --key; without them,
              it waits on every tab but your own thread. --until needs-you or
@@ -76,7 +84,10 @@ Exit status: 0 when the command did its work, and when a wait ends or times
 out (its first line says which); 2 for wrong usage; 3 when a thread that you
 name does not exist or is not a tab; 4 when no Med server runs; else 1.`;
 
-const actions = ["list", "open", "close", "reopen", "delete", "send", "wait"] as const;
+const actions = ["list", "open", "close", "reopen", "delete", "send", "pr", "wait"] as const;
+
+/** How long `pr` follows the host's job, in minutes. */
+const PULL_MINUTES = 15;
 
 /** How long `wait` waits by default, in seconds: under the two minutes that
  * Claude Code's shell tool gives a command. */
@@ -92,6 +103,8 @@ export interface ThreadCommand {
   /** send: the message, and whether it waits for the turn's end. */
   message?: string;
   afterTurn?: boolean;
+  /** pr: the pull request's link. */
+  pull?: string;
   /** wait: the threads, what it waits for, and for how long, in seconds. */
   ids?: string[];
   keys?: string[];
@@ -133,9 +146,10 @@ export async function parseThreadCommand(
     throw new Error("Use --until and --timeout with wait.");
   if ((values.key?.length ?? 0) > 1) throw new Error("Name one thread with --key.");
   const key = values.key?.[0];
-  // send's words after the thread are its message.
-  const [id, ...rest] = action === "send" && key ? [undefined, ...words] : words;
-  if (!actions.includes(action as (typeof actions)[number]) || (rest.length && action !== "send"))
+  // send's words after the thread are its message, and pr's its link.
+  const takesWords = action === "send" || action === "pr";
+  const [id, ...rest] = takesWords && key ? [undefined, ...words] : words;
+  if (!actions.includes(action as (typeof actions)[number]) || (rest.length && !takesWords))
     throw new UsageError(threadHelp);
   const kind = action as (typeof actions)[number];
   const command: ThreadCommand = { kind, port, stateDir };
@@ -166,6 +180,14 @@ export async function parseThreadCommand(
     command.message = message;
     command.afterTurn = !!values["after-turn"];
   } else if (values["after-turn"]) throw new Error("Use --after-turn with send.");
+  if (kind === "pr") {
+    const address = rest.length === 1 ? parsePullUrl(rest[0]!) : undefined;
+    if (!address)
+      throw new UsageError(
+        `Give one GitHub pull request link after the thread, such as https://github.com/owner/repo/pull/333.\n\n${threadHelp}`,
+      );
+    command.pull = address.url;
+  }
   if (values["remove-worktree"]) {
     if (kind !== "close") throw new Error("Use --remove-worktree with close.");
     command.removeWorktree = true;
@@ -328,6 +350,28 @@ export async function runThreadCommand(
       message.delivery === "pending"
         ? `Queued for "${thread.title}" (${id}): it goes ${command.afterTurn ? "when its turn ends" : "at its next step"}.`
         : `Sent to "${thread.title}" (${id}).`,
+    );
+  } else if (command.kind === "pr") {
+    // The host's job, as a link pasted in Med runs it; it ends in seconds
+    // with a local base, and in minutes when gh fetches a large branch.
+    let job = pullJobSchema.parse(await call("/api/pulls", { url: command.pull, thread: id }));
+    const deadline = Date.now() + PULL_MINUTES * 60_000;
+    while (job.status === "running") {
+      if (Date.now() > deadline)
+        throw new Error(
+          `Med still adds pull request #${job.number} after ${PULL_MINUTES} minutes. ${medCommand(command, "thread list --json")} shows the thread's reviews.`,
+        );
+      await new Promise((done) => setTimeout(done, 400));
+      job = pullJobSchema.parse(await call(`/api/pulls/${job.id}`));
+    }
+    if (job.status === "failed") {
+      const step = job.steps.find((entry) => entry.state === "failed");
+      throw new Error(
+        `${step ? `${step.label}: ` : ""}${job.error ?? "Med could not add this pull request."}`,
+      );
+    }
+    print(
+      `Added pull request #${job.number}${job.title ? ` "${job.title}"` : ""} to ${job.thread ?? id} as the review ${job.reviewId}.${job.worktree ? ` Its worktree: ${job.worktree}` : ""}`,
     );
   } else {
     await call(`/api/threads/${id}/delete`, {});

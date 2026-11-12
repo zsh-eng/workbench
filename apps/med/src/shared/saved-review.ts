@@ -265,6 +265,19 @@ export function reviewCheckout(saved: Pick<SavedReview, "targets">) {
   const target = saved.targets.find((entry) => !entry.commentReviewId) ?? saved.targets[0];
   return target && { repositoryId: target.repositoryId, repo: target.repo, branch: target.branch };
 }
+/**
+ * The base branch that a review's comparison names, such as main for
+ * `main..week-view`, while the repository has that branch: the Changes of the
+ * review's checkout start there. A range of commit IDs, as a pull request's,
+ * names none.
+ */
+export function reviewBase(
+  repository: { branches: readonly { name: string }[] } | undefined,
+  target: Pick<SavedReviewTarget, "names"> | undefined,
+) {
+  const base = target?.names?.base;
+  return base && repository?.branches.some((branch) => branch.name === base) ? base : undefined;
+}
 /** The agent's hand-offs: the review's own comparisons, without the commits
  * that the reader commented on. */
 export const handoffTargets = (saved: Pick<SavedReview, "targets">) =>

@@ -8,7 +8,8 @@ import type { OwnedState } from "../../src/shared/owned-session";
 import type { RegisteredRepository } from "../../src/shared/protocol";
 import type { PullJob } from "../../src/shared/pull-workspace";
 import type { SavedReview } from "../../src/shared/saved-review";
-import { threadOfReview } from "../../src/shared/threads";
+import { threadOfReview, type ThreadList } from "../../src/shared/threads";
+import { runThreadCommand } from "../../src/cli/thread";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { readServerEvents } from "../../src/web/data/sse";
 import { removeFolder } from "./remove-folder";
@@ -214,6 +215,268 @@ test("a pasted pull request link opens in a worktree with its review and an agen
   expect(reopened.at(-1)!.steps.find((step) => step.id === "worktree")?.label).toBe(
     "Make a worktree",
   );
+});
+
+test("a pull request added to a session's thread is one more of its reviews, and the thread lists each review's place and pull request", async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "med pull thread ")));
+  directories.push(directory);
+  // GitHub, as a bare repository with two pull requests' head refs.
+  const upstream = join(directory, "upstream");
+  await mkdir(upstream);
+  git(upstream, "init", "-q", "-b", "main");
+  git(upstream, "config", "user.email", "test@example.com");
+  git(upstream, "config", "user.name", "Test");
+  await writeFile(join(upstream, "trails.ts"), "export const trails = [];\n");
+  git(upstream, "add", ".");
+  git(upstream, "commit", "-q", "-m", "Start");
+  const base = git(upstream, "rev-parse", "HEAD");
+  const heads: Record<string, string> = {};
+  for (const [branch, file] of [
+    ["durations", "duration.ts"],
+    ["pace", "pace.ts"],
+  ] as const) {
+    git(upstream, "checkout", "-q", "-b", branch, "main");
+    await writeFile(join(upstream, file), `export const ${branch} = 1;\n`);
+    git(upstream, "add", ".");
+    git(upstream, "commit", "-q", "-m", `Add ${branch}`);
+    heads[branch] = git(upstream, "rev-parse", "HEAD");
+  }
+  git(upstream, "checkout", "-q", "main");
+  const remote = join(directory, "remote.git");
+  git(directory, "clone", "-q", "--bare", upstream, remote);
+  git(remote, "update-ref", "refs/pull/7/head", heads.durations!);
+  git(remote, "update-ref", "refs/pull/9/head", heads.pace!);
+  // The user's clone, where a session works on its own branch.
+  const repo = join(directory, "trails");
+  git(directory, "clone", "-q", "--branch", "main", "--single-branch", remote, repo);
+  git(repo, "remote", "set-url", "origin", "git@github.com:acme/trails.git");
+  git(repo, "config", "user.email", "test@example.com");
+  git(repo, "config", "user.name", "Test");
+  git(repo, "checkout", "-q", "-b", "tides");
+  await writeFile(join(repo, "tides.ts"), "export const tides = [];\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-q", "-m", "Add tides");
+  const pull = (number: number, title: string, branch: string, more = {}) =>
+    vi.stubEnv(
+      "FAKE_GH_PULL",
+      JSON.stringify({
+        number,
+        title,
+        url: `https://github.com/acme/trails/pull/${number}`,
+        baseRefName: "main",
+        baseRefOid: base,
+        headRefName: branch,
+        headRefOid: heads[branch],
+        state: "OPEN",
+        isDraft: false,
+        ...more,
+      }),
+    );
+  vi.stubEnv("FAKE_GH_REMOTE", remote);
+  vi.stubEnv("MED_HOME_DIR", join(directory, "home"));
+  const stateDir = join(directory, "state");
+  const host = await startHost({
+    repo,
+    repos: [repo],
+    stateDir,
+    port: 0,
+    gh: { command: process.execPath, args: [fixture("gh/fake-gh.mjs")] },
+  });
+  hosts.push(host);
+  const api = async <T>(path: string, body?: unknown) => {
+    const response = await fetch(`http://127.0.0.1:${host.port}${path}`, {
+      method: body === undefined ? "GET" : "POST",
+      headers: { authorization: `Bearer ${host.token}`, "content-type": "application/json" },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    return { status: response.status, data: (await response.json()) as T };
+  };
+  /** A job's last state, read as `med thread pr` reads it. */
+  const ended = async (job: PullJob) => {
+    let state = job;
+    await vi.waitFor(
+      async () => {
+        state = (await api<PullJob>(`/api/pulls/${job.id}`)).data;
+        expect(state.status).not.toBe("running");
+      },
+      { timeout: 20_000, interval: 50 },
+    );
+    return state;
+  };
+  const tabs = async () => (await api<ThreadList>("/api/threads")).data.threads;
+
+  // A session's thread: it handed off its branch, with its own pull request.
+  const session = { agent: "claude" as const, id: "tides", cwd: repo };
+  const thread = "claude-tides";
+  const own = await api<SavedReview>("/api/reviews", {
+    title: "Tide table",
+    key: "tide-table",
+    session,
+    pullRequestUrl: "https://github.com/acme/trails/pull/3",
+    pullRequestTitle: "Tide table",
+    targets: [{ repo, comparison: { kind: "range", base: "main", head: "tides" } }],
+  });
+  expect(own.status).toBe(200);
+
+  // The link joins the thread: the same steps as a pasted link, and the
+  // review is the session's.
+  pull(7, "Add durations", "durations");
+  const started = await api<PullJob>("/api/pulls", {
+    url: "https://github.com/acme/trails/pull/7/files",
+    thread,
+  });
+  expect(started.data).toMatchObject({ thread, number: 7, status: "running" });
+  const job = await ended(started.data);
+  expect(job.error).toBeUndefined();
+  expect(job.steps.map((step) => [step.label, step.state])).toEqual([
+    ["Find acme/trails", "done"],
+    ["Read pull request #7", "done"],
+    ["Make a worktree", "done"],
+    ["Check out durations", "done"],
+    ["Fetch main", "skipped"],
+    ["Save the review", "done"],
+  ]);
+  expect(git(repo, "branch", "--show-current")).toBe("tides");
+  const added = (await api<SavedReview>(`/api/reviews/${job.reviewId}`)).data;
+  expect(added).toMatchObject({
+    session: { agent: "claude", id: "tides" },
+    pullRequestUrl: "https://github.com/acme/trails/pull/7",
+    targets: [{ repo: job.worktree, base, head: heads.durations }],
+  });
+
+  // One row: the thread, with each review's place and pull request. Med
+  // read the state of #7 with the job; nothing has read #3.
+  const row = (await tabs()).find((entry) => entry.id === thread)!;
+  expect((await tabs()).map((entry) => entry.id)).toEqual([thread]);
+  expect(row.pullRequestUrl).toBe("https://github.com/acme/trails/pull/7");
+  expect(row.reviews).toEqual([
+    expect.objectContaining({
+      id: job.reviewId,
+      place: {
+        repository: { id: expect.any(String), name: "trails", path: repo },
+        checkout: job.worktree,
+        branch: "durations",
+        linked: true,
+      },
+      pullRequest: {
+        url: "https://github.com/acme/trails/pull/7",
+        number: 7,
+        title: "Add durations",
+        state: "open",
+      },
+    }),
+    expect.objectContaining({
+      id: own.data.id,
+      // The session's own review names the base of its branch.
+      place: {
+        repository: { id: expect.any(String), name: "trails", path: repo },
+        checkout: repo,
+        branch: "tides",
+        base: "main",
+      },
+      pullRequest: {
+        url: "https://github.com/acme/trails/pull/3",
+        number: 3,
+        title: "Tide table",
+      },
+    }),
+  ]);
+
+  // The same link again: the same review, and nothing new.
+  const again = await ended(
+    (await api<PullJob>("/api/pulls", { url: "https://github.com/acme/trails/pull/7", thread }))
+      .data,
+  );
+  expect(again).toMatchObject({ status: "done", reviewId: job.reviewId });
+  expect(again.steps.find((step) => step.id === "review")?.detail).toBe("Up to date");
+  expect((await tabs())[0]!.reviews.length).toBe(2);
+
+  // A pull request that opened on its own is a thread of its own. Added to
+  // the session's thread from the command line, it gives up its tab.
+  pull(9, "Add pace", "pace", { isDraft: true });
+  const alone = await ended(
+    (await api<PullJob>("/api/pulls", { url: "https://github.com/acme/trails/pull/9" })).data,
+  );
+  expect(alone.status).toBe("done");
+  expect((await tabs()).map((entry) => entry.id).toSorted()).toEqual(
+    [thread, alone.reviewId!].toSorted(),
+  );
+  const output: string[] = [];
+  await runThreadCommand(
+    [
+      ...["pr", thread, "https://github.com/acme/trails/pull/9"],
+      ...["--state-dir", stateDir, "--port", String(host.port)],
+    ],
+    { print: (text) => output.push(text) },
+  );
+  expect(output).toEqual([
+    `Added pull request #9 "Add pace" to ${thread} as the review ${alone.reviewId}. Its worktree: ${alone.worktree}`,
+  ]);
+  const three = await tabs();
+  expect(three.map((entry) => entry.id)).toEqual([thread]);
+  expect(
+    three[0]!.reviews.map((review) => [review.pullRequest?.number, review.pullRequest?.state]),
+  ).toEqual(
+    expect.arrayContaining([
+      [9, "draft"],
+      [7, "open"],
+      [3, undefined],
+    ]),
+  );
+  expect(three[0]!.reviews.length).toBe(3);
+
+  // A review belongs to one thread: another session's thread does not take it.
+  const other = { agent: "claude" as const, id: "moon", cwd: repo };
+  await api("/api/reviews", {
+    title: "Moon phase",
+    session: other,
+    targets: [{ repo, comparison: { kind: "range", base: "main", head: "tides" } }],
+  });
+  const refused = await ended(
+    (
+      await api<PullJob>("/api/pulls", {
+        url: "https://github.com/acme/trails/pull/9",
+        thread: "claude-moon",
+      })
+    ).data,
+  );
+  expect(refused).toMatchObject({
+    status: "failed",
+    error: "Pull request #9 is a review of another thread. Open it there.",
+  });
+  // It fails before the worktree step: that session's worktree stays as it is.
+  expect(refused.steps.map((step) => step.state)).toEqual([
+    "done",
+    "failed",
+    ...Array.from({ length: 4 }, () => "pending"),
+  ]);
+  await expect(
+    runThreadCommand(
+      [
+        ...["pr", "claude-moon", "https://github.com/acme/trails/pull/9"],
+        ...["--state-dir", stateDir, "--port", String(host.port)],
+      ],
+      { print: () => {} },
+    ),
+  ).rejects.toThrow(
+    "Read pull request #9: Pull request #9 is a review of another thread. Open it there.",
+  );
+  // A thread without a session, and a link that names no pull request, say so.
+  expect(
+    await api("/api/pulls", {
+      url: "https://github.com/acme/trails/pull/9",
+      thread: "claude-none",
+    }),
+  ).toMatchObject({ status: 404 });
+  await expect(
+    runThreadCommand(
+      [
+        ...["pr", thread, "https://example.com/not-a-pull"],
+        ...["--state-dir", stateDir, "--port", String(host.port)],
+      ],
+      { print: () => {} },
+    ),
+  ).rejects.toThrow("Give one GitHub pull request link after the thread");
 });
 
 test("the pull requests page searches GitHub in the registered repositories' remotes, or in all of it", async () => {

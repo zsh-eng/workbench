@@ -2743,6 +2743,10 @@ export class OwnedSessions {
     }
     return newest?.session;
   }
+  /** The review key that Med gave the session when it started or resumed it. */
+  keyOf(sessionId: string): string | undefined {
+    return this.records[sessionId]?.key;
+  }
   /** When the session's state or updates last changed. */
   updatedAt(sessionId: string) {
     return this.updated.get(sessionId);

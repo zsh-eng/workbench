@@ -8,7 +8,7 @@ import { browseSourceSchema, type BrowseRead } from "../shared/browse";
 import { LocalFiles } from "./local-files";
 import { ChannelResponse, channelRequest, LIVE_PATH, liveInputSchema } from "./live-streams";
 import { PullJobs } from "./pull-workspace";
-import { parsePullUrl, pullStartSchema } from "../shared/pull-workspace";
+import { isPullReviewKey, parsePullUrl, pullStartSchema } from "../shared/pull-workspace";
 import { localPathSchema } from "../shared/local-file";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -200,6 +200,7 @@ import {
   reviewCheckout,
   type AgentSession,
   type CapturedReviewTarget,
+  type PullRequestState,
   type SavedReviewCreate,
 } from "../shared/saved-review";
 import { defaultStateDirectory, getPersistentToken, publishConnection } from "./runtime/connection";
@@ -658,6 +659,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       listChanged();
     },
   });
+  // What GitHub said last of each pull request, from the reads that a review
+  // on screen or a pull request's job makes. The thread list names it beside
+  // each review, and asks GitHub nothing itself.
+  const pullStates = new Map<string, PullRequestState>();
+  const rememberPull = (url: string, state: PullRequestState | undefined) => {
+    if (!state || pullStates.get(url) === state) return;
+    pullStates.set(url, state);
+    listChanged();
+  };
   // The tabs and history; the thread list polls only the tabs.
   const threads = createThreadService({
     savedReviews,
@@ -670,6 +680,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     checkoutWork,
     pullRequestLinks,
     checkoutChanges,
+    pullRequestState: (url) => pullStates.get(url),
     subagents: createThreadSubagents(),
     removeWorktree: (path, signal) => removeLinkedWorktree(path, signal),
   });
@@ -713,10 +724,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   };
 
   /** The key that a thread's agent hands its reviews off with: its newest
-   * review's, else a slug of its title. */
+   * review's, else a slug of its title. A pull request added to the thread
+   * keeps its own key, which is the thread's only when Med started the
+   * session on that pull request. */
   const threadKey = async (threadId: string) => {
     const reviews = await threads.reviewsOf(threadId);
-    const keyed = reviews.find((review) => review.key)?.key;
+    const session = parseSessionKey(threadId);
+    const started = session && ownedSessions.keyOf(session.id);
+    const keyed = reviews.find(
+      (review) => review.key && (!isPullReviewKey(review.key) || review.key === started),
+    )?.key;
     if (keyed) return keyed;
     const entry = threads.entry(threadId);
     return threadSlug(entry?.name ?? entry?.title ?? reviews[0]?.title ?? "thread");
@@ -993,6 +1010,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     refresh: (path) => registry.refreshOwner(path),
     gh: options.gh ?? { command: "gh", args: [] },
     worktrees: join(options.stateDir ?? temporaryState!, "worktrees"),
+    remember: rememberPull,
     async api<T>(path: string, body?: unknown) {
       const response = await fetch(`http://127.0.0.1:${port}${path}`, {
         method: body === undefined ? "GET" : "POST",
@@ -1585,7 +1603,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             : undefined;
           if (input.agent && !agent?.available)
             throw new HostError("agent-not-found", "Med cannot start this agent.", 404);
-          send(pullJobs.start(address, agent && { id: agent.id, name: agent.name }));
+          // Added to a thread, the review is one more of its session's.
+          if (input.thread && agent)
+            throw new HostError(
+              "invalid-pull-request",
+              "A pull request that joins a thread starts no agent of its own.",
+              400,
+            );
+          const session = input.thread ? await requireSession(input.thread) : undefined;
+          send(
+            pullJobs.start(address, {
+              ...(agent && { agent: { id: agent.id, name: agent.name } }),
+              ...(session && { thread: { id: sessionKey(session), session } }),
+            }),
+          );
           return;
         }
         const pullRoute = /^\/api\/pulls\/([A-Za-z0-9-]{1,80})(\/events)?$/.exec(url.pathname);
@@ -2837,12 +2868,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               } else if (action === "pull-request") {
                 if (!bundle.pullRequestUrl)
                   throw new HostError("no-pull-request", "This review has no pull request.", 404);
-                send(
-                  await loadPullRequestComments(
-                    bundle.pullRequestUrl,
-                    url.searchParams.get("refresh") === "1",
-                  ),
+                const comments = await loadPullRequestComments(
+                  bundle.pullRequestUrl,
+                  url.searchParams.get("refresh") === "1",
                 );
+                rememberPull(bundle.pullRequestUrl, comments.pull?.state);
+                send(comments);
               } else if (
                 action === "pull-request-live" ||
                 action === "pull-request-log" ||
@@ -2852,14 +2883,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 // a failed job's log, and the description's images.
                 if (!bundle.pullRequestUrl)
                   throw new HostError("no-pull-request", "This review has no pull request.", 404);
-                if (action === "pull-request-live")
-                  send(
-                    await loadLivePullRequest(
-                      bundle.pullRequestUrl,
-                      url.searchParams.get("refresh") === "1",
-                    ),
+                if (action === "pull-request-live") {
+                  const live = await loadLivePullRequest(
+                    bundle.pullRequestUrl,
+                    url.searchParams.get("refresh") === "1",
                   );
-                else if (action === "pull-request-log")
+                  rememberPull(bundle.pullRequestUrl, live.state);
+                  send(live);
+                } else if (action === "pull-request-log")
                   send(
                     await readCheckLog(
                       bundle.pullRequestUrl,

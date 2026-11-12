@@ -39,12 +39,19 @@ import {
 import {
   changesCommits,
   hasReview,
+  changesTarget,
   useReviewController,
   type ReviewController,
 } from "./data/controller";
 import { tokens, ui } from "./theme.stylex";
 import { relativeTime, useMinuteClock } from "./data/relative-time";
-import { ActionMenu, ChoiceSelect, CommandDialog, type ReviewCommand } from "./components/Controls";
+import {
+  ActionMenu,
+  ChoiceSelect,
+  CommandDialog,
+  LineDialog,
+  type ReviewCommand,
+} from "./components/Controls";
 import { ChangeTotals } from "./components/ChangeTotals";
 import { DiffStat } from "./components/DiffStat";
 import {
@@ -75,6 +82,7 @@ import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTab
 import {
   InTitleBand,
   useInTitleBand,
+  useAddPullRequest,
   useDisposeOnClose,
   useWindowDrafts,
   useShell,
@@ -217,7 +225,10 @@ import {
 } from "./data/guide";
 import type { ParsedReviewFile } from "../shared/review";
 import type { SavedCommit } from "../shared/review-guide";
-import { sessionKey } from "../shared/threads";
+import { sessionKey, type ThreadReview } from "../shared/threads";
+import { reviewChanges } from "./data/review-place";
+import { PullProgress } from "./components/PullWorkspace";
+import { parsePullUrl } from "../shared/pull-workspace";
 import type { PathActions } from "./components/PathMenu";
 import { diffSurfaceStyle, EXPANSION_LINES } from "./components/diff-surface";
 import { highlightRules } from "./code-colors";
@@ -1199,17 +1210,22 @@ export function App({
     fileState.active === "guide" && guideScope.kind !== "overview"
       ? JSON.stringify([scopeRepository, scopeWorkspace, state.comparison, guideScope])
       : reviewScope;
-  const previousRepositories = useRef(new Set<string>());
+  const previousRepositories = useRef({ controller, ids: new Set<string>() });
   useEffect(() => {
+    const previous = previousRepositories.current;
+    // Another review of the thread starts a controller, which has no list
+    // until it reads one: no repository went away, and each checkout keeps
+    // its open files and its scroll.
+    if (previous.controller !== controller && !state.repositories.length) return;
     const current = new Set(state.repositories.map((repository) => repository.id));
-    for (const id of previousRepositories.current) {
+    for (const id of previous.ids) {
       if (current.has(id)) continue;
       fileWorkspace.forgetRepository(id);
       for (const scope of reviewScroll.current.keys())
         if (JSON.parse(scope)[0] === id) reviewScroll.current.delete(scope);
     }
-    previousRepositories.current = current;
-  }, [fileWorkspace, state.repositories]);
+    previousRepositories.current = { controller, ids: current };
+  }, [controller, fileWorkspace, state.repositories]);
   const restoringScroll = useRef(true);
   const reviewId = state.review?.id;
   const explicitReveal = useRef(false);
@@ -3679,14 +3695,22 @@ export function App({
   };
   // Changes on a branch other than the base start at the base: the branch's
   // commits and its uncommitted changes. A thread keeps the base that the
-  // reader chose for the checkout where it works.
+  // reader chose for the checkout where it works; else the review on screen
+  // names the base of its own checkout.
   const onOwnCheckout = !!thread?.checkout && thread.checkout === state.session?.repository.path;
+  const reviewsChanges = reviewChanges(
+    state.repositories,
+    changesTarget(state.savedReview, state.savedTargetId),
+  );
   const branchBase =
     (state.comparison.kind === "working" ? state.comparison.base : undefined) ??
     changesBase(
       state.repositories.find((entry) => entry.id === state.activeRepositoryId),
       state.activeBranch,
-      onOwnCheckout ? thread.base : undefined,
+      (onOwnCheckout ? thread.base : undefined) ??
+        (reviewsChanges && reviewsChanges.path === state.session?.repository.path
+          ? reviewsChanges.base
+          : undefined),
     );
   const liveValue =
     state.comparison.kind === "working" && state.comparison.base ? "branch" : state.comparison.kind;
@@ -3845,9 +3869,13 @@ export function App({
             : (chosenLabel ?? liveText.long),
         short: `${liveValue === "branch" ? "Branch" : liveText.short}${sessionFilter ? " · session" : ""}`,
       };
-  // The host links a pull request that the thread's branch opened later
+  // The review on screen, as its thread lists it: its place and its pull
+  // request. The panes show this one of the thread's reviews.
+  const siblingReviews = useThreadReviews(threadId);
+  const threadReview = siblingReviews.find((review) => review.id === state.savedReview?.id);
+  // The host links a pull request that the review's branch opened later
   // (src/host/pull-request-links.ts); the thread list names it first.
-  const linkedPullRequest = thread?.pullRequestUrl;
+  const linkedPullRequest = threadReview?.pullRequest?.url;
   useEffect(() => {
     if (linkedPullRequest && linkedPullRequest !== state.savedReview?.pullRequestUrl)
       void controller.refreshSavedReview().catch(() => {});
@@ -3963,6 +3991,26 @@ export function App({
     else if (value === "working" || value === "staged" || value === "unstaged")
       void controller.selectComparison({ kind: value, ...session });
   };
+  // Add a pull request…: the thread gets one more review, which shows when
+  // the host has saved it. Its steps cover the review until then.
+  const [addPullOpen, setAddPullOpen] = useState(false);
+  // A thread's first review joins the controller that shows its Changes, and
+  // the reader stays there (attachSavedReview). This one the reader asked
+  // for: its Review shows when the controller has it.
+  const reviewToShow = useRef<string | null>(null);
+  const addPull = useAddPullRequest((reviewId) => {
+    if (workspace && reviewId !== state.savedReview?.id)
+      workspace.update(workspace.id, { reviewId });
+    revealPane("review");
+    if (state.savedReview) selectTab("review");
+    else reviewToShow.current = reviewId;
+  });
+  const attachedReview = state.savedReview?.id;
+  useEffect(() => {
+    if (!attachedReview || reviewToShow.current !== attachedReview) return;
+    reviewToShow.current = null;
+    selectTab("review");
+  }, [attachedReview, selectTab]);
   const commands: ReviewCommand[] = [
     {
       id: "find-file-text",
@@ -4039,6 +4087,17 @@ export function App({
       disabled: !workspace,
       run: () => workspace?.openPullRequests(),
     },
+    // A session's thread takes a pull request as one more of its reviews.
+    ...(addPull.add
+      ? [
+          {
+            id: "add-pull-request",
+            managesFocus: true,
+            label: "Add a pull request…",
+            run: () => setAddPullOpen(true),
+          },
+        ]
+      : []),
     {
       id: "open-branch",
       managesFocus: true,
@@ -5706,7 +5765,6 @@ export function App({
         .join(" · ")
     : undefined;
   // A hand-off's card in the conversation opens the Review (HandoffCard.tsx).
-  const siblingReviews = useThreadReviews(threadId);
   const reviewsClock = useMinuteClock(siblingReviews.length > 1);
   const handoffTitle = reviewAvailable
     ? (state.savedReview?.pullRequestTitle ?? state.savedReview?.title ?? "Review")
@@ -5733,9 +5791,14 @@ export function App({
           },
     [handoffTitle, revealPane, selectTab, savedReviewId, siblingReviews, workspace],
   );
-  // The session side panel's Reviews card: each review that the session
-  // handed off, newest first, this one among them; then the live changes.
+  // The session side panel's Reviews card: each of the thread's reviews,
+  // newest first, this one among them; then the live changes. Among several,
+  // each names its pull request: the number, and the state once Med read it.
   const pullNumber = /\/pull\/(\d+)/.exec(state.savedReview?.pullRequestUrl ?? "")?.[1];
+  const pullOf = (review: ThreadReview | undefined) =>
+    siblingReviews.length > 1 && review?.pullRequest
+      ? [`#${review.pullRequest.number}`, review.pullRequest.state].filter(Boolean).join(" ")
+      : undefined;
   const ownReview: ThreadLink[] = reviewAvailable
     ? [
         {
@@ -5743,9 +5806,15 @@ export function App({
           icon: "guide" as const,
           label: state.savedReview?.title ?? "Review",
           current: siblingReviews.length > 1,
-          detail: sinceRow?.files
-            ? `${sinceRow.files} ${sinceRow.files === 1 ? "file" : "files"} new`
-            : undefined,
+          detail:
+            [
+              pullOf(threadReview),
+              sinceRow?.files
+                ? `${sinceRow.files} ${sinceRow.files === 1 ? "file" : "files"} new`
+                : undefined,
+            ]
+              .filter(Boolean)
+              .join(" · ") || undefined,
           onOpen: () => {
             revealPane("review");
             selectTab("review");
@@ -5763,7 +5832,9 @@ export function App({
                   id: `review-${review.id}`,
                   icon: "guide",
                   label: review.title,
-                  detail: shortAge(review.updatedAt, reviewsClock),
+                  detail: [pullOf(review), shortAge(review.updatedAt, reviewsClock)]
+                    .filter(Boolean)
+                    .join(" · "),
                   onOpen: () => {
                     workspace?.update(workspace.id, { reviewId: review.id });
                     revealPane("review");
@@ -6025,6 +6096,18 @@ export function App({
             }
             {...stylex.props(styles.reviewSurface)}
           >
+            {addPull.adding && (
+              // The steps of a pull request that joins the thread, where its
+              // review shows next.
+              <div {...stylex.props(styles.addingPull)}>
+                <PullProgress
+                  url={addPull.adding.url}
+                  state={addPull.adding.state}
+                  onRetry={addPull.retry}
+                  onClose={addPull.dismiss}
+                />
+              </div>
+            )}
             <div
               {...stylex.props(
                 styles.reviewSurface,
@@ -6599,6 +6682,29 @@ export function App({
           onOpenChange={setCommandsOpen}
           commands={[...commands].sort((a, b) => commandRank(a.id) - commandRank(b.id))}
         />
+        {addPull.add && (
+          <LineDialog
+            open={addPullOpen}
+            onOpenChange={setAddPullOpen}
+            title="Add a pull request"
+            placeholder="Paste a pull request link"
+            icon="pullRequest"
+            empty="Paste a GitHub pull request link, such as https://github.com/owner/repo/pull/333."
+            action={(line) => {
+              const pull = parsePullUrl(line);
+              return pull
+                ? {
+                    label: `Add pull request #${pull.number}`,
+                    hint: `${pull.owner}/${pull.name}`,
+                    run: () => {
+                      revealPane("review");
+                      addPull.add?.(pull.url);
+                    },
+                  }
+                : null;
+            }}
+          />
+        )}
         <ShortcutGuide
           open={helpOpen}
           onOpenChange={setHelpOpen}
@@ -6729,6 +6835,20 @@ const styles = stylex.create({
     flex: "1",
     minHeight: 0,
     minWidth: 0,
+  },
+  // Over the review, as a pull request's workspace shows its steps.
+  addingPull: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 5,
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "flex-start",
+    overflow: "auto",
+    paddingBlock: 56,
+    paddingInline: 24,
+    backgroundColor: tokens.canvas,
+    fontSize: 12,
   },
   hiddenSurface: { display: "none" },
   // The Guide's rail beside the stream, or beside its Overview.

@@ -4,18 +4,22 @@ import type { FoundUpdate } from "../shared/found-sessions";
 import { baseOf, changesBase, type RegisteredRepository } from "../shared/protocol";
 import {
   handoffTargets,
+  reviewBase,
   reviewCheckout,
   type AgentSession,
+  type PullRequestState,
   type SavedReview,
 } from "../shared/saved-review";
 import {
   parseSessionKey,
   REVIEW_ID,
+  reviewPullRequest,
   sessionKey,
   threadOfReview,
   type Thread,
   type ThreadList,
   type ThreadReview,
+  type ThreadReviewPlace,
 } from "../shared/threads";
 import { findTranscript, transcriptPrompt } from "./agent-transcripts";
 import { HostError } from "./runtime/errors";
@@ -61,35 +65,14 @@ export interface ThreadServiceOptions {
   pullRequestLinks?: Pick<ReturnType<typeof createPullRequestLinks>, "check">;
   /** The counts of a checkout's live Changes. */
   checkoutChanges?: Pick<ReturnType<typeof createCheckoutChanges>, "get">;
+  /** What GitHub said last of a pull request, when a read of this host
+   * asked; the thread list starts no read for it. */
+  pullRequestState?(url: string): PullRequestState | undefined;
   subagents: ReturnType<typeof createThreadSubagents>;
   /** Removes a linked worktree that Med made, as `git worktree remove` does. */
   removeWorktree(path: string, signal: AbortSignal): Promise<void>;
   now?: () => number;
   home?: () => string;
-}
-
-/** A review's thread: its session's key, or the review's own ID. */
-
-/** What a thread lists of one of its reviews. */
-function reviewSummary(review: IndexedReview): ThreadReview {
-  const checkout = reviewCheckout(review);
-  return {
-    id: review.id,
-    title: review.pullRequestTitle ?? review.title,
-    createdAt: review.createdAt,
-    updatedAt: review.modifiedAt,
-    ...(checkout && { repo: checkout.repo }),
-    ...(checkout?.branch && { branch: checkout.branch }),
-    ...(review.pullRequestUrl && { pullRequestUrl: review.pullRequestUrl }),
-    ...(review.totals &&
-      handoffTargets(review).length && {
-        changes: {
-          files: review.totals.files,
-          additions: review.totals.additions,
-          deletions: review.totals.deletions,
-        },
-      }),
-  };
 }
 
 /** The place of a registered checkout, as a thread shows it. */
@@ -176,13 +159,14 @@ export function createThreadService(options: ThreadServiceOptions) {
         )
       : undefined;
 
-  /** The place of a review: its checkout, with the branch as it is now. */
+  /** The place of a review: its checkout, with the branch as it is now, and
+   * the base that its newest comparison there names. */
   const reviewPlace = (
     review: IndexedReview,
     repositories: readonly RegisteredRepository[],
-  ): ThreadPlace => {
+  ): ThreadReviewPlace | undefined => {
     const checkout = reviewCheckout(review);
-    if (!checkout) return {};
+    if (!checkout) return undefined;
     const family =
       repositories.find((entry) => entry.id === checkout.repositoryId) ??
       familyOf(repositories, checkout.repo);
@@ -193,11 +177,47 @@ export function createThreadService(options: ThreadServiceOptions) {
         ? tree.branch
         : undefined
       : (checkout.branch ?? undefined);
+    const base = reviewBase(
+      family,
+      handoffTargets(review).findLast((target) => target.repo === checkout.repo),
+    );
     return {
       ...(family && { repository: { id: family.id, name: family.name, path: family.path } }),
       checkout: checkout.repo,
       ...(branch && { branch }),
+      ...(base && base !== branch && { base }),
       ...(tree?.linked && { linked: true }),
+    };
+  };
+
+  /** What a thread lists of one of its reviews: the change, its place, and
+   * its pull request. */
+  const reviewSummary = (
+    review: IndexedReview,
+    repositories: readonly RegisteredRepository[],
+  ): ThreadReview => {
+    const place = reviewPlace(review, repositories);
+    const pullRequest =
+      review.pullRequestUrl &&
+      reviewPullRequest(review.pullRequestUrl, {
+        title: review.pullRequestTitle,
+        state: options.pullRequestState?.(review.pullRequestUrl),
+      });
+    return {
+      id: review.id,
+      title: review.pullRequestTitle ?? review.title,
+      createdAt: review.createdAt,
+      updatedAt: review.modifiedAt,
+      ...(place && { place }),
+      ...(pullRequest && { pullRequest }),
+      ...(review.totals &&
+        handoffTargets(review).length && {
+          changes: {
+            files: review.totals.files,
+            additions: review.totals.additions,
+            deletions: review.totals.deletions,
+          },
+        }),
     };
   };
 
@@ -231,6 +251,7 @@ export function createThreadService(options: ThreadServiceOptions) {
     id: string,
     session: AgentSession,
     reviews: readonly IndexedReview[],
+    repositories: readonly RegisteredRepository[],
   ): Thread => {
     const entry = store.entry(id);
     const newest = reviews[0];
@@ -251,7 +272,7 @@ export function createThreadService(options: ThreadServiceOptions) {
       agent: session.agent,
       ...(scanned && { state: scanned.working ? "working" : "idle" }),
       session,
-      reviews: reviews.map(reviewSummary),
+      reviews: reviews.map((review) => reviewSummary(review, repositories)),
       ...(newest?.pullRequestUrl && { pullRequestUrl: newest.pullRequestUrl }),
     };
   };
@@ -314,7 +335,7 @@ export function createThreadService(options: ThreadServiceOptions) {
       agent: session.agent,
       state: status?.state ?? (read?.working ? "working" : "idle"),
       session,
-      reviews: reviews.map(reviewSummary),
+      reviews: reviews.map((review) => reviewSummary(review, repositories)),
       ...((live ?? newest?.totals) && {
         changes: live ?? {
           files: newest!.totals!.files,
@@ -349,14 +370,16 @@ export function createThreadService(options: ThreadServiceOptions) {
 
   /** A tab of a review that no session handed off. */
   const reviewTab = (review: IndexedReview, repositories: readonly RegisteredRepository[]) => {
-    const summary = reviewSummary(review);
+    const summary = reviewSummary(review, repositories);
+    // The thread's place is its one review's; no reader chose its base.
+    const { base: _base, ...place } = summary.place ?? {};
     return {
       id: review.id,
       kind: "review",
       title: summary.title,
       createdAt: review.createdAt,
       updatedAt: review.modifiedAt,
-      ...reviewPlace(review, repositories),
+      ...place,
       reviews: [summary],
       ...(summary.changes && { changes: summary.changes }),
       ...(review.pullRequestUrl && { pullRequestUrl: review.pullRequestUrl }),
@@ -510,14 +533,14 @@ export function createThreadService(options: ThreadServiceOptions) {
         const session = sessionOf(entry.id, own);
         if (!session) continue;
         listed.add(entry.id);
-        threads.push({ ...coldSession(entry.id, session, own), open: false });
+        threads.push({ ...coldSession(entry.id, session, own, repositories), open: false });
       }
       const aliases = aliasIds();
       for (const session of options.sessions.found()) {
         if (listed.has(session.key) || store.isOpen(session.key) || aliases.has(session.id))
           continue;
         threads.push({
-          ...foundThread(session, byThread.get(session.key) ?? []),
+          ...foundThread(session, byThread.get(session.key) ?? [], repositories),
           open: false,
         });
       }
@@ -558,7 +581,7 @@ export function createThreadService(options: ThreadServiceOptions) {
       await store.save();
       const thread =
         (await sessionTab(id, own, options.repositories()).catch(() => undefined)) ??
-        coldSession(id, session!, own);
+        coldSession(id, session!, own, options.repositories());
       await store.save().catch(() => {});
       return named({ ...thread, open: true });
     },
@@ -775,7 +798,11 @@ export function createThreadService(options: ThreadServiceOptions) {
   };
 
   /** A found session that is not a tab, as the archive lists it. */
-  function foundThread(session: IndexedSession, reviews: readonly IndexedReview[]): Thread {
+  function foundThread(
+    session: IndexedSession,
+    reviews: readonly IndexedReview[],
+    repositories: readonly RegisteredRepository[],
+  ): Thread {
     return {
       id: session.key,
       kind: "session",
@@ -786,7 +813,7 @@ export function createThreadService(options: ThreadServiceOptions) {
       agent: session.agent,
       state: session.working ? "working" : "idle",
       session: { agent: session.agent, id: session.id, cwd: session.cwd },
-      reviews: reviews.map(reviewSummary),
+      reviews: reviews.map((review) => reviewSummary(review, repositories)),
       ...(session.prompt && { prompt: session.prompt }),
     };
   }

@@ -597,6 +597,97 @@ export function CommandDialog({
 }
 
 /**
+ * The palette of a command that takes one line, such as a pull request link:
+ * the line, and the one thing that Enter does with it. While the line names
+ * nothing, `empty` says what to type.
+ */
+export function LineDialog({
+  open,
+  onOpenChange,
+  title,
+  placeholder,
+  icon,
+  empty,
+  action,
+}: {
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  title: string;
+  placeholder: string;
+  icon: IconName;
+  empty: string;
+  /** What Enter does with the line; null while the line names nothing. */
+  action(line: string): { label: string; hint?: string; run(): void } | null;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [line, setLine] = useState("");
+  const id = useId();
+  const choice = action(line);
+  const run = () => {
+    if (!choice) return;
+    onOpenChange(false);
+    setLine("");
+    choice.run();
+  };
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Backdrop {...stylex.props(ui.scrim, styles.backdrop, ui.instant)} />
+        <Dialog.Popup
+          initialFocus={() => focusPaletteInput(inputRef.current)}
+          {...stylex.props(ui.palette, styles.dialog, ui.instant)}
+        >
+          <Dialog.Title {...stylex.props(styles.hidden)}>{title}</Dialog.Title>
+          <div {...stylex.props(ui.paletteInput)}>
+            <Icon name={icon} />
+            <input
+              ref={inputRef}
+              value={line}
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) => setLine(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                run();
+              }}
+              {...stylex.props(ui.paletteField)}
+              placeholder={placeholder}
+              aria-label={title}
+              aria-describedby={choice ? undefined : `${id}-empty`}
+            />
+            <ShortcutKeys value="Esc" />
+          </div>
+          <div {...stylex.props(styles.commandResults)}>
+            {choice ? (
+              <button
+                type="button"
+                tabIndex={-1}
+                onClick={run}
+                {...stylex.props(
+                  ui.button,
+                  ui.menuItem,
+                  styles.commandRow,
+                  ui.menuHighlighted,
+                  picked,
+                )}
+              >
+                <span {...stylex.props(styles.commandText)}>{choice.label}</span>
+                {choice.hint && <span {...stylex.props(styles.commandHint)}>{choice.hint}</span>}
+                <ShortcutKeys value="↵" />
+              </button>
+            ) : (
+              <div id={`${id}-empty`} {...stylex.props(styles.empty)}>
+                {empty}
+              </div>
+            )}
+          </div>
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+/**
  * Two or three exclusive options with a pill that slides to the pressed one.
  * The view changes at once; the pill only shows where the choice moved.
  */
