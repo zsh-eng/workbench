@@ -15,7 +15,8 @@
 }
 .med-session-prose > .med-md-block:last-child > :last-child,
 .med-session-prose > .med-md-block:last-child > :last-child > li:last-child,
-.med-session-prose > .med-md-block:last-child > .med-md-table:last-child > table {
+.med-session-prose > .med-md-block:last-child > .med-md-table:last-child > table,
+.med-session-prose > .med-md-block:last-child > .med-md-code:last-child > pre {
   margin-bottom: 0;
 }
 .med-session-prose :is(h1, h2, h3) {
@@ -45,6 +46,24 @@
 }
 .med-session-prose pre::before {
   content: none;
+}
+/* A code block's Copy button, at the right end of its first line: under the
+   block's 10px of padding, at the middle of a line of the block's type, so a
+   block of one line has the button at its middle. The block's padding at
+   that end is as wide as the button's place, so the end of a long line
+   scrolls clear of it. */
+.med-session-prose .med-md-code > pre {
+  padding-right: 44px;
+}
+.med-session-prose .med-md-code > .med-md-copy,
+.med-session-prose .med-md-code::before {
+  top: calc(10px + (1lh - 22px) / 2);
+  font-size: var(--med-md-small, 0.867em);
+  line-height: 1.6;
+}
+.med-session-prose .med-md-code > .med-md-copy-note {
+  top: 8px;
+  right: 40px;
 }
 .med-session-prose code {
   padding: 0.1em 0.3em;

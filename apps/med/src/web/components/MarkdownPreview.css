@@ -301,10 +301,10 @@ pre[data-rendered="true"]:is(:hover, :focus-within) :is(.med-md-diagram-tools, .
   bottom: 100%;
   translate: 0 -1px;
 }
+/* The Copy button of a table or a code block: there while the pointer or the
+ * focus is on its frame, and while it shows its check. */
 .med-md-copy {
   position: absolute;
-  right: 0;
-  bottom: 100%;
   display: grid;
   place-items: center;
   width: 24px;
@@ -331,9 +331,59 @@ pre[data-rendered="true"]:is(:hover, :focus-within) :is(.med-md-diagram-tools, .
   outline: 2px solid var(--med-accent);
   outline-offset: -2px;
 }
-.med-md-table:is(:hover, :focus-within) .med-md-copy,
+:is(.med-md-table, .med-md-code):is(:hover, :focus-within) > .med-md-copy,
 .med-md-copy[data-copied] {
   opacity: 1;
+}
+.med-md-table > .med-md-copy {
+  right: 0;
+  bottom: 100%;
+}
+/* A code block's frame holds its Copy button, on the block's surface at the
+ * right end of its first line; the page that shows the block sets how far
+ * down, from the block's padding (SessionThread.css). The frame has no
+ * margins: the block's collapse through it. Under the button, a patch of the
+ * surface's color hides a long line from there to the block's edge, and the
+ * line fades into it, so no letter touches the icon. The patch shows and
+ * goes with the button. */
+.med-md-code {
+  position: relative;
+  isolation: isolate;
+}
+.med-md-code > .med-md-copy {
+  right: 8px;
+  z-index: 1;
+}
+.med-md-code::before {
+  content: "";
+  position: absolute;
+  right: 0;
+  z-index: 1;
+  width: 44px;
+  height: 28px;
+  translate: 0 -3px;
+  background: linear-gradient(to right, transparent, var(--med-md-surface) 8px);
+  opacity: 0;
+  transition: opacity 120ms;
+  pointer-events: none;
+}
+.med-md-code:is(:hover, :focus-within)::before,
+.med-md-code:has(> .med-md-copy[data-copied])::before {
+  opacity: 1;
+}
+/* The check says that the copy is there; the note is for a screen reader.
+ * A copy that failed says why, left of the button. */
+.med-md-code > .med-md-copy-note {
+  position: absolute;
+  z-index: 1;
+}
+.med-md-code > .med-md-copy-note:not([data-failed]) {
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  box-shadow: none;
 }
 /* What a copy put on the clipboard, briefly, at the foot of the page. */
 .med-md-copied {

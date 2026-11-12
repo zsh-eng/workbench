@@ -2,6 +2,8 @@ import { afterEach, expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { SessionMarkdown } from "../../src/web/components/session/SessionMarkdown";
+// The thread's own rules for a reply's prose, as the thread loads them.
+import "../../src/web/components/session/SessionThread.css";
 import "../../src/web/pierre-theme";
 import { initializeTheme } from "../../src/web/themes";
 
@@ -35,15 +37,15 @@ const REPLY = [
 const SOURCE = "flowchart LR\n  A --> B";
 
 /** A reply as the thread shows it, in a column of the thread's width. */
-async function show(text = REPLY) {
+async function show(text = REPLY, { streaming = false, until = "Done." } = {}) {
   await page.viewport(1280, 900);
   initializeTheme();
   frame = document.createElement("div");
   Object.assign(frame.style, { width: "700px", padding: "40px" });
   document.body.append(frame);
   root = createRoot(frame);
-  root.render(<SessionMarkdown text={text} streaming={false} />);
-  await expect.element(page.getByText("Done.")).toBeVisible();
+  root.render(<SessionMarkdown text={text} streaming={streaming} />);
+  await expect.element(page.getByText(until)).toBeVisible();
 }
 
 function clipboard() {
@@ -87,6 +89,79 @@ test("a reply's table copies as its Markdown and as a table, says so, and keeps 
   expect(html).toContain("<code>mail</code>");
   expect(html).toContain("<strong>jobs</strong>");
   expect(html).not.toMatch(/class=|data-|<button/);
+});
+
+const shown = (element: Element) => getComputedStyle(element).opacity === "1";
+
+test("a reply's code block has Copy on hover and focus, which copies the code as the fence holds it", async () => {
+  const { write } = clipboard();
+  await show(
+    ["Run it:", "", "```ts", "const width = 768;", "", "  return width;", "```", "", "Done."].join(
+      "\n",
+    ),
+  );
+  const code = await vi.waitUntil(() => document.querySelector<HTMLElement>(".med-md-code"));
+  // The frame takes no room of its own, as the thread's height estimate expects.
+  const inner = code.querySelector("pre")!.getBoundingClientRect();
+  const outer = code.getBoundingClientRect();
+  expect([outer.top, outer.height]).toEqual([inner.top, inner.height]);
+
+  // At rest the block shows only its code.
+  const copy = page.getByRole("button", { name: "Copy code" });
+  const button = copy.element() as HTMLButtonElement;
+  await userEvent.hover(page.getByText("Done."));
+  await expect.poll(() => shown(button)).toBe(false);
+  await userEvent.hover(page.elementLocator(code.querySelector("pre")!));
+  await expect.poll(() => shown(button)).toBe(true);
+  // The button is on the block, level with its first line.
+  const box = button.getBoundingClientRect();
+  const line = code.querySelector("code span")!.getBoundingClientRect();
+  expect(box.right).toBeLessThan(inner.right);
+  expect(Math.abs((box.top + box.bottom) / 2 - (line.top + line.bottom) / 2)).toBeLessThan(1.5);
+  // The keyboard reaches it.
+  await userEvent.hover(page.getByText("Done."));
+  await expect.poll(() => shown(button)).toBe(false);
+  button.focus();
+  await expect.poll(() => shown(button)).toBe(true);
+
+  await copy.click();
+  await expect
+    .poll(() => write.mock.calls.at(-1)?.[0])
+    .toBe("const width = 768;\n\n  return width;");
+  // A check for a moment, and a screen reader hears it.
+  expect(button.dataset.copied).toBe("");
+  await expect.element(page.getByRole("status").filter({ hasText: "Copied" })).toBeInTheDocument();
+  await expect.poll(() => button.dataset.copied, { timeout: 3000 }).toBeUndefined();
+  expect(code.querySelector("[role='status']")!.textContent).toBe("");
+
+  // A copy that the browser refuses says why, beside the button.
+  write.mockRejectedValueOnce(new DOMException("", "NotAllowedError"));
+  await copy.click();
+  await expect.element(page.getByText("Copying needs clipboard access")).toBeVisible();
+  expect(button.dataset.copied).toBeUndefined();
+});
+
+test("while a reply streams, a closed code block keeps its Copy button and the last block waits", async () => {
+  const { write } = clipboard();
+  const start = ["```", "bun test", "```", "", "Then:", "", "```ts", "const a"].join("\n");
+  await show(start, { streaming: true, until: "const a" });
+  await vi.waitUntil(() => document.querySelectorAll(".med-md-code").length === 1);
+  const copy = page.getByRole("button", { name: "Copy code" });
+  const button = copy.element() as HTMLButtonElement;
+  await copy.click();
+  await expect.poll(() => write.mock.calls.at(-1)?.[0]).toBe("bun test");
+  expect(button.dataset.copied).toBe("");
+
+  // More text arrives: the same button, which keeps the focus.
+  root!.render(<SessionMarkdown text={`${start} = 1;\n`} streaming />);
+  await expect.element(page.getByText("const a = 1;")).toBeVisible();
+  expect(button.isConnected && document.activeElement === button).toBe(true);
+  expect(document.querySelectorAll(".med-md-code")).toHaveLength(1);
+
+  // The reply ends: its last block has Copy too.
+  root!.render(<SessionMarkdown text={`${start} = 1;\n\`\`\`\n`} streaming={false} />);
+  await expect.poll(() => document.querySelectorAll(".med-md-code").length).toBe(2);
+  expect(button.isConnected).toBe(true);
 });
 
 test("a table whose lines no longer match its text copies as cells", async () => {

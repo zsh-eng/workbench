@@ -268,6 +268,10 @@ background shells and agents. It follows the session live.
 - A table in a reply has **Copy** above its right end, and a diagram has
   **Copy** and **Full screen** at its corner, as in a Markdown file
   ([Copy](markdown.md#copy)).
+- A code block in a reply or a comment has **Copy** at the right end of its
+  first line, while the pointer or the focus is on the block. It copies the
+  code as the block holds it, without the fence. While a reply still arrives,
+  its last block waits for the button.
 
 - The thread has no header of its own: the title band names it, and the
   band's end holds the session's controls, the review's pages, and Display

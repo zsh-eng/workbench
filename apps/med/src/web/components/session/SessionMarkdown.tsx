@@ -4,6 +4,7 @@ import { loadMarkdownImages, markdownImageUrl } from "../../markdown/images";
 import type { MarkdownResult } from "../../markdown/model";
 import { useTheme } from "../../themes";
 import { fileRefOf } from "../../data/file-refs";
+import { useCodeCopy } from "../CodeCopy";
 import { DiagramBlock } from "../DiagramBlock";
 import { useFileRefBlocks, useFileRefs } from "../FileRefs";
 import { useTableCopy } from "../TableCopy";
@@ -48,6 +49,8 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   const reviews = useRef(handoff);
   // A table copies as its Markdown, from this reply's text, and as a table.
   useTableCopy(host, () => text);
+  // A code block copies as its fence holds it, once the reply has closed it.
+  useCodeCopy(host, streaming);
 
   useLayoutEffect(() => {
     latest.current = { text, theme: theme.pierreTheme, streaming };
