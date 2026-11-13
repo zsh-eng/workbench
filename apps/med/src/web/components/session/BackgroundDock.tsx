@@ -125,7 +125,7 @@ export function BackgroundDock({
   onShow,
   card = false,
 }: {
-  /** A card in the session's side panel, not a bar under the thread. */
+  /** A section of the session rail, not a bar under the thread. */
   card?: boolean;
   items: SessionItem[];
   /** A fixed clock, for stills; without it, running times follow the clock. */
@@ -269,8 +269,19 @@ const styles = stylex.create({
     backgroundColor: tokens.canvas,
     boxShadow: `inset 0 0 0 1px ${tokens.line}`,
   },
-  // As the side panel's other cards: its width, and no gap under it.
-  card: { marginInline: 0, marginBottom: 0, paddingInline: 12, paddingBlock: 4 },
+  // In the session rail, a section as the others: a line over it, no box.
+  card: {
+    marginInline: 0,
+    marginBottom: 0,
+    paddingInline: 0,
+    paddingBlock: 8,
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    boxShadow: "none",
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: tokens.line,
+  },
   top: { display: "flex", alignItems: "center", gap: 4 },
   head: { flex: "1", cursor: "pointer", gap: 8 },
   hide: {

@@ -90,8 +90,11 @@ session's thread, **Add a pull request…** in the palette (`⌘K`) takes a
 pull request link. Med runs the steps of a pasted link, in the same worktree, and saves
 the review as one more of the thread's reviews: no workspace opens for it.
 The steps show where the review shows next, with **Retry** for a failed
-one; **Hide** leaves the job running. The review then shows, and **Reviews**
-in the session rail lists it with its number and state. Its **Changes** are
+one; **Hide** leaves the job running. The review then shows, and **Pull
+requests** in the session rail lists it with its number; the colour of its
+mark is its state. A row there opens that pull request's own page.
+**Reviews** does not list it: that section has the agent's hand-offs alone.
+Its **Changes** are
 the worktree's branch. A link that the thread has already shows that
 review. A pull request that is a review of another session's thread stays
 there; one that opened on its own moves to the thread. An agent adds one

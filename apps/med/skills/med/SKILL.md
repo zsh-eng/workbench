@@ -5,15 +5,28 @@ description: Hand off code changes for review in Med, the user's local review ap
 
 # Hand off changes in Med
 
-Med shows your change to the user as a review. They comment on lines and send
-the comments back to you. Your session is a thread in Med's sidebar, wherever
-it works; each review that you hand off is listed in that thread.
+A review is your hand-off: Med captures your change, with your guide. The
+user reads it, comments on lines, and sends the comments back to you. You
+answer with a new version. Its purpose is to agree on a change with the user
+before it leaves their machine. A pull request is the change as GitHub has
+it, on a page of its own in Med. Your session is a thread in Med's sidebar,
+wherever it works; a thread can hold several reviews and pull requests.
+
+The thread does not follow you. It opens on your newest review, or with
+none on the checkout where you worked then. After that it shows what the
+user chooses: a review, a branch, or a worktree. Do
+not assume that the user sees the checkout where you work now. For work on
+another branch, or in another worktree or repository, hand off a review of
+it. Name the branch in your message only for a quick look: a branch that no
+worktree has shows only its newest commit.
 
 ## First, where you are
 
 - `MED_SESSION=owned`: you run in a Med thread. Hand off each round of work.
   `MED_THREAD_KEY` and `MED_THREAD_REPO` are the default `--key` and
-  `--repo`. The user's messages arrive as new turns.
+  `--repo`. The user's messages arrive as new turns. A fork of a session
+  (**Continue in Med**, **Fork from here**) starts in Auto permission mode,
+  whatever the mode of the session that it forks.
 - Without it: hand off when the user, or the project's instructions, ask for
   Med or a review, or when this session has handed off before. If none of
   these is so, ask the user once in this session whether to hand off in Med.
@@ -26,7 +39,9 @@ you which command to use.
 ## Hand off
 
 1. Make one review per task. Use the same `--key` (such as the branch) for
-   every round: each `med review create` adds a version.
+   every round: each `med review create` adds a version. Work on another
+   branch or in another checkout is another review of the thread: give it
+   its own `--key`, and that checkout's `--repo`.
 2. Each version shows the comparison you give it. Usually that is the whole
    task's change. When the user asks for only the newest change, or a round
    reads better alone, compare from the last round's commit or keep to the
@@ -93,7 +108,13 @@ fix needs the user, such as `med add`, ask them.
 Open one only when the user asks. `med pr template --repo <root>` prints the
 repository's pull request template; fill it with why, what changed, and how
 you checked it, and open the pull request with `gh pr create`. Then link it
-to the review: `med review update --key <key> --pr <url>`.
+to the review: `med review update --key <key> --pr <url>`. The thread lists
+it with its pull requests.
+
+When the user asks you to add another pull request to a thread, such as one
+that another person opened, run `med thread pr <thread ID> <link>`, or with
+`--key <key>` in place of the ID. Med checks it out in a worktree of its own
+and adds it to the thread.
 
 ## When comments come back
 
@@ -117,7 +138,7 @@ off a review only if the user asks, or if the change is one to review.
 
 ## Threads and other agents
 
-`med thread list | open | close | send | wait`, and `med thread find` /
+`med thread list | open | close | send | pr | wait`, and `med thread find` /
 `adopt` to bring an earlier session into Med. Act only on threads the user
 names. To follow other threads, `med thread wait` waits until one needs the
 user or finishes its work; its timeout is a check-in, so wait again rather

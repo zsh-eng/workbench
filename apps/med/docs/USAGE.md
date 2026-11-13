@@ -18,10 +18,12 @@ questions about code, pull requests, files and notes, and how agents use Med.
 - A **session** is one agent conversation. Med either runs it, or reads one
   that another app runs. It is not tied to a folder: it can move to another
   branch or repository.
-- A **thread** is a session, with the reviews that it handed off. Its
-  Changes follow the checkout where the session works now. A review that no
-  session handed off is a thread of its own. Your open threads are the rows
-  in the sidebar.
+- A **thread** is a session, with the reviews that it handed off and its
+  pull requests. It can hold several of each. What it shows starts at the
+  checkout where the session works, then stays until you choose a review, a
+  branch, or a worktree; the agent's later moves do not move it. A review
+  that no session handed off is a thread of its own. Your open threads are
+  the rows in the sidebar.
 - A **hand-off** is what an agent shows you with `med review create`: a diff,
   or part of one. The agent picks what it compares, such as the whole change
   or only the latest round. A later hand-off with the same **key**, usually
@@ -30,7 +32,10 @@ questions about code, pull requests, files and notes, and how agents use Med.
 - A **review** is the saved record of a key's hand-offs: the captured diffs,
   the guide, and the comments, linked to the session that handed it off. It
   is a view on a set of changes, kept so it still reads the same after the
-  branch moves on.
+  branch moves on. You use it to agree on a change with the agent.
+- A **pull request** is the change as GitHub has it, with its description,
+  checks, and other people's comments. It has its own page.
+- **Changes** is the branch as it is now, live. Med does not save it.
 - A **guide** is optional: the agent's summary, then parts that you read one
   at a time. A diff with a sentence is enough.
 - A **comment** is your note on lines. It is a draft until you send it, and

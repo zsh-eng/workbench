@@ -325,7 +325,7 @@ export function AgentsSection() {
       </Specimen>
       <Specimen
         title="A long session"
-        note="600 turns. The thread holds a window of at most 600 rows; scroll up for earlier rows, then earlier pages. Turns (the clock) lists every prompt and jumps to it."
+        note="600 turns. The thread holds a window of at most 600 rows; scroll up for earlier rows, then earlier pages. With focus in the thread, { steps back through the prompts."
         padded={false}
         zoomable={false}
       >

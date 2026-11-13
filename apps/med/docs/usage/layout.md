@@ -87,7 +87,8 @@ list back: it hides the tasks until one starts or fails.
 ## The title band and the review's header
 
 The title band is one row for the whole workspace. Its start names the
-checkout, or the thread while the sidebar hides. Its end always holds, from
+checkout that the workspace shows, by its repository and branch, or the
+thread while the sidebar hides. Its end always holds, from
 left to right: the session's controls (its context's use, or the session
 rail's list button where the rail has room), then the pages, the pull request's comments,
 **Copy comments** with their number while the review has comments, and
@@ -115,8 +116,10 @@ the band names it.
 - In Changes, what the diff compares tops the page's sidebar, and its menu
   also has **Base branch…** (for a branch
   without a worktree, **Compare against a branch…**) and **Compare two
-  revisions…**, in a thread **Thread checkout…**, and in a shared checkout
-  **Only this session's files**.
+  revisions…**, and in a shared checkout **Only this session's files**. In a
+  thread, `⌘⇧G`, `⌘O`, or the session rail's **Thread** rows choose the
+  branch, worktree, or repository that the thread shows
+  ([Threads](threads.md#a-threads-pane)).
 - **⋯** holds only what a narrow header folds away: what the diff compares,
   and the pane's **Expand**. The rest is in `⌘K` and on its keys:
   **Find in diffs** (`⌘F`, the find bar below), **Collapse all files**, **Push…**, **Refresh

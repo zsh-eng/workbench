@@ -14,6 +14,7 @@ type DrawnName =
   | "codex"
   | "command"
   | "pullRequest"
+  | "repository"
   | "testFile"
   | "restore"
   | "focusExit"
@@ -51,6 +52,8 @@ const drawn: Record<DrawnName, ReactNode> = {
       <path d="M4 5.25v5.5M12 10.75v-4.5a1.75 1.75 0 0 0-1.75-1.75H7.5M9.25 2.75 7.5 4.5l1.75 1.75" />
     </>
   ),
+  // A book with its spine at the left: a repository.
+  repository: <path d="M3.75 12.25v-8a1.5 1.5 0 0 1 1.5-1.5h7v8h-7a1.5 1.5 0 0 0 0 3h7" />,
   // A flask.
   testFile: (
     <path d="M5.75 1.75h4.5M6.75 1.75v4.5L3.2 12.4a1.25 1.25 0 0 0 1.08 1.85h7.44a1.25 1.25 0 0 0 1.08-1.85L9.25 6.25v-4.5M4.6 10h6.8" />

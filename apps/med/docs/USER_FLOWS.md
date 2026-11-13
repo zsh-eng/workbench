@@ -63,7 +63,7 @@ it stays one thread: each review that it hands off is listed in it.
 flowchart LR
   S["Session (one sidebar row)"] --> R1["Review: the data model<br/>(key feat/model, PR #41)"]
   S --> R2["Review: the API<br/>(key feat/api, PR #42)"]
-  S --> C["Changes: the checkout<br/>where it works now"]
+  S --> C["Changes: the branch<br/>that the thread shows"]
 ```
 
 1. The agent hands off each part with its own `--key`, such as its branch.
@@ -71,11 +71,15 @@ flowchart LR
    next version.
 2. The session rail's **Reviews** lists them, newest first, and opens one.
    Comments belong to the review and the version that you wrote them on.
-3. **Changes** follow the agent: when it moves to another branch, worktree,
-   or repository, the row and the title band show where it works now.
+3. **Changes** are the place of the review on screen. They do not follow the
+   agent: when it moves to another branch, worktree, or repository, the row
+   and the rail's **Agent** section show where it works now, and the thread
+   shows what it showed. `⌘⇧G`, or the rail's **Thread** rows, shows another
+   branch or worktree inside the thread.
 4. When a part is ready, ask for its pull request. The agent opens it and
    links it with `med review update --pr <url>`; the band then shows the
-   pull request's title and state.
+   pull request's title and state, and the rail's **Pull requests** lists
+   it. **Add a pull request…** in `⌘K` adds one by its link.
 
 ## Ask about the code
 
@@ -181,5 +185,9 @@ sequenceDiagram
 - **Pull requests when asked.** Asked for a pull request, the agent fills
   the template that `med pr template` prints, opens it with `gh pr create`,
   and links it with `med review update --pr <url>`.
-- **Threads.** `med thread list | open | close`, and `find` / `adopt` to bring
-  an earlier session into Med.
+- **Threads.** `med thread list | open | close`, `med thread pr` to add a
+  pull request to a thread, and `find` / `adopt` to bring an earlier session
+  into Med.
+- **The thread does not follow the agent's checkout.** For work on another
+  branch or in another worktree, the agent hands off a review of it, or
+  names the branch.

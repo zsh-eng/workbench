@@ -113,9 +113,9 @@ export function WorkspaceBar({
 type Copied = "repository" | "branch" | "folder";
 
 /**
- * The repository, the branch, and a linked worktree's folder. The branch
- * copies its name; the folder, and the repository's name, copy the checkout's
- * path. The part that copied turns to the accent, its icon a check, for a
+ * The repository and the branch; a linked worktree on a detached HEAD, which
+ * has no branch to go by, shows its folder. The branch copies its name; the
+ * repository's name, and the folder, copy the checkout's path. The part that copied turns to the accent, its icon a check, for a
  * moment. No tooltip: each part says what it is.
  */
 function Checkout({
@@ -171,8 +171,8 @@ function Checkout({
         <Icon name={copied === "branch" ? "check" : "branch"} size={13} />
         <span {...stylex.props(styles.ellipsis)}>{branch ?? "Detached HEAD"}</span>
       </button>
-      {/* A worktree folder that has the branch's name says nothing more. */}
-      {linked && folder !== branch && (
+      {/* The branch names a worktree. Only one without a branch goes by its folder. */}
+      {linked && !branch && (
         <button
           type="button"
           aria-label={`${folder}. Copy the path`}

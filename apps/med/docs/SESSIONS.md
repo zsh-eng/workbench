@@ -129,8 +129,8 @@ shell command makes, such as `sed -i` or a formatter, do not count.
    screens, so the first view is small and the thread does not load an earlier
    page at once. Transcripts of long sessions reach hundreds of megabytes; one
    of 294 MB opened with 186 kB of updates, not 1.9 MB. The thread loads
-   earlier pages of 4 MiB when you scroll to its top, and the prompt rail goes
-   to any prompt
+   earlier pages of 4 MiB when you scroll to its top, and `{` goes to the
+   prompt before the first loaded one
    ([long sessions](AGENT_WORKSPACES.md#long-sessions-load-earlier-work)).
 3. It sends a `reset` event with the updates, `idle`, and the file's
    modification time, in parts of up to 1 MiB. The `reset` gives the number
@@ -285,6 +285,14 @@ the agent with `--model` and `--effort`, and the message box's pickers show
 them. A model's ID shows as the model of Claude Code's list that names it,
 such as `opus` for `claude-opus-5-5` (Opus 5.5); an ID that the list does not
 name stays as it is, as an extra choice.
+
+A fork (Continue in Med, or Fork from here) is a new session, so it starts in
+Med's mode for a new Claude Code session: Auto (`--permission-mode auto`, from
+`AGENT_DEFAULTS` in `src/shared/owned-session.ts`), whatever the mode of the
+session that it forks. Med's record of the fork holds the model, effort, and
+mode from the start, so the fork has them after a restart too. The fork
+measured below read its whole history from the cache in Auto and in Default
+mode.
 
 The prompt cache is the reason. A cache entry belongs to one model, and the
 same system prompt and tools; a request on another model reads none of the
@@ -556,10 +564,11 @@ file, so the next call reads only the new lines.
   older rollouts a running total (`token_count`), priced by its growth; a
   subagent's rollout counts too. Codex's cache writes are priced at the
   30-minute rate. A model that the table lacks shows its tokens and no price.
-  ACP agents' and agy's logs have no token counts and are listed as not
-  available. The figure is an estimate: Claude Code also makes small requests
+  ACP agents' and agy's logs have no token counts and are listed as not in
+  the total. The figure is an estimate: Claude Code also makes small requests
   that the transcript leaves out (titles, suggestions), so `/usage` reads a
-  few percent higher.
+  few percent higher. The note under the figures says only that it is an
+  estimate at list prices, with the read date and a link to each price page.
 - **Context** is the prompt of the session's last main request: its input,
   cache reads, and cache writes. The window is what Med's runner reports
   (`get_context_usage`), else the model's window in Claude Code (1M for the
@@ -577,31 +586,57 @@ file, so the next call reads only the new lines.
 ## Session rail
 
 A session pane at least 900 pixels wide shows the session rail at its right,
-as Claude Desktop does (`SessionSidePanel.tsx`): **Context** and **Spend**
-([above](#spend-and-context)),
-**Background** (the dock moves here from under the thread, through a portal
-from the thread, so a task still scrolls the thread to its call),
-**Subagents** (the tabs over the thread move here the same way, as a list of
-rows with each subagent's state, so they never meet the rail's first card;
-the arrow keys go down and up the list),
-**Reviews** (each review that the session handed off, newest first, with
-the one on screen marked; then its live Changes and its pull request), and
-**Environment** (the checkout, its branch, and the agent with its model and
-what runs it). The thread's column has Claude Desktop's 768 pixel text
-measure (`session-styles.ts`). 900 pixels is a 540 pixel column, 30 pixels
-at each of its sides, and the rail's 300: beside the rail the column
-narrows to the room that is left, as Claude Desktop's transcript narrows
-beside its session rail. In a narrower pane, the rail and its button are gone,
-the subagents are tabs over the thread again, and the header's chip shows the
-context and spend. The header's list button, `⌘⌥⇧B`, or **Hide session
-rail** in `⌘K` closes it, and Med keeps that choice (`med:session-panel`).
+as Claude Desktop does (`SessionSidePanel.tsx`). It is a pane of plain
+sections with a line between each: no cards. The sections, in order:
 
-Context, Spend, and Subagents fold and unfold from their titles, as Claude
-Desktop's cards do, and Med keeps each card's choice for every thread
-(`med:session-panel-cards`). Context starts open: the share in use, a bar of
-what fills the window, and under it the details. Spend starts folded, with
-its total: open, it has each model's cost with its tokens under it. Subagents
-starts folded, with how many there are and how many work.
+- **Thread**: the repository and the branch that the thread shows. A
+  worktree goes by its repository's name and its branch; the rail shows no
+  folder name, except for a session that works outside the registered
+  repositories. While another place loads, the section keeps the last one. The repository's row opens the repositories (`⌘O`), and the
+  branch's row the branches and worktrees (`⌘⇧G`). A choice shows inside the
+  thread: its Changes, files, and search are that branch's (a branch that
+  no worktree has shows its newest commit, from Git). Med reads the
+  branch; it does not switch the branch of any checkout.
+- **Agent**: the agent with its model and what runs it, and the branch where
+  the agent works, with its repository when that is not the one that the
+  thread shows. While the thread shows another place, the branch's row shows
+  the agent's branch in the thread.
+- **Reviews**: what the session handed off to read, newest first, with the
+  one on screen marked. A row shows that review.
+- **Pull requests**: each pull request of the thread, with its number; its
+  mark has the colour of its state, and the tooltip says the state. A row
+  opens that pull request's own page. A review that Med captured from a pull
+  request's link is listed here, not under Reviews (`fromPull`).
+- **Background**: the dock moves here from under the thread, through a
+  portal from the thread, so a task still scrolls the thread to its call.
+- **Subagents**: the tabs over the thread move here the same way, as a list
+  of rows with each subagent's state; the arrow keys go down and up the list.
+- **Spend** and **Context** ([above](#spend-and-context)).
+
+The thread's column has Claude Desktop's 768 pixel text measure
+(`session-styles.ts`). 900 pixels is a 540 pixel column, 30 pixels at each of
+its sides, and the rail's 300: beside the rail the column narrows to the room
+that is left, as Claude Desktop's transcript narrows beside its session rail.
+In a narrower pane, the rail and its button are gone, the subagents are tabs
+over the thread again, and the header's chip shows the context and spend. The
+header's list button, `⌘⌥⇧B`, or **Hide session rail** in `⌘K` closes it, and
+Med keeps that choice (`med:session-panel`).
+
+What the thread shows is apart from where the agent works (`origin`, `view`,
+and `follow` in `src/web/data/controller.ts`). The view starts at the
+agent's checkout. After that, the agent's moves to another branch, worktree,
+or repository do not move it; only the first place of an agent that had none
+opens. The reader's pick (`selectBranch`, `selectWorktree`) is the view
+until a review shows again: then the review's place leads. The pick is in
+the page's memory only, so a reload of the window drops it.
+
+Spend, Context, and Subagents fold and unfold from their titles, as Claude
+Desktop's sections do, and Med keeps each one's choice for every thread
+(`med:session-panel-cards`). Each starts folded, on one line: Spend with its
+total, Context with the share in use and a small meter, Subagents with how
+many there are and how many work. Open, Spend has each model's cost with its
+tokens under it; Context has a bar of what fills the window, and under it
+the details.
 
 For a Claude session that Med runs, Context shows what Claude Code's
 `/context` shows, from its `get_context_usage` reply, which Med asks for when

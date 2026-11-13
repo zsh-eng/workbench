@@ -97,6 +97,10 @@ export const threadReviewSchema = z.object({
   /** None when Med no longer has its repository. */
   place: threadReviewPlaceSchema.optional(),
   pullRequest: reviewPullRequestSchema.optional(),
+  /** Med captured it from the pull request's link: it is the pull request's
+   * own change, not a hand-off of the session. The thread lists it with its
+   * pull requests. */
+  fromPull: z.boolean().optional(),
   changes: changesSchema.optional(),
 });
 export type ThreadReview = z.infer<typeof threadReviewSchema>;
@@ -120,9 +124,8 @@ export function reviewPullRequest(
  * A thread: an agent session, or a review that no session handed off. A
  * session is not tied to a folder: its checkout is where it works now. Its
  * reviews are the ones it handed off and the pull requests added to it. The
- * workspace shows one review at a time, at that review's place; Changes and
- * Commit are the thread's checkout only with no review, or when the review's
- * checkout is gone. A thread is a tab (open) or archived; the host keeps
+ * workspace shows one review at a time, at that review's place, or a place
+ * that the reader chose; what it shows does not follow the session's moves. A thread is a tab (open) or archived; the host keeps
  * which (src/host/thread-store.ts).
  */
 export const threadSchema = z.object({

@@ -217,11 +217,7 @@ export const guideContexts: GuideContext[] = [
           },
           { label: "Hide the recap until the next turn", keys: ["Esc"], note: "In the recap" },
           { label: "Next / previous message", keys: ["]", "["], note: "In the thread" },
-          {
-            label: "Next / previous prompt",
-            keys: ["}", "{"],
-            note: "In the thread; the rail at its right edge lists every prompt",
-          },
+          { label: "Next / previous prompt", keys: ["}", "{"], note: "In the thread" },
         ],
       },
       {

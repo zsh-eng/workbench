@@ -364,6 +364,8 @@ test("a pull request added to a session's thread is one more of its reviews, and
         title: "Add durations",
         state: "open",
       },
+      // Med captured it from the link: the pull request's own change.
+      fromPull: true,
     }),
     expect.objectContaining({
       id: own.data.id,
@@ -381,6 +383,8 @@ test("a pull request added to a session's thread is one more of its reviews, and
       },
     }),
   ]);
+  // A hand-off with a pull request is still a hand-off.
+  expect(row.reviews[1]).not.toHaveProperty("fromPull");
 
   // The same link again: the same review, and nothing new.
   const again = await ended(

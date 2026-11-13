@@ -499,7 +499,18 @@ med thread pr claude-5f0c… https://github.com/owner/repo/pull/333
 `med thread pr` asks the host to check out the pull request in a worktree of
 its own, as a link pasted in Med does, and saves its review in the thread;
 `--key` names the thread too. It prints the review's ID and the worktree.
+The thread lists it with its pull requests, each on a page of its own, not
+with the agent's hand-offs. A thread can hold several reviews and several
+pull requests.
 A pull request that is a review of another session's thread stays there.
+
+What a thread shows does not follow its agent. It opens on the thread's
+newest review, or with none at the checkout where the agent works, and stays
+there until the user chooses a review, a branch, or a worktree. For work on another branch, or in another worktree or
+repository, hand off a review with that checkout's `--repo` and its own
+`--key`, or name the branch in your message. A fork of a session (**Continue
+in Med**, **Fork from here**) starts in Auto permission mode, whatever the
+mode of the session that it forks.
 
 The lines have tabs between the fields. The state is, as `⌘0` ranks them,
 `needs-you` (a permission request, a question, or work that stopped), `done`

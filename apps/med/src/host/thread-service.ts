@@ -1,6 +1,7 @@
 import type { AgentStatus } from "../shared/agent-status";
 import type { AgentMessage } from "../shared/agent-inbox";
 import type { FoundUpdate } from "../shared/found-sessions";
+import { isPullReviewKey } from "../shared/pull-workspace";
 import { baseOf, changesBase, type RegisteredRepository } from "../shared/protocol";
 import {
   handoffTargets,
@@ -210,6 +211,7 @@ export function createThreadService(options: ThreadServiceOptions) {
       updatedAt: review.modifiedAt,
       ...(place && { place }),
       ...(pullRequest && { pullRequest }),
+      ...(pullRequest && review.key && isPullReviewKey(review.key) && { fromPull: true }),
       ...(review.totals &&
         handoffTargets(review).length && {
           changes: {

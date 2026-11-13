@@ -1,12 +1,26 @@
 # Threads
 
-A thread is a Claude Code or Codex session, with its reviews: the ones that
-it handed off, and the pull requests that you added to it. A review is a
-captured change with its guide and comments, and it has its own place: the
-checkout and branch of its change. The thread shows one review at a time,
-and its Review, Changes, Commit, and files are that review's place. A
+A thread is a Claude Code or Codex session, with what it gives you to read.
+
+- A **review** is the agent's hand-off: a change that it captured for you,
+  with a guide that says how to read it. You read it, comment in its lines,
+  and the comments go back to the agent. The agent answers with a new
+  version of the same review. A review is for one thing: to agree on a
+  change with the agent before it leaves your machine.
+- A **pull request** is the same kind of change as GitHub has it, with its
+  description, its checks, and other people's comments. It has its own page.
+  A thread lists the pull requests of its reviews, and those that you added
+  by link.
+- **Changes** is the branch as it is now, live. It is not saved.
+
+A thread can hold several reviews and several pull requests. Each review
+has its own place: the checkout and branch of its change. The
+thread shows one review at a time, and its Review, Changes, Commit, and
+files are that review's place. A
 session is not tied to a folder: it can move to another branch or
-repository, and its row names the checkout where it works now. A review
+repository, and its row names the checkout where it works now. What the
+thread shows does not move with it: you choose that
+([A thread's pane](#a-threads-pane)). A review
 that no session handed off is a thread of its own. The threads that you have
 open are **tabs**. All other threads are **archived**.
 
@@ -18,9 +32,9 @@ registered repository in the last 7 days. A session that handed off several
 reviews, such as one for each branch, is one row; its session rail's
 **Reviews** lists them, newest first, and opens each one. The caret after
 the review's name in the review's header lists them too, also while the
-window is too narrow for the rail. Among several, a
-review with a pull request names it, such as "#333 open": the number, and
-the state once Med has read the pull request. A row's name is the
+window is too narrow for the rail. The rail's **Pull requests** lists the
+thread's pull requests, each with its number; a row opens that pull
+request's own page. A row's name is the
 name you gave it, else the session's title. `⌘1`–`⌘9` open the thread at that
 place in the list.
 A row shows the agent's mark and the session's name, and at most one dot: blue
@@ -193,14 +207,29 @@ scheduling when you ask for a check later.
   checkout that other sessions share, such as the main checkout, **Only this
   session's files** keeps the files that the thread's Claude Code or Codex
   session edited.
-- **Changes are the checkout of the review on screen.** A review of the
-  session's worktree shows that worktree's changes; a pull request's review
-  shows its own worktree's. With no review, or when the review's checkout is
-  gone or no checkout has its branch, they are the checkout where the
-  session works now. **A thread's row follows its session:** when the agent
-  moves to another branch, worktree, or repository, the row names the
-  checkout where it works now. Changes move there too, unless they are the
-  Changes of a review on screen. A session that works outside the
+- **You choose what the thread shows.** A thread with a review opens on its
+  newest review; with none, at the checkout where the agent works. Then it
+  stays. A review on screen leads: Changes are the
+  checkout of that review. A review of the session's worktree shows that
+  worktree's changes; a pull request's review shows its own worktree's. A
+  branch, worktree, or repository that you pick (`⌘⇧G`, `⌘O`, or the session
+  rail's **Thread** rows) shows inside the thread: its Changes, files, and
+  search are that branch's. A branch that no worktree has shows from Git:
+  its newest commit and its files, with no working changes. Med reads the
+  branch; it never switches the branch of a checkout. While Changes are a place that you picked, apart
+  from the review's, the pane's row reads "Changes" in place of the
+  review's name, and the rail marks no review. The pull request's page
+  keeps its name. When you show a review again, the review's place
+  leads again. Med does not keep the pick when the window reloads or when
+  another review of the thread shows. With no
+  review and no pick, or when the review's checkout is gone or no checkout
+  has its branch, Changes are the checkout where the thread's view started.
+- **The agent's moves do not move the thread.** When the agent moves to
+  another branch, worktree, or repository, the thread's row names the
+  checkout where it works now, and so does the session rail's **Agent**
+  section. Changes, the files, and search stay where they are. While the
+  thread shows another place, the branch's row in **Agent** shows the
+  agent's branch in the thread. A session that works outside the
   registered repositories has no Changes until it works in one. The
   comparison menu's button names the branch and its base, such as
   "station-search since main". The base is the one that you chose, else the
@@ -216,7 +245,8 @@ scheduling when you ask for a check later.
   numbers. A hand-off with another key is another review of the thread:
   **Reviews** in the session rail chooses which one shows, the newest at
   first. **Add a pull request…** in the palette (`⌘K`) takes a GitHub pull
-  request link and adds it as one more review
+  request link and adds the pull request to the thread; **Pull requests** in
+  the session rail lists it
   ([Pull requests](pull-requests.md#a-pull-request-in-a-thread)). A hand-off of several checkouts has a
   menu of them above the diff. Git's comparisons are only in **Changes**. In a thread with a Review, the **Changes** tab has no file
   count, so that the tabs keep their places. A thread opens on **Review**
@@ -234,11 +264,12 @@ scheduling when you ask for a check later.
   that has it checked out, or else its branch, as a read-only snapshot when no
   checkout has the branch. Its files are then a click away, and **Changes**
   and **Commit** are that checkout's. From a snapshot, **Changes** go to
-  where the thread's session works. A review whose repository Med no longer
+  the checkout where the thread's view started. A review whose repository Med no longer
   has offers **Add repository**, which adds it and opens the review.
 - The band above the workspace names the checkout that it shows: the
-  repository, the branch, and a linked worktree's folder. Click the branch to
-  copy its name, or the repository or the folder to copy the checkout's path;
+  repository and the branch. A worktree goes by its branch; one on a detached
+  HEAD, which has no branch, shows its folder. Click the branch to
+  copy its name, or the repository to copy the checkout's path;
   the part turns to the accent for a moment. In a thread with a pull request, the pull request leads the
   band, and the checkout follows it. With the installed app's title bar hidden, the band is the
   title bar, beside the window controls; while the sidebar is hidden, the band
@@ -250,12 +281,15 @@ word from the name is enough, and more words narrow it. A row shows the
 repository's name and its current branch; the folder shows only when two
 repositories share a name. `Tab` moves the repository into the box and
 searches its branches, its worktrees first; `⇧Tab` goes back. `↵` opens the
-repository's own checkout, or the branch; from a thread, it opens beside it.
+repository's own checkout, or the branch; in a thread, the thread shows it.
+`⌘↵` opens it as a new workspace.
 
 The branch switcher (`⌘⇧G`) searches the branches and worktrees of every
 registered repository. `↵` opens a branch in the current workspace; `⌘↵` opens
-it as a new workspace. In a thread, `↵` moves the thread to the branch's
-worktree (**Thread checkout**, above).
+it as a new workspace. In a thread, `↵` shows the branch inside the thread,
+on its **Changes**: the Changes, the files, and search are that branch's. The
+agent's checkout stays as it is (**You choose what the thread shows**,
+above).
 
 Tabs stay loaded, so a switch is immediate; with more than 16 tabs, the ones
 shown least recently unload and stay in the sidebar. Of the other workspaces,
@@ -298,12 +332,8 @@ background shells and agents. It follows the session live.
 - `⌘⇧B` hides the session pane. It does not stop or close the session: the
   agent keeps working, and its row in the sidebar shows its state. The
   review's **Restore**, `⌘K`, or `⌘⇧B` again, shows the pane.
-- A long session opens on its latest work. Scroll up for earlier work, or go
-  to a prompt from the prompt rail.
-- The **prompt rail** at the thread's right edge has a dash for each prompt,
-  the first at the top; the dash of the turn in view is longer and darker.
-  The pointer on the rail, or the focus in it, lists the prompts with their
-  times, and a click goes to one, loading the earlier pages back to it.
+- A long session opens on its latest work. Scroll up for earlier work, or
+  step back through its prompts with `{`, which also loads the earlier pages.
 - Under a turn's final reply, as in Claude Desktop: **Copy**, which copies
   the whole reply as Markdown; **Fork from here**; and how long ago the reply
   came (hover it for the date and time). They show while the pointer or the
@@ -312,8 +342,9 @@ background shells and agents. It follows the session live.
 - **Fork from here**, on a Claude Code session's reply, starts a new thread on
   the same checkout. Its session starts from this one's history up to that
   reply, with the reply's model and effort, so it reads the session's prompt
-  cache. The new thread opens in front and shows that history until you send
-  its first message; the thread that you forked stays as it is.
+  cache. It starts in **Auto** mode, as a new thread does. The new thread
+  opens in front and shows that history until you send its first message; the
+  thread that you forked stays as it is.
 - A finished turn shows its prompt and final reply; its other work folds into
   one **Worked for** row. Click the row to open that turn.
 - **Times** show only the digits that change as often as Med updates them. A
@@ -389,10 +420,18 @@ The pane's header
 shows how full
 the context is and what the thread has spent, subagents included; click it
 for where autocompact starts and each model's tokens. A pane with room beside
-its thread shows the session rail instead: the context, the spend, the background
-tasks, the subagents, links to the thread's Review, Changes, and pull request
-(its **Pull request** page in Med, which links to GitHub), and where the
-agent works. There the subagents are a list, with each one's
+its thread shows the session rail instead, a pane of plain sections:
+**Thread** (the repository and the branch that the thread shows; the
+repository's row opens the repositories, and the branch's row the branches
+and worktrees), **Agent** (the agent with its model and what runs it, and
+the branch where the agent works; that row shows the agent's branch in the
+thread when the thread shows another place), **Reviews** (the agent's
+hand-offs), **Pull requests** (a row opens that pull request's
+page in Med, which links to GitHub), the background tasks, the subagents,
+**Spend**, and **Context**. The rail shows no folder names: a worktree goes
+by its repository's name and its branch. (A session that works outside the
+registered repositories has only its folder's name.) Spend and Context are one line each until you
+open them. There the subagents are a list, with each one's
 state, in place of the tabs over the thread. Its list button in the header, `⌘⌥⇧B`, or `⌘K` hides or shows it.
 
 - **Mode** shows the mode that Claude Code reports, also after an approved
@@ -400,7 +439,8 @@ state, in place of the tabs over the thread. Its list button in the header, `⌘
   ask**, or **Bypass permissions**. Med starts a new Claude Code session in
   **Auto**, where a classifier allows safe actions and asks about risky ones.
   A thread's next session starts in the mode that the thread chose last,
-  except Bypass. A session keeps its own mode when it resumes. `⇧Tab` in the message box steps through
+  except Bypass. A fork (**Fork from here**, **Continue in Med**) starts in
+  **Auto**. A session keeps its own mode when it resumes. `⇧Tab` in the message box steps through
   Ask, Accept edits, Plan, and Auto, as in the terminal; Bypass joins them once
   you chose it. **Bypass permissions** asks first. If Claude Code started
   without it, Med starts it again with the same session, between turns.

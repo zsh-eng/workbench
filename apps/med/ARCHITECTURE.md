@@ -326,11 +326,18 @@ its place, and its pull request) and shows one at a time. The review on
 screen projects its place: selecting a review moves the workspace to its
 checkout, and Review, Changes, Commit, the file list, search, and open files
 are that checkout's (`reviewPlace` and `reviewChanges` in
-`src/web/data/review-place.ts`). A session is not tied to a folder: its
-thread's place is the checkout where it works now, the newest of its
-transcript's folders in a registered checkout. Changes are the thread's place
-only with no review, or when the review's checkout is gone or no checkout
-has its branch. The sidebar lists the sessions that Med
+`src/web/data/review-place.ts`). A session is not tied to a folder: the
+agent's place is the checkout where it works now, the newest of its
+transcript's folders in a registered checkout. The thread's view is apart
+from it: the view starts at the newest review, or with none at the agent's
+checkout, and after that the reader moves it, with a review, a branch, or a
+checkout (`origin`, `view`, and `follow` in `src/web/data/controller.ts`).
+Two things move it without the reader: a new version of the review on
+screen that is in another checkout, and a reload or a switch to another
+review of the thread, which start the view again (the controller is new).
+Changes are the reader's choice when there is one, else the checkout of the
+review on screen, else the place where the view started. The snapshot's
+`apart` says that Changes are a choice that is not the review's checkout. The sidebar lists the sessions that Med
 started or the user kept, the sessions that handed off a review, and those
 that worked in a registered repository in the last 7 days
 (`src/host/session-index.ts`, [found sessions](docs/SESSIONS.md#found-sessions)).
@@ -510,7 +517,7 @@ private files and a cross-process write lock protect the records. Saved source
 does not follow watcher events.
 
 A thread's bundle is its **Review**: the versions (the bundle's iterations)
-that the agent hands off with `med thread show`, `med review create --key`, or
+that the agent hands off with `med review create --key` or
 `POST /api/reviews/:id/versions`. A thread that New thread, Keep in Med, or
 `med thread adopt` makes saves only its checkout (`checkout`: repository,
 path, branch) and no target. Its **Changes** are a live comparison of that

@@ -125,6 +125,7 @@ const pullReview = (now: number, state?: "open" | "merged"): ThreadReview => ({
   updatedAt: now - 500,
   place: { repository: tide, checkout: PULL_TREE, branch: "durations", linked: true },
   pullRequest: { url: PULL_URL, number: 7, title: "Add durations", ...(state && { state }) },
+  fromPull: true,
 });
 const events = [
   {
@@ -527,6 +528,7 @@ test("Changes are the checkout of the review on screen: a pull request's worktre
   render(host);
   await openThread();
   const reviews = page.getByRole("region", { name: "Reviews" });
+  const pulls = page.getByRole("region", { name: "Pull requests" });
   await expect.poll(shown).toBe("rev-a-target");
 
   // The session's own review is of the checkout where it works: its Changes
@@ -538,8 +540,17 @@ test("Changes are the checkout of the review on screen: a pull request's worktre
   // The pull request's review is in its own worktree. The session still
   // works in /test/repo; Changes are the worktree's branch, since the base
   // that the review names, not the repository's main.
-  await reviews.getByRole("button", { name: /^Add durations/ }).click();
+  await pulls.getByRole("button", { name: /^Add durations/ }).click();
   await expect.poll(shown).toBe("pull-target");
+  // Its row opens its own page, once its review shows.
+  await expect.element(pages().getByRole("radio", { name: "Pull request" })).toBeChecked();
+  // The band names the worktree by its branch, with no folder beside it:
+  // the repository's name is the one part that copies the path.
+  const band = page.getByRole("banner", { name: "Workspace" });
+  await expect
+    .element(band.getByRole("button", { name: "durations. Copy the branch name" }))
+    .toBeVisible();
+  expect(band.getByRole("button", { name: /\. Copy the path$/ }).elements()).toHaveLength(1);
   await pages().getByRole("radio", { name: "Changes" }).click();
   await expect.poll(shown).toBe(`live-${PULL_TREE}`);
   expect(host.reviews.at(-1)).toEqual({
@@ -550,6 +561,25 @@ test("Changes are the checkout of the review on screen: a pull request's worktre
     .element(page.getByRole("combobox", { name: "Comparison" }))
     .toMatchTextContent("durations since release");
   expect(sessionShown()).toBe(true);
+  // The reader shows the agent's branch. These Changes are not the pull
+  // request's: the row names the page, and no row of the rail is current.
+  await page
+    .getByRole("region", { name: "Agent" })
+    .getByRole("button", { name: "main. Show the agent's branch" })
+    .click();
+  await expect.poll(shown).toBe("live-/test/repo");
+  const apart = page.getByRole("heading", { name: "Changes", level: 2 });
+  await expect.element(apart).toBeVisible();
+  expect(pulls.element().querySelector("[aria-current]")).toBeNull();
+  // The pull request's page is still its own, and its review leads again.
+  await pulls.getByRole("button", { name: /^Add durations/ }).click();
+  await expect.element(pages().getByRole("radio", { name: "Pull request" })).toBeChecked();
+  await expect.element(apart).not.toBeInTheDocument();
+  await pages().getByRole("radio", { name: "Review" }).click();
+  await expect.poll(shown).toBe("pull-target");
+  await pages().getByRole("radio", { name: "Changes" }).click();
+  await expect.poll(shown).toBe(`live-${PULL_TREE}`);
+  await expect.element(apart).not.toBeInTheDocument();
   // The session moves to another checkout. The Changes on screen are the
   // review's: they stay in its worktree.
   const moved = host.reviews.length;
@@ -561,9 +591,11 @@ test("Changes are the checkout of the review on screen: a pull request's worktre
       reviews: [...thread.reviews, pullReview(now - 9000)],
     },
   ]);
+  // The rail says where the agent works now, and what the thread shows.
+  await expect.element(page.getByRole("region", { name: "Agent" })).toMatchTextContent("next");
   await expect
-    .element(page.getByRole("region", { name: "Environment" }))
-    .toMatchTextContent("next");
+    .element(page.getByRole("region", { name: "Thread" }))
+    .toMatchTextContent("durations");
   expect(shown()).toBe(`live-${PULL_TREE}`);
   expect(host.reviews.slice(moved)).toEqual([]);
   // The Review and its Changes are one place: going back and forth reads
@@ -599,13 +631,13 @@ test("Changes are the checkout of the review on screen: a pull request's worktre
   expect(page.getByRole("tab", { name: /tides\.ts/ }).query()).toBeNull();
 
   // The pull request's review again: its checkout, with the file that was open there.
-  await reviews.getByRole("button", { name: /^Add durations/ }).click();
+  await pulls.getByRole("button", { name: /^Add durations/ }).click();
   await expect.poll(shown).toBe("pull-target");
   await expect.element(page.getByRole("tab", { name: /tides\.ts/ })).toBeVisible();
   expect(sessionShown()).toBe(true);
 });
 
-test("the Reviews list says which review has which pull request, and its state once Med has read it", async () => {
+test("the rail lists hand-offs under Reviews and pull requests in a section of their own, each with its number and state", async () => {
   const now = Date.now();
   const thread = sessionThread(now);
   const [week, month] = thread.reviews;
@@ -625,30 +657,115 @@ test("the Reviews list says which review has which pull request, and its state o
   render(host);
   await openThread();
   const reviews = page.getByRole("region", { name: "Reviews" });
+  const pulls = page.getByRole("region", { name: "Pull requests" });
   await expect.poll(shown).toBe("rev-a-target");
-  // A review without a pull request names none; the others name theirs.
+  // Reviews are what the agent handed off. The review that Med captured from
+  // pull request #7's link is not one of them, and no row here has a number.
   await expect.element(reviews.getByRole("button", { name: /^Week view/ })).toBeVisible();
-  expect(reviews.getByRole("button", { name: /^Week view/ }).element().textContent).not.toContain(
-    "#",
-  );
+  await expect.element(reviews.getByRole("button", { name: /^Month view/ })).toBeVisible();
+  expect(reviews.getByRole("button").elements()).toHaveLength(2);
+  expect(reviews.element().textContent).not.toContain("#");
+  // Each pull request has one row: a hand-off's, and the one from a link.
   await expect
-    .element(reviews.getByRole("button", { name: /^Month view/ }))
-    .toMatchTextContent("#3 open");
+    .element(pulls.getByRole("button", { name: "Month view. Pull request #3, open" }))
+    .toMatchTextContent("#3");
   // Nothing has read #7 yet: the number alone.
-  await expect
-    .element(reviews.getByRole("button", { name: /^Add durations/ }))
-    .toMatchTextContent("#7 · ");
+  const seven = pulls.getByRole("button", { name: /^Add durations\. Pull request #7/ });
+  await expect.element(seven).toHaveAccessibleName("Add durations. Pull request #7");
+  expect(pulls.getByRole("button").elements()).toHaveLength(2);
 
-  // The host read it: the row names the state, also for the review on screen.
+  // The host read it: the row says the state, in its name and its mark.
   host.setThreads([withPulls("merged")]);
-  await expect
-    .element(reviews.getByRole("button", { name: /^Add durations/ }))
-    .toMatchTextContent("#7 merged");
-  await reviews.getByRole("button", { name: /^Add durations/ }).click();
+  await expect.element(seven).toHaveAccessibleName("Add durations. Pull request #7, merged");
+  expect(seven.element().querySelector("[data-state]")?.getAttribute("data-state")).toBe("merged");
+  expect(pulls.element().textContent?.match(/#7/g)).toHaveLength(1);
+
+  // The row opens the pull request's own page, from another review too. It
+  // is the one on screen then, and no hand-off is.
+  await seven.click();
   await expect.poll(shown).toBe("pull-target");
+  await expect.element(pages().getByRole("radio", { name: "Pull request" })).toBeChecked();
+  await expect.element(seven).toHaveAttribute("aria-current", "true");
+  expect(reviews.element().querySelector("[aria-current]")).toBeNull();
+});
+
+test("the rail names what the thread shows and where the agent works, apart, with no folder names; the thread's rows open their pickers", async () => {
+  const thread = sessionThread(Date.now());
+  render(
+    createHost([
+      {
+        ...thread,
+        // The agent works in a worktree of the repository.
+        checkout: "/test/worktrees/week-view-tree",
+        branch: "week-view",
+        linked: true,
+      },
+    ]),
+  );
+  await openThread();
+  await expect.poll(shown).toBe("rev-a-target");
+  // The thread shows its review's place; the agent's branch is its own row.
+  const place = page.getByRole("region", { name: "Thread" });
+  const agent = page.getByRole("region", { name: "Agent" });
+  const branch = place.getByRole("button", { name: "main. Show another branch or worktree" });
+  await expect.element(branch).toBeVisible();
+  await expect.element(agent).toMatchTextContent("week-view");
+  expect(place.element().textContent).not.toContain("week-view");
+  for (const region of [place, agent]) {
+    expect(region.element().textContent).not.toContain("week-view-tree");
+    expect(region.element().textContent).not.toContain("worktrees");
+  }
+  await place.getByRole("button", { name: /\. Show another repository$/ }).click();
+  await expect.element(page.getByRole("dialog", { name: "Open repository" })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await branch.click();
+  await expect.element(page.getByRole("combobox", { name: "Search branches" })).toBeVisible();
+});
+
+test("a branch picked in a thread shows in the thread, and the Agent row leads back, also from a branch that Git shows", async () => {
+  const host = createHost([sessionThread(Date.now())]);
+  render(host);
+  await openThread();
+  await expect.poll(shown).toBe("rev-a-target");
+  const at = location.pathname;
+  const place = page.getByRole("region", { name: "Thread" });
+  const agent = page.getByRole("region", { name: "Agent" });
+  const back = agent.getByRole("button", { name: "main. Show the agent's branch" });
+  // The review is in the agent's checkout: nothing to lead back from.
+  await expect.element(agent).toMatchTextContent("main");
+  expect(back.elements()).toHaveLength(0);
+  const pick = async (name: string) => {
+    await place.getByRole("button", { name: /\. Show another branch or worktree$/ }).click();
+    await page.getByRole("combobox", { name: "Search branches" }).fill(name);
+    await userEvent.keyboard("{Enter}");
+  };
+  // A branch with a worktree: its Changes show here, in no other workspace,
+  // and they are not the review's.
+  await pick("durations");
+  await expect.poll(shown).toBe(`live-${PULL_TREE}`);
+  expect(location.pathname).toBe(at);
+  await expect.element(place).toMatchTextContent("durations");
+  await expect.element(pages().getByRole("radio", { name: "Changes" })).toBeChecked();
+  await expect.element(page.getByRole("heading", { name: "Changes", level: 2 })).toBeVisible();
+  await expect.element(agent).toMatchTextContent("main");
+  // A branch with no checkout shows from Git, in the agent's own folder.
+  // The Agent row still leads back to the agent's branch.
+  await pick("release");
+  await expect.element(place).toMatchTextContent("release");
+  expect(host.reviews.at(-1)?.repo).toBe("/test/repo");
+  expect(location.pathname).toBe(at);
+  await back.click();
+  await expect.element(place).toMatchTextContent("main");
   await expect
-    .element(reviews.getByRole("button", { name: /^#7 Add durations/ }))
-    .toMatchTextContent("#7 merged");
+    .poll(() => host.reviews.at(-1))
+    .toEqual({ repo: "/test/repo", comparison: { kind: "working" } });
+  await expect.poll(() => back.elements().length).toBe(0);
+  // The review leads again, with its name.
+  await pages().getByRole("radio", { name: "Review" }).click();
+  await expect.poll(shown).toBe("rev-a-target");
+  await expect
+    .element(page.getByRole("heading", { name: "Changes", level: 2 }))
+    .not.toBeInTheDocument();
 });
 
 test("Add a pull request… on a thread with no review shows the review, before the thread list has it", async () => {
@@ -686,6 +803,7 @@ test("Add a pull request… adds it to the thread as one more review; a link tha
   render(host);
   await openThread();
   const reviews = page.getByRole("region", { name: "Reviews" });
+  const pulls = page.getByRole("region", { name: "Pull requests" });
   await expect.poll(shown).toBe("rev-a-target");
   /** The workspaces that the window has mounted. */
   const slots = () => document.querySelectorAll("[data-workspace-slot]").length;
@@ -739,8 +857,9 @@ test("Add a pull request… adds it to the thread as one more review; a link tha
   expect(location.pathname).toBe("/review/claude-s1");
   expect(sessionShown()).toBe(true);
   await expect
-    .element(reviews.getByRole("button", { name: /^#7 Add durations/ }))
-    .toMatchTextContent("#7 open");
+    .element(pulls.getByRole("button", { name: /^Add durations/ }))
+    // The state is the thread list's, then the page's own read of GitHub.
+    .toHaveAccessibleName(/^Add durations\. Pull request #7, (open|merged)$/);
 
   // The same link again asks the host nothing: its review shows.
   await reviews.getByRole("button", { name: /^Week view/ }).click();

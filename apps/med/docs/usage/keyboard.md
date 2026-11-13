@@ -43,6 +43,9 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Close all files in the workspace       | `⌥⇧W`           |
 | Close other files                      | `⌥⇧O`           |
 
+In a thread, `⌘O` and `⌘⇧G` show the repository, branch, or worktree inside
+the thread; `⌘↵` in the picker opens a new workspace.
+
 Close actions keep the Changes tab and other workspaces. Tab numbers count the
 Review, Changes, Commit, and Search tabs with the file tabs. A browser can take some
 shortcuts first; the command palette has the same actions.

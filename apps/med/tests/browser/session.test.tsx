@@ -777,6 +777,37 @@ test("[ and ] step through the prompts and replies of a focused thread", async (
   expect(current()).toBeUndefined();
 });
 
+test("{ and } step through the prompts, and { goes on to one on a page not yet loaded", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  // The thread holds turns 5 to 7; the session's index also lists turn 4.
+  const store = longThread(3, 5);
+  const asked: number[] = [];
+  root!.render(
+    <SessionThread
+      snapshot={store.getSnapshot()}
+      turns={[
+        { offset: 0, at: 4000, text: "Prompt 4" },
+        { offset: 900, at: 5000, text: "Prompt 5" },
+      ]}
+      onTurn={(turn) => asked.push(turn.offset)}
+    />,
+  );
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r7");
+  const current = () => document.querySelector<HTMLElement>("[data-current]")?.textContent;
+  threadScroller().focus();
+  await userEvent.keyboard("{{");
+  await expect.poll(current).toContain("Prompt 7");
+  await userEvent.keyboard("{{{{");
+  await expect.poll(current).toContain("Prompt 5");
+  await userEvent.keyboard("}");
+  await expect.poll(current).toContain("Prompt 6");
+  expect(asked).toEqual([]);
+  // Before the first loaded prompt, the thread asks for the one before it.
+  await userEvent.keyboard("{{{{");
+  await expect.poll(() => asked).toEqual([0]);
+});
+
 test("a prompt shows its quotes as Claude does, without reply markers", async () => {
   await page.viewport(1280, 900);
   initializeTheme();

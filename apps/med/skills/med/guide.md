@@ -129,7 +129,10 @@ med review update --key <task> --pr <url>          # link it to the review
 
 - Fill the template; without one, say why, what changed, and how you
   checked it.
-- Once it is linked, the thread shows the pull request live.
+- Once it is linked, the thread lists the pull request and shows it live.
+- Another pull request, such as one that another person opened, when the
+  user asks: `med thread pr <id> <link>` adds it to the thread (see "Threads
+  and earlier sessions").
 
 ## Comments from the user
 
@@ -151,17 +154,29 @@ message the same way, until the user says the task is done.
 
 ## Threads and earlier sessions
 
-A thread is an agent session, wherever it works: its Changes follow the
-checkout it works in now, and its reviews are the ones it handed off. A
-review that no session handed off is a thread of its own. The threads the
-user has open are tabs in Med; the others are archived. Only act on threads
-the user names.
+A thread is an agent session, wherever it works, with the reviews that it
+handed off and its pull requests. It can hold several of each. A review is
+the agent's hand-off, which the user reads and comments on; a pull request
+is the change as GitHub has it, on a page of its own. A review that no
+session handed off is a thread of its own. The threads the user has open are
+tabs in Med; the others are archived. Only act on threads the user names.
+
+What a thread shows does not follow its agent. It opens on the thread's
+newest review, or with none at the checkout where the agent works, and stays
+there until the user chooses a review, a branch, or a worktree. Do not assume that the user sees the checkout where
+you work now. For work on another branch, or in another worktree or
+repository, hand off a review with that checkout's `--repo` and its own
+`--key`, or name the branch in your message.
+
+A fork of a session (**Continue in Med**, **Fork from here**) is a new
+session. It starts in Auto permission mode, whatever the mode of the session
+that it forks.
 
 ```sh
 med thread list [--archived] [--json]    # ID, state, repository/branch, title
 med thread open <id> | close <id>        # close keeps the agent running
 med thread send <id> "<message>"         # to a thread's agent; --after-turn waits
-med thread pr <id> <pull request link>   # one more review of the thread, in its own worktree
+med thread pr <id> <pull request link>   # adds it to the thread, in its own worktree
 med thread find tide prediction          # sessions of any age, newest first
 med thread adopt claude:<session-id>     # keep a session in Med; prints its link
 ```

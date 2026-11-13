@@ -135,8 +135,10 @@ export function ContextNotes({ context }: { context: ShownContext }) {
 
 /** The thread's total, its subagents' share, and each model's tokens. */
 export function SpendBlock({ usage, table = true }: { usage: ThreadUsage; table?: boolean }) {
-  const { spend } = usage;
+  const { spend, prices } = usage;
   const unpriced = spend.models.filter((model) => model.cost === null);
+  // One date in the note when both price pages were read on the same day.
+  const oneDate = !prices.openai || prices.openai.readAt === prices.readAt;
   return (
     <div {...stylex.props(styles.block)}>
       {/* A card's title has the total; a popover's table starts with it. */}
@@ -208,39 +210,33 @@ export function SpendBlock({ usage, table = true }: { usage: ThreadUsage; table?
       )}
       {unpriced.length > 0 && (
         <p {...stylex.props(styles.line, styles.note)}>
-          Med has no price for {unpriced.map((model) => modelName(model.model)).join(", ")}, so the
-          total leaves {unpriced.length === 1 ? "it" : "them"} out.
+          No price for {unpriced.map((model) => modelName(model.model)).join(", ")}: not in the
+          total.
         </p>
       )}
       {spend.missing.length > 0 && (
         <p {...stylex.props(styles.line, styles.note)}>
-          Not available for {[...new Set(spend.missing)].join(", ")}: no token counts in the
-          transcript.
+          No token counts for {[...new Set(spend.missing)].join(", ")}: not in the total.
         </p>
       )}
-      <p {...stylex.props(styles.line, styles.note)}>
-        An estimate at list price from the transcripts; Claude Code also makes small requests that
-        they leave out. Prices read {usage.prices.readAt} from{" "}
-        <a
-          href={usage.prices.source}
-          target="_blank"
-          rel="noreferrer"
-          {...stylex.props(styles.link)}
-        >
-          Anthropic's pricing page
+      <p {...stylex.props(styles.line, styles.note, styles.prose)}>
+        Estimate at list prices{oneDate ? ` of ${prices.readAt}` : ""}:{" "}
+        <a href={prices.source} target="_blank" rel="noreferrer" {...stylex.props(styles.link)}>
+          Anthropic
         </a>
-        {usage.prices.openai && (
+        {!oneDate && ` ${prices.readAt}`}
+        {prices.openai && (
           <>
-            {" "}
-            and {usage.prices.openai.readAt} from{" "}
+            {", "}
             <a
-              href={usage.prices.openai.source}
+              href={prices.openai.source}
               target="_blank"
               rel="noreferrer"
               {...stylex.props(styles.link)}
             >
-              OpenAI's
+              OpenAI
             </a>
+            {!oneDate && ` ${prices.openai.readAt}`}
           </>
         )}
         .
@@ -389,6 +385,8 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
   },
   note: { color: tokens.faint, fontSize: 11.5, minWidth: 0, overflowWrap: "anywhere" },
+  // A sentence with links in it: one run of text, not parts set apart.
+  prose: { display: "block" },
   total: { fontSize: 15, fontWeight: 500 },
   table: {
     width: "100%",

@@ -24,7 +24,8 @@ export interface WorkspaceSession {
  * A thread of the sidebar: an agent session, or a review that no session
  * handed off (src/shared/threads.ts). It shows one of the thread's reviews,
  * with its session, at that review's place: its Changes are the review's
- * checkout's, or with no review the checkout where the session works now.
+ * checkout's, or a place that the reader chose; with neither, the checkout
+ * where the view started. The session's moves do not move it.
  */
 export interface ThreadWorkspace extends WorkspaceBase {
   kind: "thread";
@@ -32,8 +33,8 @@ export interface ThreadWorkspace extends WorkspaceBase {
   threadId: string;
   /** The review that shows, of the thread's reviews; the newest without it. */
   reviewId?: string;
-  /** Where the thread works now, as the thread list said last: its Changes
-   * and Commit follow it while no review of another checkout shows. */
+  /** Where the thread's agent works now, as the thread list said last. The
+   * view starts there and then stays (`follow` in controller.ts). */
   path?: string;
   repositoryId?: string;
   branch?: string;

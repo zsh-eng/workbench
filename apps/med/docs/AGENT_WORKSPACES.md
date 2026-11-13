@@ -164,7 +164,8 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   terminal runs (`--resume <id> --fork-session --session-id <new ID>`), and
   **Fork from here** forks a reply into a thread of its own
   (`--resume-session-at`). Both, and `resume`, start with the model and effort
-  of the session's last reply ([SESSIONS.md](SESSIONS.md#model-and-effort-of-a-session-med-did-not-start)). A
+  of the session's last reply ([SESSIONS.md](SESSIONS.md#model-and-effort-of-a-session-med-did-not-start)); a
+  fork starts in Auto mode, as a new session does. A
   Codex thread resumes the same way through `thread/resume` when no other
   process has it open (`~/.codex/thread-writer-locks/<id>.lock`,
   `src/host/agent-locks.ts`); Med sends nothing to one that Codex Desktop or
@@ -385,8 +386,8 @@ before a byte offset, and `GET …/turns` lists each prompt with its offset from
 an index that grows with the file. The store keeps a result whose call is on an
 earlier page until that page arrives. The thread renders at most 600 top-level
 rows, loads the earlier page near its top, and keeps the first visible row in
-place. The prompt rail at the thread's edge lists the prompts from that index
-with the thread's own, and goes to one by loading each page back to it.
+place. From the first loaded prompt, `{` goes to the prompt before it in that
+index: the thread loads each page back to it.
 
 ## Model, effort, and commands
 
@@ -413,16 +414,18 @@ Attaching to another agent needs a reader for its transcript format.
 A thread has two views of its work, in the tabs **Review** and **Changes**.
 
 - **Changes** are the checkout's Git changes now, read with each change
-  event and never saved. On a branch other than the base, they are the
+  event and never saved. The checkout is the one that the thread shows: the
+  reader's pick, else the place of the review on screen, else the checkout
+  where the agent worked when the view started. The agent's later moves do
+  not change it ([session rail](SESSIONS.md#session-rail)). On a branch other than the base, they are the
   branch's commits since its merge base with the base branch, and its
   uncommitted changes (`{ kind: "working", base }`); on the base branch, the
   working changes. In a shared checkout (the main checkout, or a checkout
   with two or more threads' sessions), **Only this session's files** adds
   `session` to the comparison, and the host keeps the files that the session's
   transcript edited (`src/host/session-edits.ts`).
-- **Review** holds what the agent hands off. `med thread show` adds a version
-  (`POST /api/reviews/:id/versions`), and so does `med review create` with the
-  thread's key. New thread, **Keep in Med**, and `med thread adopt`
+- **Review** holds what the agent hands off. `med review create` with the
+  thread's key adds a version (`POST /api/reviews/:id/versions`). New thread, **Keep in Med**, and `med thread adopt`
   save only the thread's checkout, so a thread has no Review until its agent
   shows one. An older thread's first capture is version 1; an empty capture
   alone is not a Review.

@@ -451,9 +451,10 @@ test("a session on a shared checkout keeps its own files on request, and shows t
   await userEvent.keyboard("{Escape}");
 });
 
-test("a thread's Comparison menu keeps a base for its Changes, and the thread follows its session", async () => {
-  // The Changes page's sidebar shows, with the comparison at its top.
-  await page.viewport(1800, 800);
+test("a thread's Comparison menu keeps a base for its Changes, and the agent's move leaves the thread's view", async () => {
+  // The Changes page's sidebar shows, with the comparison at its top, and
+  // the session has room for its rail.
+  await page.viewport(2600, 800);
   localStorage.setItem("med:changes-rail", "open");
   const thread = found({ state: "idle" });
   const host = createHost([thread]);
@@ -506,8 +507,24 @@ test("a thread's Comparison menu keeps a base for its Changes, and the thread fo
       .toEqual({ path: `/api/threads/${FOUND}/base`, body: { base: null } });
     await expect.element(select).toHaveTextContent("glossary since main");
 
-    // The session moves to the main checkout: the thread's Changes follow it.
+    // The agent moves to the main checkout. The rail says where it works
+    // now; what the thread shows stays, and Med reads no other checkout.
+    const asked = host.reviews.length;
     host.setThreads([{ ...thread, checkout: "/test/repo", linked: undefined, branch: "main" }]);
+    await expect.element(page.getByRole("region", { name: "Agent" })).toMatchTextContent("main");
+    await expect
+      .element(page.getByRole("region", { name: "Thread" }))
+      .toMatchTextContent("glossary");
+    await expect.element(select).toHaveTextContent("glossary since main");
+    // A move of the view would read the agent's checkout a moment later.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(host.reviews.slice(asked).map((request) => request.repo)).not.toContain("/test/repo");
+    await expect.element(select).toHaveTextContent("glossary since main");
+    // The agent's branch is one click away.
+    await page
+      .getByRole("region", { name: "Agent" })
+      .getByRole("button", { name: "main. Show the agent's branch" })
+      .click();
     await expect
       .poll(() => host.reviews.at(-1))
       .toEqual({ repo: "/test/repo", comparison: { kind: "working" } });

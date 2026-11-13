@@ -332,9 +332,20 @@ test("Continue in Med forks the session; the thread follows the fork, which take
     title: "Durations",
     session: { agent: "claude", id: fork },
   });
-  expect(await args(fork)).toEqual(
+  const forkArgs = await args(fork);
+  expect(forkArgs).toEqual(
     expect.arrayContaining(["--resume", session, "--fork-session", "--session-id", fork]),
   );
+  // The fork starts in Auto, as a new session does, and its settings say so.
+  expect(forkArgs[forkArgs.indexOf("--permission-mode") + 1]).toBe("auto");
+  await expect
+    .poll(
+      async () =>
+        (await api<OwnedState>(`/api/sessions/claude-${fork}/owned`)).data.settings.find(
+          (setting) => setting.category === "mode",
+        )?.value,
+    )
+    .toBe("auto");
   // The fork starts from the session's history and takes the next message.
   expect((await send("Try the other format.", fork)).message.delivery).toBe("delivered");
   await vi.waitFor(async () =>
@@ -378,8 +389,8 @@ async function firstView(port: number, token: string, thread: string) {
   return [];
 }
 
-test("Fork from here makes a thread whose session starts from the history up to a reply, with that reply's model and effort", async () => {
-  const { api, id, original, tabs, args, prompts, started } = await fixture(TWO_TURNS);
+test("Fork from here makes a thread whose session starts from the history up to a reply, with that reply's model and effort, in Auto", async () => {
+  const { api, id, original, tabs, args, prompts, started, restart } = await fixture(TWO_TURNS);
   const before = await readFile(original, "utf8");
   const forked = await api<SessionForked>(`/api/sessions/${id}/fork`, { at: "a1" });
   expect(forked.status).toBe(200);
@@ -396,6 +407,8 @@ test("Fork from here makes a thread whose session starts from the history up to 
   expect(forkArgs[forkArgs.indexOf("--resume-session-at") + 1]).toBe("a1");
   expect(forkArgs[forkArgs.indexOf("--model") + 1]).toBe("claude-opus-5-5");
   expect(forkArgs[forkArgs.indexOf("--effort") + 1]).toBe("high");
+  // Its mode is Auto, as a new session's.
+  expect(forkArgs[forkArgs.indexOf("--permission-mode") + 1]).toBe("auto");
   // The message box shows them, also a model that Claude Code does not list,
   // once the fork's agent has answered.
   const read = async () => (await api<OwnedState>(`/api/sessions/${forked.data.id}/owned`)).data;
@@ -409,6 +422,9 @@ test("Fork from here makes a thread whose session starts from the history up to 
   expect(model?.value).toBe("claude-opus-5-5");
   expect(model?.options.map((option) => option.value)).toContain("claude-opus-5-5");
   expect(owned.settings.find((setting) => setting.category === "effort")?.value).toBe("high");
+  const modeOf = (state: OwnedState) =>
+    state.settings.find((setting) => setting.category === "mode")?.value;
+  expect(modeOf(owned)).toBe("auto");
 
   // Before its first prompt, the thread shows the history it starts from.
   const host = hosts.at(-1)!;
@@ -436,6 +452,9 @@ test("Fork from here makes a thread whose session starts from the history up to 
   });
   expect(missing.status).toBe(404);
   expect(missing.data.error.code).toBe("message-not-found");
+  // Med's record of the fork holds the mode: it is the same after a restart.
+  await restart();
+  await expect.poll(async () => modeOf(await read())).toBe("auto");
 });
 
 test("a kept session resumes with its last reply's model and effort, and Continue in Med forks with them", async () => {

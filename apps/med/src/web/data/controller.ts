@@ -84,6 +84,9 @@ export interface ReviewControllerSnapshot {
   fileComments: FileComment[];
   savedTargetId: string | null;
   savedView: boolean;
+  /** Changes show a place that the reader chose, apart from the checkout of
+   * the review on screen: they are not that review's Changes. */
+  apart: boolean;
   /** The saved view shows only what changed since this earlier version. */
   savedSince: number | null;
   /** The diff belongs to the thread's Review: a saved version, or a commit
@@ -198,17 +201,18 @@ export interface ReviewController {
   placeLines(
     lines: readonly { path: string; side: "old" | "new"; line: number; endLine?: number }[],
   ): Promise<({ line: number; endLine?: number } | null)[]>;
-  /** The Changes tab: the live comparison of the checkout of the review on
-   * screen, or of the thread's checkout when the review has none. It is the
+  /** The Changes tab: the live comparison of the place that the reader chose
+   * for the thread (selectBranch, selectWorktree), else of the checkout of
+   * the review on screen, else of the checkout where the view started. It is the
    * one that the reader chose last, or by default the branch's changes on a
    * branch other than its base, and the working changes on the base. */
   showChanges(): Promise<void>;
   /** Changes again after a commit of the list beside them: the live
    * comparison that showed before it. */
   showAllChanges(): Promise<void>;
-  /** The thread works somewhere else now, such as another repository or
-   * branch, or the reader chose another base. Its Changes follow, unless
-   * they are the Changes of the review on screen, which stay in its checkout. */
+  /** The thread's agent works somewhere else now, such as another repository
+   * or branch, or the reader chose another base. What the thread shows stays:
+   * only the agent's first place, when none was known, opens. */
   follow(place: ThreadPlace): Promise<void>;
   /** Shows the branch's changes since `comparison.base`. On the thread's own
    * checkout, the thread keeps that base. */
@@ -443,6 +447,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     fileComments: [],
     savedTargetId: null,
     savedView: false,
+    apart: false,
     savedSince: null,
     inReview: false,
     savedDrift: null,
@@ -1081,13 +1086,33 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     const base = changesBase(repository, snapshot.session?.repository.branch, ownBase(path));
     return base ? { kind: "working", base } : { kind: "working" };
   };
-  /** Where the thread works now, as its workspace said last. */
+  /** Where the thread's agent works now, as its workspace said last. The
+   * agent's moves do not move what the thread shows. */
   let place = options.thread;
+  /** Where the thread's view started: the agent's checkout then. */
+  let origin = options.thread?.path;
+  /** The checkout or branch that the reader chose for the thread to show.
+   * Its Changes are that place's, until a review shows again. */
+  let view: { path: string; branch?: Branch } | undefined;
   /** The Changes of the review on screen: the live checkout of the
    * comparison that shows, else of its current version's first. None with
    * no review, or when no checkout has its code: Changes are the thread's. */
   const ownChanges = (repositories = snapshot.repositories) =>
     reviewChanges(repositories, changesTarget(snapshot.savedReview, snapshot.savedTargetId));
+  /** Says whether the reader's choice is apart from the review on screen.
+   * The review's own checkout is not; with no review, neither is the place
+   * where the view started. A branch that Git shows with no checkout is. */
+  const settle = () => {
+    const home = ownChanges()?.path ?? (snapshot.savedReview ? undefined : origin);
+    const apart = !!view && (!!view.branch || view.path !== home);
+    if (snapshot.apart !== apart) update({ apart });
+  };
+  /** Keeps the reader's choice of what the thread shows. */
+  const choose = (next: typeof view) => {
+    view = next;
+    liveChoice = choiceBeforeCommit = null;
+    settle();
+  };
   /** The base that Changes of the checkout at `path` start from, when one is
    * chosen: the reader's, for the thread's own checkout; else the base that
    * the review on screen names, for its checkout. */
@@ -1642,9 +1667,12 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     cancelSources();
     iterationAbort?.abort();
     reviewSide = true;
+    // A review on screen leads: its place is the thread's again.
+    view = undefined;
     const since = sinceChoice;
     update({
       savedView: true,
+      apart: false,
       savedSince: since,
       inReview: true,
       savedTargetId: target.id,
@@ -1683,6 +1711,8 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   async function selectSavedTarget(id: string): Promise<void> {
     const target = snapshot.savedReview?.targets.find((entry) => entry.id === id);
     if (!target || disposed) return;
+    // A review leads from the moment it is chosen, before its checkout loads.
+    if (view) choose(undefined);
     // A thread's new worktree can be newer than the repository list that the
     // page read; read it again before the review falls back to the main checkout.
     const knows = (list: RegisteredRepository[]) =>
@@ -2180,6 +2210,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         .catch(() => null);
       if (!savedReview || disposed || savedReviewId !== id) return;
       update({ savedReview });
+      settle();
     },
     // Another version or comparison shows whole; the Guide asks for Since again.
     selectSavedTarget: (id) => {
@@ -2254,12 +2285,13 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     },
     async showChanges() {
       reviewSide = false;
-      // Changes are the checkout of the review on screen. Without a review,
-      // or for a Review of a branch that no checkout has checked out, they
-      // are where the thread works now.
+      // From a review, Changes are its checkout. Without one, or for a
+      // Review of a branch that no checkout has checked out, they are where
+      // the view started. (A place that the reader chose shows without this
+      // call: a review on screen drops the choice.)
       const fromReview = snapshot.savedView || snapshot.inReview;
       const own = ownChanges();
-      const home = own?.path ?? place?.path ?? snapshot.session?.repository.path;
+      const home = own?.path ?? origin ?? snapshot.session?.repository.path;
       if (
         home &&
         snapshot.session &&
@@ -2271,7 +2303,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
           undefined,
           own
             ? own.repositoryId
-            : place?.path
+            : origin && origin === place?.path
               ? place.repositoryId
               : (snapshot.activeRepositoryId ?? undefined),
         );
@@ -2291,16 +2323,14 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       return selectComparison(liveChoice ?? defaultChanges());
     },
     async follow(next) {
-      const moved = next.path !== place?.path;
+      const first = !origin && !!next.path;
       place = next;
-      if (!moved || !next.path) return;
-      // The Review stays on screen. Its Changes stay in its checkout; a
-      // review without one shows the new checkout next time.
-      const reviewing = reviewSide || snapshot.savedView;
-      const own = ownChanges();
-      if (own && (reviewing || snapshot.session?.repository.path === own.path)) return;
+      // The view starts where the agent starts. After that, the agent's
+      // moves leave it alone: the reader chooses what the thread shows.
+      if (!first || !next.path) return;
+      origin = next.path;
+      if (view || reviewSide || snapshot.savedView || ownChanges()) return;
       liveChoice = choiceBeforeCommit = null;
-      if (reviewing) return;
       await openWorkspace(next.path, undefined, next.repositoryId);
     },
     async setChangesBase(comparison) {
@@ -2446,26 +2476,40 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       });
       return created.id;
     },
-    selectWorktree(path, repositoryId) {
+    async selectWorktree(path, repositoryId) {
       if (snapshot.session?.repository.git === false) {
         update({ error: "Worktrees are not available for this input." });
-        return Promise.resolve();
+        return;
       }
-      const repository = repositoryId
-        ? snapshot.repositories.find((entry) => entry.id === repositoryId)
-        : snapshot.repositories.find((entry) =>
-            entry.worktrees.some((worktree) => worktree.path === path),
-          );
-      if (
-        hasRepositoryCatalogue &&
-        (!repository || !repository.worktrees.some((worktree) => worktree.path === path))
-      )
-        return Promise.resolve();
-      return openWorkspace(
-        path,
-        undefined,
-        repository?.id ?? snapshot.activeRepositoryId ?? undefined,
-      );
+      const find = () => {
+        const repository = repositoryId
+          ? snapshot.repositories.find((entry) => entry.id === repositoryId)
+          : snapshot.repositories.find((entry) =>
+              entry.worktrees.some((worktree) => worktree.path === path),
+            );
+        return repository?.worktrees.some((worktree) => worktree.path === path)
+          ? repository
+          : undefined;
+      };
+      let repository = find();
+      // The agent's new worktree can be newer than the list that the page
+      // read: read it again before the choice does nothing.
+      if (!repository && hasRepositoryCatalogue && options.thread) {
+        const result = await api
+          .json("/api/repositories", repositoriesSchema)
+          .catch(() => undefined);
+        if (disposed) return;
+        if (result) update({ repositories: result.repositories });
+        repository = find();
+      }
+      if (!repository && hasRepositoryCatalogue) {
+        if (options.thread) update({ error: `Med has no checkout at ${path}.` });
+        return;
+      }
+      const id = repository?.id ?? repositoryId ?? snapshot.activeRepositoryId ?? undefined;
+      // In a thread, the reader's choice is what the thread shows now.
+      if (options.thread) choose({ path });
+      return openWorkspace(path, undefined, id);
     },
     selectBranch(name, repositoryId) {
       const repository = snapshot.repositories.find(
@@ -2474,6 +2518,12 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       const branch = repository?.branches.find((entry) => entry.name === name);
       if (!branch || !repository || snapshot.session?.repository.git === false)
         return Promise.resolve();
+      if (options.thread)
+        choose({
+          path: branch.worktreePath ?? repository.path,
+          // A branch that no checkout has: the thread shows it from Git.
+          ...(!branch.worktreePath && { branch }),
+        });
       return openWorkspace(branch.worktreePath ?? repository.path, branch, repository.id);
     },
     refreshRepositories,

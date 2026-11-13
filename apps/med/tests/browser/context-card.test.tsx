@@ -37,7 +37,7 @@ const reply = {
   agents: [{ agentType: "reviewer", source: "plugin", tokens: 225 }],
 };
 
-test("the Context card shows what fills the window, as Claude Desktop's does", async () => {
+test("the Context section says the share on one line, and open shows what fills the window", async () => {
   await page.viewport(1200, 900);
   initializeTheme();
   frame = document.createElement("div");
@@ -56,6 +56,12 @@ test("the Context card shows what fills the window, as Claude Desktop's does", a
     />,
   );
   const card = page.getByRole("region", { name: "Context" });
+  // Folded, one line says it: the share, and a small meter.
+  await expect.element(card).toMatchTextContent(/^Context88%$/);
+  await expect
+    .element(card.getByRole("meter", { name: "Context in use" }))
+    .toHaveAttribute("aria-valuenow", "442200");
+  await card.getByRole("button", { name: "Context" }).click();
   await expect.element(card).toMatchTextContent(/^Context88% used442\.2k \/ 500k/);
   // The parts in use, largest first, then the buffer and the free space.
   const rows = card.getByRole("list", { name: "What fills the context" });
@@ -79,7 +85,7 @@ test("the Context card shows what fills the window, as Claude Desktop's does", a
     .element(card.getByText("Last updated just now. Refreshes when this turn ends."))
     .toBeVisible();
 
-  // The title folds the card to its bar, and the card stays folded.
+  // The title folds the section to its line again, and it stays folded.
   await card.getByRole("button", { name: "Context" }).click();
   await expect.element(rows).not.toBeInTheDocument();
   await expect.element(card.getByRole("meter", { name: "Context in use" })).toBeVisible();

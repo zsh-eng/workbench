@@ -4256,7 +4256,7 @@ describe("agent session", () => {
     expect(panel.getByText("alpha", { exact: true }).element()).toBeVisible();
   });
 
-  test("a long session loads its earlier work and jumps to a turn", async () => {
+  test("a long session loads its earlier work, and { and } step through its prompts", async () => {
     const chunk = (at: number, kind: string, text: string) => ({
       at,
       update: { sessionUpdate: kind, content: { type: "text", text } },
@@ -4319,27 +4319,20 @@ describe("agent session", () => {
       .element(panel.getByText("The session is long", { exact: false }))
       .not.toBeInTheDocument();
 
-    // The prompt rail at the thread's edge lists the prompts, the first at
-    // the top, and goes to one.
-    const rail = panel.getByRole("navigation", { name: "Prompts" });
-    await rail.getByRole("button", { name: "2 prompts" }).click();
-    const first = rail.getByRole("button", { name: /^First prompt/ });
-    await expect.element(first).toBeVisible();
-    expect(
-      [...rail.element().querySelectorAll("time")].map(
-        (time) => time.previousElementSibling?.textContent,
-      ),
-    ).toEqual(["First prompt", "Second prompt"]);
-    await first.click();
-    await expect.element(first).not.toBeInTheDocument();
+    // The thread has no list of its prompts: { and } step through them, as
+    // [ and ] through every message.
+    await expect
+      .element(panel.getByRole("navigation", { name: "Prompts" }))
+      .not.toBeInTheDocument();
     const current = () =>
       document.querySelector<HTMLElement>('[data-message="user"][data-current]')?.textContent;
-    await expect.poll(current).toContain("First prompt");
-    // } and { step through the prompts alone, as [ and ] through every message.
-    await userEvent.keyboard("}");
+    panel.element().querySelector<HTMLElement>("[data-message-keys]")!.focus();
+    await userEvent.keyboard("{{");
     await expect.poll(current).toContain("Second prompt");
     await userEvent.keyboard("{{");
     await expect.poll(current).toContain("First prompt");
+    await userEvent.keyboard("}");
+    await expect.poll(current).toContain("Second prompt");
   });
 
   test("the header shows the thread's context and spend, and a click shows where they come from", async () => {
@@ -4394,6 +4387,10 @@ describe("agent session", () => {
           version: 1,
           source: "https://platform.claude.com/docs/en/about-claude/pricing",
           readAt: "2026-10-29",
+          openai: {
+            source: "https://developers.openai.com/api/docs/pricing",
+            readAt: "2026-10-29",
+          },
         },
       },
     });
@@ -4418,10 +4415,17 @@ describe("agent session", () => {
     await expect.element(spend.getByRole("cell", { name: "Opus 5.5" })).toBeVisible();
     // A model without a price shows its tokens, and the total says it leaves it out.
     await expect.element(spend.getByRole("cell", { name: "No price" })).toBeVisible();
-    await expect.element(spend.getByText(/no price for gpt-test/)).toBeVisible();
+    await expect.element(spend.getByText("No price for gpt-test: not in the total.")).toBeVisible();
+    // The note is one line: an estimate, the date of the prices, and their sources.
     await expect
-      .element(spend.getByRole("link", { name: "Anthropic's pricing page" }))
+      .element(spend.getByText("Estimate at list prices of 2026-10-29: Anthropic, OpenAI."))
+      .toBeVisible();
+    await expect
+      .element(spend.getByRole("link", { name: "Anthropic" }))
       .toHaveAttribute("href", "https://platform.claude.com/docs/en/about-claude/pricing");
+    await expect
+      .element(spend.getByRole("link", { name: "OpenAI" }))
+      .toHaveAttribute("href", "https://developers.openai.com/api/docs/pricing");
   });
 
   test("a wide session pane shows the session rail, which the reader closes and opens again", async () => {
@@ -4505,8 +4509,12 @@ describe("agent session", () => {
       .poll(() => [24, 36].some((less) => Math.abs(room() - less - box()) < 0.5))
       .toBe(true);
     const context = side.getByRole("region", { name: "Context" });
+    // Context starts folded, with its share; its title unfolds it in place.
+    await expect.element(context).toMatchTextContent(/^Context31%$/);
+    await context.getByRole("button", { name: "Context" }).click();
     await expect.element(context).toMatchTextContent(/^Context31% used312\.9k \/ 1M/);
     await expect.element(context.getByText("Autocompact at 500k")).toBeVisible();
+    await context.getByRole("button", { name: "Context" }).click();
     // Spend starts folded, with its total; its title unfolds it in place.
     const spend = side.getByRole("region", { name: "Spend" });
     await expect.element(spend).toMatchTextContent(/^Spend\$230\.62$/);
@@ -4516,16 +4524,14 @@ describe("agent session", () => {
     await expect.element(spend.getByText("41k in · 690k out", { exact: false })).toBeVisible();
     await spend.getByRole("button", { name: "Spend" }).click();
     await expect.element(spend.getByText("Opus 5.5")).not.toBeInTheDocument();
-    const links = side.getByRole("region", { name: "Reviews" });
-    await expect.element(links.getByRole("button", { name: /Changes/ })).toBeVisible();
-    // The pull request's row opens its page in Med, which links to GitHub.
-    await links.getByRole("button", { name: /^Read pull request threads/ }).click();
+    // The pull request has its own section; its row opens its page in Med,
+    // which links to GitHub.
+    const pulls = side.getByRole("region", { name: "Pull requests" });
+    await pulls.getByRole("button", { name: /^Read pull request threads/ }).click();
     await expect
       .element(page.getByRole("radio", { name: "Pull request" }))
       .toHaveAttribute("aria-checked", "true");
-    await expect
-      .element(side.getByRole("region", { name: "Environment" }))
-      .toMatchTextContent(/Claude/);
+    await expect.element(side.getByRole("region", { name: "Agent" })).toMatchTextContent(/Claude/);
     // The header leaves context and spend to the panel.
     await expect
       .element(pane.getByRole("button", { name: /^Context \d+% full/ }))

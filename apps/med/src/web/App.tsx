@@ -225,10 +225,11 @@ import {
 } from "./data/guide";
 import type { ParsedReviewFile } from "../shared/review";
 import type { SavedCommit } from "../shared/review-guide";
-import { sessionKey, type ThreadReview } from "../shared/threads";
+import { reviewPullRequest, sessionKey } from "../shared/threads";
 import { reviewChanges } from "./data/review-place";
 import { PullProgress } from "./components/PullWorkspace";
-import { parsePullUrl } from "../shared/pull-workspace";
+import { isPullReviewKey, parsePullUrl } from "../shared/pull-workspace";
+import { basename } from "./data/bar-context";
 import type { PathActions } from "./components/PathMenu";
 import { diffSurfaceStyle, EXPANSION_LINES } from "./components/diff-surface";
 import { highlightRules } from "./code-colors";
@@ -464,8 +465,8 @@ export function App({
   const threadLayout = entry?.kind === "thread" || entry?.kind === "pull";
   // While the thread's agent works, its changes are expected: the drift bar waits.
   const agentWorking = thread?.state === "working";
-  // The session works somewhere else now, such as another repository or
-  // branch: its Changes and Commit follow.
+  // Where the agent works now, such as another repository or branch. The
+  // controller knows it; what the thread shows stays where the reader put it.
   const placePath = thread?.checkout;
   const placeRepository = thread?.repository?.id;
   const placeBase = thread?.base;
@@ -3328,14 +3329,21 @@ export function App({
       title: entry.label,
       repository: repository?.name,
     };
+    // A thread shows the branch itself: its Changes, files and search are
+    // that branch's. Med reads it; the agent's checkout is not touched.
+    if (threadId && !newWorkspace) {
+      entry.run();
+      // Its Changes, not the tab that the checkout had in front last.
+      pendingTab.current = "changes";
+      fileWorkspace.select("changes");
+      if (!reviewVisible) showPane("review");
+      return;
+    }
     const existing = workspace.match(target);
     if (existing && existing !== workspace.id) workspace.activate(existing);
     else if (!existing && newWorkspace) workspace.open(target);
     else if (!existing) entry.run();
   };
-  // A thread follows its session's checkout, so a branch picked in it opens
-  // in a new workspace, as Med never switches branches.
-  const threadPicker = entry?.kind === "thread" && !!workspace && gitAvailable;
   // The workspace list names each workspace and shows its changed-file count.
   const reportTo = workspace?.update;
   const reportTitle =
@@ -3344,6 +3352,15 @@ export function App({
   // A linked worktree, so closing the workspace can remove it.
   const reportWorktree = state.session?.worktrees.find((entry) => entry.path === reportPath)?.linked
     ? reportPath
+    : undefined;
+  // The repository of the checkout that the thread shows.
+  const shownPath = state.session?.repository.path;
+  const shownFamily = shownPath
+    ? state.repositories.find(
+        (repository) =>
+          repository.path === shownPath ||
+          repository.worktrees.some((tree) => tree.path === shownPath),
+      )
     : undefined;
   const reportRepository = state.session?.repository.name;
   const reportReady = state.status === "ready";
@@ -3384,7 +3401,8 @@ export function App({
         ? {
             viewingPath: reportPath,
             viewingBranch: state.activeBranch ?? undefined,
-            viewingRepository: reportRepository,
+            // A worktree goes by its repository's name, not by its folder's.
+            viewingRepository: shownFamily?.name ?? reportRepository,
           }
         : {}),
     });
@@ -3400,6 +3418,7 @@ export function App({
     reportPath,
     reportWorktree,
     reportRepository,
+    shownFamily?.name,
     state.activeRepositoryId,
     state.activeBranch,
   ]);
@@ -5653,34 +5672,46 @@ export function App({
       <Icon name="more" size={15} />
     </ActionMenu>
   );
+  const shownPage = reviewPages.some((entry) => entry.value === shownTab) ? shownTab : null;
+  // Changes of a place that the reader chose are not the review's. The pull
+  // request's own page is the pull request's, whatever Changes show.
+  const apart = state.apart && shownPage !== "pull";
   // The review's name: its pull request's, when it has one.
-  const pullName = state.savedReview?.pullRequestUrl && (
+  const pullName = state.savedReview?.pullRequestUrl && !apart && (
     <PullRequestTitle
       url={state.savedReview.pullRequestUrl}
       title={state.savedReview.pullRequestTitle ?? state.savedReview.title}
       pull={pullRequest.data?.pull}
     />
   );
-  const shownPage = reviewPages.some((entry) => entry.value === shownTab) ? shownTab : null;
   const display: DisplayOptions = {
     layout: { mode, canSplit: roomy, set: setMode },
     wrap: { on: wrap, toggle: () => setWrap(!wrap) },
     comments: { on: showNotes, toggle: () => setShowNotes(!showNotes) },
     size: { value: codeSize, set: (size) => viewSettings.codeSize.set(size) },
   };
-  const reviewName = pullName || (
-    <ReviewTitle
-      reviewed={!!state.savedReview}
-      title={
-        state.savedReview
-          ? (threadName ?? state.savedReview.title)
-          : (state.session?.repository.path.split("/").at(-1) ?? "Changes")
-      }
-    />
-  );
+  // Apart from the review, the row names the page, and the range beside it
+  // names the branch.
+  const reviewName =
+    pullName ||
+    (apart ? (
+      <ReviewTitle reviewed={false} title="Changes" />
+    ) : (
+      <ReviewTitle
+        reviewed={!!state.savedReview}
+        title={
+          state.savedReview
+            ? (threadName ?? state.savedReview.title)
+            : (state.session?.repository.path.split("/").at(-1) ?? "Changes")
+        }
+      />
+    ));
   // A thread with several reviews: a caret at the name's end lists them, and
   // a choice shows that review in this one's place, with its checkout. The
   // rail's list hides while the session is narrow; the name never does.
+  // A pull request's row of another review, in the session rail: its page
+  // shows once that review does. Another way to a review drops it.
+  const pullWanted = useRef<string | null>(null);
   const reviewLabels = siblingReviews.map((review) =>
     review.pullRequest
       ? `#${review.pullRequest.number} ${review.pullRequest.title ?? review.title}`
@@ -5690,7 +5721,7 @@ export function App({
     <ActionMenu
       label="Reviews of this thread"
       align="start"
-      trigger={[ui.button, styles.reviewSwitch]}
+      trigger={[ui.button, styles.reviewSwitch, !!pullName && styles.reviewSwitchPull]}
       sections={[
         siblingReviews.map((review, at) => ({
           // Two reviews with one title, such as one for each branch: each
@@ -5699,9 +5730,10 @@ export function App({
             reviewLabels.indexOf(reviewLabels[at]!) === reviewLabels.lastIndexOf(reviewLabels[at]!)
               ? reviewLabels[at]!
               : `${reviewLabels[at]} · ${review.place?.branch ?? at + 1}`,
-          checked: review.id === state.savedReview?.id,
+          checked: review.id === state.savedReview?.id && !apart,
           choice: true,
           onClick: () => {
+            pullWanted.current = null;
             if (review.id !== state.savedReview?.id)
               workspace.update(workspace.id, { reviewId: review.id });
             selectTab("review");
@@ -5818,6 +5850,7 @@ export function App({
             titles: new Map(siblingReviews.map((review) => [review.id, review.title])),
             openReview: (id: string) => {
               // Another of the thread's reviews shows in its place.
+              pullWanted.current = null;
               if (id !== savedReviewId && workspace)
                 workspace.update(workspace.id, { reviewId: id });
               revealPane("review");
@@ -5826,89 +5859,126 @@ export function App({
           },
     [handoffTitle, revealPane, selectTab, savedReviewId, siblingReviews, workspace],
   );
-  // The session side panel's Reviews card: each of the thread's reviews,
-  // newest first, this one among them; then the live changes. Among several,
-  // each names its pull request: the number, and the state once Med read it.
-  const pullNumber = /\/pull\/(\d+)/.exec(state.savedReview?.pullRequestUrl ?? "")?.[1];
-  const pullOf = (review: ThreadReview | undefined) =>
-    siblingReviews.length > 1 && review?.pullRequest
-      ? [`#${review.pullRequest.number}`, review.pullRequest.state].filter(Boolean).join(" ")
-      : undefined;
-  const ownReview: ThreadLink[] = reviewAvailable
-    ? [
-        {
-          id: "review",
-          icon: "guide" as const,
-          label: state.savedReview?.title ?? "Review",
-          current: siblingReviews.length > 1,
-          detail:
-            [
-              pullOf(threadReview),
-              sinceRow?.files
-                ? `${sinceRow.files} ${sinceRow.files === 1 ? "file" : "files"} new`
-                : undefined,
-            ]
-              .filter(Boolean)
-              .join(" · ") || undefined,
-          onOpen: () => {
-            revealPane("review");
-            selectTab("review");
-          },
-        },
-      ]
-    : [];
-  const sessionLinks: ThreadLink[] = [
-    ...(siblingReviews.length > 1
-      ? siblingReviews.flatMap((review): ThreadLink[] =>
-          review.id === state.savedReview?.id
-            ? ownReview
-            : [
-                {
-                  id: `review-${review.id}`,
-                  icon: "guide",
-                  label: review.title,
-                  detail: [pullOf(review), shortAge(review.updatedAt, reviewsClock)]
-                    .filter(Boolean)
-                    .join(" · "),
-                  onOpen: () => {
-                    workspace?.update(workspace.id, { reviewId: review.id });
-                    revealPane("review");
-                    selectTab("review");
-                  },
-                },
-              ],
-        )
-      : ownReview),
-    {
-      id: "changes",
-      icon: "diff",
-      label: "Changes",
-      detail: "Live in the checkout",
-      onOpen: () => {
-        revealPane("review");
-        selectTab("changes");
-      },
-    },
-    ...(state.savedReview?.pullRequestUrl
-      ? [
-          {
-            id: "pull-request",
-            icon: "pullRequest" as const,
-            label: state.savedReview.pullRequestTitle ?? "Pull request",
-            ...(pullNumber ? { detail: `#${pullNumber}` } : {}),
-            // Med's Pull request page, which links to GitHub; else GitHub.
-            ...(hasPullTab
-              ? {
-                  onOpen: () => {
-                    revealPane("review");
-                    selectTab("pull");
-                  },
-                }
-              : { href: state.savedReview.pullRequestUrl }),
-          },
-        ]
-      : []),
+  // The session rail lists what the thread has to read. Reviews: what the
+  // agent handed off, newest first. Pull requests: each pull request of the
+  // thread, which opens its own page. A review that Med captured from a
+  // pull request's link is that pull request's change, not a hand-off: it is
+  // listed with the pull requests alone.
+  const several = siblingReviews.length > 1;
+  // What the workspace shows, for the rail's Thread section. While another
+  // place loads, the rail keeps the last one, as the title band does.
+  const [railPlace, setRailPlace] = useState<{
+    path: string;
+    repository: string;
+    familyId?: string;
+    branch?: string;
+    fromGit: boolean;
+  } | null>(null);
+  const placeNow = state.session
+    ? {
+        path: state.session.repository.path,
+        repository: shownFamily?.name ?? state.session.repository.name,
+        ...(shownFamily && { familyId: shownFamily.id }),
+        ...(state.activeBranch && { branch: state.activeBranch }),
+        fromGit: !!state.historyRef,
+      }
+    : null;
+  if (
+    placeNow &&
+    (placeNow.path !== railPlace?.path ||
+      placeNow.repository !== railPlace.repository ||
+      placeNow.familyId !== railPlace.familyId ||
+      placeNow.branch !== railPlace.branch ||
+      placeNow.fromGit !== railPlace.fromGit)
+  )
+    setRailPlace(placeNow);
+  const shownPlace = placeNow ?? railPlace;
+  const ownFromPull = threadReview
+    ? !!threadReview.fromPull
+    : !!state.savedReview?.pullRequestUrl &&
+      !!state.savedReview.key &&
+      isPullReviewKey(state.savedReview.key);
+  const reviewSettled = state.status === "ready" && !!state.savedView;
+  useEffect(() => {
+    // Once that review's own checkout shows: its first page would take the
+    // page's place before then.
+    if (!pullWanted.current || savedReviewId !== pullWanted.current || !reviewSettled) return;
+    pullWanted.current = null;
+    if (hasPullTab) fileWorkspace.select("pull");
+  }, [savedReviewId, reviewSettled, hasPullTab, fileWorkspace]);
+  const showReviewPage = (id: string | undefined, page: "review" | "pull") => {
+    revealPane("review");
+    if (id && id !== savedReviewId) {
+      workspace?.update(workspace.id, { reviewId: id });
+      pullWanted.current = page === "pull" ? id : null;
+      if (page === "review") selectTab("review");
+      return;
+    }
+    pullWanted.current = null;
+    selectTab(page === "pull" && hasPullTab ? "pull" : "review");
+  };
+  const sessionReviews: ThreadLink[] = [
+    ...(several
+      ? siblingReviews.filter((review) => !review.fromPull)
+      : reviewAvailable && !ownFromPull
+        ? [undefined]
+        : []
+    ).map((review): ThreadLink => {
+      const own = !review || review.id === savedReviewId;
+      return {
+        id: own ? "review" : `review-${review.id}`,
+        icon: "guide",
+        // The hand-off's own title; the pull request's is in its section.
+        label: (own ? state.savedReview?.title : undefined) ?? review?.title ?? "Review",
+        current: several && own && !apart,
+        detail: own
+          ? sinceRow?.files
+            ? `${sinceRow.files} ${sinceRow.files === 1 ? "file" : "files"} new`
+            : undefined
+          : shortAge(review.updatedAt, reviewsClock),
+        onOpen: () => showReviewPage(review?.id, "review"),
+      };
+    }),
   ];
+  // The pull request of the review on screen, before the thread's list has it.
+  const ownPull =
+    threadReview?.pullRequest ??
+    (state.savedReview?.pullRequestUrl
+      ? reviewPullRequest(state.savedReview.pullRequestUrl, {
+          title: state.savedReview.pullRequestTitle ?? undefined,
+        })
+      : undefined);
+  const sessionPulls: ThreadLink[] = (
+    several
+      ? siblingReviews
+      : ownPull && state.savedReview
+        ? [{ id: state.savedReview.id, title: state.savedReview.title, pullRequest: ownPull }]
+        : []
+  ).flatMap((review): ThreadLink[] => {
+    const pull = review.id === savedReviewId ? (ownPull ?? review.pullRequest) : review.pullRequest;
+    if (!pull) return [];
+    const own = review.id === savedReviewId;
+    // What GitHub said of it last: the page's own read, else the thread list's.
+    const said = (own ? pullRequest.data?.pull?.state : undefined) ?? pull.state;
+    const numbered = `#${pull.number} `;
+    return [
+      {
+        id: `pull-${review.id}`,
+        icon: said === "merged" ? "merged" : said === "draft" ? "draft" : "pullRequest",
+        ...(said && { tone: said }),
+        label:
+          pull.title ??
+          (review.title.startsWith(numbered) ? review.title.slice(numbered.length) : review.title),
+        detail: `#${pull.number}`,
+        hint: said ? `Pull request #${pull.number}, ${said}` : `Pull request #${pull.number}`,
+        current: several && own && ownFromPull && !apart,
+        // Med's Pull request page, which links to GitHub; else GitHub.
+        ...(own && !hasPullTab
+          ? { href: pull.url }
+          : { onOpen: () => showReviewPage(review.id, "pull") }),
+      },
+    ];
+  });
   // The session's controls are at the title band's end while it shows and
   // the review does not fill the workspace.
   const sessionBandTools = sessionVisible && panes.zoom !== "review";
@@ -5962,12 +6032,49 @@ export function App({
                     recap={recapProps}
                     onContinue={continueInMed}
                     onFork={forkFromHere}
-                    links={sessionLinks}
+                    reviews={sessionReviews}
+                    pulls={sessionPulls}
                     place={
-                      threadCheckout
+                      shownPlace || threadCheckout
                         ? {
-                            folder: threadCheckout,
-                            ...(thread.branch && { branch: thread.branch }),
+                            // What the thread shows: a worktree goes by its
+                            // repository's name. Before the first place
+                            // loads, the agent's stands in.
+                            repository:
+                              shownPlace?.repository ??
+                              thread?.repository?.name ??
+                              basename(threadCheckout ?? ""),
+                            ...((shownPlace ? shownPlace.branch : thread?.branch)
+                              ? { branch: (shownPlace ? shownPlace.branch : thread?.branch)! }
+                              : {}),
+                            ...(gitAvailable && {
+                              onRepository: () => openBranchPicker(false, true),
+                              onBranch: () => openBranchPicker(false),
+                            }),
+                            // Where the agent works, which can be another place.
+                            ...(thread?.branch && { agentBranch: thread.branch }),
+                            ...(thread?.repository &&
+                              shownPlace &&
+                              thread.repository.id !== shownPlace.familyId && {
+                                agentRepository: thread.repository.name,
+                              }),
+                            // Another checkout shows, or a branch from Git in
+                            // the agent's own checkout.
+                            ...(gitAvailable &&
+                              threadCheckout &&
+                              thread?.repository &&
+                              shownPlace &&
+                              (shownPlace.path !== threadCheckout || shownPlace.fromGit) && {
+                                onAgentBranch: () => {
+                                  pendingTab.current = "changes";
+                                  void controller.selectWorktree(
+                                    threadCheckout,
+                                    thread.repository!.id,
+                                  );
+                                  fileWorkspace.select("changes");
+                                  revealPane("review");
+                                },
+                              }),
                           }
                         : undefined
                     }
@@ -6016,11 +6123,11 @@ export function App({
       onSelect={(entry, newWorkspace) =>
         !workspace
           ? branches.open(entry)
-          : // A branch opened from a thread opens beside it.
-            openBranch(entry, newWorkspace || branchPickerNew || threadPicker)
+          : // In a thread, a branch shows in the thread; ⌘↵ opens it beside.
+            openBranch(entry, newWorkspace || branchPickerNew)
       }
       repositoriesFirst={branchPickerRepos}
-      workspaces={workspace ? (branchPickerNew || threadPicker ? "new" : "here") : undefined}
+      workspaces={workspace ? (branchPickerNew ? "new" : "here") : undefined}
       onPullRequest={workspace?.openPull}
       agents={agentPresets?.filter((agent) => agent.available)}
       onAddRepository={controller.addRepository}
@@ -7002,6 +7109,8 @@ const styles = stylex.create({
     justifyContent: "center",
     color: { default: tokens.faint, ":hover": tokens.text, ":focus-visible": tokens.text },
   },
+  // After a pull request's number, which has no space of its own at its end.
+  reviewSwitchPull: { marginInlineStart: 2 },
   rowPane: {
     display: { default: "flex", ":empty": "none" },
     alignItems: "center",

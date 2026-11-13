@@ -2466,7 +2466,9 @@ export class OwnedSessions {
    * (`--resume-session-at`) or to its end. Continue in Med forks the whole
    * session, while another process keeps the original; Fork from here forks a
    * reply, for a thread of its own. The fork takes the model and effort of
-   * its last reply, so its first prompt reads the session's prompt cache.
+   * its last reply, so its first prompt reads the session's prompt cache. Its
+   * mode is Med's mode for a new session (Auto), not the mode of the session
+   * that it forks.
    */
   async fork(
     session: AgentSession,
@@ -2475,12 +2477,14 @@ export class OwnedSessions {
     const agent = await this.claude(session.cwd);
     const choices = await this.sessionChoices(session, at);
     if (!choices) throw new HostError("message-not-found", "The session has no such message.", 404);
+    const mode = AGENT_DEFAULTS[agent.id]?.mode;
+    const wanted = { ...choices, ...(mode ? { mode } : {}) };
     const runner = startClaude(agent, session.cwd, {
       holders: this.options.holderDirectory,
       fork: session.id,
       ...(at ? { forkAt: at } : {}),
       env: () => this.environment(key, session.cwd),
-      choices,
+      choices: wanted,
       models: await this.models(agent),
       elsewhere: (id) => this.runsElsewhere(id),
     });
@@ -2490,7 +2494,8 @@ export class OwnedSessions {
       name: agent.name,
       cwd: session.cwd,
       ...(key ? { key } : {}),
-      choices: {},
+      // What it starts with, so a restart before the agent answers keeps them.
+      choices: wanted,
       forkOf: session.id,
       ...(at ? { forkAt: at } : {}),
       updatedAt: Date.now(),

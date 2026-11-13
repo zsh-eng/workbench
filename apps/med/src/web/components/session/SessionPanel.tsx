@@ -36,6 +36,7 @@ import {
   type SessionStreamState,
   type SessionTurn,
 } from "../../data/session-stream";
+import { basename } from "../../data/bar-context";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
@@ -210,13 +211,26 @@ export function SessionPanel({
   recap,
   onContinue,
   onFork,
-  links,
+  reviews,
+  pulls,
   place,
 }: {
-  /** The side panel's Reviews card: the thread's review and pull request. */
-  links?: ThreadLink[];
-  /** The side panel's Environment card: the thread's checkout. */
-  place?: Pick<SessionEnvironment, "folder" | "branch">;
+  /** The session rail's Reviews, and its Pull requests. */
+  reviews?: ThreadLink[];
+  pulls?: ThreadLink[];
+  /** The session rail's places: the repository and branch that the thread
+   * shows, with what a click on each opens, and the branch where the agent
+   * works. */
+  place?: Pick<
+    SessionEnvironment,
+    | "repository"
+    | "branch"
+    | "onRepository"
+    | "onBranch"
+    | "agentBranch"
+    | "agentRepository"
+    | "onAgentBranch"
+  >;
   /** The recap of the thread's last turn, which ended unseen. It shows at
    * the end of the latest session; Reply goes to its message box. */
   recap?: Omit<TurnRecapProps, "onReply">;
@@ -343,7 +357,7 @@ export function SessionPanel({
         : undefined,
     [pageable, start, loadingEarlier, earlierFailed, loadPage],
   );
-  // The session's prompts, for the prompt rail, while earlier pages have not
+  // The session's prompts, which { steps to, while earlier pages have not
   // loaded: read once for each first view of a long session.
   const [index, setIndex] = useState<{ generation?: number; turns: SessionTurn[] } | null>(null);
   const indexed = index && index.generation === state.generation ? index.turns : undefined;
@@ -664,8 +678,9 @@ export function SessionPanel({
     shownContext?.model ??
     ownedState?.settings.find((setting) => setting.category === "model")?.value;
   const sessionPlace: SessionEnvironment = {
-    ...(place?.folder || session.cwd ? { folder: place?.folder ?? session.cwd } : {}),
-    ...(place?.branch ? { branch: place.branch } : {}),
+    // A folder that Med does not know as a repository goes by its own name.
+    repository: basename(session.cwd),
+    ...place,
     agent: agentName(session),
     agentIcon:
       session.agent === "claude" ? "claude" : session.agent === "codex" ? "codex" : "agent",
@@ -815,7 +830,8 @@ export function SessionPanel({
             context={panelContext}
             breakdown={breakdown}
             working={running}
-            links={links}
+            reviews={reviews}
+            pulls={pulls}
             place={sessionPlace}
             backgroundRef={setBackground}
             agentsRef={setAgentsSlot}
