@@ -23,7 +23,9 @@ const stage = join(output, name);
 await mkdir(output, { recursive: true });
 // Do not silently overwrite a previously tested archive.
 await mkdir(stage);
-execFileSync(process.execPath, ["run", "build"], { cwd: app, stdio: "inherit" });
+// ship.ts builds this commit's dist itself, and reuses a current web build.
+if (!process.env.MED_RELEASE_PREBUILT)
+  execFileSync(process.execPath, ["run", "build"], { cwd: app, stdio: "inherit" });
 execFileSync(process.execPath, ["scripts/build-executable.ts", join(stage, "med")], {
   cwd: app,
   stdio: "inherit",

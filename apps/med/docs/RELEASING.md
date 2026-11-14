@@ -7,6 +7,26 @@ aligned; the release script refuses an `install.sh` that names another version. 
 `upstream/BUN-LICENSE.md` come from `oven-sh/bun` at `bun-v1.3.5`; update them if
 changing the runtime.
 
+## Ship a release
+
+A release is a tested commit: the tests, the build, and the validations below
+run before the change is called done, not again at release. From `apps/med`,
+with the notes in a file:
+
+```sh
+bun scripts/ship.ts patch --notes /tmp/notes.md
+```
+
+It sets the version (`patch`, `minor`, `major`, or one given), commits it,
+builds the server and reuses a web build that no source is newer than (the web
+bundle does not name the version), and builds the archive. Then it tags,
+publishes the release, and pushes `main`, while this Mac installs it: the main
+checkout fast-forwards to the release, takes the build, and a running Med
+server restarts. `--dry-run` builds the archive only. It takes about 15
+seconds, most of it the upload.
+
+## Build by hand
+
 From `apps/med`:
 
 ```sh
