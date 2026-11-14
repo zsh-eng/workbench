@@ -1038,6 +1038,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         openInSettings((await settingsFile.snapshot()).settings),
         openInIsGitHub,
       )) === "github",
+    file: join(options.stateDir ?? temporaryState!, "pull-requests.json"),
   });
   if (repository.git !== false) {
     await registry.register(repository.path);
@@ -1585,10 +1586,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         }
         // The pull requests page: open ones that wait on you, and yours.
         if (url.pathname === "/api/pull-requests" && request.method === "GET") {
+          const want = url.searchParams.get("read");
           send(
             await pullInbox.read(
               url.searchParams.get("all") === "1",
-              url.searchParams.get("refresh") === "1",
+              want === "fresh" || want === "new" ? want : "kept",
             ),
           );
           return;

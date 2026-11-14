@@ -1,17 +1,27 @@
 import { tmpdir } from "node:os";
 import { z } from "zod";
 import type { RegisteredRepository } from "../shared/protocol";
-import type { PullInbox, PullInboxRow } from "../shared/pull-inbox";
+import {
+  pullInboxSchema,
+  type PullInbox,
+  type PullInboxRow,
+  type PullInboxWant,
+} from "../shared/pull-inbox";
 import { parseRemote } from "./open-in";
 import { ProcessFailure, runProcess } from "./runtime/process";
+import { readRecords, writeStateFile } from "./runtime/state-file";
 
 // The pull requests page's read: two GitHub searches with the user's gh
 // sign-in, review requests for you and your own open pull requests, in the
 // GitHub repositories that Med's registered repositories push to, or in all
 // of GitHub. A remote on another GitHub host, such as GitHub Enterprise, is
 // searched on that host. Nothing here writes to GitHub.
+//
+// The host keeps the last answer for each scope, in memory and in a state
+// file, so every window, a reload, and a restart open the page with it at
+// once. A failed read keeps the last lists and says why.
 
-/** A read stays this long; the page asks again on focus and every five minutes. */
+/** An answer this new serves a page that asks for a fresh one. */
 const FRESH_MS = 60_000;
 /** GitHub's search takes a query of at most 256 characters. */
 const MAX_QUERY = 250;
@@ -239,6 +249,8 @@ export interface PullInboxHost {
   /** Whether a remote's host is GitHub: github.com is; another host is when
    * Settings' Open in says so, or when it answers as GitHub does. */
   isGitHub(host: string): Promise<boolean>;
+  /** The state file that keeps the last answer for each scope. */
+  file: string;
 }
 
 /** Why gh could not read a host, as the page says it; other failures throw. */
@@ -249,10 +261,22 @@ function unreadable(error: unknown) {
     return (
       error.stderr.trim().split("\n").at(-1)?.replace(/^gh: /, "") || "gh could not search GitHub."
     );
+  if (error instanceof ProcessFailure && error.code === "timeout")
+    return "GitHub did not answer in 30 seconds.";
   throw error;
 }
 
-/** Reads the page's pull requests, sharing a read for a minute. */
+/** No GitHub host could be read: the answer when Med has no lists to keep. */
+class ReadFailure extends Error {
+  constructor(readonly answer: PullInbox) {
+    super(answer.unavailable);
+  }
+}
+
+type Scope = PullInbox["scope"];
+/** When Med last asked GitHub for an answer, whether or not the read failed. */
+const checkedAt = (answer: PullInbox) => Date.parse(answer.failed?.at ?? answer.readAt);
+
 /** Each value, once every search has ended: a host's failed search does not
  * leave its other searches running past the read. The first failure throws. */
 async function settled<T>(work: Promise<T>[]) {
@@ -263,19 +287,69 @@ async function settled<T>(work: Promise<T>[]) {
 }
 
 export class PullInboxReader {
-  private reads = new Map<string, { at: number; value: Promise<PullInbox> }>();
+  /** The last answer for each scope, from the state file at first. */
+  private kept: Promise<Map<Scope, PullInbox>> | undefined;
+  /** The read of GitHub that runs for each scope, and when it started;
+   * requests share it. */
+  private reading = new Map<Scope, { at: number; answer: Promise<PullInbox> }>();
+  /** Writes of the state file, one at a time. */
+  private writing = Promise.resolve();
   constructor(private host: PullInboxHost) {}
 
-  read(all: boolean, refresh = false) {
-    const scope = all ? "all" : "registered";
-    const cached = this.reads.get(scope);
-    if (cached && !refresh && Date.now() - cached.at < FRESH_MS) return cached.value;
-    const value = this.load(all);
-    this.reads.set(scope, { at: Date.now(), value });
-    value.catch(() => {
-      if (this.reads.get(scope)?.value === value) this.reads.delete(scope);
+  /** The page's pull requests, as `want` asks for them. */
+  async read(all: boolean, want: PullInboxWant) {
+    const scope: Scope = all ? "all" : "registered";
+    const asked = Date.now();
+    const last = (await this.answers()).get(scope);
+    if (last && (want === "kept" || (want === "fresh" && Date.now() - checkedAt(last) < FRESH_MS)))
+      return last;
+    // A new read shares only a read that started after it was asked for; it
+    // waits for an older one to end.
+    for (let running = this.reading.get(scope); running; running = this.reading.get(scope)) {
+      if (want !== "new" || running.at >= asked) return running.answer;
+      await running.answer.catch(() => {});
+    }
+    const answer = this.refresh(all).finally(() => {
+      if (this.reading.get(scope)?.answer === answer) this.reading.delete(scope);
     });
-    return value;
+    this.reading.set(scope, { at: Date.now(), answer });
+    return answer;
+  }
+
+  private answers() {
+    return (this.kept ??= readRecords(this.host.file, (scope, value) => {
+      const answer = pullInboxSchema.safeParse(value).data;
+      return answer?.scope === scope ? answer : undefined;
+    }).then(
+      (records) => new Map(Object.entries(records ?? {}) as [Scope, PullInbox][]),
+      () => new Map<Scope, PullInbox>(),
+    ));
+  }
+
+  /** Reads GitHub and keeps the answer. A failed read keeps the last lists,
+   * with the time and the reason. */
+  private async refresh(all: boolean) {
+    const scope: Scope = all ? "all" : "registered";
+    const answers = await this.answers();
+    let answer: PullInbox;
+    try {
+      answer = await this.load(all);
+    } catch (error) {
+      const last = answers.get(scope);
+      if (last && !last.unavailable) {
+        const reason =
+          error instanceof ReadFailure ? error.message : "Med could not read gh's answer.";
+        answer = { ...last, failed: { at: new Date().toISOString(), reason } };
+      } else if (error instanceof ReadFailure) answer = error.answer;
+      else throw error;
+    }
+    answers.set(scope, answer);
+    const text = JSON.stringify(Object.fromEntries(answers));
+    // The answer is on disk before the page has it; a failed write costs
+    // only the next start's list.
+    this.writing = this.writing.then(() => writeStateFile(this.host.file, text)).catch(() => {});
+    await this.writing;
+    return answer;
   }
 
   private async run(command: string, args: string[], cwd: string) {
@@ -396,7 +470,7 @@ export class PullInboxReader {
         : [],
     );
     const done = results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
-    if (!done.length) return { ...empty, unavailable: skipped[0]!.reason };
+    if (!done.length) throw new ReadFailure({ ...empty, unavailable: skipped[0]!.reason });
     return {
       ...empty,
       viewer: done[0]!.viewer,

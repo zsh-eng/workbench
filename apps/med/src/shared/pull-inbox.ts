@@ -1,8 +1,9 @@
 import { z } from "zod";
 
 // The pull requests page: open pull requests that involve you, read from
-// GitHub with your gh sign-in when the page opens, on focus, and every five
-// minutes while it shows. Med reads only; it merges and approves nothing.
+// GitHub with your gh sign-in. The host keeps the last answer, so the page
+// opens with it at once, and reads again while the page shows. Med reads
+// only; it merges and approves nothing.
 
 export const pullInboxRowSchema = z.object({
   url: z.string(),
@@ -45,5 +46,12 @@ export const pullInboxSchema = z.object({
   /** GitHub hosts that gh could not read, such as one it is not signed in
    * to, while the others listed. */
   skipped: z.array(z.object({ host: z.string(), reason: z.string() })).optional(),
+  /** The last read failed, at `at`: the lists are the ones read at `readAt`. */
+  failed: z.object({ at: z.string(), reason: z.string() }).optional(),
 });
 export type PullInbox = z.infer<typeof pullInboxSchema>;
+
+/** What a page asks the host for: its last answer at once (`kept`), an
+ * answer under a minute old (`fresh`), or a new read of GitHub (`new`). With
+ * no answer kept, each waits for a read. */
+export type PullInboxWant = "kept" | "fresh" | "new";

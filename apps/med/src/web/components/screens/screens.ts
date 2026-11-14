@@ -91,7 +91,7 @@ export const screens: readonly Screen[] = [
   {
     id: "pulls",
     label: "Pull requests",
-    note: "A page, as Settings is: the open pull requests that wait on you, then yours, a stack as one row. j and k move, ↵ opens it in a worktree, ⌘↵ with Claude reviewing it, ⌥↵ on GitHub. Read from GitHub with gh on open, on focus, and every five minutes.",
+    note: "A page, as Settings is: the open pull requests that wait on you, then yours, a stack as one row. j and k move, ↵ opens it in a worktree, ⌘↵ with Claude reviewing it, ⌥↵ on GitHub. It opens with the last list that Med read, then reads GitHub with gh again, every two minutes while it shows; the refresh button reads now.",
     scene: "pulls",
     recording: "recording.json",
   },

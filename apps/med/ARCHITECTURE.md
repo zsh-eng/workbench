@@ -591,6 +591,22 @@ fails when it has read the pull request, before it touches the worktree. A pull 
 (`pullReviewKey`), which is a thread's hand-off key only when Med started
 the session on that pull request.
 
+The pull requests page (`src/web/components/PullRequestsPage.tsx`) lists the
+open pull requests that involve the user. `GET /api/pull-requests`
+(`src/host/pull-inbox.ts`) runs two GitHub searches for each GitHub host with
+`gh api graphql`. The host keeps the last answer for each scope (the
+registered repositories, or all of GitHub) in memory and in
+`pull-requests.json` in the state directory, so all windows, a reload, and a
+restart share it. `read=kept` gives that answer at once, `read=fresh` one from
+under a minute ago, and `read=new` a new read. Requests share the read that
+runs, but `new` shares only one that started after it was asked for. With no
+answer kept, each waits for a read. A failed read keeps the last lists and
+adds `failed`, with its time and reason; it counts as a read for `fresh`. The
+page asks for `kept`, then `fresh` when that answer is a minute old, then
+`fresh` every 2 minutes while the window shows and when it shows again; the
+refresh button asks for `new`. A search costs about one point of GraphQL's
+5,000 an hour.
+
 The Pull request tab shows the agent's draft until the review has a pull
 request, then `src/web/components/PullRequestView.tsx`, for a review that is not
 a stack. `src/host/repository/pull-request-live.ts` reads what the comments read

@@ -553,11 +553,6 @@ test("the pull requests page searches GitHub in the registered repositories' rem
     "q=is:pr is:open archived:false author:@me repo:acme/trailhead",
     "q=is:pr is:open archived:false review-requested:@me repo:acme/trailhead",
   ]);
-  // A read stays a minute, unless the page asks again.
-  await read();
-  expect(await searches()).toHaveLength(2);
-  await read("?refresh=1");
-  expect(await searches()).toHaveLength(4);
   // All of GitHub has no repository qualifiers.
   expect((await read("?all=1")).scope).toBe("all");
   expect((await searches()).slice(-2).sort()).toEqual([
@@ -672,7 +667,7 @@ test("the pull requests page also searches the GitHub hosts that Settings names,
 
   // A host that gh is not signed in to leaves the others listed, and says why.
   vi.stubEnv("FAKE_GH_SIGNED_OUT", "github.acme.build");
-  const partial = await read("?refresh=1");
+  const partial = await read("?read=new");
   expect(numbers(partial)).toEqual({ waiting: [418], yours: [420] });
   expect(partial.skipped).toEqual([
     {

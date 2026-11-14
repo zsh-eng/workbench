@@ -1,6 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import type { PullInbox, PullInboxRow } from "../../shared/pull-inbox";
+import type { PullInbox, PullInboxRow, PullInboxWant } from "../../shared/pull-inbox";
 import { useDocumentTitle } from "../data/document-title";
 import { relativeTime } from "../data/relative-time";
 import { picked, tokens, ui } from "../theme.stylex";
@@ -12,15 +12,17 @@ import { tooltip, ToolButton } from "./ToolButton";
 // Every open pull request that involves you: what waits on you, then your
 // own. A page, laid out as Settings is: the title, the sections' headings and
 // the rows' text share one left edge, and the cards reach 20 pixels past it.
-// Med reads GitHub when the page opens, when the window comes back into
-// focus, and every five minutes while it shows; nothing runs in the
-// background. A row opens in a worktree with its review, as a pasted link
+// The page opens with the host's last list, then asks for a fresh one; it
+// asks again while it shows. Only the refresh button shows a read, after a
+// first list. A row opens in a worktree with its review, as a pasted link
 // does, or with an agent that reviews it.
 
-/** While the page shows, it reads GitHub again this often. */
-const EVERY_MS = 5 * 60_000;
-/** A focus reads again only when the last read is this old. */
-const FOCUS_MS = 30_000;
+/** While the page shows, it asks for a fresh list this often. A read is two
+ * GitHub searches for each GitHub host, about a point each of the 5,000 an
+ * hour that GitHub's GraphQL API allows. */
+const EVERY_MS = 2 * 60_000;
+/** A window that shows again asks for a fresh list when its list is this old. */
+const AGAIN_MS = 60_000;
 
 /** The page's address. */
 export const PULLS_PATH = "/pulls";
@@ -39,7 +41,7 @@ export function openPullRequests() {
 
 export type PullInboxLoader = (
   all: boolean,
-  refresh: boolean,
+  want: PullInboxWant,
   signal: AbortSignal,
 ) => Promise<PullInbox>;
 
@@ -97,52 +99,66 @@ export function PullRequestsPage({
   const [all, setAll] = useState(false);
   const [inbox, setInbox] = useState<PullInbox | null>(null);
   const [error, setError] = useState("");
-  const [reading, setReading] = useState(false);
+  /** The refresh button's read runs. */
+  const [refreshing, setRefreshing] = useState(false);
   const [active, setActive] = useState(0);
   const [now, setNow] = useState(Date.now);
   const list = useRef<HTMLDivElement>(null);
-  const request = useRef<AbortController>(undefined);
-  const readAt = useRef(0);
+  const running = useRef<{ abort: AbortController; want: PullInboxWant }>(undefined);
+  /** When the list on screen was read from GitHub, or failed to be. */
+  const checked = useRef(0);
+  /** Whether the host answered. One read runs at a time: the button's read
+   * replaces another, and a read that the page asks for is dropped while
+   * another runs. */
   const read = useCallback(
-    (refresh: boolean) => {
-      request.current?.abort();
+    async (want: PullInboxWant) => {
+      const current = running.current;
+      if (current && !current.abort.signal.aborted && (want !== "new" || current.want === "new"))
+        return false;
+      current?.abort.abort();
       const abort = new AbortController();
-      request.current = abort;
-      setReading(true);
-      load(all, refresh, abort.signal).then(
-        (result) => {
-          if (abort.signal.aborted) return;
-          readAt.current = Date.now();
-          setNow(Date.now());
-          setInbox(result);
-          setError("");
-          setReading(false);
-        },
-        (cause: unknown) => {
-          if (abort.signal.aborted) return;
-          setError(cause instanceof Error ? cause.message : "Med could not read GitHub.");
-          setReading(false);
-        },
-      );
+      running.current = { abort, want };
+      setRefreshing(want === "new");
+      try {
+        const result = await load(all, want, abort.signal);
+        if (abort.signal.aborted) return false;
+        checked.current = Date.parse(result.failed?.at ?? result.readAt);
+        setNow(Date.now());
+        setInbox(result);
+        setError("");
+        return true;
+      } catch (cause) {
+        if (abort.signal.aborted) return false;
+        setError(cause instanceof Error ? cause.message : "Med could not read GitHub.");
+        return false;
+      } finally {
+        if (running.current?.abort === abort) {
+          running.current = undefined;
+          setRefreshing(false);
+        }
+      }
     },
     [all, load],
   );
-  // On open, on focus, and every five minutes while it shows.
+  // The host's last list at once, then a fresh one when it is a minute old,
+  // again every two minutes while the window shows, and when it shows again.
   useEffect(() => {
-    // The read's state shows at once; GitHub answers later.
-    // oxlint-disable-next-line react/set-state-in-effect
-    read(false);
-    const timer = setInterval(() => read(true), EVERY_MS);
-    const clock = setInterval(() => setNow(Date.now()), 30_000);
-    const focus = () => {
-      if (Date.now() - readAt.current > FOCUS_MS) read(true);
+    const again = () => {
+      if (document.visibilityState === "visible" && Date.now() - checked.current >= AGAIN_MS)
+        void read("fresh");
     };
-    addEventListener("focus", focus);
+    // oxlint-disable-next-line react/set-state-in-effect
+    void read("kept").then((answered) => answered && again());
+    const timer = setInterval(again, EVERY_MS);
+    const clock = setInterval(() => setNow(Date.now()), 30_000);
+    addEventListener("focus", again);
+    document.addEventListener("visibilitychange", again);
     return () => {
       clearInterval(timer);
       clearInterval(clock);
-      removeEventListener("focus", focus);
-      request.current?.abort();
+      removeEventListener("focus", again);
+      document.removeEventListener("visibilitychange", again);
+      running.current?.abort.abort();
     };
   }, [read]);
   useEffect(() => list.current?.focus({ preventScroll: true }), []);
@@ -162,6 +178,8 @@ export function PullRequestsPage({
     else onOpenPull(row.url, how === "review" ? agent?.id : undefined);
   };
   const repositories = shown?.scope === "registered" ? shown.repositories.length : 0;
+  // A read that fails behind a list on screen says so quietly.
+  const failure = shown && (error || shown.failed?.reason);
   const section = (title: string, entries: PullInboxRow[], offset: number, empty: string) => (
     <section role="group" aria-label={title} {...stylex.props(styles.section)}>
       <h2 {...stylex.props(styles.sectionTitle)}>
@@ -286,16 +304,17 @@ export function PullRequestsPage({
         <div {...stylex.props(styles.column)}>
           <div {...stylex.props(styles.heading)}>
             <h1 {...stylex.props(styles.pageTitle)}>Pull requests</h1>
-            {/* While GitHub answers again, the refresh turns and the time stays. */}
+            {/* The list's time changes only when GitHub answers; the refresh
+                button turns while its own read runs. */}
             <span role="status" {...stylex.props(styles.readAt)}>
-              {shown ? relativeTime(Date.parse(shown.readAt), now) : ""}
+              {shown ? `Updated ${relativeTime(Date.parse(shown.readAt), now)}` : ""}
             </span>
             <ToolButton
-              label="Read GitHub again"
+              label="Refresh pull requests"
               icon="refresh"
-              busy={reading}
-              disabled={reading}
-              onClick={() => read(true)}
+              busy={refreshing}
+              aria-busy={refreshing}
+              onClick={() => void read("new")}
             />
             <ChoiceSelect
               trigger={settingStyles.select}
@@ -313,6 +332,7 @@ export function PullRequestsPage({
               onChange={(value) => {
                 setAll(value === "all");
                 setActive(0);
+                setError("");
               }}
             />
           </div>
@@ -320,7 +340,7 @@ export function PullRequestsPage({
             ref={list}
             role="listbox"
             aria-label="Pull requests"
-            aria-busy={reading}
+            aria-busy={!shown && !error}
             tabIndex={0}
             aria-activedescendant={rows[selected] ? `${id}-row-${selected}` : undefined}
             onKeyDown={(event) => {
@@ -343,9 +363,14 @@ export function PullRequestsPage({
             }}
             {...stylex.props(styles.list)}
           >
-            {error && (
+            {error && !shown && (
               <p role="alert" {...stylex.props(styles.notice, styles.bad)}>
                 {error}
+              </p>
+            )}
+            {failure && (
+              <p role="note" {...stylex.props(styles.failed)}>
+                Med could not refresh the list: {failure}
               </p>
             )}
             {shown?.unavailable ? (
@@ -375,8 +400,9 @@ export function PullRequestsPage({
   );
 }
 
-/** The page's shape while GitHub first answers: its sections, and rows as
- * the real ones lie, with bars where their words go. */
+/** The page's shape while GitHub first answers, when Med has no list yet:
+ * its sections, and rows as the real ones lie, with bars where their words
+ * go. It fades in after 400 ms, so a brief read shows nothing. */
 function PullSkeleton() {
   const sections: [string, [number, number][]][] = [
     [
@@ -397,7 +423,7 @@ function PullSkeleton() {
   ];
   return (
     // The list says it is busy; its shape is for the eye only.
-    <div aria-hidden="true">
+    <div aria-hidden="true" {...stylex.props(styles.skeleton)}>
       {sections.map(([title, rows]) => (
         <section key={title} {...stylex.props(styles.section)}>
           <h2 {...stylex.props(styles.sectionTitle)}>{title}</h2>
@@ -426,6 +452,7 @@ const pulse = stylex.keyframes({
   from: { opacity: 1 },
   to: { opacity: 0.45 },
 });
+const appear = stylex.keyframes({ from: { opacity: 0 }, to: { opacity: 1 } });
 
 const styles = stylex.create({
   page: {
@@ -543,6 +570,14 @@ const styles = stylex.create({
   notice: { margin: 0, marginTop: 44, color: tokens.muted, fontSize: 14 },
   skipped: { marginTop: 24, color: tokens.muted, fontSize: 13, lineHeight: 1.5 },
   skippedHost: { margin: 0 },
+  failed: { margin: 0, marginTop: 24, color: tokens.muted, fontSize: 13, lineHeight: 1.5 },
+  // Only a read long enough to notice shows the skeleton.
+  skeleton: {
+    animationName: appear,
+    animationDuration: "200ms",
+    animationDelay: "400ms",
+    animationFillMode: "both",
+  },
   // The skeleton's rows: the real rows' box, without the pointer's fill.
   boneRow: {
     cursor: "default",

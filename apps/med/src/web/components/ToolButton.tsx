@@ -315,7 +315,8 @@ export function ToolButton({
   shortcut?: string;
   icon: IconName;
   active?: boolean;
-  /** Turn the icon while this button's own request is running. */
+  /** Turn the icon while this button's own request is running. A request
+   * under 400 ms shows nothing. */
   busy?: boolean;
   /** A small accent dot at the icon's corner: something behind this control
    * needs the reader. The label says what. */
@@ -355,6 +356,7 @@ const styles = stylex.create({
   spinning: {
     animationName: { default: spin, "@media (prefers-reduced-motion: reduce)": "none" },
     animationDuration: "800ms",
+    animationDelay: "400ms",
     animationTimingFunction: "linear",
     animationIterationCount: "infinite",
   },

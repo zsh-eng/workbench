@@ -40,9 +40,20 @@ limit. A remote on another GitHub host, such as GitHub Enterprise, is searched
 on that host (`gh api --hostname`), when **Settings** › **Open in** counts the
 host as GitHub: your choice there, or a host that answers as GitHub does.
 When `gh` cannot read a host, such as one that it is not signed in to, the
-page says why above the others' pull requests. It reads when the list opens,
-when the window gets focus, and every five minutes while the page shows;
-nothing reads in the background. It merges and approves nothing.
+page says why above the others' pull requests. It merges and approves nothing.
+
+Med keeps the last list in its state folder (`pull-requests.json`), so the
+page opens with it at once, also after a reload or a restart, and every window
+shares it. **Updated 3 min ago** beside the title says when Med read it. When
+the list is a minute old or more, Med reads GitHub again without a sign, and
+the new list replaces the old one when it comes. While the page shows, Med
+reads again every two minutes, and when the window shows again after a minute
+or more. A hidden window, or another page, reads nothing. Each read is two
+GitHub searches for each GitHub host, a small part of your API limit. The
+refresh button beside the time reads GitHub now; when a read already runs, it
+reads again after that one. Only the button turns while it reads. When a read
+fails, the page keeps the last list and says why under the title. The page
+shows its outline only when Med has no list yet and GitHub is slow to answer.
 
 In a terminal, `med pr checkout 333` runs `gh pr checkout 333`, fetches the
 base branch, and opens a saved review from the merge base to the head. It

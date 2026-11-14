@@ -12,6 +12,7 @@ afterEach(() => {
   mount?.remove();
   root = undefined;
   mount = undefined;
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -76,7 +77,8 @@ test("what waits on you comes first, a stack is one row, and the keys open, revi
   await expect.element(waiting.getByLabelText("Checks failing")).toBeInTheDocument();
   const yours = page.getByRole("group", { name: "Yours" });
   await expect.element(yours.getByText("acme/trailhead #420 → #421")).toBeVisible();
-  expect(load).toHaveBeenCalledWith(false, false, expect.any(AbortSignal));
+  // The host's last list: under a minute old, so the page asks for no other.
+  expect(load.mock.calls).toEqual([[false, "kept", expect.any(AbortSignal)]]);
   // The list has the keys at once. ↓ ↵ opens the second row in a worktree.
   await userEvent.keyboard("{ArrowDown}{Enter}");
   expect(sheet.opened).toEqual([["https://github.com/acme/trailhead/pull/412", undefined]]);
@@ -100,10 +102,68 @@ test("what waits on you comes first, a stack is one row, and the keys open, revi
     .element(page.getByRole("button", { name: "Where to look: All of GitHub" }))
     .toBeVisible();
   await expect.element(page.getByText("A change elsewhere")).toBeVisible();
-  expect(load).toHaveBeenLastCalledWith(true, false, expect.any(AbortSignal));
-  // The refresh button skips the host's minute-long read.
-  await userEvent.click(page.getByRole("button", { name: "Read GitHub again" }));
-  expect(load).toHaveBeenLastCalledWith(true, true, expect.any(AbortSignal));
+  expect(load).toHaveBeenLastCalledWith(true, "kept", expect.any(AbortSignal));
+  // The refresh button asks the host for a new read.
+  await userEvent.click(page.getByRole("button", { name: "Refresh pull requests" }));
+  expect(load).toHaveBeenLastCalledWith(true, "new", expect.any(AbortSignal));
+});
+
+test("the page opens with the host's last list, then GitHub's; only the refresh button shows a read, and a failed one leaves a note", async () => {
+  const kept = { ...inbox(false), readAt: new Date(Date.now() - 10 * 60_000).toISOString() };
+  const answers: ((answer: PullInbox) => void)[] = [];
+  const load = vi.fn<PullInboxLoader>((_all, want) =>
+    want === "kept" ? Promise.resolve(kept) : new Promise((done) => answers.push(done)),
+  );
+  setup(load);
+  // The kept list shows at once, with its time; its age asks for a fresh one,
+  // and nothing says that a read runs.
+  await expect.element(page.getByRole("option", { name: /Search chips/ })).toBeVisible();
+  await expect.element(page.getByRole("status")).toHaveTextContent("Updated 10 min ago");
+  await expect.poll(() => load.mock.calls.map(([, want]) => want)).toEqual(["kept", "fresh"]);
+  const refresh = page.getByRole("button", { name: "Refresh pull requests" });
+  await expect.element(refresh).toHaveAttribute("aria-busy", "false");
+  await expect.element(page.getByRole("listbox")).toHaveAttribute("aria-busy", "false");
+  // GitHub's answer replaces it.
+  const fresh = { ...inbox(false), yours: [...inbox(false).yours, row(430, "Trail names")] };
+  answers.shift()!(fresh);
+  await expect.element(page.getByRole("option", { name: /Trail names/ })).toBeVisible();
+  await expect.element(page.getByRole("status")).toHaveTextContent("Updated just now");
+
+  // The refresh button asks for a new read and turns while it runs.
+  await userEvent.click(refresh);
+  expect(load).toHaveBeenLastCalledWith(false, "new", expect.any(AbortSignal));
+  await expect.element(refresh).toHaveAttribute("aria-busy", "true");
+  // A failed read keeps the list and says why, quietly.
+  answers.shift()!({
+    ...fresh,
+    failed: { at: new Date().toISOString(), reason: "error connecting to api.github.com" },
+  });
+  await expect
+    .element(page.getByRole("note"))
+    .toHaveTextContent("Med could not refresh the list: error connecting to api.github.com");
+  await expect.element(page.getByRole("option", { name: /Trail names/ })).toBeVisible();
+  await expect.element(refresh).toHaveAttribute("aria-busy", "false");
+  expect(page.getByRole("alert").query()).toBeNull();
+});
+
+test("with no list kept, the page's shape shows only when the first read takes a while", async () => {
+  const answers: ((answer: PullInbox) => void)[] = [];
+  setup(() => new Promise((done) => answers.push(done)));
+  const shape = () =>
+    document.querySelector<HTMLElement>("[role='listbox'] > [aria-hidden='true']");
+  await expect.element(page.getByRole("listbox")).toHaveAttribute("aria-busy", "true");
+  await expect.poll(() => answers.length).toBe(1);
+  // A brief read shows nothing; a longer one shows the shape. The shape's
+  // own clock, held still, says so at each time.
+  const [appear] = shape()!.getAnimations();
+  appear!.pause();
+  appear!.currentTime = 350;
+  expect(getComputedStyle(shape()!).opacity).toBe("0");
+  appear!.currentTime = 650;
+  expect(getComputedStyle(shape()!).opacity).toBe("1");
+  answers.shift()!(inbox(false));
+  await expect.element(page.getByRole("option", { name: /Search chips/ })).toBeVisible();
+  expect(shape()).toBeNull();
 });
 
 test("without gh, or with no GitHub remote, the sheet says why", async () => {
@@ -137,4 +197,46 @@ test("a GitHub host that gh cannot read says why above the others' pull requests
       "Med could not read github.acme.build: You are not logged into any accounts on github.acme.build",
     );
   await expect.element(page.getByRole("option", { name: /Cache map tiles/ })).toBeVisible();
+});
+
+test("while the page shows, it asks for a fresh list every two minutes and when the window comes back, and a hidden window asks for none", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+  let hidden = false;
+  vi.spyOn(document, "visibilityState", "get").mockImplementation(() =>
+    hidden ? "hidden" : "visible",
+  );
+  const load = vi.fn<PullInboxLoader>(async (all) => inbox(all));
+  setup(load);
+  const asks = () => load.mock.calls.map(([, want]) => want);
+  // Each answer lands before the clock moves on.
+  const pass = async (milliseconds: number) => {
+    await vi.advanceTimersByTimeAsync(milliseconds);
+    await new Promise((done) => setTimeout(done, 0));
+  };
+  const show = async (event: Event, target: EventTarget) => {
+    target.dispatchEvent(event);
+    await pass(0);
+  };
+  // The kept list is new, so the page asks for no other at first.
+  await expect.poll(asks).toEqual(["kept"]);
+  await pass(119_000);
+  expect(asks()).toEqual(["kept"]);
+  await pass(1_000);
+  expect(asks()).toEqual(["kept", "fresh"]);
+  // A hidden window asks for nothing.
+  hidden = true;
+  await show(new Event("visibilitychange"), document);
+  await pass(10 * 60_000);
+  expect(asks()).toHaveLength(2);
+  // Back on screen, its list is old: it asks at once.
+  hidden = false;
+  await show(new Event("visibilitychange"), document);
+  expect(asks()).toEqual(["kept", "fresh", "fresh"]);
+  // Focus asks only when the list is a minute old.
+  await pass(30_000);
+  await show(new FocusEvent("focus"), window);
+  expect(asks()).toHaveLength(3);
+  await pass(31_000);
+  await show(new FocusEvent("focus"), window);
+  expect(asks()).toEqual(["kept", "fresh", "fresh", "fresh"]);
 });
