@@ -38,7 +38,7 @@ import {
   type WorkspaceSnapshot,
 } from "../data/workspaces";
 import { z } from "zod";
-import { tokens, ui } from "../theme.stylex";
+import { picked, tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
 import { visibleElement } from "../data/palette-focus";
 import { createApi } from "../data/api";
@@ -2984,27 +2984,31 @@ function WorkspaceSwitcher({
         aria-label={historyMode ? "Open archived thread" : "Switch workspace"}
         data-workspace-switcher
         onPointerDown={(event) => event.stopPropagation()}
-        {...stylex.props(styles.switcher)}
+        {...stylex.props(ui.palette, styles.switcher)}
       >
+        {/* A transient list: no header and no footer. */}
         {searching && (
-          <input
-            ref={input}
-            role="combobox"
-            aria-expanded="true"
-            aria-controls="workspace-switch-list"
-            aria-activedescendant={selected ? optionId(selected.key) : undefined}
-            aria-label={hasHistory ? "Search tabs and archived threads" : "Search workspaces"}
-            placeholder={
-              historyMode
-                ? "Search archived threads"
-                : hasHistory
-                  ? "Search tabs and archived threads"
-                  : "Search workspaces"
-            }
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            {...stylex.props(styles.search)}
-          />
+          <div {...stylex.props(ui.paletteInput)}>
+            <Icon name="search" />
+            <input
+              ref={input}
+              role="combobox"
+              aria-expanded="true"
+              aria-controls="workspace-switch-list"
+              aria-activedescendant={selected ? optionId(selected.key) : undefined}
+              aria-label={hasHistory ? "Search tabs and archived threads" : "Search workspaces"}
+              placeholder={
+                historyMode
+                  ? "Search archived threads…"
+                  : hasHistory
+                    ? "Search tabs and archived threads…"
+                    : "Search workspaces…"
+              }
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              {...stylex.props(ui.paletteField)}
+            />
+          </div>
         )}
         <div
           ref={list}
@@ -3013,7 +3017,7 @@ function WorkspaceSwitcher({
           tabIndex={-1}
           aria-label={historyMode ? "Archived" : "Recent workspaces"}
           aria-activedescendant={selected ? optionId(selected.key) : undefined}
-          {...stylex.props(styles.switchList)}
+          {...stylex.props(ui.paletteList)}
         >
           {rows.map((row, position) => {
             const isSelected = row === selected;
@@ -3032,8 +3036,9 @@ function WorkspaceSwitcher({
                   if (event.key === "Enter") choose(row);
                 }}
                 {...stylex.props(
+                  ui.paletteRow,
                   styles.option,
-                  isSelected && styles.optionSelected,
+                  isSelected && [ui.menuHighlighted, picked],
                   stylex.defaultMarker(),
                 )}
               >
@@ -3045,7 +3050,7 @@ function WorkspaceSwitcher({
               <div
                 key="history-heading"
                 role="presentation"
-                {...stylex.props(ui.label, styles.groupLabel)}
+                {...stylex.props(ui.label, ui.paletteSection)}
               >
                 Archived
               </div>
@@ -3055,7 +3060,9 @@ function WorkspaceSwitcher({
               const repository = qualifier(workspace);
               return option(
                 <>
-                  <Icon name={iconFor(workspace)} size={14} />
+                  <span {...stylex.props(ui.paletteRowIcon)}>
+                    <Icon name={iconFor(workspace)} size={14} />
+                  </span>
                   <span {...stylex.props(styles.name)}>
                     {repository && (
                       <span {...stylex.props(styles.repository)}>{repository} / </span>
@@ -3064,7 +3071,7 @@ function WorkspaceSwitcher({
                   </span>
                   <ThreadState thread={thread} unread={workspace.unread} />
                   {workspace.id === snapshot.active && (
-                    <span {...stylex.props(styles.here)}>Current</span>
+                    <span {...stylex.props(styles.detail)}>Current</span>
                   )}
                 </>,
               );
@@ -3074,12 +3081,16 @@ function WorkspaceSwitcher({
             if (row.kind === "tab")
               return option(
                 <>
-                  <Icon
-                    name={
-                      thread.agent === "claude" || thread.agent === "codex" ? thread.agent : "agent"
-                    }
-                    size={14}
-                  />
+                  <span {...stylex.props(ui.paletteRowIcon)}>
+                    <Icon
+                      name={
+                        thread.agent === "claude" || thread.agent === "codex"
+                          ? thread.agent
+                          : "agent"
+                      }
+                      size={14}
+                    />
+                  </span>
                   <span {...stylex.props(styles.name)}>{thread.title}</span>
                   <ThreadState thread={thread} />
                   {place && <span {...stylex.props(styles.detail)}>{place}</span>}
@@ -3090,7 +3101,9 @@ function WorkspaceSwitcher({
               heading,
               option(
                 <>
-                  <span aria-hidden="true" {...stylex.props(styles.hollow)} />
+                  <span aria-hidden="true" {...stylex.props(ui.paletteRowIcon)}>
+                    <span {...stylex.props(styles.hollow)} />
+                  </span>
                   <span {...stylex.props(styles.name)}>
                     {asking ? `Delete “${thread.title}” for good?` : thread.title}
                   </span>
@@ -3450,63 +3463,13 @@ const styles = stylex.create({
     transitionDuration: listMotion,
   },
   scrim: { position: "fixed", inset: 0, zIndex: 120 },
+  // ui.palette, without a header: a transient list.
   switcher: {
-    position: "fixed",
-    top: "18vh",
-    left: "50%",
-    transform: "translateX(-50%)",
-    width: "min(440px, calc(100vw - 32px))",
-    boxSizing: "border-box",
-    padding: 6,
-    borderRadius: `calc(12px * ${tokens.round})`,
-    backgroundColor: tokens.menu,
-    boxShadow: `0 0 0 1px ${tokens.lineStrong}, ${tokens.shadow}`,
-    color: tokens.text,
-    fontFamily: tokens.ui,
     animationName: { default: appear, [reduced]: "none" },
     animationDuration: "140ms",
     animationTimingFunction: tokens.easeOut,
   },
-  switchList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 1,
-    maxHeight: "56vh",
-    overflowY: "auto",
-    outline: "none",
-  },
-  option: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    minHeight: 34,
-    paddingInline: 10,
-    borderRadius: `calc(8px * ${tokens.round})`,
-    color: tokens.muted,
-    fontSize: 13,
-    cursor: "pointer",
-  },
-  optionSelected: { backgroundColor: tokens.fillStrong, color: tokens.text },
-  here: { color: tokens.faint, fontSize: 11 },
-  // The search field of the switcher, above its list.
-  search: {
-    width: "100%",
-    boxSizing: "border-box",
-    height: 34,
-    marginBottom: 4,
-    paddingInline: 10,
-    borderWidth: 0,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
-    backgroundColor: "transparent",
-    color: tokens.text,
-    fontFamily: tokens.ui,
-    fontSize: 13,
-    outline: "none",
-    "::placeholder": { color: tokens.faint },
-  },
-  groupLabel: { paddingInline: 10, paddingTop: 8, paddingBottom: 4 },
+  option: { cursor: "pointer" },
   // A thread in history: a hollow mark, as it is not loaded.
   hollow: {
     flexShrink: 0,
