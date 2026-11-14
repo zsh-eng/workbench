@@ -19,6 +19,7 @@ import {
 import { ShortcutKeys } from "./ShortcutKeys";
 export { ShortcutKeys } from "./ShortcutKeys";
 import { Icon, type IconName } from "./Icon";
+import { PaletteHeader, PaletteHint, plural } from "./Palette";
 import { picked, tokens, ui } from "../theme.stylex";
 
 export interface Choice {
@@ -529,21 +530,21 @@ export function CommandDialog({
       }}
     >
       <Dialog.Portal>
-        <Dialog.Backdrop {...stylex.props(ui.scrim, styles.backdrop, ui.instant)} />
+        <Dialog.Backdrop {...stylex.props(ui.scrim, ui.paletteScrim, ui.instant)} />
         <Dialog.Popup
           initialFocus={() => {
             commandManagesFocus.current = false;
             return focusPaletteInput(inputRef.current);
           }}
           finalFocus={() => !commandManagesFocus.current}
-          {...stylex.props(ui.palette, styles.dialog, ui.instant)}
+          {...stylex.props(ui.palette, ui.instant)}
         >
-          <Dialog.Title {...stylex.props(styles.hidden)}>{title}</Dialog.Title>
-          <Dialog.Description {...stylex.props(styles.hidden)}>
+          <PaletteHeader title={title} closeLabel="Close commands" />
+          <Dialog.Description {...stylex.props(ui.srOnly)}>
             Find and run a review command.
           </Dialog.Description>
           <div {...stylex.props(ui.paletteInput)}>
-            <Icon name="command" />
+            <Icon name="search" />
             <input
               ref={inputRef}
               value={query}
@@ -572,14 +573,13 @@ export function CommandDialog({
               aria-controls="command-results"
               aria-activedescendant={results[active] ? `command-${results[active].id}` : undefined}
             />
-            <ShortcutKeys value="Esc" />
           </div>
           <div
             id="command-results"
             ref={resultList}
             role="listbox"
             aria-label="Commands"
-            {...stylex.props(styles.commandResults)}
+            {...stylex.props(ui.paletteList)}
           >
             {results.map((command, index) => (
               <button
@@ -594,17 +594,19 @@ export function CommandDialog({
                 onMouseMove={() => setActive(index)}
                 onClick={() => run(index)}
                 {...stylex.props(
-                  ui.button,
-                  ui.menuItem,
-                  styles.commandRow,
+                  ui.paletteRow,
+                  ui.paletteRowBare,
                   index === active && [ui.menuHighlighted, picked],
                   command.disabled && styles.disabled,
                 )}
               >
-                <span {...stylex.props(styles.commandText)}>{command.label}</span>
+                <span {...stylex.props(ui.paletteRowText)}>{command.label}</span>
                 {/* Why it cannot run yet, such as Push… while Med reads the remotes. */}
                 {command.hint && (
-                  <span id={`command-${command.id}-hint`} {...stylex.props(styles.commandHint)}>
+                  <span
+                    id={`command-${command.id}-hint`}
+                    {...stylex.props(ui.paletteRowSecondary, styles.commandHint)}
+                  >
                     {command.hint}
                   </span>
                 )}
@@ -612,20 +614,13 @@ export function CommandDialog({
               </button>
             ))}
             {results.length === 0 && (
-              <div {...stylex.props(styles.empty)}>No matching commands</div>
+              <div {...stylex.props(ui.paletteEmpty)}>No matching commands</div>
             )}
           </div>
           <div {...stylex.props(ui.paletteFooter)}>
-            <span {...stylex.props(styles.footerHint)}>
-              <ShortcutKeys value="↑ ↓" /> Navigate
-            </span>
-            <span {...stylex.props(styles.footerHint)}>
-              <ShortcutKeys value="↵" /> Run
-            </span>
-            <span {...stylex.props(ui.grow)} />
-            <span {...stylex.props(styles.footerHint)}>
-              {results.filter((command) => !command.disabled).length} available
-            </span>
+            <PaletteHint keys="↑ ↓">Navigate</PaletteHint>
+            <PaletteHint keys="↵">Run</PaletteHint>
+            <span {...stylex.props(ui.paletteCount)}>{plural(results.length, "command")}</span>
           </div>
         </Dialog.Popup>
       </Dialog.Portal>
@@ -669,12 +664,12 @@ export function LineDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Backdrop {...stylex.props(ui.scrim, styles.backdrop, ui.instant)} />
+        <Dialog.Backdrop {...stylex.props(ui.scrim, ui.paletteScrim, ui.instant)} />
         <Dialog.Popup
           initialFocus={() => focusPaletteInput(inputRef.current)}
-          {...stylex.props(ui.palette, styles.dialog, ui.instant)}
+          {...stylex.props(ui.palette, ui.instant)}
         >
-          <Dialog.Title {...stylex.props(styles.hidden)}>{title}</Dialog.Title>
+          <PaletteHeader title={title} closeLabel="Close" />
           <div {...stylex.props(ui.paletteInput)}>
             <Icon name={icon} />
             <input
@@ -692,28 +687,25 @@ export function LineDialog({
               aria-label={title}
               aria-describedby={choice ? undefined : `${id}-empty`}
             />
-            <ShortcutKeys value="Esc" />
           </div>
-          <div {...stylex.props(styles.commandResults)}>
+          <div {...stylex.props(ui.paletteList)}>
             {choice ? (
               <button
                 type="button"
                 tabIndex={-1}
                 onClick={run}
-                {...stylex.props(
-                  ui.button,
-                  ui.menuItem,
-                  styles.commandRow,
-                  ui.menuHighlighted,
-                  picked,
-                )}
+                {...stylex.props(ui.paletteRow, ui.paletteRowBare, ui.menuHighlighted, picked)}
               >
-                <span {...stylex.props(styles.commandText)}>{choice.label}</span>
-                {choice.hint && <span {...stylex.props(styles.commandHint)}>{choice.hint}</span>}
+                <span {...stylex.props(ui.paletteRowText)}>{choice.label}</span>
+                {choice.hint && (
+                  <span {...stylex.props(ui.paletteRowSecondary, styles.commandHint)}>
+                    {choice.hint}
+                  </span>
+                )}
                 <ShortcutKeys value="↵" />
               </button>
             ) : (
-              <div id={`${id}-empty`} {...stylex.props(styles.empty)}>
+              <div id={`${id}-empty`} {...stylex.props(ui.paletteEmpty)}>
                 {empty}
               </div>
             )}
@@ -839,36 +831,7 @@ const styles = stylex.create({
   flip: { gap: 4, minWidth: 0 },
   value: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
   chevron: { display: "inline-flex", color: tokens.faint },
-  backdrop: { zIndex: 110 },
-  dialog: { zIndex: 111 },
-  hidden: {
-    position: "absolute",
-    width: 1,
-    height: 1,
-    overflow: "hidden",
-    clipPath: "inset(50%)",
-    whiteSpace: "nowrap",
-  },
-  commandResults: { padding: 4, maxHeight: "min(360px, 55vh)", overflowY: "auto" },
-  commandRow: {
-    width: "100%",
-    minHeight: 32,
-    paddingInline: 10,
-    textAlign: "left",
-    borderRadius: `calc(6px * ${tokens.round})`,
-    fontSize: 12.5,
-    color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
-  },
-  commandText: {
-    flex: "1",
-    minWidth: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
-  commandHint: { flexShrink: 0, color: tokens.faint, fontSize: 12 },
-  footerHint: { display: "inline-flex", alignItems: "center", gap: 6 },
-  empty: { padding: 24, textAlign: "center", fontSize: 12.5, color: tokens.muted },
+  commandHint: { flexShrink: 0 },
   segmented: {
     position: "relative",
     display: "flex",

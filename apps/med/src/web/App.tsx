@@ -6998,7 +6998,7 @@ export function App({
             open={addPullOpen}
             onOpenChange={setAddPullOpen}
             title="Add a pull request"
-            placeholder="Paste a pull request link"
+            placeholder="Paste a pull request link…"
             icon="pullRequest"
             empty="Paste a GitHub pull request link, such as https://github.com/owner/repo/pull/333."
             action={(line) => {
