@@ -1,5 +1,5 @@
 import { Icon } from "./Icon";
-import { ShortcutKeys } from "./ShortcutKeys";
+import { PaletteHeader, PaletteHint, plural } from "./Palette";
 import { focusPaletteInput } from "../data/palette-focus";
 import { useEffect, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
@@ -14,7 +14,7 @@ export interface ThemePickerProps {
 }
 
 export function ThemePicker({ open, onOpenChange }: ThemePickerProps) {
-  const { active, saved, persistenceError } = useTheme();
+  const { saved, persistenceError } = useTheme();
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -54,44 +54,34 @@ export function ThemePicker({ open, onOpenChange }: ThemePickerProps) {
     >
       <Dialog.Root open={open} onOpenChange={setOpen}>
         <Dialog.Portal>
-          <Dialog.Backdrop {...stylex.props(styles.backdrop, ui.instant)} />
+          <Dialog.Backdrop
+            {...stylex.props(ui.scrim, ui.paletteScrim, styles.backdrop, ui.instant)}
+          />
           <Dialog.Popup
             initialFocus={() => focusPaletteInput(inputRef.current)}
-            {...stylex.props(styles.popup, ui.instant)}
+            {...stylex.props(ui.palette, ui.instant)}
           >
-            <div {...stylex.props(styles.heading)}>
-              <Dialog.Title {...stylex.props(styles.title)}>Theme</Dialog.Title>
-              <Dialog.Close
-                {...stylex.props(ui.button, styles.close)}
-                aria-label="Close theme picker"
-              >
-                <ShortcutKeys value="Esc" />
-              </Dialog.Close>
-            </div>
-            <Dialog.Description {...stylex.props(styles.description)}>
+            <PaletteHeader title="Theme" closeLabel="Close theme picker" />
+            <Dialog.Description {...stylex.props(ui.srOnly)}>
               Preview with ↑ ↓. Press Enter to save. Escape restores your theme.
             </Dialog.Description>
-            <div {...stylex.props(styles.search)}>
-              <Icon name="search" size={16} />
+            <div {...stylex.props(ui.paletteInput)}>
+              <Icon name="search" />
               <Combobox.Input
                 ref={inputRef}
                 onFocus={(event) => event.currentTarget.select()}
                 aria-label="Search themes"
                 placeholder="Search themes…"
-                {...stylex.props(styles.input)}
+                {...stylex.props(ui.paletteField)}
               />
             </div>
             <Combobox.Empty>
-              <div {...stylex.props(styles.empty)}>No themes found.</div>
+              <div {...stylex.props(ui.paletteEmpty)}>No themes found.</div>
             </Combobox.Empty>
-            <Combobox.List {...stylex.props(styles.list)} aria-label="Themes">
+            <Combobox.List {...stylex.props(ui.paletteList)} aria-label="Themes">
               {(group: (typeof themeGroups)[number]) => (
-                <Combobox.Group
-                  key={group.family}
-                  items={group.items}
-                  {...stylex.props(styles.group)}
-                >
-                  <Combobox.GroupLabel {...stylex.props(styles.groupLabel)}>
+                <Combobox.Group key={group.family} items={group.items}>
+                  <Combobox.GroupLabel {...stylex.props(ui.label, ui.paletteSection)}>
                     {group.family}
                   </Combobox.GroupLabel>
                   <Combobox.Collection>
@@ -102,11 +92,19 @@ export function ThemePicker({ open, onOpenChange }: ThemePickerProps) {
                         onFocus={() => themeController.preview(theme.id)}
                         className={(state) =>
                           stylex.props(
-                            styles.item,
-                            state.highlighted && [styles.highlighted, picked],
+                            ui.paletteRow,
+                            state.highlighted && [ui.menuHighlighted, picked],
                           ).className
                         }
                       >
+                        {/* The appearance, in place of the words light and dark. */}
+                        <span
+                          data-appearance={theme.appearance}
+                          {...stylex.props(ui.paletteRowIcon)}
+                        >
+                          <Icon name={theme.appearance === "light" ? "sun" : "moon"} size={14} />
+                        </span>
+                        <span {...stylex.props(ui.paletteRowText)}>{theme.label}</span>
                         <span {...stylex.props(styles.swatches)} aria-hidden="true">
                           {[
                             theme.palette.canvas,
@@ -117,13 +115,16 @@ export function ThemePicker({ open, onOpenChange }: ThemePickerProps) {
                             <span key={index} {...stylex.props(styles.swatch(color))} />
                           ))}
                         </span>
-                        <span {...stylex.props(styles.name)}>{theme.label}</span>
-                        <span {...stylex.props(styles.kind)}>{theme.appearance}</span>
-                        <span
-                          {...stylex.props(styles.saved)}
-                          aria-label={saved.id === theme.id ? "Saved theme" : undefined}
-                        >
-                          {saved.id === theme.id ? "✓" : ""}
+                        <span {...stylex.props(ui.paletteCheck)}>
+                          {saved.id === theme.id && (
+                            <span
+                              role="img"
+                              aria-label="Saved theme"
+                              {...stylex.props(styles.check)}
+                            >
+                              <Icon name="check" size={14} />
+                            </span>
+                          )}
                         </span>
                       </Combobox.Item>
                     )}
@@ -131,16 +132,19 @@ export function ThemePicker({ open, onOpenChange }: ThemePickerProps) {
                 </Combobox.Group>
               )}
             </Combobox.List>
-            <div {...stylex.props(styles.footer)}>
-              <span>{active.label}</span>
-              <span {...stylex.props(ui.grow)} />
-              <span>{active.id === saved.id ? "Saved theme" : "Enter to save"}</span>
-            </div>
             {persistenceError && (
-              <p role="status" {...stylex.props(styles.error)}>
+              <p role="status" {...stylex.props(ui.paletteNotice, styles.error)}>
                 {persistenceError}
               </p>
             )}
+            <div {...stylex.props(ui.paletteFooter)}>
+              <PaletteHint keys="↑ ↓">Preview</PaletteHint>
+              <PaletteHint keys="↵">Save</PaletteHint>
+              <PaletteHint keys="Esc">Restore</PaletteHint>
+              <span {...stylex.props(ui.paletteCount)}>
+                <ThemeCount />
+              </span>
+            </div>
           </Dialog.Popup>
         </Dialog.Portal>
       </Dialog.Root>
@@ -148,109 +152,19 @@ export function ThemePicker({ open, onOpenChange }: ThemePickerProps) {
   );
 }
 
+/** The themes that the search shows. */
+function ThemeCount() {
+  const groups = Combobox.useFilteredItems<(typeof themeGroups)[number]>();
+  return plural(
+    groups.reduce((count, group) => count + group.items.length, 0),
+    "theme",
+  );
+}
+
 const styles = stylex.create({
   // Nearly clear: the whole app previews the highlighted theme behind the list.
-  backdrop: {
-    position: "fixed",
-    inset: 0,
-    backgroundColor: `color-mix(in srgb, ${tokens.panel} 16%, transparent)`,
-    zIndex: 90,
-  },
-  popup: {
-    position: "fixed",
-    top: "15vh",
-    left: "50%",
-    transform: "translateX(-50%)",
-    width: "min(460px, calc(100vw - 32px))",
-    maxHeight: "75vh",
-    overflowY: "auto",
-    boxSizing: "border-box",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: tokens.lineStrong,
-    borderRadius: `calc(12px * ${tokens.round})`,
-    backgroundColor: tokens.menu,
-    color: tokens.text,
-    boxShadow: tokens.shadow,
-    fontFamily: tokens.ui,
-    fontSize: 12,
-    outline: "none",
-    zIndex: 91,
-  },
-  heading: { display: "flex", alignItems: "center", gap: 10, paddingTop: 10, paddingInline: 16 },
-  title: { fontSize: 12.5, fontWeight: 550, margin: 0 },
-  close: { marginLeft: "auto", fontSize: 10, minHeight: 24 },
-  description: {
-    position: "absolute",
-    width: 1,
-    height: 1,
-    padding: 0,
-    margin: -1,
-    overflow: "hidden",
-    clipPath: "inset(50%)",
-    whiteSpace: "nowrap",
-    borderWidth: 0,
-  },
-  search: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    paddingBlock: 12,
-    paddingInline: 16,
-    color: tokens.muted,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
-  },
-  input: {
-    flex: "1",
-    minWidth: 0,
-    backgroundColor: "transparent",
-    borderWidth: 0,
-    outline: "none",
-    color: tokens.text,
-    fontFamily: tokens.ui,
-    fontSize: 14,
-  },
-  list: {
-    maxHeight: "min(360px, 45vh)",
-    overflowY: "auto",
-    paddingInline: 6,
-    paddingBlock: 6,
-    outline: "none",
-  },
-  group: { paddingBottom: 4 },
-  groupLabel: {
-    paddingTop: 8,
-    paddingBottom: 4,
-    paddingInline: 10,
-    color: tokens.faint,
-    fontSize: 10.5,
-    fontWeight: 500,
-  },
-  item: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    minHeight: 34,
-    paddingInline: 10,
-    borderRadius: `calc(8px * ${tokens.round})`,
-    color: tokens.text,
-    cursor: "default",
-    outline: "none",
-  },
-  highlighted: { backgroundColor: tokens.pick, color: tokens.selectedText },
-  name: {
-    flex: "1",
-    minWidth: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    fontSize: 12,
-  },
-  kind: { color: tokens.muted, fontSize: 10 },
-  saved: { width: 12, color: tokens.accent, fontSize: 12 },
-  swatches: { display: "flex", gap: 3, alignItems: "center" },
+  backdrop: { backgroundColor: `color-mix(in srgb, ${tokens.panel} 16%, transparent)` },
+  swatches: { display: "flex", flexShrink: 0, gap: 3, alignItems: "center" },
   swatch: (color: string) => ({
     width: 8,
     height: 14,
@@ -258,17 +172,6 @@ const styles = stylex.create({
     backgroundColor: color,
     boxShadow: "inset 0 0 0 1px #80808030",
   }),
-  empty: { color: tokens.muted, paddingBlock: 24, textAlign: "center" },
-  footer: {
-    display: "flex",
-    gap: 12,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: tokens.line,
-    paddingBlock: 8,
-    paddingInline: 16,
-    color: tokens.muted,
-    fontSize: 10,
-  },
-  error: { margin: 0, paddingBlock: 8, paddingInline: 16, color: tokens.warning, fontSize: 11 },
+  check: { display: "inline-flex" },
+  error: { color: tokens.warning },
 });

@@ -139,10 +139,8 @@ test("a theme's aesthetic previews with its colors: type, corners, shadow, and t
     rgb(findTheme("paper-light").palette.accent),
   );
   expect(getComputedStyle(option).color).toBe("rgb(255, 255, 255)");
-  const kind = page
-    .getByRole("option", { name: /Paper Light/ })
-    .getByText("light")
-    .element();
+  // The row's sun, its appearance, turns light with the row.
+  const kind = option.querySelector('[data-appearance="light"]')!;
   expect(getComputedStyle(kind).color).toMatch(/^rgba\(255, 255, 255, 0\.8/);
   await userEvent.keyboard("{Escape}");
   await expect.poll(() => document.documentElement.dataset.theme).toBe("graphite-dark");

@@ -14,7 +14,9 @@ right. `⌘K` also opens each section, such as **Settings: Open in**
   and switches when the system does.
 - **Light theme** and **Dark theme**: the theme for each. A theme chosen in
   `⌘K`'s **Change theme** becomes the theme for its appearance, and shows: in
-  System, a theme of the other appearance switches the mode to it.
+  System, a theme of the other appearance switches the mode to it. In that
+  picker a sun or a moon marks each theme's appearance; `↑` and `↓` preview a
+  theme, `↵` saves it, and `Esc` restores yours.
 
 Med paints its window in the chosen theme's color before it loads, so the
 first frame is never the browser's own white or black.
