@@ -130,6 +130,8 @@ interface SessionFile {
   prompt?: string;
   /** Claude Code's custom title or agent name, or Codex's thread name. */
   name?: string;
+  /** The title that Claude Code gives a session from its work (`ai-title`). */
+  aiTitle?: string;
   summary?: string;
   idle: boolean;
   /** The last turn, from the tail (thread-turns.ts). */
@@ -165,6 +167,7 @@ export function scanLines(
     prompt?: string;
     text?: string;
     name?: string;
+    aiTitle?: string;
     summary?: string;
     id?: string;
     source?: RolloutSource;
@@ -197,6 +200,7 @@ export function scanLines(
     }
     if (entry.type === "custom-title") found.name = text(entry.customTitle) ?? found.name;
     if (entry.type === "agent-name" && !found.name) found.name = text(entry.agentName);
+    if (entry.type === "ai-title") found.aiTitle = text(entry.aiTitle) ?? found.aiTitle;
     if (entry.type === "summary") found.summary = text(entry.summary) ?? found.summary;
     // The reader sees every line, so it knows whether the turn has ended.
     const events = reader.line(line);
@@ -253,6 +257,9 @@ async function readSession(
     ...((first?.prompt ?? known?.prompt) ? { prompt: first?.prompt ?? known?.prompt } : {}),
     ...((tail.name ?? first?.name ?? known?.name)
       ? { name: tail.name ?? first?.name ?? known?.name }
+      : {}),
+    ...((tail.aiTitle ?? first?.aiTitle ?? known?.aiTitle)
+      ? { aiTitle: tail.aiTitle ?? first?.aiTitle ?? known?.aiTitle }
       : {}),
     ...((tail.summary ?? first?.summary ?? known?.summary)
       ? { summary: tail.summary ?? first?.summary ?? known?.summary }
@@ -373,7 +380,8 @@ export interface IndexedSession extends SessionFile {
   cwd: string;
   /** Its thread's ID (`sessionKey`). */
   key: string;
-  /** Its name: the agent's title, its summary, or its first prompt. */
+  /** Its name: the agent's title, the one it gave itself, its summary, or
+   * its first prompt. */
   title: string;
   /** The registered checkout that it works in now: the newest of its folders
    * that is in one. A session with none works outside the repositories. */
@@ -504,7 +512,13 @@ export function createSessionIndex(options: {
       cwd: session.cwd,
       ...(name ? { name } : {}),
       key: sessionKey(session),
-      title: name ?? session.name ?? session.summary ?? session.prompt ?? "Agent session",
+      title:
+        name ??
+        session.name ??
+        session.aiTitle ??
+        session.summary ??
+        session.prompt ??
+        "Agent session",
       ...(checkout && { checkout }),
       working: !session.idle && now() - session.mtimeMs < STALE_MS,
     };

@@ -24,7 +24,8 @@ the diff of a session while it runs.
   change counts of the checkout. The thread has `found: true` and the ID
   `found-<agent>-<sessionId>`.
 - The title is Claude Code's custom title or agent name, or Codex's thread
-  name. Else it is the summary, else the first sentence of the first prompt.
+  name. Else it is the title that Claude Code gave the session (`ai-title`),
+  else the summary, else the first sentence of the first prompt.
 - A session that a saved review names (also an archived one) shows only in
   that thread. There are no duplicates.
 - Open a found thread: the workspace opens on its checkout. The session pane

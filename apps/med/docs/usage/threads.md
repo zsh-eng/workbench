@@ -35,7 +35,9 @@ the review's name in the review's header lists them too, also while the
 window is too narrow for the rail. The rail's **Pull requests** lists the
 thread's pull requests, each with its number; a row opens that pull
 request's own page. A row's name is the
-name you gave it, else the session's title. `⌘1`–`⌘9` open the thread at that
+name you gave it in Med, else the session's: the name you gave it in the agent,
+else the title that Claude Code gives a session from its work, else its first
+prompt. `⌘1`–`⌘9` open the thread at that
 place in the list.
 A row shows the agent's mark and the session's name, and at most one dot: blue
 in a ring when the agent needs you, blue when its work finished since you

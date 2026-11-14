@@ -117,6 +117,7 @@ async function readInfo(file: Listed, mtimeMs: number): Promise<SessionInfo | un
   if (!validId(id)) return undefined;
   const cwd = last?.cwd ?? first.cwd;
   const name = last?.name ?? first.name;
+  const aiTitle = last?.aiTitle ?? first.aiTitle;
   const summary = last?.summary ?? first.summary;
   return {
     agent: file.agent,
@@ -130,7 +131,7 @@ async function readInfo(file: Listed, mtimeMs: number): Promise<SessionInfo | un
     ...(summary ? { summary } : {}),
     ...(first.prompt ? { prompt: first.prompt } : {}),
     ...(first.text ? { text: first.text } : {}),
-    title: name ?? summary ?? first.prompt ?? "Agent session",
+    title: name ?? aiTitle ?? summary ?? first.prompt ?? "Agent session",
     ...(first.source && first.source.kind !== "session" ? { automatic: true as const } : {}),
   };
 }

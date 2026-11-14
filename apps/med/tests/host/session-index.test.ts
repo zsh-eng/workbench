@@ -39,7 +39,8 @@ const lines = (records: unknown[]) =>
 const time = (ago: number) => new Date(Date.now() - ago).toISOString();
 
 /** A Claude Code transcript: an optional title, a prompt, and either a reply
- * that ends the turn or a tool call that still runs. */
+ * that ends the turn or a tool call that still runs; then the title that
+ * Claude Code gives it, if any. */
 async function claude(
   home: string,
   cwd: string,
@@ -47,9 +48,10 @@ async function claude(
   {
     prompt,
     title,
+    aiTitle,
     working = false,
     startedIn = cwd,
-  }: { prompt: string; title?: string; working?: boolean; startedIn?: string },
+  }: { prompt: string; title?: string; aiTitle?: string; working?: boolean; startedIn?: string },
 ) {
   // Claude Code files a transcript under the folder that the session started in.
   const folder = join(home, ".claude", "projects", claudeProjectFolder(startedIn));
@@ -90,6 +92,7 @@ async function claude(
               content: [{ type: "text", text: "Done." }],
             },
           },
+      ...(aiTitle ? [{ type: "ai-title", aiTitle, sessionId: id }] : []),
     ]),
   );
   return path;
@@ -239,6 +242,7 @@ test("the thread list finds Claude Code and Codex sessions in the registered che
   const transcript = await claude(home, glossary, glossaryId, {
     prompt: "Add a short glossary to the README.",
     title: "README glossary",
+    aiTitle: "Glossary for the README",
     working: true,
   });
   // A session in a folder inside the main checkout is the checkout's.
@@ -252,6 +256,10 @@ test("the thread list finds Claude Code and Codex sessions in the registered che
     "33333333-3333-4333-8333-333333333333",
     "Readers in the US want heights in feet.",
   );
+  await claude(home, repo, "88888888-8888-4888-8888-888888888888", {
+    prompt: "The queue test fails now and then on main, can you look?",
+    aiTitle: "Fix the flaky queue test",
+  });
   // A session in a worktree that Med does not know yet, inside the main
   // checkout, is not the main checkout's: it waits for its own.
   const side = join(repo, ".claude", "worktrees", "side");
@@ -292,13 +300,15 @@ test("the thread list finds Claude Code and Codex sessions in the registered che
           "README glossary",
           "Explain the prediction model in the README",
           "Readers in the US want heights in feet",
+          "Fix the flaky queue test",
         ]),
       ),
     { timeout: 10_000 },
   );
   const threads = latest.value!.threads;
   const byTitle = (title: string) => threads.find((thread) => thread.title === title);
-  // Titles: Claude's custom title, else the first prompt as a thread name.
+  // Titles: Claude's custom title, else the title that Claude Code gave the
+  // session, else the first prompt as a thread name.
   expect(byTitle("README glossary")).toMatchObject({
     id: `claude-${glossaryId}`,
     kind: "session",
