@@ -21,7 +21,7 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Close tab / reopen closed tab          | `⌘⌥W` / `⌘⌥T`                |
 | Move the focused tab                   | `⌥↑` / `⌥↓`                  |
 | Switch, or search archived threads     | `⌃Tab`                       |
-| Toggle the sidebar / session           | `⌘B` / `⌘⇧B`                 |
+| Toggle the sidebar / review            | `⌘B` / `⌘⇧B`                 |
 | Toggle a page's sidebar / session rail | `⌘⌥B` / `⌘⌥⇧B`               |
 | Next permission mode (message)         | `⇧Tab`                       |
 | New thread (`⌘N` in the installed app) | `⌥N` or `⌘N`                 |

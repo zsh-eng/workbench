@@ -4258,34 +4258,38 @@ describe("saved reviews", () => {
     expect(pullRequestReads.slice(0, -1).every((search) => search === "")).toBe(true);
   });
 
-  test("⌘⇧B shows and hides the agent session", async () => {
+  test("⌘⇧B shows and hides the review, the pane beside the session", async () => {
     await mountApp({ savedReview: true });
-    // While the pane hides, the review's Expand is Restore, which shows it.
-    const session = page.getByRole("button", { name: "Show agent session" });
     const pane = page.getByRole("region", { name: "Agent session" });
-    await expect.element(session).toBeVisible();
-    await userEvent.keyboard("{Control>}{Shift>}B{/Shift}{/Control}");
+    const shows = (id: string) =>
+      document.querySelector(`[data-pane="${id}"]`)?.checkVisibility() ?? false;
+    const press = () => userEvent.keyboard("{Control>}{Shift>}B{/Shift}{/Control}");
+    // The session hides at first: hiding the review brings it back, alone.
+    await expect.element(page.getByRole("button", { name: "Show agent session" })).toBeVisible();
+    await press();
     await expect.element(pane).toBeVisible();
-    await expect.element(session).not.toBeInTheDocument();
-    await userEvent.keyboard("{Control>}{Shift>}B{/Shift}{/Control}");
-    await expect
-      .poll(() => document.querySelector('[data-pane="session"]')?.checkVisibility() ?? false)
-      .toBe(false);
-    await expect.element(session).toBeVisible();
+    await expect.poll(() => shows("review")).toBe(false);
+    // The review shows beside the session, and hides again.
+    await press();
+    await expect.poll(() => shows("review")).toBe(true);
+    await expect.element(pane).toBeVisible();
+    await press();
+    await expect.poll(() => shows("review")).toBe(false);
+    await expect.element(pane).toBeVisible();
 
-    // A session behind the expanded review shows at one press.
-    await userEvent.keyboard("{Control>}{Shift>}B{/Shift}{/Control}");
-    await expect.element(pane).toBeVisible();
+    // An expanded review hides at one press, and the session fills the row.
+    await press();
+    await expect.poll(() => shows("review")).toBe(true);
     await page.getByRole("button", { name: "Expand review" }).click();
     await expect
       .poll(() => document.querySelector('[data-pane="session"]')?.hasAttribute("inert"))
       .toBe(true);
-    await userEvent.keyboard("{Control>}{Shift>}B{/Shift}{/Control}");
+    await press();
+    await expect.poll(() => shows("review")).toBe(false);
     await expect
       .poll(() => document.querySelector('[data-pane="session"]')?.hasAttribute("inert"))
       .toBe(false);
     await expect.element(pane).toBeVisible();
-    expect(document.querySelector('[data-pane="review"]')?.checkVisibility()).toBe(true);
   });
 
   test("shows Codex review findings read-only, at their lines or in the Codex panel", async () => {
@@ -4452,8 +4456,10 @@ describe("agent session", () => {
     await expect
       .element(page.getByRole("radio", { name: "Review", exact: true }))
       .toHaveAttribute("aria-checked", "true");
-    // Hiding the pane (⌘⇧B) leaves the agent at work; the review's Restore shows it again.
-    await userEvent.keyboard("{Control>}{Shift>}B{/Shift}{/Control}");
+    // Hiding the pane (⌘K) leaves the agent at work; the review's Restore shows it again.
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await page.getByRole("combobox", { name: "Search commands" }).fill("Hide agent session");
+    await page.getByRole("option", { name: /^Hide agent session/ }).click();
     await expect.element(panel).not.toBeInTheDocument();
     await page.getByRole("button", { name: "Show agent session" }).click();
     await expect.element(panel).toBeVisible();

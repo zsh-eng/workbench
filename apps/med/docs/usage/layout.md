@@ -2,8 +2,8 @@
 
 ## Panes
 
-A workspace is a set of tiled panes: the review, and **Session** (`⌘⇧B`)
-beside it. Each thread keeps its own layout. Files are a page of the review,
+A workspace is a set of tiled panes: the session, the workspace's main view,
+and the review (`⌘⇧B`) beside it. Each thread keeps its own layout. Files are a page of the review,
 **Files**, not a pane.
 
 A thread opens on its session alone, which fills the workspace. The pages at
@@ -49,14 +49,14 @@ Sources, names itself, so in a browser tab it reaches the window's top, and
 **Show sidebar** sits in its top left corner while the sidebar hides. The
 installed app keeps the title band there for its window controls.
 
-| Pane or panel                   | Hide                                                                  | Show again                                                          |
-| ------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Sidebar (the threads)           | **Hide sidebar** in it, `⌘B`                                          | **Show sidebar** at the top left, `⌘B`, or **Show threads** in `⌘K` |
-| Review                          | Its page in the title band, clicked again, or **Hide review** in `⌘K` | A page in the title band, `⌘E`, `⌘K`, or opening a file             |
-| Session                         | `⌘⇧B`, or `⌘K`                                                        | **Restore** in the review's header, `⌘⇧B`, or `⌘K`                  |
-| A vault's files sidebar         | The folder button, or **Hide files sidebar** in `⌘K`                  | The same button, or **Show files sidebar** in `⌘K`                  |
-| A page's sidebar (guide, files) | The button at its heading's end, `⌘⌥B`, or `⌘B` in a browser tab      | The button at the start of the review's header, `⌘⌥B`, or `⌘K`      |
-| The session rail                | The list button in the title band, `⌘⌥⇧B`                             | The same button, `⌘⌥⇧B`, or **Show session rail** in `⌘K`           |
+| Pane or panel                   | Hide                                                                         | Show again                                                          |
+| ------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Sidebar (the threads)           | **Hide sidebar** in it, `⌘B`                                                 | **Show sidebar** at the top left, `⌘B`, or **Show threads** in `⌘K` |
+| Review                          | `⌘⇧B`, its page in the title band, clicked again, or **Hide review** in `⌘K` | `⌘⇧B`, a page in the title band, `⌘E`, `⌘K`, or opening a file      |
+| Session                         | **Hide agent session** in `⌘K`                                               | **Restore** in the review's header, or `⌘K`; `⌘⇧B` hides the review |
+| A vault's files sidebar         | The folder button, or **Hide files sidebar** in `⌘K`                         | The same button, or **Show files sidebar** in `⌘K`                  |
+| A page's sidebar (guide, files) | The button at its heading's end, `⌘⌥B`, or `⌘B` in a browser tab             | The button at the start of the review's header, `⌘⌥B`, or `⌘K`      |
+| The session rail                | The list button in the title band, `⌘⌥⇧B`                                    | The same button, `⌘⌥⇧B`, or **Show session rail** in `⌘K`           |
 
 The review's header shows the buttons at its ends where it has room; a
 narrower header keeps its room for the title and the pages, and the shortcuts

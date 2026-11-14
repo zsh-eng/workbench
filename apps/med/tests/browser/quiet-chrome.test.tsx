@@ -561,11 +561,14 @@ test("a hidden session pane comes back by its button where it was, and ⌘K hide
   await expect.poll(() => side()?.getAttribute("aria-pressed")).toBe("false");
   expect(localStorage.getItem("med:session-panel")).toBe("closed");
 
-  await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
+  await userEvent.keyboard("{Control>}k{/Control}");
+  await page.getByRole("combobox", { name: "Search commands" }).fill("Hide agent session");
+  await page.getByRole("option", { name: /^Hide agent session/ }).click();
   await expect.poll(session).toBeUndefined();
   await expect.element(showSession).toBeVisible();
   expect(row()!.querySelector('[data-pane-show="session"]')).toBe(showSession.element());
-  expect(showSession.element().getAttribute("data-tooltip-keys")).toBe("Mod+Shift+B");
+  // ⌘⇧B is the review's: the button names no keys.
+  expect(showSession.element().getAttribute("data-tooltip-keys")).toBeNull();
   expect(document.activeElement).toBe(showSession.element());
   await showSession.click();
   await expect.poll(session).toBeTruthy();
@@ -641,17 +644,26 @@ test("a thread opens on its session; the band's pages show and hide the review, 
   await page.getByRole("button", { name: "Restore the other panes" }).click();
   await expect.poll(sessionInert).toBe(false);
 
-  // ⌘K hides it too. While the review hides, ⌘⇧B hides the session and
-  // shows the review, so the workspace keeps a pane.
+  // ⌘K hides it too, and ⌘⇧B shows it again beside the session.
   await userEvent.keyboard("{Control>}k{/Control}");
   await page.getByRole("combobox", { name: "Search commands" }).fill("Hide review");
   await page.getByRole("option", { name: /^Hide review/ }).click();
   await expect.poll(reviewPane).toBeUndefined();
-  await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
+  const press = () => userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
+  await press();
   await expect.poll(reviewPane).toBeTruthy();
-  await expect.poll(session).toBeUndefined();
-  await page.getByRole("button", { name: "Show agent session" }).click();
   await expect.poll(session).toBeTruthy();
+  // With the session hidden, ⌘⇧B hides the review and the session comes back,
+  // so the workspace keeps a pane.
+  await userEvent.keyboard("{Control>}k{/Control}");
+  await page.getByRole("combobox", { name: "Search commands" }).fill("Hide agent session");
+  await page.getByRole("option", { name: /^Hide agent session/ }).click();
+  await expect.poll(session).toBeUndefined();
+  await press();
+  await expect.poll(reviewPane).toBeUndefined();
+  await expect.poll(session).toBeTruthy();
+  await press();
+  await expect.poll(reviewPane).toBeTruthy();
 
   // A narrow row puts Expand in ⋯, with no Hide.
   await page.viewport(700, 800);

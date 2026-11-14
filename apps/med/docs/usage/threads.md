@@ -341,10 +341,11 @@ background shells and agents. It follows the session live.
   band's end holds the session's controls, the review's pages, and Display
   ([Layout](layout.md#the-title-band-and-the-reviews-header)). **New
   thread** (`⌥N`, or `⌘N` in the installed app) starts another session.
-- `⌘⇧B` hides the session pane. It does not stop or close the session: the
-  agent keeps working, and its row in the sidebar shows its state. The
-  review's **Restore**, `⌘K`, or `⌘⇧B` again, shows the pane. While the
-  review is expanded, `⌘⇧B` shows the session beside it.
+- The session is the workspace's main view; `⌘⇧B` shows or hides the review
+  beside it. With the session hidden, `⌘⇧B` hides the review and the session
+  comes back. **Hide agent session** in `⌘K` hides the session pane. It does
+  not stop or close the session: the agent keeps working, and its row in the
+  sidebar shows its state. The review's **Restore**, or `⌘K`, shows the pane.
 - A long session opens on its latest work. Scroll up for earlier work, or
   step back through its prompts with `{`, which also loads the earlier pages.
 - While the agent writes, the thread keeps its newest text in view. Scroll

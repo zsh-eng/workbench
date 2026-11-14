@@ -1066,10 +1066,14 @@ export function App({
     () => (sessionOnScreen ? hideSession() : showPane("session")),
     [sessionOnScreen, hideSession, showPane],
   );
-  const toggleReview = useCallback(
-    () => (reviewVisible ? sessionVisible && closePane("review") : showPane("review")),
-    [reviewVisible, sessionVisible, closePane, showPane],
-  );
+  // ⌘⇧B shows or hides the review, the pane at the right: the session is the
+  // workspace's main view. With the session hidden, hiding the review shows
+  // the session again, as the review's Restore does.
+  const toggleReview = useCallback(() => {
+    if (!reviewVisible) return showPane("review");
+    if (!sessionVisible) showPane("session");
+    closePane("review");
+  }, [reviewVisible, sessionVisible, closePane, showPane]);
   useEffect(() => {
     if (!workspaceId) return;
     const take = () => {
@@ -3147,12 +3151,13 @@ export function App({
       )
         return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
-        // ⌘⇧B shows the agent session; the files sidebar has only its button.
-        if (event.shiftKey && !state.savedReview) return;
+        // ⌘⇧B shows or hides the review beside the agent session; a workspace
+        // without a session has only the review.
+        if (event.shiftKey && !state.savedReview && !hasSessions) return;
         event.preventDefault();
         event.stopPropagation();
         if (event.repeat) return;
-        if (event.shiftKey) toggleSession();
+        if (event.shiftKey) toggleReview();
         else toggleReviewSidebar();
         return;
       }
@@ -3363,7 +3368,8 @@ export function App({
     selection,
     startNote,
     toggleReviewSidebar,
-    toggleSession,
+    toggleReview,
+    hasSessions,
     state.savedReview,
     browseSource,
     cannotBrowse,
@@ -4486,21 +4492,16 @@ export function App({
           ...(state.savedReview || hasSessions
             ? [
                 {
+                  id: "review-pane",
+                  label: reviewVisible ? "Hide review" : "Show review",
+                  shortcut: "⌘⇧B",
+                  run: toggleReview,
+                },
+                {
                   id: "agent-session",
                   label: sessionOnScreen ? "Hide agent session" : "Show agent session",
-                  shortcut: "⌘⇧B",
                   run: toggleSession,
                 },
-                // The review hides only beside the session.
-                ...(sessionVisible || !reviewVisible
-                  ? [
-                      {
-                        id: "review-pane",
-                        label: reviewVisible ? "Hide review" : "Show review",
-                        run: toggleReview,
-                      },
-                    ]
-                  : []),
                 // A lone review takes an agent: the session then holds it.
                 ...(hasSessions ? [] : (agentPresets ?? []))
                   .filter((agent) => agent.available)
@@ -6298,7 +6299,6 @@ export function App({
         (state.savedReview || hasSessions) && {
           restore: {
             label: "Show agent session",
-            shortcut: "Mod+Shift+B",
             onRestore: toggleSession,
             pane: "session",
           },
