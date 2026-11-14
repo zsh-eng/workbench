@@ -5897,21 +5897,33 @@ export function App({
     />
   );
   // The review's one row: its name, the page's own controls, and Expand at
-  // its end. Without the title band, its end holds the pages too.
-  const mainHeader = (controls: ReactNode) => (
-    <>
-      <ReviewHeader
-        lead={leading}
-        name={reviewName}
-        choice={reviewSwitch}
-        tools={pageTools}
-        more={rowMore}
-        end={!bandShown && reviewTools}
-        controls={paneEnd(controls)}
-      />
-      {fileTabs}
-    </>
-  );
+  // its end. Without the title band, its end holds the pages too. On the
+  // Files page the band names the checkout, so the file tabs are the row.
+  const tabsAreRow = filesPage && bandShown;
+  const mainHeader = (controls: ReactNode) =>
+    tabsAreRow && fileTabsShown ? (
+      fileTabs(
+        leading,
+        <>
+          {pageTools}
+          {rowMore}
+          {paneEnd(controls)}
+        </>,
+      )
+    ) : (
+      <>
+        <ReviewHeader
+          lead={leading}
+          name={tabsAreRow ? null : reviewName}
+          choice={!tabsAreRow && reviewSwitch}
+          tools={pageTools}
+          more={rowMore}
+          end={!bandShown && reviewTools}
+          controls={paneEnd(controls)}
+        />
+        {fileTabsShown && fileTabs()}
+      </>
+    );
   // The pane's own control, Expand, at the row's end. The review has no Hide
   // button: its page in the title band, clicked again, hides it, as ⌘K does.
   const paneEnd = (controls: ReactNode) => (
@@ -5922,34 +5934,34 @@ export function App({
       {controls}
     </span>
   );
-  const fileTabs = (
-    <>
-      {/* An open Search tab has a label, empty before a query. The tabs are
-          the Files page's: the review's pages have none. */}
-      {filesPage && (fileState.tabs.length > 0 || fileState.searchLabel !== undefined) && (
-        <FileViewTabs
-          panelId={`${idPrefix}file-view-panel`}
-          pathActions={pathActions}
-          showChanges={false}
-          search={fileState.searchLabel}
-          tabs={fileState.tabs.map((tab) => ({
-            ...tab,
-            ...(tab.source.kind === "vault"
-              ? { sourcePath: vaultRoots.get(tab.source.id), sourceName: tab.sourceLabel }
-              : {
-                  sourcePath: tab.source.repo,
-                  sourceName: checkoutNameFor(state.repositories, tab.source.repo),
-                }),
-            dirty: !!editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
-          }))}
-          active={shownTab}
-          onSelect={selectTab}
-          onClose={fileWorkspace.close}
-          onCloseOthers={fileWorkspace.closeOthers}
-          onCloseAll={fileWorkspace.closeAll}
-        />
-      )}
-    </>
+  // An open Search tab has a label, empty before a query. The tabs are the
+  // Files page's: the review's pages have none.
+  const fileTabsShown =
+    filesPage && (fileState.tabs.length > 0 || fileState.searchLabel !== undefined);
+  const fileTabs = (leading?: ReactNode, trailing?: ReactNode) => (
+    <FileViewTabs
+      leading={leading}
+      trailing={trailing}
+      panelId={`${idPrefix}file-view-panel`}
+      pathActions={pathActions}
+      showChanges={false}
+      search={fileState.searchLabel}
+      tabs={fileState.tabs.map((tab) => ({
+        ...tab,
+        ...(tab.source.kind === "vault"
+          ? { sourcePath: vaultRoots.get(tab.source.id), sourceName: tab.sourceLabel }
+          : {
+              sourcePath: tab.source.repo,
+              sourceName: checkoutNameFor(state.repositories, tab.source.repo),
+            }),
+        dirty: !!editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
+      }))}
+      active={shownTab}
+      onSelect={selectTab}
+      onClose={fileWorkspace.close}
+      onCloseOthers={fileWorkspace.closeOthers}
+      onCloseAll={fileWorkspace.closeAll}
+    />
   );
   // The tab is the card's first row, so the notice follows it.
   const linkError = fileLinkError && (

@@ -1623,6 +1623,11 @@ describe("graphical review", () => {
     await expect.element(reading.getByRole("heading", { name: "Guide" })).toBeVisible();
     const editor = page.getByRole("textbox", { name: "Edit docs/GUIDE.md", exact: true });
     await expect.element(editor).not.toBeInTheDocument();
+    // The page is the whole view: Copy and Edit source sit at its top corner.
+    const tools = reading.getByRole("toolbar", { name: "Page" });
+    await expect.element(tools.getByRole("button", { name: "Copy page" })).toBeVisible();
+    await expect.element(tools.getByRole("button", { name: "Edit source" })).toBeVisible();
+    expect(document.querySelector(".med-markdown-reader header")).toBeNull();
 
     // The source shows in place of the text, never beside it.
     await page.getByRole("button", { name: "Edit source" }).click();

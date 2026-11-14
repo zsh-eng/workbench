@@ -1,5 +1,5 @@
-/* A Markdown file as it reads: its header, then the rendered text. The source
-   shows in place of it, never beside it (FullFileView). */
+/* A Markdown file as it reads: the rendered text, with its tools at its top
+   corner. The source shows in place of it, never beside it (FullFileView). */
 .med-markdown-reader {
   display: flex;
   flex-direction: column;
@@ -19,6 +19,20 @@
   color: var(--med-text);
   background: var(--med-canvas);
   font-family: var(--med-font-ui);
+}
+/* Copy and Edit: over the page's top corner, clear of the
+   scrollbar, on the page's colour so that text passes under them. */
+.med-md-tools {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: calc(8px * var(--med-round, 1));
+  background: var(--med-canvas);
 }
 /* The pane's size: its table of contents keeps to the pane's height. */
 .med-md-scroll {

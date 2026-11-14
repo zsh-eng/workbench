@@ -1,7 +1,8 @@
 # Read and edit Markdown
 
 A `.md`, `.markdown`, `.mdown`, or `.mkd` file opens rendered, to read. To edit
-it, select **Edit source** (the pencil) or press `⌘⇧V`: the source opens in the
+it, select **Edit source** (the pencil, at the page's top corner) or press
+`⌘⇧V`: the source opens in the
 Vim editor in the same place, at the first line that was in view. **Read** or
 `⌘⇧V` renders it again, at the source's cursor. A file with unsaved changes
 opens as source, and Med keeps each file's view until you reload. The rendered
@@ -36,8 +37,9 @@ for its fonts.
 
 ## Copy
 
-- **Copy page** (above the text) copies the file's Markdown as written, with
-  unsaved edits.
+- **Copy page**, at the page's top corner beside **Edit source**, copies the
+  file's Markdown as written, with unsaved edits. The rendered page has no bar
+  above it, and while the file loads it stays empty.
 - A table's **Copy** button shows while the pointer or the focus is on it.
   It copies the table's Markdown, and the table itself for editors and
   spreadsheets that paste one, without a quote's or a list's `>` or indent.

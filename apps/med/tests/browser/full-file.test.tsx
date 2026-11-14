@@ -1090,6 +1090,15 @@ test("Shift+A and z commands position the cursor and viewport in a virtualized f
   await expect.poll(() => scroller.scrollTop).toBe(0);
 });
 
+test("a Markdown file that loads is an empty page, with no header that the page replaces", async () => {
+  render(<FullFileView {...props} file={null} path="docs/notes.md" loading />);
+  await expect
+    .poll(() => mount!.querySelector(".med-markdown-reader")?.getAttribute("aria-busy"))
+    .toBe("true");
+  expect(mount!.querySelector("header")).toBeNull();
+  expect(mount!.textContent).toBe("");
+});
+
 test("a pending file keeps its requested name and footer position", async () => {
   render(<FullFileView {...props} file={null} path="src/parser.rs" loading vimEnabled />);
   const header = page.getByTitle("src/parser.rs", { exact: true });

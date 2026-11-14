@@ -21,7 +21,7 @@ File browsing is read-only and stays in the review workspace. It uses the existi
 - A single click in Changes reveals its diff. A double-click opens the current file from the selected workspace. The view menu also provides an explicit open-file action.
 - File tabs look like a browser's: all are the same width, 200px until the row fills, and narrow alike as more open, while the page tabs before them keep their width. The pointer on a tab's × fills the whole tab, as on the tab. The selected tab takes the code's background and curves outward into it at its foot; the strip's line is drawn under the other tabs only, so it never crosses those curves. A long name fades at its end. An unsaved file shows a dot where its × goes, and the × takes its place on hover.
 - File tabs and the active tab are kept separately for each workspace. A workspace holds 24 file tabs; when the row is full, a new file takes the place of the oldest tab without an unsaved draft. Only the active file's bytes are retained by the workspace controller.
-- The full-file header shows its source, read-only state, and a refresh action. Detected working-file changes mark a loaded file stale; refresh it to load new bytes.
+- The full-file header shows its path, read-only state, and a commit's name for a commit's file; the title band names the checkout. On the Files page, the file tabs are the pane's first row. A rendered Markdown file has no header: its tools sit at the page's top corner. Detected working-file changes mark a loaded file stale; refresh it to load new bytes.
 
 ## The source stays explicit
 

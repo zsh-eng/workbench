@@ -1103,6 +1103,25 @@ test("a tab closes by ×, ⌘⌥W, or the palette; Undo and ⌘⌥T bring it bac
   await expect.element(history).not.toBeInTheDocument();
 });
 
+test("the Files page's one row is its file tabs, as the title band names the checkout", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  host.setThreads([thread("third", { agent: "claude", state: "idle" })]);
+  await page.getByRole("button", { name: /^Third review/ }).click();
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("third-target");
+  const visible = (selector: string) =>
+    [...shown()!.querySelectorAll(selector)].filter((node) => node.checkVisibility());
+  expect(visible('header[aria-label="Review header"]')).toHaveLength(1);
+  await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
+  await expect.poll(() => visible('[aria-label="Open files"]').length).toBe(1);
+  expect(visible('header[aria-label="Review header"]')).toEqual([]);
+  // The file's own row names the file, not where it comes from.
+  const row = visible('[aria-label="Full file"] header, .med-editor-header')[0]!;
+  expect(row.textContent).toContain("src/alpha.ts");
+  expect(row.textContent).not.toMatch(/Working file|Added|Deleted/);
+});
+
 test("closing a tab with an unsaved draft asks first, and the reopened thread shows the draft", async () => {
   const host = createHost();
   render(host);

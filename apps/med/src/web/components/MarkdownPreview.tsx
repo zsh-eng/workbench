@@ -6,6 +6,7 @@ import {
   useState,
   useSyncExternalStore,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import { resolveSyntaxTheme } from "../pierre-theme";
 import type { FileRead } from "../../shared/local-file";
@@ -151,10 +152,13 @@ export default function MarkdownPreview({
   model,
   file,
   onOpenFile,
+  tools,
 }: {
   model: MarkdownModel;
   file: FileRead;
   onOpenFile?(path: string, line?: number): void;
+  /** The page's own tools, such as Copy and Edit, at its top corner. */
+  tools?: ReactNode;
 }) {
   const canOpenFiles = !!onOpenFile;
   const { active } = useTheme();
@@ -374,6 +378,11 @@ export default function MarkdownPreview({
   const read = toc.findIndex(({ id }) => id === heading);
   return (
     <section className="med-markdown" aria-label="Markdown preview">
+      {tools && (
+        <div className="med-md-tools" role="toolbar" aria-label="Page">
+          {tools}
+        </div>
+      )}
       {error && (
         <div role="alert" className="med-md-notice">
           {error}

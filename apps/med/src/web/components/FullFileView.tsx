@@ -413,21 +413,15 @@ function ReadOnlyFileView({
     placeLineBlame.current();
   }, [lineBlameShown, blamedLine, lineBlameAnchor]);
   const changes = useMemo(createChangeGutter, []);
-  const [changeLabel, setChangeLabel] = useState("");
   useEffect(() => {
     changes.set(undefined);
     if (!file || file.kind !== "text" || stale || loading || !loadChanges) return;
     const abort = new AbortController();
     void loadChanges(file, abort.signal)
       .then((result) => {
-        if (!abort.signal.aborted) {
-          changes.set(result);
-          setChangeLabel(result.label);
-        }
+        if (!abort.signal.aborted) changes.set(result);
       })
-      .catch(() => {
-        if (!abort.signal.aborted) setChangeLabel("");
-      });
+      .catch(() => {});
     return () => {
       abort.abort();
       changes.set(undefined);
@@ -616,18 +610,10 @@ function ReadOnlyFileView({
           >
             {displayPath}
           </span>
-          <span {...stylex.props(styles.badge)} title={sourceLabel}>
-            {sourceLabel.replace(/^Working files\b/, "Working file")}
-          </span>
-          {loadChanges && !stale && (
-            <span
-              {...stylex.props(styles.badge)}
-              title={changeLabel || "Change markers follow the displayed file version"}
-              aria-label="Change marker legend"
-            >
-              <span style={{ color: active.palette.green }}>▏</span>Added{" "}
-              <span style={{ color: active.palette.red }}>▏</span>Deleted{" "}
-              <span style={{ color: workingColor }}>▏</span>Working
+          {/* The title band names the checkout; a commit's file names its commit. */}
+          {file?.source.kind === "commit" && (
+            <span {...stylex.props(styles.badge)} title={sourceLabel}>
+              {sourceLabel}
             </span>
           )}
           <span {...stylex.props(styles.badge)}>Read-only</span>
@@ -918,19 +904,6 @@ const styles = stylex.create({
     borderBottomColor: tokens.border,
   },
   // As FileEditor.css lays out the editor's header.
-  editorHeader: { gap: 4, paddingInline: 8, fontSize: 12 },
-  saveDot: {
-    flexShrink: 0,
-    width: 7,
-    height: 7,
-    boxSizing: "border-box",
-    borderRadius: "50%",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "currentColor",
-    color: tokens.muted,
-  },
-  unsaved: { color: tokens.warning, backgroundColor: "currentColor" },
   path: {
     flex: "1",
     minWidth: 30,
@@ -1160,45 +1133,35 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
   });
   if (props.file?.media && !props.loading)
     return <MediaFileView key={props.file.identity} {...props} file={props.file} />;
+  // A Markdown file reads as its page alone: its tools sit at the page's top
+  // corner, and while it loads the page stays empty, with nothing that flashes.
+  if (
+    props.loading &&
+    !props.error &&
+    !props.compact &&
+    /\.(md|markdown|mdown|mkd)$/i.test(props.path ?? "") &&
+    !(props.file && markdownSources.has(sourceKey))
+  )
+    return (
+      <div className="med-markdown-reader" aria-busy="true">
+        <div className="med-markdown" />
+      </div>
+    );
   if (reading && props.file && !props.loading && !props.error)
     return (
       <div ref={reader} className="med-markdown-reader">
-        {/* The header matches the source view's, so nothing moves as the views change. */}
-        <header {...stylex.props(styles.header, draft?.editing && styles.editorHeader)}>
-          {draft?.editing ? (
-            <span
-              role="img"
-              aria-label={draft.dirty ? "Unsaved changes" : "Saved"}
-              title={draft.dirty ? "Unsaved changes" : "Saved"}
-              {...stylex.props(styles.saveDot, draft.dirty && styles.unsaved)}
-            />
-          ) : (
-            <Icon name="file" size={15} />
-          )}
-          <span {...stylex.props(styles.path)} title={fileTitle(props.file.path, props.file.size)}>
-            {props.path ?? props.file.path}
-          </span>
-          {!draft?.editing && (
-            <span {...stylex.props(styles.badge)} title={props.sourceLabel}>
-              {props.sourceLabel.replace(/^Working files\b/, "Working file")}
-            </span>
-          )}
-          <CopyPageButton text={markdownModel.getText} />
-          {props.openIn && !draft?.editing && (
-            <OpenInMenu
-              actions={props.openIn.actions}
-              target={props.openIn.target}
-              line={() => props.line ?? 1}
-            />
-          )}
-          {previewControl}
-        </header>
         <Suspense fallback={<div className="med-markdown" aria-hidden="true" />}>
           <MarkdownPreview
             key={sourceKey}
             model={markdownModel}
             onOpenFile={props.onOpenFile}
             file={draft?.editing ? draft.file : props.file}
+            tools={
+              <>
+                <CopyPageButton text={markdownModel.getText} />
+                {previewControl}
+              </>
+            }
           />
         </Suspense>
       </div>
