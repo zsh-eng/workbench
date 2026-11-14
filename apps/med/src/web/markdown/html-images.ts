@@ -7,7 +7,7 @@ interface Node {
   position?: unknown;
 }
 
-const BLOCK_PARENTS = new Set(["root", "blockquote", "listItem", "footnoteDefinition"]);
+const BLOCK_PARENTS = new Set(["root", "blockquote", "listItem", "footnoteDefinition", "details"]);
 // A comment, also one that never ends, or a tag, whose values can hold `>`.
 const COMMENT_OR_TAG = /(<!--[\s\S]*?(?:-->|$)|<[a-z/](?:[^>"']|"[^"]*"|'[^']*')*>)/i;
 
@@ -34,8 +34,8 @@ function imagesAndWords({ value = "", position }: Node) {
  * Raw HTML never renders, but GitHub writes an image dropped into a pull
  * request's description as an <img> tag, and Markdown reads a caption on the
  * next line as part of that HTML. HTML with an image becomes the image and
- * those words, where it stands: in a list, a quote, or the <details> that
- * hides screenshots. Other HTML stays out. Code is not HTML here, so it keeps
+ * those words, where it stands: in a list, a quote, or the fold (details.ts)
+ * that hides screenshots. Other HTML stays out. Code is not HTML here, so it keeps
  * its text, and GitHub does not show what is in a comment, so neither does Med.
  */
 export function htmlImages(tree: unknown) {

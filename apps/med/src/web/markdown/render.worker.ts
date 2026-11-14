@@ -1,5 +1,6 @@
 import { wikiLinks } from "./wiki";
 import { htmlImages } from "./html-images";
+import { details } from "./details";
 import { breakPieces } from "./breaks";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
@@ -81,6 +82,12 @@ async function drain() {
       const markdownParser = task.plainDollars ? replyParser : parser;
       const markdown = markdownParser.parse(task.text);
       if (task.vault) wikiLinks(markdown, task.text);
+      details(markdown, (summary) => {
+        const [first, ...rest] = markdownParser.parse(summary).children;
+        return first?.type === "paragraph" && !rest.length
+          ? first.children
+          : [{ type: "text", value: summary }];
+      });
       if (task.htmlImages) htmlImages(markdown);
       let tree = (await markdownParser.run(markdown)) as Root;
       const headings: MarkdownHeading[] = [];

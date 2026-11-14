@@ -1,3 +1,4 @@
+import { unfold } from "./folds";
 import type { MarkdownModel, PreviewPosition } from "./model";
 
 /** Map fractional source lines to rendered positions, then retarget one animation. */
@@ -98,12 +99,25 @@ export function connectPreviewScroll(pane: HTMLElement, model: MarkdownModel) {
   if (article) resize.observe(article);
   for (const event of ["wheel", "touchstart", "pointerdown", "keydown"])
     pane.addEventListener(event, stopForInput, { passive: true });
-  const unsubscribe = model.subscribePosition(follow);
+  // The cursor opens the folds that hold its line, so the preview shows what
+  // is edited. A fold that the reader closes stays closed until then.
+  const unsubscribe = model.subscribePosition((position) => {
+    if (position.reason === "cursor")
+      for (const fold of pane.querySelectorAll<HTMLDetailsElement>("details:not([open])")) {
+        const start = Number(fold.dataset.sourceLine);
+        if (start < position.line && position.line <= Number(fold.dataset.sourceEnd)) {
+          fold.open = true;
+          dirty = true;
+        }
+      }
+    follow(position);
+  });
   follow(model.getPosition());
   return {
     reveal(element: Element) {
       // Never use scrollIntoView: it also scrolls the enclosing app/browser page.
       cancel();
+      unfold(element);
       headingTarget = element;
       move(headingTop(element));
     },
@@ -120,6 +134,7 @@ export function connectPreviewScroll(pane: HTMLElement, model: MarkdownModel) {
 /** Scrolls a pane to a node in it. Only this pane moves: scrollIntoView can
  * move hidden split ancestors. */
 export function scrollPaneTo(pane: HTMLElement, node: HTMLElement, offset = 28) {
+  unfold(node);
   const top = node.getBoundingClientRect().top - pane.getBoundingClientRect().top + pane.scrollTop;
   pane.scrollTo({
     top: Math.max(0, top - offset),

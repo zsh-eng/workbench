@@ -704,7 +704,8 @@ no checkout file. Blame reads 1,000-line chunks, keeps 32, and shares one
 The preview worker runs remark-parse, remark-gfm, remark-math, remark-rehype,
 and rehype-stringify. It keeps top-level source ranges for scroll mapping and
 heading IDs for navigation. **Raw HTML is disabled and link schemes are
-limited.** KaTeX loads only for math, with trust disabled and expansion
+limited.** `<details>` and `<summary>` tags become a fold of the Markdown
+between them (details.ts), before remark-rehype, so no HTML passes through. KaTeX loads only for math, with trust disabled and expansion
 limits. Pele draws Mermaid diagrams near the viewport, and each diagram type
 loads on demand. Diagram links and images are off. Diagram colors are CSS
 variables that MarkdownPreview.css maps to theme tokens, so a theme change does

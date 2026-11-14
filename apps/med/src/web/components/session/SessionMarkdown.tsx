@@ -1,5 +1,6 @@
 import { memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { renderBrief, renderedBrief } from "../../markdown/brief-render";
+import { useKeptFolds } from "../../markdown/folds";
 import { loadMarkdownImages, markdownImageUrl } from "../../markdown/images";
 import type { MarkdownResult } from "../../markdown/model";
 import { useTheme } from "../../themes";
@@ -51,6 +52,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   useTableCopy(host, () => text);
   // A code block copies as its fence holds it, once the reply has closed it.
   useCodeCopy(host, streaming);
+  useKeptFolds(host);
 
   useLayoutEffect(() => {
     latest.current = { text, theme: theme.pierreTheme, streaming };

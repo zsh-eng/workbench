@@ -19,6 +19,7 @@ import { fileRefOf } from "../data/file-refs";
 import type { ThreadPlacement } from "../data/pull-request";
 import { useMinuteClock } from "../data/relative-time";
 import { renderBrief, renderedBrief } from "../markdown/brief-render";
+import { useKeptFolds } from "../markdown/folds";
 import { loadMarkdownImages, markdownImageUrl } from "../markdown/images";
 import type { MarkdownResult } from "../markdown/model";
 import { scrollPaneTo } from "../markdown/scroll";
@@ -109,6 +110,7 @@ function DescriptionText({
   const blocks = useFileRefBlocks(result?.blocks);
   // A table copies as its Markdown, from the description, and as a table.
   useTableCopy(host, () => body);
+  useKeptFolds(host);
   useEffect(() => {
     let current = true;
     renderBrief(theme.pierreTheme, body, true, { cache: "description" }).then(

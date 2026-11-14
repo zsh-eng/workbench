@@ -30,7 +30,12 @@ const LONG = [
   section("## Rollout"),
 ].join("\n");
 
-async function show(text: string, width: number, title = "Queue worker") {
+async function show(
+  text: string,
+  width: number,
+  title = "Queue worker",
+  model = createMarkdownModel(text),
+) {
   await page.viewport(1600, 900);
   initializeTheme();
   frame = document.createElement("div");
@@ -45,7 +50,7 @@ async function show(text: string, width: number, title = "Queue worker") {
     identity: "queue",
     text,
   } as FileRead;
-  root.render(<MarkdownPreview model={createMarkdownModel(text)} file={file} />);
+  root.render(<MarkdownPreview model={model} file={file} />);
   const reading = page.getByRole("region", { name: "Markdown preview" });
   await expect.element(reading.getByRole("heading", { name: title })).toBeVisible();
   return reading;
@@ -104,6 +109,79 @@ test("a short document has no table of contents", async () => {
   const reading = await show("# Note\n\n## One\n\nText.\n\n## Two\n\nText.\n", 1500, "Note");
   await expect.element(reading.getByRole("heading", { name: "Two" })).toBeVisible();
   expect(document.querySelector(".med-md-toc")).toBeNull();
+});
+
+const FOLDS = [
+  "# Runbook",
+  "",
+  "## Before",
+  "",
+  "Check the queue.",
+  "",
+  "<details>",
+  "<summary>Why <b>drain</b> first</summary>",
+  "",
+  "### Draining",
+  "",
+  "Jobs that hold a lease **finish** first.",
+  "",
+  "</details>",
+  "",
+  "<details open>",
+  "<summary>Steps</summary>",
+  "",
+  "1. Stop the worker.",
+  "",
+  "</details>",
+  "",
+  "## After",
+  "",
+  "Start the worker.",
+  "",
+].join("\n");
+
+/** Whether the text shows; text in a closed fold has no place on the page. */
+const shows = (text: string) =>
+  [...frame!.querySelectorAll<HTMLElement>("article :is(p, h3, li)")]
+    .find((node) => node.textContent?.includes(text))
+    ?.checkVisibility();
+
+test("a <details> fold shows its summary, opens on a click, and stays open while its text changes", async () => {
+  const model = createMarkdownModel(FOLDS);
+  const reading = await show(FOLDS, 1500, "Runbook", model);
+  const why = reading.getByText("Why drain first");
+  await expect.element(why).toBeVisible();
+  expect(why.element().closest("summary")!.querySelector("strong")!.textContent).toBe("drain");
+  expect(shows("Jobs that hold a lease")).toBe(false);
+  // An open fold shows what it holds.
+  expect(shows("Stop the worker.")).toBe(true);
+
+  await userEvent.click(why);
+  await expect.poll(() => shows("Jobs that hold a lease")).toBe(true);
+  model.setText(FOLDS.replace("finish** first", "finish** before the worker stops"));
+  await expect.poll(() => shows("before the worker stops")).toBe(true);
+
+  // Closed again, it stays closed through an edit outside it.
+  await userEvent.click(why);
+  await expect.poll(() => shows("before the worker stops")).toBe(false);
+  model.setText(model.getText().replace("Check the queue.", "Check the queue first."));
+  await expect.element(reading.getByText("Check the queue first.")).toBeVisible();
+  expect(shows("before the worker stops")).toBe(false);
+});
+
+test("a contents entry or the cursor in a closed fold opens it", async () => {
+  const model = createMarkdownModel(FOLDS);
+  const reading = await show(FOLDS, 1500, "Runbook", model);
+  const contents = reading.getByRole("navigation", { name: "Table of contents" });
+  expect(shows("Draining")).toBe(false);
+  await userEvent.click(contents.getByRole("button", { name: "Draining" }));
+  await expect.poll(() => shows("Draining")).toBe(true);
+
+  await userEvent.click(reading.getByText("Why drain first"));
+  await expect.poll(() => shows("Draining")).toBe(false);
+  // The line of "Jobs that hold a lease".
+  model.follow(12, "cursor");
+  await expect.poll(() => shows("Jobs that hold a lease")).toBe(true);
 });
 
 const TABLE = [

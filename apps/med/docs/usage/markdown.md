@@ -17,6 +17,12 @@ for its fonts.
 - GFM tables, task lists, strikethrough, autolinks, and footnotes; LaTeX with
   KaTeX; Mermaid diagrams; colored code; and images. A single newline stays in
   the paragraph, and a blank line starts a new one. Raw HTML is left out.
+- `<details>` and `<summary>` fold Markdown, as on GitHub: the summary shows,
+  and a click opens the fold. `<details open>` starts open. Put a blank line
+  after `</summary>` and before `</details>`, so that the Markdown between
+  renders; text in the same HTML block as the tags stays plain text. A fold
+  stays open or closed while you edit. Going to a heading in a fold, from the
+  list on the left or a link, opens it, and so does the source's cursor in it.
 - Relative images resolve in the same repository or commit. A standalone
   file's images must be in its folder or below it. PNG, JPEG, GIF, WebP, AVIF,
   and SVG load up to 8 MiB each. Remote images load directly, with no referrer.

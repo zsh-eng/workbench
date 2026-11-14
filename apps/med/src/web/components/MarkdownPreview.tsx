@@ -17,6 +17,7 @@ import type {
   MarkdownResult,
 } from "../markdown/model";
 import { connectPreviewScroll } from "../markdown/scroll";
+import { folded, useKeptFolds } from "../markdown/folds";
 import RenderWorker from "../markdown/render.worker?worker";
 import type { Mounted } from "pele/lazy";
 import { mountDiagram } from "../markdown/diagrams";
@@ -166,6 +167,7 @@ export default function MarkdownPreview({
   const [copied, say] = useCopyNote();
   const scroller = useRef<HTMLDivElement>(null);
   useTableCopy(scroller, model.getText, say);
+  useKeptFolds(scroller);
   const contents = useRef<HTMLElement>(null);
   const scrollController = useRef<ReturnType<typeof connectPreviewScroll> | null>(null);
   const worker = useRef<Worker | null>(null);
@@ -351,7 +353,7 @@ export default function MarkdownPreview({
     if (!pane || !toc.length) return;
     const nodes = toc.flatMap(({ id }) => {
       const node = pane.querySelector<HTMLElement>(`#${CSS.escape(id)}`);
-      return node ? [node] : [];
+      return node && !folded(node) ? [node] : [];
     });
     const atEnd = pane.scrollTop > 0 && pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 2;
     const top = pane.getBoundingClientRect().top + 100;

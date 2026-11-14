@@ -559,8 +559,13 @@ test("the Pull request tab shows the pull request as GitHub has it", async () =>
   await expect.element(view.getByText('<img src="kept.png">')).toBeVisible();
   await expect.element(view.getByText('<img src="inline.png">')).toBeVisible();
   // So does one that HTML holds, which Markdown alone would drop, where it stands.
-  for (const name of ["Centered", "Folded", "Listed", "Quoted"])
+  for (const name of ["Centered", "Listed", "Quoted"])
     await expect.element(view.getByRole("img", { name })).toBeVisible();
+  // The <details> that holds screenshots folds them under its summary until a click.
+  const folded = view.getByRole("img", { name: "Folded" });
+  expect(folded.query()).toBeNull();
+  await view.getByText("Shots", { exact: true }).click();
+  await expect.element(folded).toBeVisible();
   const listed = view.getByRole("img", { name: "Listed" }).element();
   expect(listed.closest("ol")?.querySelectorAll("li")).toHaveLength(2);
   expect(view.getByRole("img", { name: "Quoted" }).element().closest("blockquote")).not.toBeNull();

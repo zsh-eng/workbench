@@ -126,7 +126,8 @@ The page is one column.
   log opens at its last error. Copy it, or add it to the message for the
   agent. Last, where each reviewer stands.
 - The description shows in Med's Markdown, with its images, also the ones that
-  GitHub writes as HTML, and the words beside them. Other raw HTML stays out.
+  GitHub writes as HTML, and the words beside them. `<details>` folds under
+  its `<summary>`, as on GitHub. Other raw HTML stays out.
   Med reads each image through its own server, as the page loads none from
   other sites. Paths and links to files of the checkout open the file, as in
   a comment. Images in comments stay links.
