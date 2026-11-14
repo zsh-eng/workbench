@@ -138,11 +138,16 @@ any view of a checkout. With no file open, `⌘⇧O` opens the project's.
 
 Symbols come from Universal Ctags (`brew install universal-ctags`). Project
 symbols need no index: Med parses the files that Git tracks or does not
-ignore, up to 1 MiB each and without JSON or XML data, when the picker opens,
-and then only the files that changed. A commit, and a checkout of more than
-20,000 files, use [Zoekt](#search-file-contents). Languages follow the
-installed Ctags parsers; Ctags 6.2.1, for example, has no Zig parser, but text
-search still works for Zig.
+ignore, up to 1 MiB each, when the picker opens. JSON and XML data give no
+symbols, nor does a line of more than 20,000 bytes, as minified code has.
+The first read takes about 0.5 s for the Workbench checkout (3,100 files).
+Med then keeps the symbols while the checkout's file watcher sees no
+change, so the results follow each key in about 30 ms
+([measurements](../perf/SYMBOLS.md)). After an edit, a new or deleted file,
+or a branch switch, the next search parses only the files that changed. A commit, and a checkout of more than 20,000 files, use
+[Zoekt](#search-file-contents). Languages follow the installed Ctags parsers;
+Ctags 6.2.1, for example, has no Zig parser, but text search still works for
+Zig.
 
 Vim navigation is on by default; the command palette turns it off for this
 browser address. Files take focus when they open, in Normal mode:

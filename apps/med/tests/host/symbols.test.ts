@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, writeFile, rm, realpath, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import {
   discoverCtags,
   FileSymbolService,
@@ -10,6 +10,7 @@ import {
   WorkingTreeSymbols,
 } from "../../src/host/search/symbols";
 import { readBrowse } from "../../src/host/repository/browse";
+import * as processRuntime from "../../src/host/runtime/process";
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
@@ -137,5 +138,53 @@ test.skipIf(!tool)(
     expect(await names("committed")).toEqual([]);
     expect(await names("renamed")).toEqual(["renamedFunction a.ts"]);
     expect(await names("Counter")).toEqual([]);
+    // Names on a line of more than 20,000 bytes, as in minified code, are
+    // left out; the file's other lines keep theirs.
+    const minified = `function minifiedName(){}var x=${JSON.stringify("x".repeat(20_000))};`;
+    await writeFile(join(repo, "bundle.js"), `${minified}\nfunction minifiedTail(){}\n`);
+    await writeFile(join(repo, "long.js"), `function longName(){}\n${"// x\n".repeat(5_000)}`);
+    expect(await names("minified")).toEqual(["minifiedTail bundle.js"]);
+    expect(await names("longName")).toEqual(["longName long.js"]);
+  },
+);
+
+test.skipIf(!tool)(
+  "while a checkout's token stays the same, the last read answers; a new token reads the changes",
+  async () => {
+    const repo = await realpath(await mkdtemp(join(tmpdir(), "med-project-token-")));
+    roots.push(repo);
+    execFileSync("git", ["init", "-q", repo]);
+    await writeFile(join(repo, "a.ts"), "export function firstName() {}\n");
+    const service = new WorkingTreeSymbols(tool);
+    const names = async (query: string, token: string) =>
+      (await service.search(repo, query, undefined, token))!.matches.map(
+        (match) => `${match.name} ${match.path}`,
+      );
+    expect(await names("Name", "1")).toEqual(["firstName a.ts"]);
+    await writeFile(join(repo, "a.ts"), "export function secondName() {}\n");
+    await writeFile(join(repo, "b.ts"), "export function thirdName() {}\n");
+    // The host's watcher has not seen the change: no Git, no file reads.
+    expect(await names("Name", "1")).toEqual(["firstName a.ts"]);
+    expect(await names("Name", "2")).toEqual(["thirdName b.ts", "secondName a.ts"]);
+    await rm(join(repo, "b.ts"));
+    expect(await names("Name", "3")).toEqual(["secondName a.ts"]);
+    // A search during the read at its token gets that read's answer.
+    await writeFile(join(repo, "a.ts"), "export function fourthName() {}\n");
+    const [first, second] = await Promise.all([names("Name", "4"), names("fourth", "4")]);
+    expect(first).toEqual(["fourthName a.ts"]);
+    expect(second).toEqual(["fourthName a.ts"]);
+    // Searches at newer tokens during a read share the one read after it.
+    const reads = vi.spyOn(processRuntime, "git");
+    try {
+      const running = names("Name", "5");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await writeFile(join(repo, "a.ts"), "export function fifthName() {}\n");
+      const waiting = await Promise.all(["6", "7", "8"].map((token) => names("Name", token)));
+      await running;
+      expect(waiting).toEqual([0, 1, 2].map(() => ["fifthName a.ts"]));
+      expect(reads.mock.calls.filter(([, args]) => args.includes("--cached"))).toHaveLength(2);
+    } finally {
+      reads.mockRestore();
+    }
   },
 );

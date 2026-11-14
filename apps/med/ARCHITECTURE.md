@@ -175,10 +175,12 @@ The host answers Git questions from a cache (`src/host/repository/cache.ts`,
   The signature is file metadata only: refs, HEADs, indexes, the config,
   worktrees, and each checkout's folder and `.git` entry. Git writes these
   through a rename, so a change gives a new inode.
-- Answers from working files (drift, the file list, live Changes) also need a
-  ready watcher of the worktree and no event since. Each file event changes
-  the checkout's revision at once, before the watcher's delay. Live Changes
-  that open again get the last review, with the same ID.
+- Answers from working files (drift, the file list, live Changes, project
+  symbols) also need a ready watcher of the worktree and no event since. Each
+  file event changes the checkout's revision at once, before the watcher's
+  delay. Live Changes that open again get the last review, with the same ID.
+  Project symbols rank the last Ctags read at each key
+  (`WorkingTreeSymbols` in `host/search/symbols.ts`, [numbers](docs/perf/SYMBOLS.md)).
 - The event stream's `ready` names the checkout's revision. A workspace that
   shows again reloads only when it changed while it was hidden.
 - A checkout's work and its Changes counts for the thread list read again

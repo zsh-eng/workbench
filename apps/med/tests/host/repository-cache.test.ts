@@ -3,11 +3,14 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as processRuntime from "../../src/host/runtime/process";
+import { discoverCtags } from "../../src/host/search/symbols";
 import { startHost, type RunningHost, type StartHostOptions } from "../../src/host/server";
 import type { BrowseList } from "../../src/shared/browse";
 import type { GitTargets } from "../../src/shared/git-actions";
 import type { Branch, ReviewResponse, Session } from "../../src/shared/protocol";
 import type { SavedReview } from "../../src/shared/saved-review";
+import type { SymbolSearch } from "../../src/shared/symbols";
 
 // The host answers Git questions from a cache. These tests change the
 // repository between reads and check that each answer follows: at once for
@@ -256,6 +259,76 @@ test("live Changes that open again come from the cache until a file edit, a stag
   git(repo, "commit", "--quiet", "-m", "value 3");
   expect((await until(load, (review) => !review.files.length, 3000)).files).toEqual([]);
 });
+
+test.skipIf(!(await discoverCtags()))(
+  "project symbols come from the last read until a file edit, a new file, a deletion, or a branch switch",
+  async () => {
+    const value = await fixture({ safetyMs: 600_000 });
+    const { repo, read } = value;
+    git(repo, "switch", "--quiet", "-c", "topic");
+    await writeFile(join(repo, "topic.ts"), "export function topicOnly() {}\n");
+    git(repo, "add", "topic.ts");
+    git(repo, "commit", "--quiet", "-m", "topic");
+    git(repo, "switch", "--quiet", "main");
+    const symbols = async (query: string) =>
+      (
+        await read<SymbolSearch>("/api/browse/symbols", {
+          source: { kind: "worktree", repo },
+          query,
+        })
+      ).matches.map((match) => `${match.name} ${match.path}`);
+    // The first search starts the checkout's watcher; one before it is ready reads Git.
+    expect(await symbols("value")).toEqual(["value file.ts"]);
+    await value.watching();
+    expect(await symbols("value")).toEqual(["value file.ts"]);
+    // Each key after that ranks the last read: no Git. An edit reads again.
+    const reads = vi.spyOn(processRuntime, "git");
+    const listed = () => reads.mock.calls.filter(([, args]) => args.includes("--cached")).length;
+    try {
+      for (const query of ["v", "va", "val"]) await symbols(query);
+      expect(listed()).toBe(0);
+      await writeFile(join(repo, "file.ts"), "export const edited = 1;\n");
+      expect(
+        await until(
+          () => symbols("edited"),
+          (names) => names.length > 0,
+        ),
+      ).toEqual(["edited file.ts"]);
+      expect(listed()).toBeGreaterThan(0);
+    } finally {
+      reads.mockRestore();
+    }
+    await writeFile(join(repo, "added.ts"), "export class Added {}\n");
+    expect(
+      await until(
+        () => symbols("Added"),
+        (names) => names.length > 0,
+      ),
+    ).toEqual(["Added added.ts"]);
+    await rm(join(repo, "added.ts"));
+    expect(
+      await until(
+        () => symbols("Added"),
+        (names) => !names.length,
+      ),
+    ).toEqual([]);
+    git(repo, "checkout", "--quiet", "--", "file.ts");
+    git(repo, "switch", "--quiet", "topic");
+    expect(
+      await until(
+        () => symbols("topicOnly"),
+        (names) => names.length > 0,
+      ),
+    ).toEqual(["topicOnly topic.ts"]);
+    git(repo, "switch", "--quiet", "main");
+    expect(
+      await until(
+        () => symbols("topicOnly"),
+        (names) => !names.length,
+      ),
+    ).toEqual([]);
+  },
+);
 
 test("the safety check corrects a cached answer after a missed file event: each minute on screen, each 10 minutes off screen", async () => {
   // File events are off, so the watcher misses each edit. Only the safety

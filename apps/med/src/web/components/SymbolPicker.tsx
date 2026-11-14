@@ -8,7 +8,7 @@ import type { BrowseRead, BrowseSource } from "../../shared/browse";
 import type { SymbolMatch, SymbolSearch } from "../../shared/symbols";
 import { browseSourceKey, type BrowseApi } from "../data/browse";
 import { usePickerPreview } from "../data/picker-preview";
-import { findSymbols, symbolMatchId } from "../../shared/symbol-matches";
+import { findSymbolKeys, symbolKeys, symbolMatchId } from "../../shared/symbol-matches";
 import { picked, tokens, ui } from "../theme.stylex";
 import { FullFileView, type BeginFileSymbolPreview, type FileSymbolPreview } from "./FullFileView";
 import { Icon } from "./Icon";
@@ -132,12 +132,18 @@ function SymbolPickerContents({
   // The preview session captures the imperative cursor before the symbol
   // request resolves. Use that fixed origin when the async results arrive.
   const origin = state.origin;
+  // A file's symbols rank here at each key; the host ranks the project's.
+  const ranked = mode === "file" || !!definitionResult;
+  const keys = useMemo(
+    () => (ranked ? symbolKeys(displayed?.matches ?? []) : []),
+    [ranked, displayed],
+  );
   const results = useMemo(
     () =>
-      mode === "file" || definitionResult
-        ? findSymbols(displayed?.matches ?? [], query, 100, mode === "file" ? origin : undefined)
+      ranked
+        ? findSymbolKeys(keys, query, 100, mode === "file" ? origin : undefined)
         : (displayed?.matches ?? []).slice(0, 100),
-    [displayed, mode, query, definitionResult, origin],
+    [ranked, keys, displayed, mode, query, origin],
   );
   const chosen = results.find((match) => symbolMatchId(match) === selected) ?? results[0];
   const chosenIndex = chosen ? results.indexOf(chosen) : -1;

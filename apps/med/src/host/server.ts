@@ -380,6 +380,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const notes = new NoteService(reviews);
   const symbols = new FileSymbolService();
   const workingSymbols = new WorkingTreeSymbols();
+  /** Symbols in a checkout's working files. They read again only when the
+   * checkout's files or Git state changed; see `checkoutState`. */
+  const projectSymbols = async (repo: string, query: string, signal: AbortSignal) =>
+    workingSymbols.search(
+      repo,
+      query,
+      signal,
+      await checkoutState(repo, true).catch(() => undefined),
+    );
   /** The definitions of a name that a hover shows: in its own file first,
    * then in the project, as `gd` looks; each with its declaration and doc
    * comment from its file. */
@@ -412,7 +421,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     if (!found.length) {
       const project =
         (input.source.kind === "worktree" &&
-          (await workingSymbols.search(input.source.repo, input.name, signal))) ||
+          (await projectSymbols(input.source.repo, input.name, signal))) ||
         (await registry.withSearch(input.source.repo, (search) =>
           search.symbols(input.source, input.name, signal),
         ));
@@ -3341,12 +3350,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             input.source.repo = await requireRepo(input.source.repo);
             // Symbols in the project of a checkout come from its working
             // files, with their uncommitted changes; a commit, or a checkout
-            // too large for Ctags, from the index.
+            // too large for Ctags, from the index. A watcher that sees file
+            // edits lets the last read answer each key.
+            const project = !input.path && input.source.kind === "worktree";
+            if (project) {
+              browseLiveSources.add(input.source.repo);
+              observe(input.source.repo, true);
+            }
             send(
               input.path
                 ? await symbols.search(input, abort.signal)
-                : (input.source.kind === "worktree" &&
-                    (await workingSymbols.search(input.source.repo, input.query, abort.signal))) ||
+                : (project &&
+                    (await projectSymbols(input.source.repo, input.query, abort.signal))) ||
                     (await registry.withSearch(input.source.repo, (search) =>
                       search.symbols(input.source, input.query, abort.signal),
                     )),
