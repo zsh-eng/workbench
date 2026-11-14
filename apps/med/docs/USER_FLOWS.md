@@ -101,7 +101,7 @@ flowchart LR
 
 ## Review a pull request
 
-1. Paste the pull request's link into **New workspace…** (`⌘K`). Choose
+1. Paste the pull request's link into **New workspace** (`⌘K`). Choose
    **Open pull request #333**, or **Open and review with** an agent. From a
    terminal: `med pr checkout 333`.
 2. Med makes a worktree for it in its state folder, so your checkout does not

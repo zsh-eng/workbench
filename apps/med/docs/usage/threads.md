@@ -93,7 +93,7 @@ does not load them or read their agents until you open one again.
   first. Type a word, also while you hold Control, to search the archived
   threads too: closed threads and found sessions that are not tabs, by title,
   branch, repository, and first prompt, newest first. An archived row has a
-  hollow mark. `↵` opens it as a tab. **Open archived thread…** in `⌘K` lists
+  hollow mark. `↵` opens it as a tab. **Open archived thread** in `⌘K` lists
   them at once. `⌘⌫` on an archived row, or its trash button, deletes the
   thread after you confirm. In `⌘K`, "history" finds both commands.
 - **The Archived page.** **Archived** at the sidebar's foot, or **Archived**
@@ -303,13 +303,14 @@ repository's own checkout, or the branch; in a thread, the thread shows it.
 `⌘↵` opens it as a new workspace.
 
 Both pickers end their list with **Add repository…**, which asks for a path.
-The **⋯** in the header has **Add repository…** too, and **Remove** for each
-repository: its tabs close, and its files stay on disk. The footer counts
-what the list shows, such as **15 branches**.
+The **⋯** at the end of the search field has **Add repository…** too, and
+**Remove** for each repository: its tabs close, and its files stay on disk.
+**Refresh**, beside it, reads the branches again.
 
 The branch switcher (`⌘⇧G`) searches the branches and worktrees of every
-registered repository. `↵` opens a branch in the current workspace; `⌘↵` opens
-it as a new workspace. In a thread, `↵` shows the branch inside the thread,
+registered repository. The open branch is first and says **Current**; a branch
+with no worktree shows its last commit. `↵` opens a branch in the current
+workspace; `⌘↵` opens it as a new workspace, and the selected row shows both. In a thread, `↵` shows the branch inside the thread,
 on its **Changes**: the Changes, the files, and search are that branch's. The
 agent's checkout stays as it is (**You choose what the thread shows**,
 above).

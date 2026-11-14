@@ -60,8 +60,8 @@ line, each item with a letter while the menu is open:
   IntelliJ IDEA (`idea --line`). Med finds each one's tool on `PATH`, or in
   its app in /Applications.
 - **Reveal in Finder** (`R`), **Copy path** (`P`), and **Copy link** (`L`),
-  the code host's link. The panel button beside **Esc**, or **Hide file
-  preview in Find file**, hides the preview in every picker and window.
+  the code host's link. The eye button at the end of the search field, or
+  **Hide file preview in Find file**, hides the preview in every picker and window.
 
 ## Search file contents
 
@@ -132,7 +132,7 @@ The cache is `~/.cache/med/search`, or `$XDG_CACHE_HOME/med/search`. Set
 **Symbols in this file** (`⌘⇧O`) starts at the symbol nearest the cursor and
 ranks ties by distance. It opens beside the file, under the file's path, and
 each row ends with the symbol's line. Arrow keys jump in the file; Enter keeps the position,
-and Escape restores it. **Symbols in the project**, from the picker or the
+and Escape restores it. **Symbols in the project**, from the picker's **Project** switch or the
 palette, searches the checkout's working files, with their uncommitted
 changes, and has its own preview. Both keep the last query, and both work in
 any view of a checkout. With no file open, `⌘⇧O` opens the project's.

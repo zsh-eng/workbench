@@ -1,7 +1,7 @@
 # Pull requests
 
 Paste a pull request link, such as `https://github.com/owner/repo/pull/333`, in
-**New workspace…**. Choose **Open pull request #333**, or **Open and review
+**New workspace**. Choose **Open pull request #333**, or **Open and review
 with** an installed agent. The workspace shows each step:
 
 1. Find the registered repository whose remote is `owner/repo`. Add an unknown
@@ -159,7 +159,7 @@ so a hidden window or another tab makes no read, and the first look back reads
 if the wait is over. Med waits twice as long after each failed read, and keeps
 what it read last. When under a tenth of your API limit is left, Med reads
 every 5 minutes and says so; when none is left, it waits until the limit
-fills. **Read the pull request again from GitHub** in `⌘K` reads now, and
+fills. **Refresh pull request** in `⌘K` reads now, and
 so does **Try again** after a failed read. The page names no read time.
 
 The tab reads GitHub and changes nothing there, apart from your pending review:
