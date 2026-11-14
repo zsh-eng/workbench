@@ -9,7 +9,7 @@ import { picked, tokens, ui } from "../theme.stylex";
 import { FileIcon } from "./FileIcon";
 import { Icon } from "./Icon";
 import { FullFileView } from "./FullFileView";
-import { PaletteHeader, PaletteHint, plural } from "./Palette";
+import { Matched, matchRanges, PaletteKeys, PaletteTitle, usePaletteFade } from "./Palette";
 import {
   browseSourceKey,
   useBrowseFiles,
@@ -503,7 +503,14 @@ function PickerContents({
     noteMatches,
   ]);
   const selectedResult = results.find((entry) => entry.id === selected) ?? results[0];
+  // Find file lists the top 50 files; content search, the first 200 matches.
   const fileCount = results.length - repoMatches.length - noteMatches.length;
+  const capped =
+    mode === "files"
+      ? fileCount === 50 && "Top 50 matches · type more to narrow"
+      : !!displayedSearch &&
+        (displayedSearch.truncated || displayedSearch.matches.length > 200) &&
+        `First ${results.length} matches · type more to narrow`;
   const currentSearch = search.key === searchKey ? search.result : undefined;
   const resultSource = displayedSearch?.resultSource;
   const previewSource = resultSource ?? source;
@@ -525,6 +532,8 @@ function PickerContents({
     mode === "files" ? loading : !!query.trim() && search.key !== searchKey && !!api?.search;
   const failure = mode === "files" ? error : search.key === searchKey ? search.error : null;
   const accepted = useRef(false);
+  const withPreview = previewShown && previewAvailable;
+  const fade = usePaletteFade<HTMLDivElement>();
   const selectRepository = (repository?: RepositoryScope) =>
     onRepository?.(
       repository,
@@ -590,93 +599,15 @@ function PickerContents({
             finalFocus={() =>
               accepted.current ? (visibleElement('[data-file-pane="main"]') ?? false) : true
             }
-            {...stylex.props(
-              ui.palette,
-              previewShown && previewAvailable && ui.palettePreview,
-              ui.instant,
-            )}
+            {...stylex.props(ui.palette, withPreview && ui.palettePreview, ui.instant)}
           >
-            <PaletteHeader
-              title={mode === "files" ? "Find file" : "Search files"}
-              closeLabel="Close file picker"
-              context={
-                repositoryScopes.length && !scopedRepository ? (
-                  <button
-                    type="button"
-                    {...stylex.props(ui.button, styles.scope, repositoryMode && styles.scopeOpen)}
-                    title="Search another registered repository or vault"
-                    aria-label="Choose repository"
-                    aria-pressed={repositoryMode}
-                    onClick={() => {
-                      setRepositoryMode((value) => !value);
-                      setQuery("");
-                      inputRef.current?.focus();
-                    }}
-                  >
-                    <span {...stylex.props(ui.paletteContext, styles.scopeText)}>
-                      {sourceLabel}
-                    </span>
-                    <Icon name="chevron" size={14} />
-                  </button>
-                ) : (
-                  sourceLabel
-                )
-              }
-            >
-              {api?.search && (
-                <div {...stylex.props(ui.paletteSegments)} role="group" aria-label="Search mode">
-                  <button
-                    {...stylex.props(
-                      ui.button,
-                      ui.paletteSegment,
-                      mode === "files" && ui.paletteSegmentOn,
-                    )}
-                    aria-pressed={mode === "files"}
-                    onClick={() => setMode("files")}
-                  >
-                    Files
-                  </button>
-                  <button
-                    {...stylex.props(
-                      ui.button,
-                      ui.paletteSegment,
-                      mode === "content" && ui.paletteSegmentOn,
-                    )}
-                    aria-pressed={mode === "content"}
-                    onClick={() => setMode("content")}
-                  >
-                    Content
-                  </button>
-                </div>
-              )}
-              {previewAvailable && (
-                <button
-                  type="button"
-                  aria-pressed={previewShown}
-                  aria-label="Show preview"
-                  title={previewShown ? "Hide the file preview" : "Show the file preview"}
-                  // Keep focus and the caret in the query.
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    setFilePreviewShown(!previewShown);
-                    inputRef.current?.focus();
-                  }}
-                  {...stylex.props(
-                    ui.button,
-                    ui.iconButton,
-                    styles.previewToggle,
-                    previewShown && ui.pressed,
-                  )}
-                >
-                  <Icon name="panelRight" size={15} />
-                </button>
-              )}
-            </PaletteHeader>
+            <PaletteTitle>{mode === "files" ? "Find file" : "Search files"}</PaletteTitle>
             <Dialog.Description {...stylex.props(ui.srOnly)}>
               Preview files in this source. Arrow keys select; Enter opens; Escape keeps your
               current file.
+              {repoMatches.length > 0 && " Tab searches the highlighted repository."}
             </Dialog.Description>
-            <div {...stylex.props(ui.paletteInput)}>
+            <div {...stylex.props(ui.paletteInput, ui.paletteInputOpen)}>
               <Icon name="search" />
               {scopedRepository && (
                 <button
@@ -690,7 +621,7 @@ function PickerContents({
                   }}
                 >
                   <Icon name={isVault(scopedRepository) ? "vault" : "branch"} size={13} />
-                  <span {...stylex.props(styles.tokenName)}>{scopedRepository.name}</span>
+                  <span {...stylex.props(styles.tokenName)}>{scopeLabel(scopedRepository)}</span>
                   <span aria-hidden="true" {...stylex.props(styles.tokenClose)}>
                     <Icon name="close" size={12} />
                   </span>
@@ -704,9 +635,7 @@ function PickerContents({
                   mode === "files"
                     ? scopedRepository
                       ? `Find a file in ${scopedRepository.name}…`
-                      : repositoryScopes.some(isVault)
-                        ? "Find a file or a note, or type a repository or vault and press Tab"
-                        : "Find a file, or type a repository and press Tab"
+                      : "Find a file…"
                     : "Search committed text…"
                 }
                 onKeyDown={(event) => {
@@ -747,20 +676,90 @@ function PickerContents({
                 }}
                 {...stylex.props(ui.paletteField)}
               />
+              {api?.search && (
+                <div {...stylex.props(ui.paletteSegments)} role="group" aria-label="Search mode">
+                  <button
+                    type="button"
+                    {...stylex.props(
+                      ui.button,
+                      ui.paletteSegment,
+                      mode === "files" && ui.paletteSegmentOn,
+                    )}
+                    aria-pressed={mode === "files"}
+                    onClick={() => setMode("files")}
+                  >
+                    Files
+                  </button>
+                  <button
+                    type="button"
+                    {...stylex.props(
+                      ui.button,
+                      ui.paletteSegment,
+                      mode === "content" && ui.paletteSegmentOn,
+                    )}
+                    aria-pressed={mode === "content"}
+                    onClick={() => setMode("content")}
+                  >
+                    Content
+                  </button>
+                </div>
+              )}
+              {repositoryScopes.length && !scopedRepository ? (
+                <button
+                  type="button"
+                  {...stylex.props(ui.button, ui.paletteScope, repositoryMode && styles.scopeOpen)}
+                  title="Search another registered repository or vault"
+                  aria-label="Choose repository"
+                  aria-pressed={repositoryMode}
+                  onClick={() => {
+                    setRepositoryMode((value) => !value);
+                    setQuery("");
+                    inputRef.current?.focus();
+                  }}
+                >
+                  <span {...stylex.props(ui.truncate)}>{sourceLabel}</span>
+                  <Icon name="chevron" size={12} />
+                </button>
+              ) : (
+                !scopedRepository && (
+                  <span {...stylex.props(ui.button, ui.paletteScope, styles.scopeStatic)}>
+                    <span {...stylex.props(ui.truncate)}>{sourceLabel}</span>
+                  </span>
+                )
+              )}
+              {previewAvailable && (
+                <button
+                  type="button"
+                  aria-pressed={previewShown}
+                  aria-label="Show preview"
+                  title={previewShown ? "Hide the file preview" : "Show the file preview"}
+                  // Keep focus and the caret in the query.
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    setFilePreviewShown(!previewShown);
+                    inputRef.current?.focus();
+                  }}
+                  {...stylex.props(
+                    ui.button,
+                    ui.iconButton,
+                    ui.paletteTool,
+                    previewShown && styles.toolOn,
+                  )}
+                >
+                  <Icon name="preview" />
+                </button>
+              )}
             </div>
-            {mode === "files" && (
-              <div
-                {...stylex.props(ui.paletteStrip, styles.filters)}
-                role="group"
-                aria-label="File filters"
-              >
+            {mode === "files" ? (
+              <div {...stylex.props(ui.paletteChips)} role="group" aria-label="File filters">
                 {(["code", "tests", "docs"] as const).map((kind) => (
                   <button
                     key={kind}
+                    type="button"
                     {...stylex.props(
                       ui.button,
-                      styles.chip,
-                      filters.kinds.includes(kind) && styles.chipOn,
+                      ui.paletteChip,
+                      filters.kinds.includes(kind) && ui.paletteChipOn,
                     )}
                     aria-pressed={filters.kinds.includes(kind)}
                     onClick={() => {
@@ -780,7 +779,8 @@ function PickerContents({
                   repositoryScopes.filter(isVault).map((vault) => (
                     <button
                       key={vault.id}
-                      {...stylex.props(ui.button, styles.chip, styles.vaultChip)}
+                      type="button"
+                      {...stylex.props(ui.button, ui.paletteChip)}
                       title={`Find notes in ${vault.name} only`}
                       onClick={() => {
                         selectRepository(vault);
@@ -794,7 +794,8 @@ function PickerContents({
                 {filters.extensions.map((ext) => (
                   <button
                     key={ext}
-                    {...stylex.props(ui.button, styles.chip, styles.chipOn, styles.extension)}
+                    type="button"
+                    {...stylex.props(ui.button, ui.paletteChip, ui.paletteChipOn, styles.extension)}
                     aria-label={`Remove .${ext} filter`}
                     onClick={() => {
                       updateQuery(
@@ -817,6 +818,7 @@ function PickerContents({
                 ))}
                 {(filters.kinds.length > 0 || filters.extensions.length > 0) && (
                   <button
+                    type="button"
                     {...stylex.props(ui.button, styles.clear)}
                     onClick={() => {
                       updateQuery(filters.text);
@@ -826,16 +828,16 @@ function PickerContents({
                     Clear filters
                   </button>
                 )}
-                {!filters.kinds.length && !filters.extensions.length && (
-                  <span {...stylex.props(styles.filterHint)}>
-                    or type <code {...stylex.props(styles.syntax)}>type:tests</code>{" "}
-                    <code {...stylex.props(styles.syntax)}>ext:java,kt</code>
-                  </span>
-                )}
+                <span {...stylex.props(styles.filterHint)}>
+                  {repositoryScopes.length > 0 &&
+                    !scopedRepository &&
+                    "Tab searches a repository · "}
+                  <code {...stylex.props(styles.syntax)}>type:</code>{" "}
+                  <code {...stylex.props(styles.syntax)}>ext:</code> filter
+                </span>
               </div>
-            )}
-            {mode === "content" && (
-              <p {...stylex.props(ui.paletteStrip, styles.searchNotice)}>
+            ) : (
+              <p {...stylex.props(ui.paletteChips, styles.searchNotice)}>
                 Committed files · uncommitted changes excluded
                 {resultSource?.kind === "commit" && ` · ${resultSource.oid.slice(0, 8)}`}
                 {displayedSearch?.engine &&
@@ -844,7 +846,7 @@ function PickerContents({
               </p>
             )}
             <div {...stylex.props(styles.body)}>
-              <div {...stylex.props(styles.results)} aria-busy={busy}>
+              <div {...stylex.props(styles.results, withPreview && styles.split)} aria-busy={busy}>
                 {failure ? (
                   <p role="alert" {...stylex.props(ui.paletteEmpty)}>
                     {failure}
@@ -853,22 +855,44 @@ function PickerContents({
                   <>
                     {!busy && (
                       <Combobox.Empty>
-                        <div {...stylex.props(ui.paletteEmpty)}>
+                        <p {...stylex.props(ui.paletteEmpty)}>
                           {mode === "content" && !query.trim()
                             ? "Type text to search the selected commit."
-                            : "No matching files."}
-                        </div>
+                            : !filters.text.trim()
+                              ? filters.kinds.length || filters.extensions.length
+                                ? "No files match the filters."
+                                : "No files"
+                              : mode === "content"
+                                ? `Nothing matches “${filters.text.trim()}”`
+                                : `No files match “${filters.text.trim()}”`}
+                        </p>
                       </Combobox.Empty>
                     )}
                     <Combobox.List
+                      ref={fade}
                       aria-label="Files"
-                      {...stylex.props(
-                        ui.paletteList,
-                        previewShown && previewAvailable && ui.paletteListFill,
-                      )}
+                      {...stylex.props(ui.paletteList, withPreview && ui.paletteListFill)}
                     >
                       {(entry: PickerResult) => {
                         const slash = entry.path.lastIndexOf("/");
+                        const name = entry.repository?.name ?? entry.path.slice(slash + 1);
+                        const folder = slash >= 0 ? entry.path.slice(0, slash) : "";
+                        const aside = entry.repository
+                          ? isVault(entry.repository)
+                            ? "Vault"
+                            : entry.path
+                          : entry.note
+                            ? [entry.note.name, folder, "Note"].filter(Boolean).join(" · ")
+                            : [
+                                folder,
+                                mode === "files" && openPaths.includes(entry.path)
+                                  ? "Open"
+                                  : mode === "files" && recentPaths.includes(entry.path)
+                                    ? "Recent"
+                                    : "",
+                              ]
+                                .filter(Boolean)
+                                .join(" · ");
                         return (
                           <Combobox.Item
                             key={entry.id}
@@ -882,10 +906,9 @@ function PickerContents({
                             className={(state) =>
                               stylex.props(
                                 ui.paletteRow,
-                                entry.text !== undefined && ui.paletteRowTall,
                                 (state.highlighted ||
                                   (!selected && selectedResult?.id === entry.id)) && [
-                                  ui.menuHighlighted,
+                                  ui.paletteRowOn,
                                   picked,
                                 ],
                               ).className
@@ -913,55 +936,35 @@ function PickerContents({
                                       ? "branch"
                                       : "vault"
                                   }
-                                  size={14}
                                 />
                               ) : (
                                 // The tree's icon for the file's type, as the tabs show.
                                 <FileIcon path={entry.path} />
                               )}
                             </span>
-                            <span {...stylex.props(styles.itemText)}>
-                              <span {...stylex.props(styles.itemTop)}>
-                                <span {...stylex.props(styles.name)}>
-                                  {entry.repository?.name ?? entry.path.slice(slash + 1)}
-                                  {mode === "content" ? `:${entry.line}` : ""}
-                                </span>
-                                <span {...stylex.props(styles.path)}>
-                                  {entry.repository
-                                    ? isVault(entry.repository)
-                                      ? "Vault"
-                                      : entry.path
-                                    : entry.note
-                                      ? [entry.note.name, entry.path.slice(0, Math.max(0, slash))]
-                                          .filter(Boolean)
-                                          .join(" · ")
-                                      : slash >= 0
-                                        ? entry.path.slice(0, slash)
-                                        : ""}
-                                </span>
-                              </span>
-                              {entry.text !== undefined && (
-                                <span {...stylex.props(styles.snippet)}>{entry.text}</span>
-                              )}
+                            <span {...stylex.props(styles.name)}>
+                              <Matched
+                                text={name}
+                                ranges={matchRanges(name, filters.text, mode === "files")}
+                              />
+                              {mode === "content" ? `:${entry.line}` : ""}
                             </span>
-                            {entry.repository && <ShortcutKeys value="Tab" />}
-                            {entry.note && <span {...stylex.props(styles.label)}>Note</span>}
-                            {!entry.repository &&
-                              !entry.note &&
-                              mode === "files" &&
-                              (openPaths.includes(entry.path) ? (
-                                <span {...stylex.props(styles.label)}>Open</span>
-                              ) : recentPaths.includes(entry.path) ? (
-                                <span {...stylex.props(styles.label)}>Recent</span>
-                              ) : null)}
+                            {entry.text !== undefined ? (
+                              <span {...stylex.props(styles.snippet)}>{entry.text.trim()}</span>
+                            ) : (
+                              <span {...stylex.props(ui.grow)} />
+                            )}
+                            {aside && <span {...stylex.props(ui.paletteAside)}>{aside}</span>}
+                            {entry.repository && <PaletteKeys value="Tab" />}
                           </Combobox.Item>
                         );
                       }}
                     </Combobox.List>
+                    {capped && !busy && <p {...stylex.props(ui.paletteCapped)}>{capped}</p>}
                   </>
                 )}
               </div>
-              {previewAvailable && previewShown && (
+              {withPreview && (
                 <div {...stylex.props(styles.preview)} aria-label="File preview">
                   {selectedResult && !selectedResult.repository ? (
                     <FullFileView
@@ -1018,31 +1021,6 @@ function PickerContents({
             {mode === "content" && currentSearch?.index?.message && (
               <p {...stylex.props(ui.paletteNotice)}>{currentSearch.index.message}</p>
             )}
-            <div {...stylex.props(ui.paletteFooter)}>
-              <PaletteHint keys="↑ ↓">Select</PaletteHint>
-              {selectedResult?.repository ? (
-                <span {...stylex.props(ui.paletteHint)}>
-                  <ShortcutKeys value="↵" /> or <ShortcutKeys value="Tab" /> Search{" "}
-                  {selectedResult.repository.name}
-                </span>
-              ) : (
-                <>
-                  <PaletteHint keys="↵">Open</PaletteHint>
-                  {repoMatches.length > 0 && (
-                    <PaletteHint keys="Tab">Search {repoMatches[0]!.repository.name}</PaletteHint>
-                  )}
-                </>
-              )}
-              {scopedRepository && !query && (
-                <PaletteHint keys="⌫">Back to this workspace</PaletteHint>
-              )}
-              <span {...stylex.props(ui.paletteCount)}>
-                {mode === "files"
-                  ? (fileCount === 50 ? "Top 50 matches" : plural(fileCount, "file")) +
-                    (noteMatches.length ? ` · ${plural(noteMatches.length, "note")}` : "")
-                  : `${plural(results.length, "match", "matches")}${displayedSearch?.truncated || (displayedSearch?.matches.length ?? 0) > 200 ? " · more available" : ""}`}
-              </span>
-            </div>
           </Dialog.Popup>
         </Dialog.Portal>
       </Dialog.Root>
@@ -1051,55 +1029,32 @@ function PickerContents({
 }
 
 const styles = stylex.create({
-  // Filter chips: their edges start under the search glass.
-  filters: { flexWrap: "wrap" },
-  chip: {
-    minHeight: 24,
-    height: 24,
-    paddingInline: 9,
-    borderRadius: `calc(12px * ${tokens.round})`,
-    fontSize: 11.5,
-    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
-  },
-  chipOn: {
-    color: { default: tokens.accent, ":hover:not(:disabled)": tokens.accent },
-    backgroundColor: { default: tokens.accentSoft, ":hover:not(:disabled)": tokens.accentSoft },
-    boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${tokens.accent} 30%, transparent)`,
-  },
   extension: { gap: 4, paddingInlineEnd: 6, fontFamily: tokens.code, fontSize: 11 },
-  vaultChip: { gap: 5, paddingInlineStart: 7 },
-  clear: { minHeight: 24, height: 24, fontSize: 11.5, color: tokens.faint },
+  clear: { minHeight: 24, height: 24, paddingInline: 7, fontSize: 12, color: tokens.faint },
+  // At the chips' end: Tab, and the filters that typing makes.
   filterHint: {
     display: "inline-flex",
     alignItems: "center",
     gap: 4,
-    marginLeft: "auto",
-    color: tokens.faint,
-    fontSize: 11,
-  },
-  syntax: {
-    paddingInline: 4,
-    borderRadius: `calc(4px * ${tokens.round})`,
-    backgroundColor: tokens.fill,
-    color: tokens.muted,
-    fontFamily: tokens.code,
-    fontSize: 10.5,
-    lineHeight: "16px",
-  },
-  previewToggle: { color: { default: tokens.faint, ":hover:not(:disabled)": tokens.text } },
-  // The source in the header: a menu of the other repositories and vaults.
-  scope: {
-    gap: 4,
-    flexShrink: 1,
-    justifyContent: "flex-start",
     minWidth: 0,
-    maxWidth: "48%",
-    marginInlineStart: -4,
-    paddingInline: 4,
-    color: { default: tokens.muted, ":hover:not(:disabled)": tokens.text },
+    marginInlineStart: "auto",
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    color: tokens.faint,
+    fontSize: 11.5,
   },
-  scopeOpen: { color: tokens.text, backgroundColor: tokens.fill },
-  scopeText: { color: "inherit" },
+  syntax: { color: tokens.muted, fontFamily: tokens.code, fontSize: 11 },
+  // The chip, open: the list shows the repositories and vaults.
+  scopeOpen: {
+    backgroundColor: {
+      default: `color-mix(in srgb, ${tokens.text} 11%, transparent)`,
+      ":hover:not(:disabled)": `color-mix(in srgb, ${tokens.text} 11%, transparent)`,
+    },
+    color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
+  },
+  // One source and nothing to choose: the chip is a label.
+  scopeStatic: { cursor: "default", maxWidth: "40%" },
+  toolOn: { color: { default: tokens.muted, ":hover:not(:disabled)": tokens.text } },
   // The repository scope reads as part of the query: Backspace removes it.
   token: {
     display: "inline-flex",
@@ -1108,19 +1063,26 @@ const styles = stylex.create({
     flexShrink: 0,
     maxWidth: "40%",
     height: 26,
+    marginInlineEnd: -4,
     paddingInlineStart: 8,
     paddingInlineEnd: 4,
     borderWidth: 0,
-    borderRadius: `calc(6px * ${tokens.round})`,
+    borderRadius: `calc(7px * ${tokens.round})`,
     backgroundColor: { default: tokens.accentSoft, ":hover": tokens.accentSoft },
     color: tokens.accent,
     fontFamily: tokens.ui,
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: 500,
     cursor: "pointer",
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
-  tokenName: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  tokenName: {
+    minWidth: 0,
+    maxWidth: 280,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
   tokenClose: {
     display: "inline-flex",
     alignItems: "center",
@@ -1132,21 +1094,22 @@ const styles = stylex.create({
   },
   name: {
     flexShrink: 0,
-    maxWidth: "100%",
+    maxWidth: "70%",
     color: tokens.text,
     whiteSpace: "nowrap",
     overflow: "hidden",
     textOverflow: "ellipsis",
   },
-  path: {
-    flexShrink: 1,
-    marginLeft: "auto",
+  // A content match's line, after its file's name.
+  snippet: {
+    flex: "1",
     minWidth: 0,
-    color: tokens.faint,
-    fontSize: 11.5,
+    whiteSpace: "pre",
     overflow: "hidden",
     textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
+    color: tokens.muted,
+    fontFamily: tokens.code,
+    fontSize: 11.5,
   },
   repositoryPreview: {
     display: "flex",
@@ -1170,30 +1133,21 @@ const styles = stylex.create({
     color: tokens.muted,
     fontSize: 12,
   },
-  // Content search's source, in the strip's place.
-  searchNotice: { margin: 0, color: tokens.faint, fontSize: 11.5 },
+  // Content search's source, in the chips' place.
+  searchNotice: { margin: 0, minHeight: 36, color: tokens.faint, fontSize: 12 },
   body: { display: "flex", flex: "1", minHeight: 0, overflow: "hidden" },
   results: { display: "flex", flexDirection: "column", flex: "1", minWidth: 0, overflow: "hidden" },
+  // Beside the preview, the list takes 42 % of the width.
+  split: { flexGrow: 0, flexShrink: 0, flexBasis: "42%" },
   preview: {
     display: { default: "flex", "@media (max-width: 700px)": "none" },
     flexDirection: "column",
-    width: "56%",
+    flex: "1",
     minWidth: 0,
     overflow: "hidden",
     backgroundColor: tokens.canvas,
     borderLeftWidth: 1,
     borderLeftStyle: "solid",
-    borderLeftColor: tokens.line,
+    borderLeftColor: `color-mix(in srgb, var(--med-line-from, ${tokens.text}) 7%, transparent)`,
   },
-  itemText: { display: "flex", flexDirection: "column", flex: "1", minWidth: 0, gap: 1 },
-  itemTop: { display: "flex", alignItems: "baseline", gap: 10, minWidth: 0 },
-  snippet: {
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    color: tokens.muted,
-    fontFamily: tokens.code,
-    fontSize: 11,
-  },
-  label: { color: tokens.faint, fontSize: 11, flexShrink: 0 },
 });

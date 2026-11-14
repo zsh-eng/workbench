@@ -1553,6 +1553,7 @@ export function aestheticVariables({
 }: Theme): Record<string, string> {
   const fill = look.selection === "fill";
   const accentPrimary = look.primary === "accent";
+  const lineFrom = look.lines.from === "accent" ? palette.accent : palette.text;
   return {
     "--med-font-ui": look.fonts.ui,
     "--med-font-prose": look.fonts.prose,
@@ -1572,7 +1573,7 @@ export function aestheticVariables({
     ),
     "--med-round": String(look.round),
     "--med-button-round": look.buttons === "pill" ? "999px" : `calc(6px * ${look.round})`,
-    "--med-line-from": look.lines.from === "accent" ? palette.accent : palette.text,
+    "--med-line-from": lineFrom,
     "--med-line-mix": `${look.lines.strength}%`,
     "--med-line-strong-mix": `${Math.round(look.lines.strength * 1.75)}%`,
     "--med-pick": fill ? palette.accent : `color-mix(in srgb, ${palette.text} 9%, transparent)`,
@@ -1594,6 +1595,17 @@ export function aestheticVariables({
     "--med-label-size": `${look.labels.size}px`,
     "--med-label-weight": String(look.labels.weight),
     "--med-shadow": look.depth === "flat" ? "none" : palette.shadow,
+    // A palette: its selected row, and a ring with a deep soft shadow. A
+    // flat theme keeps the ring alone, in its line color.
+    "--med-palette-pick": fill
+      ? palette.accent
+      : `color-mix(in srgb, ${palette.text} 7.5%, transparent)`,
+    "--med-palette-shadow":
+      look.depth === "flat"
+        ? `0 0 0 1px color-mix(in srgb, ${lineFrom} ${Math.round(look.lines.strength * 1.75)}%, transparent)`
+        : appearance === "light"
+          ? `0 0 0 1px color-mix(in srgb, ${palette.text} 9%, transparent), 0 4px 12px -4px #1b1f2a26, 0 32px 80px -24px #1b1f2a4d`
+          : `0 0 0 1px color-mix(in srgb, ${palette.text} 9%, transparent), inset 0 1px 0 color-mix(in srgb, ${palette.text} 4%, transparent), 0 4px 12px -4px #0000008c, 0 32px 80px -20px #000000cc`,
     // Menus on the page's own background in a light theme; lifted in a dark one.
     "--med-menu": appearance === "light" ? palette.canvas : palette.raised,
   };

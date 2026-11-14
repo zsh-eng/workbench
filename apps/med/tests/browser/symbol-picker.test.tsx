@@ -90,7 +90,7 @@ test("file symbols filter locally and Enter opens the arrow-selected symbol", as
   await userEvent.keyboard("{ArrowDown}");
   expect(document.querySelector('[aria-label="Symbol preview"]')).toBeNull();
   expect(popup.getBoundingClientRect().left).toBe(8);
-  expect(popup.getBoundingClientRect().width).toBeLessThan(350);
+  expect(popup.getBoundingClientRect().width).toBeLessThanOrEqual(380);
   expect(onOpen).not.toHaveBeenCalled();
   expect(api.symbols).toHaveBeenCalledTimes(1);
   expect(api.read).not.toHaveBeenCalled();
@@ -188,7 +188,7 @@ test("a source switch discards an outstanding symbol request", async () => {
   expect(pending[0]!.signal?.aborted).toBe(true);
   pending[0]!.resolve(response());
   pending[1]!.resolve(response({ source: pending[1]!.source, matches: [] }));
-  await expect.element(page.getByText("No matching symbols.")).toBeVisible();
+  await expect.element(page.getByText("No symbols in this file.")).toBeVisible();
   expect(document.querySelectorAll('[role="option"]')).toHaveLength(0);
   expect(onOpen).not.toHaveBeenCalled();
 });

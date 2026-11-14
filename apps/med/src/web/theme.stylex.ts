@@ -60,6 +60,12 @@ export const tokens = stylex.defineVars({
   labelTracking: "var(--med-label-tracking, normal)",
   labelSize: "var(--med-label-size, 11.5px)",
   labelWeight: "var(--med-label-weight, 500)",
+  // A palette's selected row and its shadow (themes.ts): a solid selection
+  // in a theme that fills it, and a ring alone in a flat theme.
+  palettePick:
+    "var(--med-palette-pick, color-mix(in srgb, var(--med-text, #ececef) 7.5%, transparent))",
+  paletteShadow:
+    "var(--med-palette-shadow, 0 0 0 1px color-mix(in srgb, var(--med-text, #ececef) 9%, transparent), inset 0 1px 0 color-mix(in srgb, var(--med-text, #ececef) 4%, transparent), 0 4px 12px -4px #0000008c, 0 32px 80px -20px #000000cc)",
 });
 
 // Text on a highlighted or selected row. A theme with a solid accent selection
@@ -75,6 +81,15 @@ export const picked = stylex.createTheme(tokens, {
 });
 
 const reduced = "@media (prefers-reduced-motion: reduce)";
+
+// A palette's layers: the theme's text at a few percent. Its one rule draws
+// from the theme's line color, as Paper's blue outlines do.
+const fill7 = "color-mix(in srgb, var(--med-text, #ececef) 7%, transparent)";
+const fill10 = "color-mix(in srgb, var(--med-text, #ececef) 10%, transparent)";
+const fill11 = "color-mix(in srgb, var(--med-text, #ececef) 11%, transparent)";
+const fill12 = "color-mix(in srgb, var(--med-text, #ececef) 12%, transparent)";
+const paletteRule =
+  "color-mix(in srgb, var(--med-line-from, var(--med-text, #ececef)) 7%, transparent)";
 
 export const ui = stylex.create({
   // Keyboard-opened palettes and high-frequency surfaces appear immediately.
@@ -211,11 +226,12 @@ export const ui = stylex.create({
   // With `picked` on the same element, so the row's secondary text follows.
   menuHighlighted: { backgroundColor: tokens.pick, color: tokens.selectedText },
   // Keyboard palettes: commands, files, symbols, branches, themes, the
-  // shortcut guide, and the switcher. One surface, with its top edge at one
-  // height, so the header and the query never move between palettes. From
-  // the top: a header (44), the search (48), an optional strip (36), the
-  // list, and the footer (34), each band under a rule. The compact width is
-  // the default; `paletteGuide` and `palettePreview` widen it.
+  // shortcut guide, and the switcher. Input first and nearly without chrome:
+  // the search band, one hairline, then the list. The placeholder names the
+  // palette; a hidden title gives the dialog its name. Every palette's top
+  // edge is at 12vh, so the query never moves between them. The glass, the
+  // section labels, and each row's icon share one left edge, 18 px in, and
+  // all text starts 46 px in.
   palette: {
     position: "fixed",
     top: "12vh",
@@ -223,7 +239,7 @@ export const ui = stylex.create({
     left: 0,
     right: 0,
     marginInline: "auto",
-    width: "min(600px, calc(100vw - 32px))",
+    width: "min(640px, calc(100vw - 32px))",
     maxHeight: "calc(88vh - 16px)",
     display: "flex",
     flexDirection: "column",
@@ -231,12 +247,12 @@ export const ui = stylex.create({
     backgroundColor: tokens.menu,
     color: tokens.text,
     fontFamily: tokens.ui,
-    fontSize: 12.5,
-    borderRadius: `calc(12px * ${tokens.round})`,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: tokens.lineStrong,
-    boxShadow: tokens.shadow,
+    fontSize: 13,
+    // As the window's shell: a palette is portalled outside it.
+    WebkitFontSmoothing: "antialiased",
+    borderRadius: `calc(14px * ${tokens.round})`,
+    // A one-pixel ring, a top highlight, and a deep soft shadow (themes.ts).
+    boxShadow: tokens.paletteShadow,
     overflow: "hidden",
     outline: "none",
     zIndex: 111,
@@ -248,61 +264,36 @@ export const ui = stylex.create({
   },
   // A list with a preview beside it: Find file, symbols in the project.
   palettePreview: {
-    width: "min(1120px, calc(100vw - 32px))",
-    height: "min(680px, calc(88vh - 16px))",
+    top: 96,
+    width: "min(1080px, calc(100vw - 32px))",
+    height: "min(640px, calc(100vh - 112px))",
+    maxHeight: "none",
   },
   scrim: { position: "fixed", inset: 0, backgroundColor: tokens.scrim },
-  paletteScrim: { zIndex: 110 },
-  // Header: the title, then what the palette searches, a spacer, its
-  // controls, and Esc last.
-  paletteHeader: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    flexShrink: 0,
-    boxSizing: "border-box",
-    height: 44,
-    paddingInlineStart: 16,
-    // A 28 px control's icon, and the Esc keycap, end 16 px in, as the rows do.
-    paddingInlineEnd: 10,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
+  // The page dims behind a palette, from its own canvas.
+  paletteScrim: {
+    zIndex: 110,
+    backgroundColor: `color-mix(in srgb, ${tokens.canvas} 55%, transparent)`,
   },
-  paletteTitle: {
-    flexShrink: 0,
-    margin: 0,
-    color: tokens.text,
-    fontSize: 12.5,
-    fontWeight: 550,
-    whiteSpace: "nowrap",
-  },
-  // What the palette searches, such as the checkout. It gives way first.
-  paletteContext: {
-    minWidth: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    color: tokens.muted,
-    fontSize: 12,
-  },
-  // The header's Esc keycap, a button that closes the palette.
-  paletteClose: { flexShrink: 0, minHeight: 24, paddingInline: 6 },
-  // Search: the glass 16 px in, then the query 42 px in. A row's icon sits
-  // under the glass and its text starts where the query does.
+  // The search band: the glass, the query, then the palette's own controls
+  // at its end. One hairline under it, the palette's only rule.
   paletteInput: {
     display: "flex",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
     flexShrink: 0,
     boxSizing: "border-box",
-    height: 48,
-    paddingInline: 16,
+    height: 54,
+    paddingInlineStart: 18,
+    paddingInlineEnd: 12,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
+    borderBottomColor: paletteRule,
     color: tokens.faint,
   },
+  // A band that goes on below the query, as Find file's chips do: the rule
+  // moves under them.
+  paletteInputOpen: { borderBottomWidth: 0 },
   paletteField: {
     flex: "1",
     minWidth: 0,
@@ -313,73 +304,172 @@ export const ui = stylex.create({
     backgroundColor: "transparent",
     color: tokens.text,
     fontFamily: tokens.ui,
-    fontSize: 14,
+    fontSize: 15,
+    letterSpacing: "-0.006em",
     "::placeholder": { color: tokens.faint },
   },
-  // Below the search: filter chips or tabs.
-  paletteStrip: {
+  // A control in the band: Refresh, ⋯, the preview toggle. Quiet until hovered.
+  paletteTool: {
+    flexShrink: 0,
+    borderRadius: `calc(7px * ${tokens.round})`,
+    color: { default: tokens.faint, ":hover:not(:disabled)": tokens.text },
+  },
+  // The band's choice of two words, such as Files and Content.
+  paletteSegments: {
+    display: "flex",
+    flexShrink: 0,
+    padding: 2,
+    borderRadius: `calc(8px * ${tokens.round})`,
+    backgroundColor: fill7,
+  },
+  paletteSegment: {
+    minHeight: 22,
+    height: 22,
+    paddingInline: 9,
+    fontSize: 12,
+    borderRadius: `calc(6px * ${tokens.round})`,
+    backgroundColor: { default: "transparent", ":hover:not(:disabled)": "transparent" },
+    color: { default: tokens.faint, ":hover:not(:disabled)": tokens.muted },
+  },
+  paletteSegmentOn: {
+    backgroundColor: { default: fill11, ":hover:not(:disabled)": fill11 },
+    color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
+  },
+  // What the palette searches, as a chip that opens a choice: Find file's
+  // "Working files · main ⌄".
+  paletteScope: {
+    flexShrink: 1,
+    minWidth: 0,
+    minHeight: 26,
+    height: 26,
+    gap: 6,
+    paddingInlineStart: 9,
+    paddingInlineEnd: 7,
+    borderRadius: `calc(7px * ${tokens.round})`,
+    backgroundColor: { default: fill7, ":hover:not(:disabled)": fill11 },
+    color: { default: tokens.muted, ":hover:not(:disabled)": tokens.text },
+    fontSize: 12,
+  },
+  // Chips in the band, under the query: filters, the guide's contexts.
+  paletteChips: {
     display: "flex",
     alignItems: "center",
-    gap: 4,
+    gap: 6,
     flexShrink: 0,
     boxSizing: "border-box",
-    minHeight: 36,
-    paddingBlock: 4,
-    paddingInline: 16,
+    minWidth: 0,
+    paddingTop: 0,
+    paddingBottom: 12,
+    paddingInlineStart: 16,
+    paddingInlineEnd: 12,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
+    borderBottomColor: paletteRule,
+  },
+  paletteChip: {
+    flexShrink: 0,
+    minHeight: 24,
+    height: 24,
+    gap: 5,
+    paddingInline: 9,
+    borderRadius: `calc(7px * ${tokens.round})`,
+    backgroundColor: { default: fill7, ":hover:not(:disabled)": fill10 },
+    color: { default: tokens.faint, ":hover:not(:disabled)": tokens.muted },
+    fontSize: 12,
+    fontWeight: 400,
+  },
+  paletteChipOn: {
+    backgroundColor: { default: fill12, ":hover:not(:disabled)": fill12 },
+    color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
   },
   // Rows sit 6 px in, so a row's corner and the palette's stay concentric.
+  // A compact list fades out at its foot while more rows wait below it
+  // (`usePaletteFade` sets data-more).
   paletteList: {
     flexGrow: 1,
     flexShrink: 1,
     minHeight: 0,
-    maxHeight: "min(360px, 50vh)",
+    maxHeight: "min(412px, calc(88vh - 86px))",
     overflowY: "auto",
     boxSizing: "border-box",
     padding: 6,
-    scrollPaddingBlock: 6,
+    // The selected row stops above the fade at the foot.
+    scrollPaddingTop: 6,
+    scrollPaddingBottom: 44,
     outline: "none",
+    maskImage: {
+      default: "none",
+      ":is([data-more])": "linear-gradient(to bottom, #000 calc(100% - 44px), transparent)",
+    },
   },
   // In a palette with a fixed height, the list takes what the bands leave.
   paletteListFill: { flexBasis: 0, maxHeight: "none" },
-  // A row: the icon under the glass, the text under the query, then at its
-  // end secondary text, keycaps, and the check. The pointer moves the
-  // keyboard's highlight (`menuHighlighted`), so a row has no hover tint.
+  // A section: its label is 26 px tall, 30 after the first section.
+  paletteGroup: { paddingTop: { default: 4, ":first-child": 0 } },
+  // A section label, with `ui.label` before it for the theme's case. Its
+  // text sits on the glass's edge, 7 px above the first row.
+  paletteSection: {
+    display: "flex",
+    alignItems: "flex-end",
+    gap: 8,
+    boxSizing: "border-box",
+    height: 26,
+    margin: 0,
+    paddingBottom: 7,
+    paddingInlineStart: 12,
+    paddingInlineEnd: 10,
+    color: tokens.faint,
+    lineHeight: 1.2,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  // A row: a 16 px visual on the glass's edge, the text 46 px in, then at
+  // its end quiet text, the shortcut, and the check. The pointer moves the
+  // keyboard's selection (`paletteRowOn`), so a row has no hover tint.
+  // Its icon and shortcut take their colors from the row's variables, so a
+  // selected row brightens them.
   paletteRow: {
     display: "flex",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
     boxSizing: "border-box",
     width: "100%",
-    minHeight: 32,
+    minHeight: 36,
     margin: 0,
     paddingBlock: 0,
-    paddingInline: 10,
+    paddingInlineStart: 12,
+    paddingInlineEnd: 10,
     borderWidth: 0,
-    borderRadius: `calc(6px * ${tokens.round})`,
+    borderRadius: `calc(8px * ${tokens.round})`,
     backgroundColor: "transparent",
     color: tokens.text,
     fontFamily: tokens.ui,
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: 400,
     lineHeight: 1.4,
     textAlign: "start",
     cursor: "default",
     outline: "none",
+    "--palette-icon": tokens.faint,
+    "--palette-keys": tokens.faint,
   },
-  // A row without an icon: its text still starts where the query does.
-  paletteRowBare: { paddingInlineStart: 36 },
-  // Two lines, only where the second says what the name does not.
-  paletteRowTall: { minHeight: 40, paddingBlock: 3, lineHeight: 1.3 },
+  // With `picked` on the same row, so a solid selection (Paper) lightens its text.
+  paletteRowOn: {
+    backgroundColor: tokens.palettePick,
+    color: tokens.selectedText,
+    "--palette-icon": tokens.text,
+    "--palette-keys": tokens.muted,
+  },
+  // A row's leading visual: an icon, a swatch, a file's or a symbol's badge.
   paletteRowIcon: {
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
     width: 16,
-    color: tokens.muted,
+    height: 16,
+    color: "var(--palette-icon)",
   },
   paletteRowText: {
     flex: "1",
@@ -388,99 +478,86 @@ export const ui = stylex.create({
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
-  // A name over a second line.
-  paletteRowLines: { display: "flex", flexDirection: "column", flex: "1", minWidth: 0, gap: 1 },
-  paletteRowSecondary: {
+  // A typed match inside a row's text.
+  paletteMatch: { fontWeight: 600, color: "inherit" },
+  // Quiet text at the row's end, such as Current, Light, or a folder.
+  paletteAside: {
+    flexShrink: 1,
     minWidth: 0,
+    maxWidth: "50%",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
     color: tokens.faint,
-    fontSize: 11.5,
+    fontSize: 12,
   },
-  // A row's last column: the accent check, in a slot that each row keeps.
+  // A number at the row's end, such as a symbol's line.
+  paletteAsideMono: {
+    fontFamily: tokens.code,
+    fontSize: 12,
+    fontVariantNumeric: "tabular-nums",
+  },
+  // A shortcut: one quiet run of glyphs, such as ⌘⇧K.
+  paletteKeys: {
+    flexShrink: 0,
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    fontWeight: 400,
+    fontVariantNumeric: "tabular-nums",
+    letterSpacing: "0.12em",
+    whiteSpace: "nowrap",
+    color: "var(--palette-keys)",
+  },
+  // The selected row's actions, such as Open ↵ and New workspace ⌘↵, in
+  // place of its end text.
+  paletteActions: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 14,
+    flexShrink: 0,
+    color: tokens.muted,
+    fontSize: 12,
+    whiteSpace: "nowrap",
+  },
+  paletteAction: { display: "inline-flex", alignItems: "center", gap: 6 },
+  paletteActionKeys: { color: tokens.muted },
+  // A row's last column: the accent check.
   paletteCheck: {
     display: "inline-flex",
     justifyContent: "center",
     flexShrink: 0,
-    width: 14,
+    width: 16,
     color: tokens.accent,
-  },
-  // A section label at the rows' text inset.
-  paletteSection: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: 8,
-    margin: 0,
-    paddingTop: 10,
-    paddingBottom: 4,
-    paddingInlineStart: 36,
-    paddingInlineEnd: 10,
   },
   paletteEmpty: {
     margin: 0,
-    padding: 24,
+    paddingTop: 40,
+    paddingBottom: 44,
+    paddingInline: 18,
     textAlign: "center",
-    color: tokens.muted,
-    fontSize: 12.5,
+    color: tokens.faint,
+    fontSize: 13,
+    overflowWrap: "anywhere",
   },
-  // A line about the whole list, such as a failure, above the footer.
+  // A line about the whole list, such as a failure, under the rows.
+  // Under a list that stops at a limit: faint, so it reads as a footnote.
+  paletteCapped: {
+    flexShrink: 0,
+    margin: 0,
+    paddingTop: 4,
+    paddingBottom: 10,
+    paddingInline: 18,
+    color: tokens.faint,
+    fontSize: 12,
+  },
   paletteNotice: {
     flexShrink: 0,
     margin: 0,
-    paddingBlock: 7,
-    paddingInline: 16,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: tokens.line,
+    paddingTop: 2,
+    paddingBottom: 12,
+    paddingInline: 18,
     color: tokens.muted,
-    fontSize: 11.5,
-  },
-  // Footer, always the last band: keycap and verb pairs, then a count.
-  paletteFooter: {
-    display: "flex",
-    alignItems: "center",
-    gap: 14,
-    flexShrink: 0,
-    boxSizing: "border-box",
-    height: 34,
-    paddingInline: 16,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: tokens.line,
-    color: tokens.faint,
-    fontSize: 11,
-    whiteSpace: "nowrap",
-  },
-  paletteHint: { display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0 },
-  paletteCount: {
-    minWidth: 0,
-    marginInlineStart: "auto",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    fontVariantNumeric: "tabular-nums",
-  },
-  // A header's choice of two or three words, such as Files and Content.
-  paletteSegments: {
-    display: "flex",
-    flexShrink: 0,
-    gap: 2,
-    padding: 2,
-    borderRadius: `calc(8px * ${tokens.round})`,
-    backgroundColor: tokens.fill,
-    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
-  },
-  paletteSegment: {
-    minHeight: 24,
-    height: 24,
-    paddingInline: 10,
     fontSize: 12,
-    borderRadius: `calc(6px * ${tokens.round})`,
-  },
-  paletteSegmentOn: {
-    backgroundColor: { default: tokens.raised, ":hover:not(:disabled)": tokens.raised },
-    color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
-    boxShadow: `0 0 0 1px ${tokens.lineStrong}, 0 1px 2px #0000001f`,
   },
   // A toggle button that is on, without the accent: a quiet fill.
   pressed: {

@@ -409,7 +409,10 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
   const commands: ReviewCommand[] = [
     {
       id: "find-file",
-      label: "Find file in this workspace",
+      icon: "file",
+      group: "Go to",
+      label: "Find file",
+      keywords: "in this workspace",
       shortcut: "⌘⇧K",
       disabled: !locationState.id,
       managesFocus: true,
@@ -417,12 +420,16 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     },
     {
       id: "browse-files",
+      icon: "fileTree",
+      group: "View",
       label: sidebar ? "Hide files sidebar" : "Show files sidebar",
       disabled: !locationState.id,
       run: () => setSidebar((value) => !value),
     },
     {
       id: "theme",
+      icon: "theme",
+      group: "View",
       managesFocus: true,
       label: "Change theme",
       run: () => setThemes(true),
@@ -430,6 +437,8 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     ...settingsCommands(),
     {
       id: "preview",
+      icon: "read",
+      group: "Editor",
       label: "Read or edit the note's source",
       shortcut: "⌘⇧V",
       disabled: !currentFile || !/\.(md|markdown|mdown|mkd)$/i.test(currentFile.path),
@@ -440,6 +449,8 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     },
     {
       id: "close-file",
+      icon: "close",
+      group: "Editor",
       label: "Close current file",
       shortcut: "⌥ W",
       disabled: !currentFile,
@@ -447,14 +458,20 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     },
     {
       id: "close-files",
-      label: "Close all files in this workspace",
+      icon: "close",
+      group: "Editor",
+      label: "Close all files",
+      keywords: "in this workspace",
       shortcut: "⌥ ⇧ W",
       disabled: !currentTabs.length,
       run: () => closeTabs(currentTabs.map((tab) => tab.file.path)),
     },
     {
       id: "close-others",
-      label: "Close other files in this workspace",
+      icon: "close",
+      group: "Editor",
+      label: "Close other files",
+      keywords: "in this workspace",
       disabled: !currentFile || currentTabs.length < 2,
       run: () =>
         closeTabs(
@@ -465,6 +482,8 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     },
     {
       id: "copy-link",
+      icon: "copy",
+      group: "Editor",
       label: "Copy link to current file",
       disabled: !currentFile,
       run: () => {
@@ -475,14 +494,24 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     },
     {
       id: "refresh",
+      icon: "refresh",
+      group: "View",
       label: "Refresh files",
       disabled: !locationState.id,
       run: refreshFiles,
     },
-    { id: "sources", label: "Open registered sources", run: () => navigate("/sources") },
-    { id: "welcome", label: "Set up Med…", run: openWelcome },
+    {
+      id: "sources",
+      icon: "repository",
+      group: "Go to",
+      label: "Open registered sources",
+      run: () => navigate("/sources"),
+    },
+    { id: "welcome", icon: "brief", group: "Settings", label: "Set up Med…", run: openWelcome },
     {
       id: "repositories",
+      icon: "repository",
+      group: "Go to",
       label: "Go to repositories",
       run: () => {
         location.assign("/");
@@ -490,6 +519,8 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     },
     {
       id: "local-files",
+      icon: "file",
+      group: "Go to",
       label: "Open standalone files",
       run: () => {
         location.assign("/files");

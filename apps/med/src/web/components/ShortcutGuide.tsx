@@ -1,20 +1,26 @@
 import * as stylex from "@stylexjs/stylex";
 import { Dialog } from "@base-ui/react/dialog";
 import { Tabs } from "@base-ui/react/tabs";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { focusPaletteInput } from "../data/palette-focus";
-import { keyLabel, platform, shortcutSearchText } from "../data/keys";
+import {
+  describeShortcut,
+  isPlaceholder,
+  keyLabel,
+  parseShortcut,
+  platform,
+  shortcutSearchText,
+} from "../data/keys";
 import {
   guideContexts,
   type GuideContextId,
   type GuideEntry,
   type GuideGroup,
 } from "../data/shortcut-guide";
-import { tokens, ui } from "../theme.stylex";
+import { picked, tokens, ui } from "../theme.stylex";
 import type { ReviewCommand } from "./Controls";
 import { Icon } from "./Icon";
-import { PaletteHeader } from "./Palette";
-import { KeySequence, ShortcutKeys } from "./ShortcutKeys";
+import { PaletteTitle, usePaletteFade } from "./Palette";
 
 type Section = { key: string; title: string; description?: string; entries: GuideEntry[] };
 
@@ -49,6 +55,14 @@ export function ShortcutGuide({
   const id = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const fade = usePaletteFade<HTMLDivElement>();
+  const bodyRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      listRef.current = node;
+      return fade(node);
+    },
+    [fade],
+  );
   const commandManagesFocus = useRef(false);
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<GuideContextId>(context);
@@ -126,12 +140,12 @@ export function ShortcutGuide({
           finalFocus={() => !commandManagesFocus.current}
           {...stylex.props(ui.palette, ui.paletteGuide, ui.instant)}
         >
-          <PaletteHeader title="Keyboard shortcuts" closeLabel="Close keyboard shortcuts" />
+          <PaletteTitle>Keyboard shortcuts</PaletteTitle>
           <Dialog.Description {...stylex.props(ui.srOnly)}>
             Keyboard shortcuts for review, commits, files, the editor, and pickers. Type to search
             actions or keys; Enter runs a highlighted command.
           </Dialog.Description>
-          <div {...stylex.props(ui.paletteInput)}>
+          <div {...stylex.props(ui.paletteInput, ui.paletteInputOpen)}>
             <Icon name="search" />
             <input
               ref={inputRef}
@@ -152,7 +166,7 @@ export function ShortcutGuide({
                   if (row) run(row.entry);
                 }
               }}
-              placeholder="Search actions or keys, such as “zz” or “close”"
+              placeholder="Search shortcuts, such as “zz” or “close”…"
               aria-label="Search shortcuts and commands"
               role="combobox"
               aria-expanded="true"
@@ -170,17 +184,16 @@ export function ShortcutGuide({
               inputRef.current?.focus();
             }}
           >
-            <Tabs.List
-              aria-label="Shortcut contexts"
-              {...stylex.props(ui.paletteStrip, styles.contexts)}
-            >
+            <Tabs.List aria-label="Shortcut contexts" {...stylex.props(ui.paletteChips)}>
               {guideContexts.map((guide) => (
                 <Tabs.Tab
                   key={guide.id}
                   value={guide.id}
                   {...stylex.props(
+                    ui.button,
+                    ui.paletteChip,
                     styles.context,
-                    !searching && guide.id === tab && styles.contextSelected,
+                    !searching && guide.id === tab && ui.paletteChipOn,
                   )}
                 >
                   {guide.label}
@@ -199,11 +212,11 @@ export function ShortcutGuide({
             </Tabs.List>
           </Tabs.Root>
           <div
-            ref={listRef}
+            ref={bodyRef}
             id={`${id}-list`}
             role="listbox"
             aria-label="Shortcuts"
-            {...stylex.props(styles.body)}
+            {...stylex.props(ui.paletteList, ui.paletteListFill, styles.body)}
           >
             <div {...stylex.props(styles.columns)}>
               {sections.map((section) => (
@@ -213,7 +226,7 @@ export function ShortcutGuide({
                   aria-labelledby={`${id}-${section.key}`}
                   {...stylex.props(styles.group)}
                 >
-                  <div id={`${id}-${section.key}`} {...stylex.props(ui.label, styles.groupTitle)}>
+                  <div id={`${id}-${section.key}`} {...stylex.props(ui.label, ui.paletteSection)}>
                     {section.title}
                   </div>
                   {section.description && (
@@ -237,9 +250,10 @@ export function ShortcutGuide({
                           if (event.key === "Enter") run(entry);
                         }}
                         {...stylex.props(
+                          ui.paletteRow,
                           styles.row,
                           runnable && styles.runnable,
-                          index === selectedIndex && styles.rowActive,
+                          index === selectedIndex && [ui.paletteRowOn, picked],
                         )}
                       >
                         <span {...stylex.props(styles.text)}>
@@ -257,7 +271,7 @@ export function ShortcutGuide({
                                 {value}
                               </code>
                             ) : (
-                              <KeySequence key={value} value={value} />
+                              <GuideKeys key={value} value={value} />
                             ),
                           )}
                         </span>
@@ -268,7 +282,7 @@ export function ShortcutGuide({
               ))}
             </div>
             {!rows.length && (
-              <div {...stylex.props(styles.empty)}>
+              <div {...stylex.props(ui.paletteEmpty)}>
                 <p {...stylex.props(styles.emptyTitle)}>No shortcuts match “{query.trim()}”</p>
                 <p {...stylex.props(styles.emptyHint)}>
                   Search command names in the command palette.
@@ -276,7 +290,8 @@ export function ShortcutGuide({
               </div>
             )}
           </div>
-          <div {...stylex.props(ui.paletteFooter)}>
+          {/* The one footer: what each glyph means. */}
+          <div {...stylex.props(styles.footer)}>
             {platform === "mac" &&
               (["Mod", "Alt", "Ctrl", "Shift"] as const).map((key) => (
                 <span key={key} {...stylex.props(styles.legend)}>
@@ -285,11 +300,11 @@ export function ShortcutGuide({
                 </span>
               ))}
             <span {...stylex.props(styles.legend)}>
-              <KeySequence value="g g" /> in sequence
+              <kbd {...stylex.props(styles.legendKey)}>{"g\u2009g"}</kbd> in sequence
             </span>
             <span {...stylex.props(ui.grow)} />
             <span {...stylex.props(styles.legend)}>
-              <ShortcutKeys value="↵" /> Run
+              <kbd {...stylex.props(styles.legendKey)}>↵</kbd> Run
             </span>
           </div>
         </Dialog.Popup>
@@ -298,31 +313,37 @@ export function ShortcutGuide({
   );
 }
 
+/**
+ * A shortcut as one quiet run of glyphs: a chord's keys together, a
+ * sequence's steps apart, and a placeholder such as {char} in italics.
+ */
+function GuideKeys({ value }: { value: string }) {
+  const steps = parseShortcut(value);
+  return (
+    <kbd title={describeShortcut(value)} {...stylex.props(ui.paletteKeys, styles.glyphs)}>
+      {steps.map((chord, step) => (
+        <Fragment key={step}>
+          {/* A thin space between a sequence's steps; a chord's keys touch. */}
+          {step > 0 && "\u2009"}
+          {chord.map((key, index) => (
+            <Fragment key={index}>
+              {index > 0 && platform !== "mac" && "+"}
+              {isPlaceholder(key) ? (
+                <i {...stylex.props(styles.placeholder)}>{keyLabel(key)}</i>
+              ) : (
+                keyLabel(key)
+              )}
+            </Fragment>
+          ))}
+        </Fragment>
+      ))}
+    </kbd>
+  );
+}
+
 const styles = stylex.create({
-  // The tabs' pills start under the search glass.
-  contexts: { gap: 2 },
-  context: {
-    position: "relative",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    height: 26,
-    paddingInline: 10,
-    borderWidth: 0,
-    borderRadius: `calc(6px * ${tokens.round})`,
-    backgroundColor: { default: "transparent", ":hover": tokens.fill },
-    color: { default: tokens.muted, ":hover": tokens.text },
-    fontFamily: tokens.ui,
-    fontSize: 12.5,
-    fontWeight: 450,
-    cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
-    outlineOffset: -2,
-  },
-  contextSelected: {
-    color: { default: tokens.text, ":hover": tokens.text },
-    backgroundColor: { default: tokens.fillStrong, ":hover": tokens.fillStrong },
-  },
+  context: { position: "relative" },
+  // The context the guide opened on: a small accent dot.
   here: {
     width: 5,
     height: 5,
@@ -340,51 +361,28 @@ const styles = stylex.create({
     fontSize: 12,
     textAlign: "end",
   },
-  body: {
-    flex: "1",
-    minHeight: 0,
-    overflowY: "auto",
-    paddingBlock: 14,
-    paddingInline: 14,
-    scrollbarWidth: "thin",
-  },
+  body: { scrollbarWidth: "thin" },
   // Columns live in an unconstrained box; inside the fixed-height scroller
   // they would overflow sideways into hidden extra columns.
-  columns: { columnCount: { default: 2, "@media (max-width: 760px)": 1 }, columnGap: 28 },
-  group: { breakInside: "avoid", marginBottom: 18 },
-  groupTitle: { paddingInline: 8, marginBottom: 4 },
+  columns: { columnCount: { default: 2, "@media (max-width: 760px)": 1 }, columnGap: 12 },
+  group: { breakInside: "avoid", paddingBottom: 10 },
   groupDescription: {
     marginBlock: 0,
-    marginBottom: 6,
-    paddingInline: 8,
+    paddingBottom: 6,
+    paddingInline: 12,
     color: tokens.faint,
-    fontSize: 11.5,
+    fontSize: 12,
     lineHeight: 1.45,
   },
-  row: {
-    display: "flex",
-    alignItems: "center",
-    gap: 16,
-    minHeight: 30,
-    paddingBlock: 4,
-    paddingInline: 8,
-    borderRadius: `calc(6px * ${tokens.round})`,
-    cursor: "default",
-  },
+  // A row may hold a note under its name.
+  row: { gap: 16, paddingBlock: 6 },
   runnable: { cursor: "pointer" },
-  rowActive: { backgroundColor: tokens.fillStrong },
   text: { display: "flex", flexDirection: "column", gap: 1, flex: "1", minWidth: 0 },
-  label: {
-    color: tokens.text,
-    fontSize: 12.5,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
+  label: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   unavailable: { color: tokens.muted },
   note: {
     color: tokens.faint,
-    fontSize: 11,
+    fontSize: 12,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -394,34 +392,35 @@ const styles = stylex.create({
     flexWrap: "wrap",
     justifyContent: "flex-end",
     alignItems: "center",
-    columnGap: 8,
-    rowGap: 4,
+    columnGap: 12,
+    rowGap: 2,
     flexShrink: 0,
-    maxWidth: "58%",
+    maxWidth: "50%",
   },
-  syntax: {
-    paddingInline: 5,
-    borderRadius: `calc(4px * ${tokens.round})`,
-    backgroundColor: tokens.fill,
-    color: tokens.muted,
-    fontFamily: tokens.code,
-    fontSize: 11,
-    lineHeight: "18px",
-  },
-  empty: { paddingBlock: 48, textAlign: "center" },
-  emptyTitle: { margin: 0, color: tokens.text, fontSize: 13 },
-  emptyHint: { marginBlock: 6, color: tokens.faint, fontSize: 12 },
-  legend: { display: "inline-flex", alignItems: "center", gap: 5 },
-  legendKey: {
-    display: "inline-flex",
+  glyphs: { whiteSpace: "pre" },
+  placeholder: { fontStyle: "italic", letterSpacing: "normal" },
+  syntax: { color: "var(--palette-keys)", fontFamily: tokens.code, fontSize: 11.5 },
+  emptyTitle: { margin: 0 },
+  emptyHint: { marginBlock: 6, fontSize: 12 },
+  // The legend of the glyphs, the guide's own footer.
+  footer: {
+    display: "flex",
     alignItems: "center",
-    justifyContent: "center",
-    minWidth: 16,
-    height: 16,
-    borderRadius: `calc(4px * ${tokens.round})`,
-    backgroundColor: tokens.fill,
+    gap: 16,
+    flexShrink: 0,
+    boxSizing: "border-box",
+    height: 38,
+    paddingInline: 18,
+    color: tokens.faint,
+    fontSize: 12,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+  },
+  legend: { display: "inline-flex", alignItems: "center", gap: 6 },
+  legendKey: {
     color: tokens.muted,
     fontFamily: tokens.ui,
-    fontSize: 10.5,
+    fontSize: 12,
+    letterSpacing: "0.12em",
   },
 });

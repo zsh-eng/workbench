@@ -364,15 +364,43 @@ type Selection = {
   };
 };
 const emptyNotes: Note[] = [];
+// First in ⌘K, and first in their sections.
 const commonCommands = [
   "open-file",
   "content-search",
   "open-branch",
+  "open-repository",
+  "pull-requests",
   "open-local-file",
-  "theme",
-  "layout",
   "sidebar",
+  "layout",
+  "theme",
+  "vim",
 ];
+/** An agent's mark: Claude's and Codex's own, else sparkles. */
+const agentIcon = (id: string): IconName =>
+  id === "claude" ? "claude" : id === "codex" ? "codex" : "superagent";
+/** A Vim motion's icon in ⌘K. */
+const motionIcon = (id: string): IconName =>
+  (
+    ({ left: "arrowLeft", down: "arrowDown", up: "arrowUp", right: "arrowRight" }) as Record<
+      string,
+      IconName
+    >
+  )[id] ??
+  (/^(search|char|till)-/.test(id)
+    ? "search"
+    : /^visual-yank$/.test(id)
+      ? "copy"
+      : /^visual-/.test(id)
+        ? "selector"
+        : /^(center|cursor-)/.test(id)
+          ? "focus"
+          : /^(page-down|file-end)$/.test(id)
+            ? "arrowDown"
+            : /^(page-up|file-start)$/.test(id)
+              ? "arrowUp"
+              : "jump");
 const commandRank = (id: string) => {
   const rank = commonCommands.indexOf(id);
   return rank < 0 ? commonCommands.length : rank;
@@ -4174,9 +4202,12 @@ export function App({
     reviewToShow.current = null;
     selectTab("review");
   }, [attachedReview, selectTab]);
-  const commands: ReviewCommand[] = [
+  // In parts: one literal of them all is a union too large for TypeScript.
+  const fileCommands: ReviewCommand[] = [
     {
       id: "find-file-text",
+      icon: "search" as const,
+      group: "Editor" as const,
       managesFocus: true,
       label: "Find text in current file",
       shortcut: "⌘ F",
@@ -4185,6 +4216,8 @@ export function App({
     },
     {
       id: "find-file-backward",
+      icon: "search" as const,
+      group: "Editor" as const,
       managesFocus: true,
       label: "Search current file backward",
       shortcut: "?",
@@ -4193,6 +4226,8 @@ export function App({
     },
     ...fileMotions.map(([id, label, keys, control]) => ({
       id: `vim-${id}`,
+      icon: motionIcon(id),
+      group: "Editor" as const,
       managesFocus: true,
       label,
       shortcut: control ? `Ctrl ${keys.toUpperCase()}` : keys,
@@ -4201,52 +4236,71 @@ export function App({
     })),
     {
       id: "vim-file-comment",
+      icon: "commentAdd" as const,
+      group: "Editor" as const,
       managesFocus: true,
-      label: "Comment on the file's line or selected lines, for the agent",
+      label: "Comment on lines for the agent",
+      keywords: "the file's line or selected lines",
       shortcut: "gc",
       disabled: !fileComments || fileState.file?.kind !== "text",
       run: () => runFileNavigation("gc"),
     },
     {
       id: "vim-file-hover",
+      icon: "read" as const,
+      group: "Editor" as const,
       managesFocus: true,
-      label: "Show the definition of the name at the cursor",
+      label: "Show definition at cursor",
+      keywords: "the definition of the name hover",
       shortcut: "K",
       disabled: !loadHover,
       run: () => runFileNavigation("K"),
     },
     {
       id: "file-symbols",
+      icon: "jump" as const,
+      group: "Go to" as const,
       managesFocus: true,
-      label: "Search symbols in current file",
+      label: "Search symbols in file",
+      keywords: "current file",
       shortcut: "⌘ ⇧ O",
       disabled: !activeFile || fileState.file?.kind !== "text",
       run: () => openSymbols("file"),
     },
     {
       id: "project-symbols",
+      icon: "jump" as const,
+      group: "Go to" as const,
       managesFocus: true,
-      label: "Search symbols in project commits",
+      label: "Search symbols in project",
+      keywords: "commits",
       disabled: !browseSource,
       run: () => openSymbols("project"),
     },
     {
       id: "vim",
-      label: vimEnabled ? "Disable Vim navigation in files" : "Enable Vim navigation in files",
+      icon: "terminal" as const,
+      group: "Editor" as const,
+      label: vimEnabled ? "Turn off Vim navigation" : "Turn on Vim navigation",
+      keywords: vimEnabled ? "Disable Vim navigation in files" : "Enable Vim navigation in files",
       run: () => setVimEnabled((value) => !value),
     },
     {
       id: "open-repository",
+      icon: "repository" as const,
+      group: "Go to" as const,
       managesFocus: true,
-      label: "Open repository…",
+      label: "Open repository",
       shortcut: "⌘ O",
       disabled: !gitAvailable,
       run: () => openBranchPicker(false, true),
     },
     {
       id: "pull-requests",
+      icon: "pullRequest" as const,
+      group: "Go to" as const,
       managesFocus: true,
-      label: "Pull requests…",
+      label: "Pull requests",
       disabled: !workspace,
       run: () => workspace?.openPullRequests(),
     },
@@ -4255,6 +4309,8 @@ export function App({
       ? [
           {
             id: "add-pull-request",
+            icon: "pullRequest" as const,
+            group: "Review" as const,
             managesFocus: true,
             label: "Add a pull request…",
             run: () => setAddPullOpen(true),
@@ -4263,6 +4319,8 @@ export function App({
       : []),
     {
       id: "open-branch",
+      icon: "branch" as const,
+      group: "Go to" as const,
       managesFocus: true,
       label: "Open branch or worktree",
       shortcut: "⌘ ⇧ G",
@@ -4273,15 +4331,19 @@ export function App({
       ? [
           {
             id: "new-workspace",
+            icon: "plus" as const,
+            group: "Threads" as const,
             managesFocus: true,
-            label: "New workspace…",
+            label: "New workspace",
             disabled: !gitAvailable,
             run: () => openBranchPicker(true),
           },
           {
             id: "switch-workspace",
+            icon: "compare" as const,
+            group: "Threads" as const,
             managesFocus: true,
-            label: "Switch workspace…",
+            label: "Switch workspace",
             shortcut: "⌃ ⇥",
             run: workspace.openSwitcher,
           },
@@ -4290,6 +4352,8 @@ export function App({
             : [
                 {
                   id: "close-workspace",
+                  icon: "close" as const,
+                  group: "Threads" as const,
                   label: "Close workspace",
                   // The home workspace and vaults stay.
                   disabled: workspace.pinned,
@@ -4300,34 +4364,46 @@ export function App({
       : []),
     {
       id: "wrap",
+      icon: "wrap" as const,
+      group: "View" as const,
       label: wrap ? "Disable line wrapping in diffs" : "Wrap lines in diffs",
       run: () => setWrap((value) => !value),
     },
     {
       id: "show-notes",
+      icon: "note" as const,
+      group: "View" as const,
       label: showNotes ? "Hide comments" : "Show comments",
       run: () => setShowNotes((value) => !value),
     },
     {
       id: "refresh-file",
+      icon: "refresh" as const,
+      group: "Editor" as const,
       label: "Refresh current file",
       disabled: !activeFile,
       run: () => void fileWorkspace.refresh(),
     },
     {
       id: "file-before",
+      icon: "history" as const,
+      group: "Review" as const,
       label: "Open before version of current file",
       disabled: !activeDiffFile || !FULL_OID.test(state.review?.base ?? ""),
       run: () => activeDiffFile && openVersion(activeDiffFile.path, "old"),
     },
     {
       id: "file-after",
+      icon: "file" as const,
+      group: "Review" as const,
       label: "Open after version of current file",
       disabled: !activeDiffFile || !FULL_OID.test(state.review?.head ?? ""),
       run: () => activeDiffFile && openVersion(activeDiffFile.path, "new"),
     },
     {
       id: "next-match",
+      icon: "arrowDown" as const,
+      group: "Review" as const,
       label: "Next diff search match",
       shortcut: "n",
       disabled: !find || !!activeFile,
@@ -4335,6 +4411,8 @@ export function App({
     },
     {
       id: "previous-match",
+      icon: "arrowUp" as const,
+      group: "Review" as const,
       label: "Previous diff search match",
       shortcut: "N",
       disabled: !find || !!activeFile,
@@ -4342,6 +4420,8 @@ export function App({
     },
     {
       id: "commands",
+      icon: "command" as const,
+      group: "View" as const,
       managesFocus: true,
       label: "Open command palette",
       shortcut: "⌘ K",
@@ -4349,6 +4429,8 @@ export function App({
     },
     {
       id: "help",
+      icon: "ask" as const,
+      group: "View" as const,
       managesFocus: true,
       label: "Show keyboard shortcuts",
       shortcut: "?",
@@ -4356,6 +4438,8 @@ export function App({
     },
     {
       id: "close-file",
+      icon: "close" as const,
+      group: "Editor" as const,
       label: fileState.active === "search" ? "Close Search" : "Close current file",
       shortcut: "⌥ W",
       disabled: !activeFile && fileState.active !== "search",
@@ -4363,20 +4447,28 @@ export function App({
     },
     {
       id: "close-files",
-      label: "Close all files in this workspace",
+      icon: "close" as const,
+      group: "Editor" as const,
+      label: "Close all files",
+      keywords: "in this workspace",
       shortcut: "⌥ ⇧ W",
       disabled: !fileState.tabs.length,
       run: () => fileWorkspace.closeAll(),
     },
     {
       id: "close-others",
-      label: "Close other files in this workspace",
+      icon: "close" as const,
+      group: "Editor" as const,
+      label: "Close other files",
+      keywords: "in this workspace",
       shortcut: "⌥ ⇧ O",
       disabled: !activeFile || fileState.tabs.length < 2,
       run: () => fileWorkspace.closeOthers(),
     },
     {
       id: "changes",
+      icon: "diff" as const,
+      group: "Review" as const,
       label: state.savedReview ? "Show Changes" : "Return to Changes",
       run: () => selectTab("changes"),
     },
@@ -4384,6 +4476,8 @@ export function App({
       ? [
           {
             id: "review",
+            icon: "read" as const,
+            group: "Review" as const,
             label: "Show Review",
             run: () => selectTab("review"),
           },
@@ -4393,6 +4487,8 @@ export function App({
       ? [
           {
             id: "guide",
+            icon: "guide" as const,
+            group: "Review" as const,
             label: "Open the guide",
             run: () => {
               showPane("review");
@@ -4403,6 +4499,8 @@ export function App({
             ? [
                 {
                   id: "guide-next",
+                  icon: "guide" as const,
+                  group: "Review" as const,
                   label: "Next part of the guide",
                   shortcut: "j",
                   run: () => stepGuide(1),
@@ -4415,6 +4513,8 @@ export function App({
       ? [
           {
             id: "pull",
+            icon: "pullRequest" as const,
+            group: "Review" as const,
             label: showLivePull ? "Open the pull request" : "Open the pull request draft",
             run: () => fileWorkspace.select("pull"),
           },
@@ -4424,7 +4524,10 @@ export function App({
       ? [
           {
             id: "pull-request-refresh",
-            label: "Read the pull request again from GitHub",
+            icon: "refresh" as const,
+            group: "Review" as const,
+            label: "Refresh pull request",
+            keywords: "Read the pull request again from GitHub",
             run: () => {
               fileWorkspace.select("pull");
               setPullRefreshes((count) => count + 1);
@@ -4436,6 +4539,8 @@ export function App({
       ? [
           {
             id: "commit",
+            icon: "commit" as const,
+            group: "Git" as const,
             label: "Stage and commit changes",
             shortcut: "q",
             run: toggleCommit,
@@ -4444,6 +4549,8 @@ export function App({
       : []),
     {
       id: "blame",
+      icon: "history" as const,
+      group: "Git" as const,
       label: blameEnabled ? "Hide Git blame" : "Show Git blame in the gutter",
       shortcut: "⌥ B",
       disabled: !activeFile || fileState.file?.kind !== "text",
@@ -4451,38 +4558,50 @@ export function App({
     },
     {
       id: "line-blame",
+      icon: "clock" as const,
+      group: "Git" as const,
       label: lineBlame ? "Hide line blame at the cursor" : "Show line blame at the cursor",
       run: () => setLineBlame((value) => !value),
     },
     {
       id: "content-search",
+      icon: "search" as const,
+      group: "Go to" as const,
       managesFocus: true,
-      label: "Search workspace file contents",
+      label: "Search in files",
+      keywords: "Search workspace file contents",
       shortcut: "⌘ ⇧ F",
       disabled: !browseSource,
       run: openSearch,
     },
     {
       id: "resume-picker",
+      icon: "history" as const,
+      group: "Go to" as const,
       managesFocus: true,
       label: "Resume last file search",
       shortcut: "⌥ R",
       disabled: !browseSource,
       run: resumeFilePicker,
     },
-    ...(shell ? foundCommands : []),
-    ...(shell ? tabCommands : []),
+  ];
+  const reviewCommands: ReviewCommand[] = [
     ...(browseSource
       ? [
           {
             id: "open-file",
+            icon: "file" as const,
+            group: "Go to" as const,
             managesFocus: true,
-            label: "Find file in this workspace",
+            label: "Find file",
+            keywords: "in this workspace",
             shortcut: "⌘⇧K",
             run: openFilePicker,
           },
           {
             id: "browse-files",
+            icon: "fileTree" as const,
+            group: "View" as const,
             label: filesRailShown ? "Hide files sidebar" : "Show files sidebar",
             run: toggleFilesSidebar,
           },
@@ -4490,6 +4609,8 @@ export function App({
             ? [
                 {
                   id: "fold-files",
+                  icon: "selector" as const,
+                  group: "View" as const,
                   label: allCollapsed ? "Expand all files" : "Collapse all files",
                   run: toggleAllFiles,
                 },
@@ -4499,12 +4620,16 @@ export function App({
             ? [
                 {
                   id: "review-pane",
+                  icon: "panelRight" as const,
+                  group: "View" as const,
                   label: reviewVisible ? "Hide review" : "Show review",
                   shortcut: "⌘⇧B",
                   run: toggleReview,
                 },
                 {
                   id: "agent-session",
+                  icon: "sessions" as const,
+                  group: "View" as const,
                   label: sessionOnScreen ? "Hide agent session" : "Show agent session",
                   run: toggleSession,
                 },
@@ -4513,6 +4638,8 @@ export function App({
                   .filter((agent) => agent.available)
                   .map((agent) => ({
                     id: `new-session-${agent.id}`,
+                    icon: agentIcon(agent.id),
+                    group: "Threads" as const,
                     label: `New ${agent.name} session on this review`,
                     run: () => void sessionStarter.start(agent.id).catch(() => {}),
                   })),
@@ -4522,6 +4649,8 @@ export function App({
                   ? [
                       {
                         id: "continue-in-med",
+                        icon: "fork" as const,
+                        group: "Threads" as const,
                         label: "Fork in Med",
                         run: () =>
                           void continueInMed().catch((error: unknown) =>
@@ -4538,12 +4667,16 @@ export function App({
             ? [
                 {
                   id: "zoom-pane",
+                  icon: "maximize" as const,
+                  group: "View" as const,
                   label: panes.zoom ? "Restore panes" : "Zoom the focused pane",
                   shortcut: "⌘ E",
                   run: () => panes.toggleZoom(panes.zoom ?? panes.focused()),
                 },
                 {
                   id: "balance-panes",
+                  icon: "restore" as const,
+                  group: "View" as const,
                   label: "Balance panes",
                   shortcut: "⌘⌃=",
                   disabled: panes.balanced,
@@ -4555,6 +4688,8 @@ export function App({
             ? [
                 {
                   id: "open-working-file",
+                  icon: "edit" as const,
+                  group: "Review" as const,
                   label: "Open working file",
                   run: () => openWorkingFile(selectedFile.path),
                 },
@@ -4564,29 +4699,39 @@ export function App({
       : []),
     {
       id: "next-file",
+      icon: "arrowDown" as const,
+      group: "Review" as const,
       label: "Go to next changed file",
       shortcut: "",
       run: () => navigateFile(1),
     },
     {
       id: "previous-file",
+      icon: "arrowUp" as const,
+      group: "Review" as const,
       label: "Go to previous changed file",
       run: () => navigateFile(-1),
     },
     {
       id: "next-hunk",
+      icon: "arrowDown" as const,
+      group: "Review" as const,
       label: "Go to next hunk",
       shortcut: "]",
       run: () => navigateHunk(1),
     },
     {
       id: "previous-hunk",
+      icon: "arrowUp" as const,
+      group: "Review" as const,
       label: "Go to previous hunk",
       shortcut: "[",
       run: () => navigateHunk(-1),
     },
     {
       id: "find",
+      icon: "search" as const,
+      group: "Review" as const,
       // The find box takes the focus, not what had it before the palette.
       managesFocus: true,
       label: "Find in diff contents",
@@ -4598,6 +4743,8 @@ export function App({
     },
     {
       id: "filter",
+      icon: "filter" as const,
+      group: "Review" as const,
       managesFocus: true,
       label: "Filter changed files",
       run: () => {
@@ -4608,14 +4755,20 @@ export function App({
         requestAnimationFrame(() => filterRef.current?.focus());
       },
     },
+  ];
+  const viewCommands: ReviewCommand[] = [
     {
       id: "layout",
+      icon: "diff" as const,
+      group: "View" as const,
       label: `Use ${mode === "split" ? "unified" : "split"} diff layout`,
       disabled: mode === "unified" && !roomy,
       run: () => setMode(mode === "split" ? "unified" : "split"),
     },
     {
       id: "theme",
+      icon: "theme" as const,
+      group: "View" as const,
       managesFocus: true,
       label: "Change theme",
       run: () => setThemePickerOpen(true),
@@ -4623,7 +4776,10 @@ export function App({
     ...settingsCommands(),
     {
       id: "refresh",
-      label: "Refresh current review and history",
+      icon: "refresh" as const,
+      group: "Review" as const,
+      label: "Refresh review",
+      keywords: "current review and history",
       run: () => void controller.refresh(),
     },
     ...(gitAvailable
@@ -4632,6 +4788,8 @@ export function App({
             ? [
                 {
                   id: "working",
+                  icon: "edit" as const,
+                  group: "Review" as const,
                   label: "Review working changes",
                   run: selectWorking,
                 },
@@ -4639,6 +4797,8 @@ export function App({
             : []),
           {
             id: "range",
+            icon: "compare" as const,
+            group: "Git" as const,
             label: "Compare branches or revisions",
             run: () => setRangeOpen(true),
           },
@@ -4649,6 +4809,8 @@ export function App({
       ? [
           {
             id: "sidebar",
+            icon: "panelLeft" as const,
+            group: "View" as const,
             label: shell.sidebarVisible ? "Hide threads" : "Show threads",
             shortcut: "⌘ B",
             run: shell.toggleSidebar,
@@ -4659,12 +4821,16 @@ export function App({
       ? [
           {
             id: "compare-base",
+            icon: "compare" as const,
+            group: "Git" as const,
             managesFocus: true,
             label: "Compare against a base branch…",
             run: compareAgainst,
           },
           {
             id: "push",
+            icon: "push" as const,
+            group: "Git" as const,
             managesFocus: true,
             label: "Push to remote…",
             disabled: !!pushBlocked,
@@ -4677,6 +4843,8 @@ export function App({
       ? [
           {
             id: "send-comments",
+            icon: "reply" as const,
+            group: "Review" as const,
             label: `Send comments to ${replyAgent}`,
             run: () => showPane("session"),
           },
@@ -4686,6 +4854,8 @@ export function App({
       ? [
           {
             id: "copy-comments",
+            icon: "copy" as const,
+            group: "Review" as const,
             label: "Copy comments",
             run: () =>
               void controller.copyFeedback().then(
@@ -4700,6 +4870,8 @@ export function App({
       ? [
           {
             id: "clear-comments",
+            icon: "trash" as const,
+            group: "Review" as const,
             managesFocus: true,
             label: "Clear all comments…",
             run: () => clearComments(),
@@ -4710,6 +4882,8 @@ export function App({
       ? [
           {
             id: "session-files",
+            icon: "filter" as const,
+            group: "Review" as const,
             label: sessionFilter ? "Show every changed file" : "Show only this session's files",
             run: toggleSessionFilter,
           },
@@ -4719,6 +4893,8 @@ export function App({
       ? [
           {
             id: "changes-rail",
+            icon: "panelLeft" as const,
+            group: "View" as const,
             label: railLabel,
             shortcut: "⌘⌥B",
             run: toggleRail,
@@ -4730,6 +4906,8 @@ export function App({
       ? [
           {
             id: "session-rail",
+            icon: "sessionRail" as const,
+            group: "View" as const,
             label: sessionPanelChoice === "closed" ? "Show session rail" : "Hide session rail",
             shortcut: "⌘⌥⇧B",
             run: () =>
@@ -4741,6 +4919,8 @@ export function App({
       ? [
           {
             id: "follow-up",
+            icon: "reply" as const,
+            group: "Threads" as const,
             label:
               followUpChoice === "queue"
                 ? "While the agent works, ⌘↩ sends now"
@@ -4751,21 +4931,34 @@ export function App({
       : []),
     {
       id: "picker-preview",
+      icon: "preview" as const,
+      group: "View" as const,
       label: filePreviewShown ? "Hide file preview in Find file" : "Show file preview in Find file",
       run: () => setFilePreviewShown(!filePreviewShown),
     },
     {
       id: "open-local-file",
+      icon: "file" as const,
+      group: "Go to" as const,
       managesFocus: true,
       label: "Open standalone file",
       run: () => window.dispatchEvent(new Event("med-open-file")),
     },
     {
       id: "note",
+      icon: "commentAdd" as const,
+      group: "Review" as const,
       label: "Add note to selected lines",
       shortcut: "c",
       run: startNote,
     },
+  ];
+  const commands: ReviewCommand[] = [
+    ...fileCommands,
+    ...(shell ? foundCommands : []),
+    ...(shell ? tabCommands : []),
+    ...reviewCommands,
+    ...viewCommands,
   ];
   const guideContext: GuideContextId =
     fileState.active === "commit"
@@ -6265,6 +6458,7 @@ export function App({
             openBranch(entry, newWorkspace || branchPickerNew)
       }
       repositoriesFirst={branchPickerRepos}
+      current={branches.active}
       workspaces={workspace ? (branchPickerNew ? "new" : "here") : undefined}
       onPullRequest={workspace?.openPull}
       agents={agentPresets?.filter((agent) => agent.available)}
@@ -6902,7 +7096,6 @@ export function App({
           />
         )}
         <SymbolPicker
-          sidebarWidth={316}
           beginFilePreview={beginFilePreview}
           open={symbolPickerOpen}
           onOpenChange={setSymbolPickerOpen}

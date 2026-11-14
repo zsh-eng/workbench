@@ -41,6 +41,7 @@ import { z } from "zod";
 import { picked, tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
 import { visibleElement } from "../data/palette-focus";
+import { Matched, matchRanges, usePaletteFade } from "./Palette";
 import { createApi } from "../data/api";
 import { createWindowDrafts, type WindowDrafts } from "../data/editor-drafts";
 import { browserFetch } from "../data/live";
@@ -254,6 +255,8 @@ export function useTabCommands(): ReviewCommand[] {
     return [
       {
         id: "new-thread",
+        icon: "plus",
+        group: "Threads",
         managesFocus: true,
         label: "New thread",
         shortcut: newThreadKeys(),
@@ -261,29 +264,51 @@ export function useTabCommands(): ReviewCommand[] {
       },
       {
         id: "close-tab",
+        icon: "close",
+        group: "Threads",
         label: "Close tab",
         shortcut: "⌘ ⌥ W",
         disabled: !isTab,
         run: run(tabs.close),
       },
-      { id: "reopen-tab", label: "Reopen closed tab", shortcut: "⌘ ⌥ T", run: tabs.reopen },
+      {
+        id: "reopen-tab",
+        icon: "reply",
+        group: "Threads",
+        label: "Reopen closed tab",
+        shortcut: "⌘ ⌥ T",
+        run: tabs.reopen,
+      },
       {
         id: "open-history",
+        icon: "history",
+        group: "Threads",
         managesFocus: true,
-        label: "Open archived thread…",
+        label: "Open archived thread",
         keywords: "history",
         run: tabs.openHistory,
       },
       {
         id: "history-page",
+        icon: "history",
+        group: "Threads",
         managesFocus: true,
         label: "Archived",
         keywords: "history",
         run: tabs.showHistory,
       },
-      { id: "next-needs-you", label: "Next tab that needs you", shortcut: "⌘ 0", run: tabs.next },
+      {
+        id: "next-needs-you",
+        icon: "jump",
+        group: "Threads",
+        label: "Next tab that needs you",
+        shortcut: "⌘ 0",
+        run: tabs.next,
+      },
       {
         id: "rename-thread",
+        icon: "edit",
+        group: "Threads",
         label: "Rename thread…",
         managesFocus: true,
         disabled: !isTab,
@@ -291,6 +316,8 @@ export function useTabCommands(): ReviewCommand[] {
       },
       {
         id: "notify-needs-you",
+        icon: "alert",
+        group: "Threads",
         label: notifying
           ? "Stop notifying me when a tab needs you"
           : "Notify me when a tab needs you",
@@ -777,7 +804,7 @@ export function WorkspaceHost({
   const [switcher, setSwitcher] = useState<{
     held: boolean;
     reverse: boolean;
-    /** From "Open archived thread…": the switcher lists archived threads. */
+    /** From "Open archived thread": the switcher lists archived threads. */
     history?: boolean;
   } | null>(null);
   // A vault keeps its own address, such as the open file, between visits.
@@ -2765,7 +2792,7 @@ const optionId = (key: string) => `workspace-switch-${key.replace(/[^\w-]/g, "-"
 /** A thread's state in the switcher: one mark at most. */
 function ThreadState({ thread, unread }: { thread: Thread | undefined; unread?: boolean }) {
   if (thread && needsYou(thread))
-    return <span {...stylex.props(styles.detail, styles.needsYou)}>Needs you</span>;
+    return <span {...stylex.props(ui.paletteAside, styles.needsYou)}>Needs you</span>;
   if (thread?.state === "working")
     return <WorkingMark label={`${agentLabel(thread)} is working`} hides={false} />;
   return unread ? (
@@ -2884,6 +2911,14 @@ function WorkspaceSwitcher({
   }
   const selected = rows[Math.min(index, rows.length - 1)];
   const list = useRef<HTMLDivElement>(null);
+  const fade = usePaletteFade<HTMLDivElement>();
+  const listRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      list.current = node;
+      return fade(node);
+    },
+    [fade],
+  );
   const input = useRef<HTMLInputElement>(null);
   const choose = useCallback(
     (row: SwitchRow | undefined) => {
@@ -2986,7 +3021,7 @@ function WorkspaceSwitcher({
         onPointerDown={(event) => event.stopPropagation()}
         {...stylex.props(ui.palette, styles.switcher)}
       >
-        {/* A transient list: no header and no footer. */}
+        {/* A transient list: the band shows once a key searches. */}
         {searching && (
           <div {...stylex.props(ui.paletteInput)}>
             <Icon name="search" />
@@ -3011,7 +3046,7 @@ function WorkspaceSwitcher({
           </div>
         )}
         <div
-          ref={list}
+          ref={listRef}
           id="workspace-switch-list"
           role="listbox"
           tabIndex={-1}
@@ -3038,7 +3073,7 @@ function WorkspaceSwitcher({
                 {...stylex.props(
                   ui.paletteRow,
                   styles.option,
-                  isSelected && [ui.menuHighlighted, picked],
+                  isSelected && [ui.paletteRowOn, picked],
                   stylex.defaultMarker(),
                 )}
               >
@@ -3050,7 +3085,7 @@ function WorkspaceSwitcher({
               <div
                 key="history-heading"
                 role="presentation"
-                {...stylex.props(ui.label, ui.paletteSection)}
+                {...stylex.props(ui.label, ui.paletteSection, styles.archivedLabel)}
               >
                 Archived
               </div>
@@ -3061,17 +3096,20 @@ function WorkspaceSwitcher({
               return option(
                 <>
                   <span {...stylex.props(ui.paletteRowIcon)}>
-                    <Icon name={iconFor(workspace)} size={14} />
+                    <Icon name={iconFor(workspace)} />
                   </span>
                   <span {...stylex.props(styles.name)}>
                     {repository && (
                       <span {...stylex.props(styles.repository)}>{repository} / </span>
                     )}
-                    {labelFor(workspace)}
+                    <Matched
+                      text={labelFor(workspace)}
+                      ranges={matchRanges(labelFor(workspace), query)}
+                    />
                   </span>
                   <ThreadState thread={thread} unread={workspace.unread} />
                   {workspace.id === snapshot.active && (
-                    <span {...stylex.props(styles.detail)}>Current</span>
+                    <span {...stylex.props(ui.paletteAside)}>Current</span>
                   )}
                 </>,
               );
@@ -3088,12 +3126,13 @@ function WorkspaceSwitcher({
                           ? thread.agent
                           : "agent"
                       }
-                      size={14}
                     />
                   </span>
-                  <span {...stylex.props(styles.name)}>{thread.title}</span>
+                  <span {...stylex.props(styles.name)}>
+                    <Matched text={thread.title} ranges={matchRanges(thread.title, query)} />
+                  </span>
                   <ThreadState thread={thread} />
-                  {place && <span {...stylex.props(styles.detail)}>{place}</span>}
+                  {place && <span {...stylex.props(ui.paletteAside)}>{place}</span>}
                 </>,
               );
             const asking = confirming === thread.id;
@@ -3105,10 +3144,14 @@ function WorkspaceSwitcher({
                     <span {...stylex.props(styles.hollow)} />
                   </span>
                   <span {...stylex.props(styles.name)}>
-                    {asking ? `Delete “${thread.title}” for good?` : thread.title}
+                    {asking ? (
+                      `Delete “${thread.title}” for good?`
+                    ) : (
+                      <Matched text={thread.title} ranges={matchRanges(thread.title, query)} />
+                    )}
                   </span>
                   {!asking && (
-                    <span {...stylex.props(styles.detail)}>
+                    <span {...stylex.props(ui.paletteAside)}>
                       {[place, shortAge(thread.closedAt ?? thread.updatedAt, now)]
                         .filter(Boolean)
                         .join(" · ")}
@@ -3157,7 +3200,7 @@ function WorkspaceSwitcher({
             ];
           })}
           {!rows.length && (
-            <p {...stylex.props(styles.switchEmpty)}>
+            <p {...stylex.props(ui.paletteEmpty)}>
               {past === null && (historyMode || words.length)
                 ? "Reading archived threads…"
                 : words.length
@@ -3470,6 +3513,8 @@ const styles = stylex.create({
     animationTimingFunction: tokens.easeOut,
   },
   option: { cursor: "pointer" },
+  // Archived, after the open ones: 30 px, as a later section's label is.
+  archivedLabel: { height: { default: 30, ":first-child": 26 } },
   // A thread in history: a hollow mark, as it is not loaded.
   hollow: {
     flexShrink: 0,

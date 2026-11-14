@@ -1,9 +1,9 @@
-import { ToolButton } from "./ToolButton";
+import { tooltip } from "./ToolButton";
 import { ActionMenu } from "./Controls";
-import { PaletteHeader, PaletteHint, plural } from "./Palette";
+import { Matched, matchRanges, PaletteActions, PaletteTitle, usePaletteFade } from "./Palette";
 import * as stylex from "@stylexjs/stylex";
 import { Dialog } from "@base-ui/react/dialog";
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { RegisteredRepository } from "../../shared/protocol";
 import { parsePullUrl } from "../../shared/pull-workspace";
 import { picked, tokens, ui } from "../theme.stylex";
@@ -40,6 +40,7 @@ export function BranchPicker({
   agents = [],
   initialQuery = "",
   repositoriesFirst = false,
+  current,
 }: {
   repositories: RegisteredRepository[];
   entries: BranchEntry[];
@@ -63,10 +64,20 @@ export function BranchPicker({
    * chosen one's branches, and ⇧Tab goes back.
    */
   repositoriesFirst?: boolean;
+  /** The key of the branch or worktree on screen, which its row marks Current. */
+  current?: string;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const pathInput = useRef<HTMLInputElement>(null);
   const resultList = useRef<HTMLDivElement>(null);
+  const fade = usePaletteFade<HTMLDivElement>();
+  const listRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      resultList.current = node;
+      return fade(node);
+    },
+    [fade],
+  );
   const id = useId();
   const [query, setQuery] = useState(initialQuery);
   const [active, setActive] = useState(0);
@@ -86,10 +97,24 @@ export function BranchPicker({
   const [scope, setScope] = useState<string | null>(null);
   // The picker opens again on the repositories.
   const setOpen = (next: boolean) => {
-    if (!next) setScope(null);
+    if (!next) {
+      setScope(null);
+      setActive(0);
+    }
     onOpenChange(next);
   };
   const scoped = scope ? repositories.find((repository) => repository.id === scope) : undefined;
+  // Branch groups: the repository of the branch on screen first.
+  const currentRepository = entries.find((entry) => entry.key === current)?.repositoryId;
+  const groups = repositories
+    .map((repository, index) => ({ repository, label: labels[index]! }))
+    .toSorted(
+      (a, b) =>
+        Number(b.repository.id === currentRepository) -
+        Number(a.repository.id === currentRepository),
+    );
+  const groupRank = (repositoryId: string) =>
+    groups.findIndex((group) => group.repository.id === repositoryId);
   const allResults = entries
     .filter((entry) => {
       if (scoped && entry.repositoryId !== scoped.id) return false;
@@ -100,8 +125,15 @@ export function BranchPicker({
       ).toLowerCase();
       return words.every((word) => text.includes(word));
     })
-    // In a repository, its worktrees come first.
-    .toSorted((a, b) => (scoped ? Number(!a.path) - Number(!b.path) : 0));
+    // In the order the rows show: the repository on screen first, then the
+    // others; in each, the branch on screen first and, in a repository, its
+    // worktrees next.
+    .toSorted(
+      (a, b) =>
+        groupRank(a.repositoryId) - groupRank(b.repositoryId) ||
+        Number(b.key === current) - Number(a.key === current) ||
+        (scoped ? Number(!a.path) - Number(!b.path) : 0),
+    );
   const results = allResults.slice(0, 200);
   // The checkout that opens for a repository: its own folder's branch.
   const checkoutOf = (id: string) => {
@@ -204,6 +236,25 @@ export function BranchPicker({
     : workspaces === "new"
       ? "New workspace"
       : "Open branch";
+  // The selected row's actions, where Enter is not the only one.
+  const branchActions =
+    workspaces === "here"
+      ? [
+          { label: "Open", keys: "↵" },
+          { label: "New workspace", keys: "⌘↵" },
+        ]
+      : null;
+  const repositoryActions = [
+    { label: "Open", keys: "↵" },
+    { label: "Branches", keys: "⇥" },
+  ];
+  const row = (index: number, extra?: stylex.StyleXStyles) =>
+    stylex.props(
+      ui.paletteRow,
+      styles.option,
+      extra,
+      index === selectedIndex && [ui.paletteRowOn, picked],
+    );
   const addRow = showAdd && (
     <div
       id={`${id}-result-${addIndex}`}
@@ -220,12 +271,12 @@ export function BranchPicker({
         }
       }}
       onPointerMove={() => setActive(addIndex)}
-      {...stylex.props(ui.paletteRow, styles.option, addSelected && [ui.menuHighlighted, picked])}
+      {...row(addIndex)}
     >
       <span {...stylex.props(ui.paletteRowIcon)}>
-        <Icon name="plus" size={14} />
+        <Icon name="plus" />
       </span>
-      <span {...stylex.props(ui.paletteRowText)}>Add repository…</span>
+      <span {...stylex.props(ui.paletteRowText, styles.quiet)}>Add repository…</span>
     </div>
   );
   return (
@@ -236,38 +287,22 @@ export function BranchPicker({
           initialFocus={() => focusPaletteInput(adding ? pathInput.current : input.current)}
           {...stylex.props(ui.palette, ui.instant)}
         >
-          <PaletteHeader title={title} closeLabel="Close branch picker">
-            <ToolButton
-              label="Refresh branches"
-              icon="refresh"
-              disabled={pending}
-              onClick={() => void manage(onRefresh)}
-            />
-            <ActionMenu
-              label="Manage repositories"
-              layer="dialog"
-              trigger={[ui.button, ui.iconButton]}
-              sections={[
-                [{ label: "Add repository…", disabled: pending, onClick: startAdding }],
-                repositories.map((repository, index) => ({
-                  label: `Remove ${labels[index]}`,
-                  hint: "Closes its tabs. Files stay on disk.",
-                  disabled: pending,
-                  onClick: () => void manage(() => onRemoveRepository(repository.id)),
-                })),
-              ]}
-            >
-              <Icon name="more" size={15} />
-            </ActionMenu>
-          </PaletteHeader>
+          <PaletteTitle>{title}</PaletteTitle>
           <Dialog.Description {...stylex.props(ui.srOnly)}>
-            Choose a branch or worktree from your repositories.
+            {repositoriesFirst
+              ? "Choose a repository. Enter opens it; Tab searches its branches, and Shift-Tab goes back."
+              : workspaces === "here"
+                ? "Choose a branch or worktree from your repositories. Enter opens it here; Command-Enter opens it in a new workspace."
+                : "Choose a branch or worktree from your repositories. Enter opens it."}
           </Dialog.Description>
           <div {...stylex.props(ui.paletteInput)}>
             <Icon name="search" />
             {scoped && (
-              <span {...stylex.props(styles.chip)}>
-                <Icon name="folder" size={13} />
+              <span
+                title="Shift-Tab or Backspace goes back to the repositories"
+                {...stylex.props(styles.chip)}
+              >
+                <Icon name="repository" size={13} />
                 {labelOf.get(scoped.id)}
               </span>
             )}
@@ -312,9 +347,13 @@ export function BranchPicker({
                   ? "Search repositories…"
                   : scoped
                     ? `Search ${scoped.name}'s branches and worktrees…`
-                    : onPullRequest
-                      ? "Search branches, or paste a pull request link…"
-                      : "Search branches, worktrees, or repositories…"
+                    : workspaces === "new"
+                      ? onPullRequest
+                        ? "New workspace from a branch or a pull request link…"
+                        : "New workspace from a branch…"
+                      : onPullRequest
+                        ? "Search branches, or paste a pull request link…"
+                        : "Search branches, worktrees, or repositories…"
               }
               aria-label={showRepositories ? "Search repositories" : "Search branches"}
               role="combobox"
@@ -331,10 +370,36 @@ export function BranchPicker({
                   : undefined
               }
             />
+            <button
+              type="button"
+              aria-label="Refresh branches"
+              disabled={pending}
+              {...tooltip("Refresh branches")}
+              onClick={() => void manage(onRefresh)}
+              {...stylex.props(ui.button, ui.iconButton, ui.paletteTool)}
+            >
+              <Icon name="refresh" />
+            </button>
+            <ActionMenu
+              label="Manage repositories"
+              layer="dialog"
+              trigger={[ui.button, ui.iconButton, ui.paletteTool]}
+              sections={[
+                [{ label: "Add repository…", disabled: pending, onClick: startAdding }],
+                repositories.map((repository, index) => ({
+                  label: `Remove ${labels[index]}`,
+                  hint: "Closes its tabs. Files stay on disk.",
+                  disabled: pending,
+                  onClick: () => void manage(() => onRemoveRepository(repository.id)),
+                })),
+              ]}
+            >
+              <Icon name="more" />
+            </ActionMenu>
           </div>
-          <div ref={resultList} {...stylex.props(ui.paletteList)}>
+          <div ref={listRef} {...stylex.props(ui.paletteList)}>
             {allResults.length > results.length && (
-              <p role="status" {...stylex.props(styles.notice)}>
+              <p role="status" {...stylex.props(ui.label, ui.paletteSection, styles.cap)}>
                 Showing the first 200 of {allResults.length} matches. Refine your search.
               </p>
             )}
@@ -357,26 +422,33 @@ export function BranchPicker({
                       }}
                       onClick={(event) => select(checkout, event.metaKey || event.ctrlKey)}
                       onPointerMove={() => setActive(index)}
-                      {...stylex.props(
-                        ui.paletteRow,
-                        styles.option,
-                        index === selectedIndex && [ui.menuHighlighted, picked],
-                      )}
+                      {...row(index)}
                     >
                       <span {...stylex.props(ui.paletteRowIcon)}>
-                        <Icon name="folder" size={14} />
+                        <Icon name="repository" />
                       </span>
-                      <span {...stylex.props(ui.paletteRowText)}>{labelOf.get(repository.id)}</span>
+                      <span {...stylex.props(ui.paletteRowText)}>
+                        <Matched
+                          text={labelOf.get(repository.id)!}
+                          ranges={matchRanges(labelOf.get(repository.id)!, query)}
+                        />
+                      </span>
+                      {/* The selected row shows its actions; its end text stays for screen readers. */}
                       {checkout?.branch && (
-                        <span {...stylex.props(ui.paletteRowSecondary, styles.branch)}>
+                        <span
+                          {...stylex.props(index === selectedIndex ? ui.srOnly : ui.paletteAside)}
+                        >
                           {checkout.branch}
                         </span>
                       )}
+                      {index === selectedIndex && <PaletteActions actions={repositoryActions} />}
                     </div>
                   );
                 })}
                 {!repositoryRows.length && (
-                  <p {...stylex.props(styles.notice)}>No matching repositories.</p>
+                  <p {...stylex.props(ui.paletteEmpty, styles.short)}>
+                    No repositories match “{query.trim()}”
+                  </p>
                 )}
                 {addRow}
               </div>
@@ -388,45 +460,36 @@ export function BranchPicker({
               hidden={showRepositories && !pull}
             >
               {pull && (
-                <div role="group" aria-label="Pull request">
-                  <div {...stylex.props(ui.label, ui.paletteSection)}>
-                    <span>Pull request</span>
-                    <span {...stylex.props(ui.paletteRowSecondary, styles.asIs)}>
+                <div role="group" aria-labelledby={`${id}-pull`} {...stylex.props(ui.paletteGroup)}>
+                  <div id={`${id}-pull`} {...stylex.props(ui.label, ui.paletteSection)}>
+                    Pull request ·{" "}
+                    <span {...stylex.props(styles.asIs)}>
                       {pull.owner}/{pull.name} #{pull.number}
                     </span>
                   </div>
-                  {pullRows.map((row, index) => (
+                  {pullRows.map((pullRow, index) => (
                     <div
-                      key={row.agent ?? ""}
+                      key={pullRow.agent ?? ""}
                       id={`${id}-result-${index}`}
                       role="option"
                       tabIndex={-1}
                       aria-selected={index === selectedIndex}
-                      onClick={() => openPull(row)}
+                      onClick={() => openPull(pullRow)}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
-                          openPull(row);
+                          openPull(pullRow);
                         }
                       }}
                       onPointerMove={() => setActive(index)}
-                      {...stylex.props(
-                        ui.paletteRow,
-                        ui.paletteRowTall,
-                        styles.option,
-                        index === selectedIndex && [ui.menuHighlighted, picked],
-                      )}
+                      {...row(index)}
                     >
                       <span {...stylex.props(ui.paletteRowIcon)}>
-                        <Icon name={row.agent ? "agent" : "pullRequest"} size={14} />
+                        <Icon name={pullRow.agent ? "superagent" : "pullRequest"} />
                       </span>
-                      <span {...stylex.props(ui.paletteRowLines)}>
-                        <span {...stylex.props(ui.paletteRowText)}>{row.label}</span>
-                        <span {...stylex.props(ui.paletteRowSecondary)}>
-                          {row.agent
-                            ? "Check out in a worktree, then start the agent there"
-                            : "Check out in a worktree and open its review"}
-                        </span>
+                      <span {...stylex.props(ui.paletteRowText)}>{pullRow.label}</span>
+                      <span {...stylex.props(ui.paletteAside)}>
+                        {pullRow.agent ? "Starts the agent in its worktree" : "In a worktree"}
                       </span>
                     </div>
                   ))}
@@ -434,18 +497,21 @@ export function BranchPicker({
               )}
               {!pull &&
                 !showRepositories &&
-                repositories.map((repository, repositoryIndex) => {
+                groups.map(({ repository, label }) => {
                   if (scoped && repository.id !== scoped.id) return null;
                   const grouped = results.filter((entry) => entry.repositoryId === repository.id);
                   const matchesRepository = words.every((word) =>
-                    labels[repositoryIndex]!.toLowerCase().includes(word),
+                    label.toLowerCase().includes(word),
                   );
                   if (!grouped.length && !matchesRepository) return null;
                   return (
-                    <div key={repository.id} role="group" aria-label={labels[repositoryIndex]}>
-                      <div {...stylex.props(ui.label, ui.paletteSection)}>
-                        {labels[repositoryIndex]}
-                      </div>
+                    <div
+                      key={repository.id}
+                      role="group"
+                      aria-label={label}
+                      {...stylex.props(ui.paletteGroup)}
+                    >
+                      <div {...stylex.props(ui.label, ui.paletteSection, styles.asIs)}>{label}</div>
                       {repository.error && (
                         <p role="status" {...stylex.props(styles.notice)}>
                           {repository.error}
@@ -453,6 +519,27 @@ export function BranchPicker({
                       )}
                       {grouped.map((entry) => {
                         const index = resultIndex.get(entry.key)!;
+                        // Current for the one on screen; a detached worktree's
+                        // folder, as its label is only a commit; nothing for a
+                        // branch's worktree; and for a branch without one, its
+                        // commit, whose committed files open.
+                        // A worktree's folder also shows when the query
+                        // found the row by it.
+                        const byFolder =
+                          !!entry.checkout &&
+                          words.some(
+                            (word) =>
+                              !entry.label.toLowerCase().includes(word) &&
+                              entry.checkout!.toLowerCase().includes(word),
+                          );
+                        const end =
+                          entry.key === current
+                            ? "Current"
+                            : !entry.branch || byFolder
+                              ? (entry.checkout ?? null)
+                              : entry.path
+                                ? null
+                                : `committed · ${entry.head.slice(0, 7)}`;
                         return (
                           <div
                             key={entry.key}
@@ -468,23 +555,31 @@ export function BranchPicker({
                             aria-selected={index === selectedIndex}
                             onClick={(event) => select(entry, event.metaKey || event.ctrlKey)}
                             onPointerMove={() => setActive(index)}
-                            {...stylex.props(
-                              ui.paletteRow,
-                              ui.paletteRowTall,
-                              styles.option,
-                              index === selectedIndex && [ui.menuHighlighted, picked],
-                            )}
+                            {...row(index)}
                           >
                             <span {...stylex.props(ui.paletteRowIcon)}>
-                              <Icon name="branch" size={14} />
+                              <Icon name="branch" />
                             </span>
-                            <span {...stylex.props(ui.paletteRowLines)}>
-                              <span {...stylex.props(ui.paletteRowText)}>{entry.label}</span>
-                              <span {...stylex.props(ui.paletteRowSecondary)}>
-                                {entry.checkout ??
-                                  `Committed files only · ${entry.head.slice(0, 7)}`}
+                            <span {...stylex.props(ui.paletteRowText)}>
+                              <Matched
+                                text={entry.label}
+                                ranges={matchRanges(entry.label, query)}
+                              />
+                            </span>
+                            {end && (
+                              <span
+                                {...stylex.props(
+                                  branchActions && index === selectedIndex
+                                    ? ui.srOnly
+                                    : ui.paletteAside,
+                                )}
+                              >
+                                {end}
                               </span>
-                            </span>
+                            )}
+                            {branchActions && index === selectedIndex && (
+                              <PaletteActions actions={branchActions} />
+                            )}
                           </div>
                         );
                       })}
@@ -492,7 +587,11 @@ export function BranchPicker({
                   );
                 })}
               {!pull && !showRepositories && !results.length && (
-                <p {...stylex.props(styles.notice)}>No matching branches or worktrees.</p>
+                <p {...stylex.props(ui.paletteEmpty, styles.short)}>
+                  {words.length
+                    ? `No branches or worktrees match “${query.trim()}”`
+                    : "No branches or worktrees"}
+                </p>
               )}
               {!showRepositories && addRow}
             </div>
@@ -513,7 +612,7 @@ export function BranchPicker({
                 {...stylex.props(ui.paletteRow, styles.addForm)}
               >
                 <span {...stylex.props(ui.paletteRowIcon)}>
-                  <Icon name="plus" size={14} />
+                  <Icon name="plus" />
                 </span>
                 <input
                   ref={pathInput}
@@ -543,40 +642,10 @@ export function BranchPicker({
             )}
           </div>
           {error && (
-            <p role="alert" {...stylex.props(ui.paletteNotice)}>
+            <p role="alert" {...stylex.props(ui.paletteNotice, styles.error)}>
               {error}
             </p>
           )}
-          <div {...stylex.props(ui.paletteFooter)}>
-            {repositoriesFirst ? (
-              <>
-                <PaletteHint keys="Enter">Open</PaletteHint>
-                {scoped ? (
-                  <PaletteHint keys="Shift+Tab">Back</PaletteHint>
-                ) : (
-                  <PaletteHint keys="Tab">Search its branches</PaletteHint>
-                )}
-              </>
-            ) : workspaces === "new" ? (
-              <PaletteHint keys="Enter">Open in a new workspace</PaletteHint>
-            ) : workspaces === "here" ? (
-              <>
-                <PaletteHint keys="Enter">Open here</PaletteHint>
-                <PaletteHint keys="Mod+Enter">New workspace</PaletteHint>
-              </>
-            ) : (
-              <PaletteHint keys="Enter">Open</PaletteHint>
-            )}
-            <span {...stylex.props(ui.paletteCount)}>
-              {pull
-                ? "1 pull request"
-                : showRepositories
-                  ? plural(repositoryRows.length, "repository", "repositories")
-                  : allResults.length > results.length
-                    ? `${results.length} of ${allResults.length} branches`
-                    : plural(results.length, "branch", "branches")}
-            </span>
-          </div>
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>
@@ -584,25 +653,37 @@ export function BranchPicker({
 }
 
 const styles = stylex.create({
-  // ⌘O's repository, in the search box, after Tab.
+  // ⌘O's repository, in the search band, after Tab.
   chip: {
     display: "inline-flex",
     alignItems: "center",
     flexShrink: 0,
     gap: 5,
-    height: 22,
-    paddingInline: 7,
-    borderRadius: `calc(5px * ${tokens.round})`,
-    backgroundColor: tokens.fill,
+    height: 24,
+    paddingInline: 8,
+    marginInlineEnd: -4,
+    borderRadius: `calc(7px * ${tokens.round})`,
+    backgroundColor: `color-mix(in srgb, ${tokens.text} 7%, transparent)`,
     color: tokens.text,
-    fontSize: 12.5,
+    fontSize: 13,
   },
-  // A repository's current branch, at its row's end.
-  branch: { flexShrink: 1, fontFamily: tokens.code, fontSize: 11 },
   option: { cursor: "pointer" },
+  quiet: { color: tokens.muted },
   // A repository's name in a section label keeps its case.
   asIs: { textTransform: "none", letterSpacing: "normal" },
-  notice: { margin: 0, paddingBlock: 8, paddingInline: 36, color: tokens.muted },
-  addForm: { gap: 6, cursor: "auto" },
+  cap: { height: "auto", paddingTop: 6, whiteSpace: "normal" },
+  // A repository's failure, under its label, where the rows' text starts.
+  notice: {
+    margin: 0,
+    paddingBlock: 6,
+    paddingInlineStart: 40,
+    paddingInlineEnd: 10,
+    color: tokens.muted,
+    fontSize: 12,
+  },
+  // An empty list still has its last row, Add repository….
+  short: { paddingTop: 24, paddingBottom: 26 },
+  error: { color: tokens.warning },
+  addForm: { gap: 8, cursor: "auto" },
   path: { flex: "1", minWidth: 0 },
 });

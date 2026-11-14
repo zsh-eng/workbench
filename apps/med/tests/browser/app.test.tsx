@@ -967,7 +967,7 @@ async function openBranch(name: string) {
     }),
   );
   await page.getByRole("combobox", { name: "Search branches" }).fill(name);
-  await page.getByRole("option", { name: new RegExp(`^${name} `) }).click();
+  await page.getByRole("option", { name: new RegExp(`^${name}( |$)`) }).click();
 }
 
 describe("graphical review", () => {
@@ -1247,6 +1247,38 @@ describe("graphical review", () => {
     await page.getByRole("combobox", { name: "Search commands" }).fill("Open branch");
     await page.getByRole("option", { name: /Open branch/ }).click();
     await expect.element(page.getByRole("combobox", { name: "Search branches" })).toBeVisible();
+  });
+
+  test("⌘K lists commands in sections, ranks a query's matches in bold, and still finds an older name", async () => {
+    await mountApp({ branches: true });
+    await expect.element(page.getByRole("textbox", { name: "Filter changed files" })).toBeVisible();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+    const input = page.getByRole("combobox", { name: "Search commands" });
+    await expect.element(input).toHaveAttribute("placeholder", "Search commands…");
+    const dialog = () => document.querySelector('[role="dialog"]')!;
+    // No query: the commands in sections, Go to first, each with its icon.
+    const sections = () =>
+      [...dialog().querySelectorAll('[role="listbox"] > [role="group"]')].map(
+        (group) => document.getElementById(group.getAttribute("aria-labelledby")!)?.textContent,
+      );
+    expect(sections()[0]).toBe("Go to");
+    expect(sections()).toContain("Settings");
+    const first = dialog().querySelector('[role="option"]')!;
+    expect(first.getAttribute("aria-selected")).toBe("true");
+    expect(first.querySelector("svg")).not.toBeNull();
+    // A query: one ranked list, the match in bold.
+    await input.fill("find file");
+    expect(sections()).toEqual([]);
+    const best = dialog().querySelector('[role="option"]')!;
+    expect(best.querySelector("b")?.textContent).toBe("Find file");
+    // An older, longer name still finds its command.
+    await input.fill("Close all files in this workspace");
+    await expect.element(page.getByRole("option", { name: /^Close all files/ })).toBeVisible();
+    await input.fill("no such command");
+    await expect
+      .element(page.getByRole("status").filter({ hasText: "No commands match" }))
+      .toHaveTextContent("No commands match “no such command”");
+    expect(dialog().querySelector('[role="listbox"]')).not.toBeNull();
   });
 
   test("a single branch needs no tab strip; Command Shift G opens another beside it", async () => {
@@ -1754,14 +1786,12 @@ describe("graphical review", () => {
       );
     open();
     const find = page.getByRole("combobox", { name: "Find file", exact: true });
-    await expect
-      .element(find)
-      .toHaveAttribute("placeholder", expect.stringMatching(/^Find a file or a note/));
+    await expect.element(find).toHaveAttribute("placeholder", "Find a file…");
     // A note whose name holds the words is an option, with its vault's name.
     await find.fill("plan");
     const note = page.getByRole("option", { name: /Plan\.md/ });
-    await expect.poll(() => note.element().textContent).toBe("Plan.mdnotes · ProjectsNote");
-    await expect.element(page.getByText("0 files · 1 note")).toBeVisible();
+    await expect.poll(() => note.element().textContent).toBe("Plan.mdnotes · Projects · Note");
+    expect(document.querySelectorAll('[role="dialog"] [role="option"]')).toHaveLength(1);
     await userEvent.keyboard("{Enter}");
     const reading = page.getByRole("region", { name: "Markdown preview" });
     await expect.element(reading.getByRole("heading", { name: "Plan" })).toBeVisible();

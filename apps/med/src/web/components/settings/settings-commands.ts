@@ -23,9 +23,17 @@ export function openSettings(section?: SettingsSection) {
 
 /** ⌘K's Settings, and each of its sections. */
 export const settingsCommands = (): ReviewCommand[] => [
-  { id: "settings", label: "Open Settings", run: () => openSettings() },
+  {
+    id: "settings",
+    icon: "settings",
+    group: "Settings",
+    label: "Open Settings",
+    run: () => openSettings(),
+  },
   ...SECTIONS.map(({ section, label }) => ({
     id: `settings-${section}`,
+    icon: "settings" as const,
+    group: "Settings" as const,
     label: `Settings: ${label}`,
     run: () => openSettings(section),
   })),

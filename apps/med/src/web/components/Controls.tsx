@@ -8,8 +8,10 @@ import {
   Fragment,
   isValidElement,
   memo,
+  useCallback,
   useId,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentProps,
@@ -19,7 +21,7 @@ import {
 import { ShortcutKeys } from "./ShortcutKeys";
 export { ShortcutKeys } from "./ShortcutKeys";
 import { Icon, type IconName } from "./Icon";
-import { PaletteHeader, PaletteHint, plural } from "./Palette";
+import { Matched, PaletteKeys, PaletteTitle, usePaletteFade } from "./Palette";
 import { picked, tokens, ui } from "../theme.stylex";
 
 export interface Choice {
@@ -53,10 +55,26 @@ export interface MenuSubmenu {
   sections: MenuAction[][];
 }
 export type MenuEntry = MenuAction | MenuSubmenu;
+/** ⌘K's sections while its query is empty, in this order. Editor comes
+ * last: it holds every Vim motion. */
+export const commandGroups = [
+  "Go to",
+  "Review",
+  "View",
+  "Git",
+  "Threads",
+  "Settings",
+  "Editor",
+] as const;
+export type CommandGroup = (typeof commandGroups)[number];
 export interface ReviewCommand {
   managesFocus?: boolean;
   id: string;
   label: string;
+  /** The row's 16 px icon, an outline from Med's set. */
+  icon: IconName;
+  /** Its section in ⌘K while the query is empty. */
+  group: CommandGroup;
   /** Other words that find the command, such as an old name. */
   keywords?: string;
   shortcut?: string;
@@ -64,6 +82,100 @@ export interface ReviewCommand {
   /** Why a command cannot run yet, in its tooltip. */
   hint?: string;
   run(): void;
+}
+
+type Ranges = [number, number][];
+const wordStart = (text: string, at: number) => at === 0 || /[\s\-/:(·]/.test(text[at - 1]!);
+
+/**
+ * How well a query finds a command, and the label's matched ranges; null if
+ * it does not. Best first: the label starts with the query, the query starts
+ * a word of it, sits inside it, each of its words does, the keywords hold
+ * it, each word is in the label or the keywords (an older name), and last
+ * the query's letters in order from a word's start.
+ */
+export function matchCommand(
+  command: Pick<ReviewCommand, "label" | "keywords">,
+  query: string,
+): { score: number; ranges: Ranges } | null {
+  const wanted = query.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!wanted) return { score: 0, ranges: [] };
+  const text = command.label.toLowerCase();
+  const at = text.indexOf(wanted);
+  if (at >= 0) {
+    const words = [...text.matchAll(/\S+/g)].map((match) => match.index);
+    const start =
+      at === 0 ? at : (words.find((index) => index >= at && text.startsWith(wanted, index)) ?? at);
+    const score = start === 0 ? 1000 : wordStart(text, start) ? 900 : 800;
+    return { score: score - start, ranges: [[start, start + wanted.length]] };
+  }
+  const words = wanted.split(" ");
+  if (words.length > 1) {
+    const ranges: Ranges = [];
+    for (const word of words) {
+      let index = -1;
+      for (let from = text.indexOf(word); from >= 0; from = text.indexOf(word, from + 1)) {
+        if (index < 0) index = from;
+        if (wordStart(text, from)) {
+          index = from;
+          break;
+        }
+      }
+      if (index < 0) break;
+      ranges.push([index, index + word.length]);
+    }
+    if (ranges.length === words.length) return { score: 600, ranges: mergeRanges(ranges) };
+  }
+  const keywords = (command.keywords ?? "").toLowerCase();
+  if (keywords.includes(wanted)) return { score: 500, ranges: [] };
+  // An older, longer name: each word is in the label or the keywords.
+  if (words.length > 1 && words.every((word) => text.includes(word) || keywords.includes(word))) {
+    const ranges: Ranges = words.flatMap((word): Ranges => {
+      const index = text.indexOf(word);
+      return index >= 0 ? [[index, index + word.length]] : [];
+    });
+    return { score: 450, ranges: mergeRanges(ranges) };
+  }
+  if (wanted.includes(" ") || wanted.length < 2) return null;
+  // The letters in order, from a word's start, with few letters between them.
+  let best: { score: number; ranges: Ranges } | null = null;
+  for (
+    let start = text.indexOf(wanted[0]!);
+    start >= 0;
+    start = text.indexOf(wanted[0]!, start + 1)
+  ) {
+    if (!wordStart(text, start)) continue;
+    const ranges: Ranges = [[start, start + 1]];
+    let cursor = start + 1;
+    let gap = 0;
+    for (const letter of wanted.slice(1)) {
+      const index = text.indexOf(letter, cursor);
+      if (index < 0) {
+        gap = Infinity;
+        break;
+      }
+      gap += index - cursor;
+      const last = ranges.at(-1)!;
+      if (last[1] === index) last[1] = index + 1;
+      else ranges.push([index, index + 1]);
+      cursor = index + 1;
+    }
+    if (gap > wanted.length * 2) continue;
+    const score = 300 - gap * 10 - start / 100;
+    if (!best || score > best.score) best = { score, ranges };
+  }
+  return best;
+}
+
+function mergeRanges(ranges: Ranges): Ranges {
+  const sorted = ranges.toSorted((a, b) => a[0] - b[0]);
+  const merged: Ranges = [];
+  for (const range of sorted) {
+    const last = merged.at(-1);
+    if (last && range[0] <= last[1]) last[1] = Math.max(last[1], range[1]);
+    else merged.push([...range]);
+  }
+  return merged;
 }
 
 /** A value that no choice has: an action's item in a ChoiceSelect. */
@@ -500,11 +612,41 @@ export function CommandDialog({
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const resultList = useRef<HTMLDivElement>(null);
-  const results = commands
-    .filter((command) =>
-      `${command.label}\n${command.keywords ?? ""}`.toLowerCase().includes(query.toLowerCase()),
-    )
-    .sort((a, b) => Number(!!a.disabled) - Number(!!b.disabled));
+  const fade = usePaletteFade<HTMLDivElement>();
+  const listRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      resultList.current = node;
+      return fade(node);
+    },
+    [fade],
+  );
+  const searching = query.trim().length > 0;
+  // Without a query, the commands in their sections; with one, the matches
+  // ranked, the best first. Commands that cannot run yet go last.
+  const sections = useMemo(() => {
+    if (!searching) {
+      return commandGroups.flatMap((group) => {
+        const rows = commands
+          .filter((command) => command.group === group)
+          .sort((a, b) => Number(!!a.disabled) - Number(!!b.disabled))
+          .map((command) => ({ command, ranges: undefined }));
+        return rows.length ? [{ group: group as CommandGroup | null, rows }] : [];
+      });
+    }
+    const rows = commands
+      .flatMap((command, index) => {
+        const match = matchCommand(command, query);
+        return match ? [{ command, index, ...match }] : [];
+      })
+      .sort(
+        (a, b) =>
+          Number(!!a.command.disabled) - Number(!!b.command.disabled) ||
+          b.score - a.score ||
+          a.index - b.index,
+      );
+    return rows.length ? [{ group: null, rows }] : [];
+  }, [commands, query, searching]);
+  const results = sections.flatMap((section) => section.rows.map((row) => row.command));
   useEffect(() => {
     resultList.current
       ?.querySelector('[aria-selected="true"]')
@@ -519,6 +661,7 @@ export function CommandDialog({
       command.run();
     }
   };
+  let position = 0;
   return (
     <Dialog.Root
       open={open}
@@ -539,9 +682,9 @@ export function CommandDialog({
           finalFocus={() => !commandManagesFocus.current}
           {...stylex.props(ui.palette, ui.instant)}
         >
-          <PaletteHeader title={title} closeLabel="Close commands" />
+          <PaletteTitle>{title}</PaletteTitle>
           <Dialog.Description {...stylex.props(ui.srOnly)}>
-            Find and run a review command.
+            Find and run a review command. Arrow keys select; Enter runs it.
           </Dialog.Description>
           <div {...stylex.props(ui.paletteInput)}>
             <Icon name="search" />
@@ -566,7 +709,7 @@ export function CommandDialog({
                 }
               }}
               {...stylex.props(ui.paletteField)}
-              placeholder="Type a command…"
+              placeholder="Search commands…"
               aria-label={searchLabel}
               role="combobox"
               aria-expanded="true"
@@ -576,52 +719,78 @@ export function CommandDialog({
           </div>
           <div
             id="command-results"
-            ref={resultList}
+            ref={listRef}
             role="listbox"
             aria-label="Commands"
+            hidden={!results.length}
             {...stylex.props(ui.paletteList)}
           >
-            {results.map((command, index) => (
-              <button
-                type="button"
-                tabIndex={-1}
-                id={`command-${command.id}`}
-                key={command.id}
-                role="option"
-                aria-selected={index === active}
-                aria-disabled={command.disabled || undefined}
-                aria-describedby={command.hint ? `command-${command.id}-hint` : undefined}
-                onMouseMove={() => setActive(index)}
-                onClick={() => run(index)}
-                {...stylex.props(
-                  ui.paletteRow,
-                  ui.paletteRowBare,
-                  index === active && [ui.menuHighlighted, picked],
-                  command.disabled && styles.disabled,
-                )}
-              >
-                <span {...stylex.props(ui.paletteRowText)}>{command.label}</span>
-                {/* Why it cannot run yet, such as Push… while Med reads the remotes. */}
-                {command.hint && (
-                  <span
-                    id={`command-${command.id}-hint`}
-                    {...stylex.props(ui.paletteRowSecondary, styles.commandHint)}
+            {sections.map((section) => {
+              const rows = section.rows.map(({ command, ranges }) => {
+                const index = position++;
+                const selected = index === active;
+                return (
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    id={`command-${command.id}`}
+                    key={command.id}
+                    role="option"
+                    aria-selected={selected}
+                    aria-disabled={command.disabled || undefined}
+                    aria-describedby={command.hint ? `command-${command.id}-hint` : undefined}
+                    onMouseMove={() => setActive(index)}
+                    onClick={() => run(index)}
+                    {...stylex.props(
+                      ui.paletteRow,
+                      selected && [ui.paletteRowOn, picked],
+                      command.disabled && styles.disabled,
+                    )}
                   >
-                    {command.hint}
-                  </span>
-                )}
-                <ShortcutKeys value={command.shortcut} />
-              </button>
-            ))}
-            {results.length === 0 && (
-              <div {...stylex.props(ui.paletteEmpty)}>No matching commands</div>
-            )}
+                    <span {...stylex.props(ui.paletteRowIcon)}>
+                      <Icon name={command.icon} />
+                    </span>
+                    <span {...stylex.props(ui.paletteRowText)}>
+                      <Matched text={command.label} ranges={ranges} />
+                    </span>
+                    {/* Why it cannot run yet, such as Push… while Med reads the remotes. */}
+                    {command.hint && (
+                      <span
+                        id={`command-${command.id}-hint`}
+                        {...stylex.props(ui.paletteAside, styles.commandHint)}
+                      >
+                        {command.hint}
+                      </span>
+                    )}
+                    <PaletteKeys value={command.shortcut} />
+                  </button>
+                );
+              });
+              if (!section.group) return <Fragment key="matches">{rows}</Fragment>;
+              const labelId = `command-group-${section.group.replace(/\s+/g, "-")}`;
+              return (
+                <div
+                  key={section.group}
+                  role="group"
+                  aria-labelledby={labelId}
+                  {...stylex.props(ui.paletteGroup)}
+                >
+                  <div id={labelId} {...stylex.props(ui.label, ui.paletteSection)}>
+                    {section.group}
+                  </div>
+                  {rows}
+                </div>
+              );
+            })}
           </div>
-          <div {...stylex.props(ui.paletteFooter)}>
-            <PaletteHint keys="↑ ↓">Navigate</PaletteHint>
-            <PaletteHint keys="↵">Run</PaletteHint>
-            <span {...stylex.props(ui.paletteCount)}>{plural(results.length, "command")}</span>
-          </div>
+          {/* Always present, so a screen reader hears its text change. */}
+          <p role="status" {...stylex.props(results.length ? ui.srOnly : ui.paletteEmpty)}>
+            {results.length
+              ? ""
+              : searching
+                ? `No commands match “${query.trim()}”`
+                : "No commands"}
+          </p>
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>
@@ -669,7 +838,7 @@ export function LineDialog({
           initialFocus={() => focusPaletteInput(inputRef.current)}
           {...stylex.props(ui.palette, ui.instant)}
         >
-          <PaletteHeader title={title} closeLabel="Close" />
+          <PaletteTitle>{title}</PaletteTitle>
           <div {...stylex.props(ui.paletteInput)}>
             <Icon name={icon} />
             <input
@@ -688,28 +857,26 @@ export function LineDialog({
               aria-describedby={choice ? undefined : `${id}-empty`}
             />
           </div>
-          <div {...stylex.props(ui.paletteList)}>
-            {choice ? (
+          {choice ? (
+            <div {...stylex.props(ui.paletteList)}>
               <button
                 type="button"
                 tabIndex={-1}
                 onClick={run}
-                {...stylex.props(ui.paletteRow, ui.paletteRowBare, ui.menuHighlighted, picked)}
+                {...stylex.props(ui.paletteRow, ui.paletteRowOn, picked)}
               >
+                <span {...stylex.props(ui.paletteRowIcon)}>
+                  <Icon name={icon} />
+                </span>
                 <span {...stylex.props(ui.paletteRowText)}>{choice.label}</span>
-                {choice.hint && (
-                  <span {...stylex.props(ui.paletteRowSecondary, styles.commandHint)}>
-                    {choice.hint}
-                  </span>
-                )}
-                <ShortcutKeys value="↵" />
+                {choice.hint && <span {...stylex.props(ui.paletteAside)}>{choice.hint}</span>}
               </button>
-            ) : (
-              <div id={`${id}-empty`} {...stylex.props(ui.paletteEmpty)}>
-                {empty}
-              </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <p id={`${id}-empty`} {...stylex.props(ui.paletteEmpty)}>
+              {empty}
+            </p>
+          )}
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>

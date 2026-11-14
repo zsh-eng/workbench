@@ -73,6 +73,7 @@ async function setup(
           open={pickerOpen}
           onOpenChange={setPickerOpen}
           onSelect={model.open}
+          current={model.active}
           repositoriesFirst={repositoriesFirst}
           onRefresh={async () => {}}
           onAddRepository={async (path) => {
@@ -186,13 +187,16 @@ test("shows and matches worktrees by repository-relative location but opens the 
   await expect
     .element(page.getByRole("menuitem", { name: "Remove workbench", exact: true }))
     .not.toBeInTheDocument();
+  // The branch on screen says so; a branch's worktree needs no more.
   await expect
-    .element(page.getByRole("option", { name: "main workbench", exact: true }))
+    .element(page.getByRole("option", { name: "main Current", exact: true }))
     .toBeVisible();
   expect(shown()).not.toContain(home);
   const search = page.getByRole("combobox", { name: "Search branches" });
   await search.fill("alice");
-  await expect.element(page.getByText("No matching branches or worktrees.")).toBeVisible();
+  await expect
+    .element(page.getByText("No branches or worktrees match “alice”", { exact: true }))
+    .toBeVisible();
   await search.fill("worktrees/keen");
   await expect
     .element(
@@ -217,7 +221,7 @@ test("adds repositories, reports failures, removes their tabs, and keeps committ
   await setup();
   await page.getByRole("button", { name: "Open branch", exact: true }).click();
   await expect
-    .element(page.getByRole("option", { name: "release Committed files only · bbbbbbb" }).first())
+    .element(page.getByRole("option", { name: "release committed · bbbbbbb" }).first())
     .toBeVisible();
   // Add repository… is the list's last row.
   await page.getByRole("option", { name: "Add repository…" }).click();
@@ -253,8 +257,10 @@ test("Add repository… ends the list: ↓ reaches it and Enter asks for a path,
   await page.getByRole("button", { name: "Open branch", exact: true }).click();
   const search = page.getByRole("combobox", { name: "Search branches" });
   await expect.element(search).toHaveFocus();
-  // main, its detached worktree, and release; the footer counts only them.
-  await expect.element(page.getByText("3 branches", { exact: true })).toBeVisible();
+  // main, its detached worktree, and release, then Add repository….
+  expect(
+    document.querySelectorAll('[aria-label="Branches and worktrees"] [role="option"]'),
+  ).toHaveLength(4);
   const add = page.getByRole("option", { name: "Add repository…" });
   for (let step = 0; step < 3; step++) await userEvent.keyboard("{ArrowDown}");
   await expect.element(add).toHaveAttribute("aria-selected", "true");
@@ -324,7 +330,6 @@ test("bounds the result list while searching every branch", async () => {
     .element(page.getByRole("status"))
     .toHaveTextContent("Showing the first 200 of 250 matches. Refine your search.");
   expect(document.querySelectorAll('[role="group"] [role="option"]').length).toBe(200);
-  await expect.element(page.getByText("200 of 250 branches")).toBeVisible();
   await page.getByRole("combobox", { name: "Search branches" }).fill("branch-249");
   await userEvent.keyboard("{Enter}");
   await expect
@@ -375,15 +380,18 @@ test("⌘O's picker ranks repositories as zoxide does, and Tab searches one's br
   await expect.element(page.getByRole("dialog", { name: "Open repository" })).toBeVisible();
   const search = page.getByRole("combobox", { name: "Search repositories" });
   await expect.element(search).toHaveFocus();
+  // A row's text as a screen reader has it: the selected row's actions are
+  // for the eye only.
   const rows = (name: string) =>
     [
       ...document.querySelectorAll(
         `[role="listbox"][aria-label="${name}"] [role="option"]:not([data-add-repository])`,
       ),
-    ].map(
-      (option) =>
-        `${option.textContent}${option.getAttribute("aria-selected") === "true" ? " ✓" : ""}`,
-    );
+    ].map((option) => {
+      const copy = option.cloneNode(true) as Element;
+      for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+      return `${copy.textContent}${option.getAttribute("aria-selected") === "true" ? " ✓" : ""}`;
+    });
   // The one opened lately first, then the host's order. A row is the name and
   // its branch; the folder shows only where two names are the same.
   expect(rows("Repositories")).toEqual([
@@ -406,11 +414,9 @@ test("⌘O's picker ranks repositories as zoxide does, and Tab searches one's br
   const branches = page.getByRole("combobox", { name: "Search branches" });
   await expect.element(branches).toHaveValue("");
   await expect.element(branches).toHaveFocus();
-  expect(rows("Branches and worktrees").map((row) => row.split(/frontend|Committed/)[0])).toEqual([
-    "main",
-    "Detached · ccccccc",
-    "release",
-  ]);
+  expect(
+    rows("Branches and worktrees").map((row) => row.split(/frontend|Current|committed/)[0]),
+  ).toEqual(["main", "Detached · ccccccc", "release"]);
   // ⇧Tab goes back, to the same repository.
   await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
   await expect.element(search).toHaveValue("");

@@ -217,7 +217,10 @@ try {
     .getByRole("dialog")
     .getByRole("combobox", { name: "Search commands" })
     .fill("Find file");
-  await page.getByRole("option").filter({ hasText: "Find file in this workspace" }).click();
+  await page
+    .getByRole("option", { name: /^Find file/ })
+    .first()
+    .click();
   await page.getByRole("combobox", { name: "Find file", exact: true }).fill("Nested");
   await page
     .getByLabel("File preview", { exact: true })

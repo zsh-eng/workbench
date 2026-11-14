@@ -101,7 +101,7 @@ test("search and Enter commit; click commits another theme; an empty search does
   await expect.poll(() => localStorage.getItem(THEME_STORAGE_KEY)).toBe("tokyo-night");
   await page.getByRole("button", { name: "Choose theme" }).click();
   await page.getByRole("combobox", { name: "Search themes" }).fill("no matching theme");
-  await expect.element(page.getByText("No themes found.")).toBeVisible();
+  await expect.element(page.getByText("No themes match “no matching theme”")).toBeVisible();
   const emptyRegion = document.querySelector('[role="dialog"] [role="status"]')!;
   expect(emptyRegion.getAttribute("aria-live")).toBe("polite");
   expect(emptyRegion.getBoundingClientRect().height).toBeGreaterThan(0);
@@ -126,27 +126,28 @@ test("a theme's aesthetic previews with its colors: type, corners, shadow, and t
     return probe.style.color;
   };
   expect(dialog().fontFamily).toContain("Geist");
-  expect(dialog().borderRadius).toBe("12px");
+  expect(dialog().borderRadius).toBe("14px");
   await page.getByRole("combobox", { name: "Search themes" }).fill("Paper Light");
   await expect.poll(() => themeController.getSnapshot().active.id).toBe("paper-light");
-  // Paper: Paper Mono for the interface, nearly square corners, no shadow, and a
-  // solid accent selection whose secondary text turns light with it.
+  // Paper: Paper Mono for the interface, nearly square corners, a hairline ring
+  // and no shadow, and a solid accent selection whose secondary text turns
+  // light with it.
   expect(dialog().fontFamily).toContain("Paper Mono");
-  expect(dialog().borderRadius).toBe("3.6px");
-  expect(dialog().boxShadow).toBe("none");
+  expect(dialog().borderRadius).toBe("4.2px");
+  expect(dialog().boxShadow).toMatch(/^color\([^)]*\) 0px 0px 0px 1px$/);
   const option = page.getByRole("option", { name: /Paper Light/ }).element();
   expect(getComputedStyle(option).backgroundColor).toBe(
     rgb(findTheme("paper-light").palette.accent),
   );
   expect(getComputedStyle(option).color).toBe("rgb(255, 255, 255)");
-  // The row's sun, its appearance, turns light with the row.
-  const kind = option.querySelector('[data-appearance="light"]')!;
-  expect(getComputedStyle(kind).color).toMatch(/^rgba\(255, 255, 255, 0\.8/);
+  // The row's appearance, its secondary text, turns light with the row.
+  const kind = [...option.querySelectorAll("span")].find((node) => node.textContent === "Light")!;
+  expect(getComputedStyle(kind).color).toMatch(/^rgba\(255, 255, 255, 0\.6/);
   await userEvent.keyboard("{Escape}");
   await expect.poll(() => document.documentElement.dataset.theme).toBe("graphite-dark");
   await page.getByRole("button", { name: "Choose theme" }).click();
   expect(dialog().fontFamily).toContain("Geist");
-  expect(dialog().borderRadius).toBe("12px");
+  expect(dialog().borderRadius).toBe("14px");
   expect(dialog().boxShadow).not.toBe("none");
 });
 

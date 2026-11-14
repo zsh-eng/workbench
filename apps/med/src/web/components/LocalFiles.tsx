@@ -500,6 +500,8 @@ export function LocalFiles({ children }: { children: ReactNode }) {
             commands={[
               {
                 id: "open",
+                icon: "file",
+                group: "Go to",
                 managesFocus: true,
                 label: "Open file by absolute path",
                 shortcut: "⌘ O",
@@ -507,6 +509,8 @@ export function LocalFiles({ children }: { children: ReactNode }) {
               },
               {
                 id: "close",
+                icon: "close",
+                group: "Editor",
                 label: "Close current file",
                 shortcut: "⌥ W",
                 disabled: !active,
@@ -514,17 +518,23 @@ export function LocalFiles({ children }: { children: ReactNode }) {
               },
               {
                 id: "theme",
+                icon: "theme",
+                group: "View",
                 managesFocus: true,
                 label: "Change theme",
                 run: () => setThemes(true),
               },
               {
                 id: "repositories",
+                icon: "repository",
+                group: "Go to",
                 label: "Go to repositories",
                 run: repositories,
               },
               ...tabs.map((tab) => ({
                 id: tab.id,
+                icon: "file" as const,
+                group: "Go to" as const,
                 label: `Switch to ${tab.file.path}`,
                 run: () => {
                   setSelected(tab.id);

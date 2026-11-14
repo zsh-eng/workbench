@@ -135,7 +135,7 @@ test("repository scopes show and match relative names but open the absolute work
   render(<Harness />);
   const input = page.getByRole("combobox", { name: "Find file" });
   await input.fill("alice");
-  await expect.element(page.getByText("No matching files.")).toBeVisible();
+  await expect.element(page.getByText("No files match “alice”", { exact: true })).toBeVisible();
   await input.fill("keen");
   await expect
     .element(page.getByRole("option", { name: "Repository workbench · .claude/worktrees/keen" }))
@@ -146,9 +146,10 @@ test("repository scopes show and match relative names but open the absolute work
   expect(shown()).not.toContain(home);
   await userEvent.keyboard("{Tab}");
   await expect.element(page.getByRole("option", { name: "keen.ts src" })).toBeVisible();
+  // The scope token names the worktree by its path inside the repository.
   await expect
-    .element(page.getByText("Working files · workbench · .claude/worktrees/keen"))
-    .toBeVisible();
+    .element(page.getByRole("button", { name: "Back to current repository" }))
+    .toHaveTextContent("workbench · .claude/worktrees/keen");
   expect(shown()).not.toContain(home);
   await userEvent.keyboard("{Enter}");
   await expect
@@ -416,7 +417,9 @@ test("Enter opens the first match after an async manifest and an empty query res
   const input = page.getByRole("combobox", { name: "Find file" });
   await input.fill("does-not-exist.ts:120");
   load();
-  await expect.element(page.getByText("No matching files.")).toBeVisible();
+  await expect
+    .element(page.getByText("No files match “does-not-exist.ts:120”", { exact: true }))
+    .toBeVisible();
   await userEvent.keyboard("{Enter}");
   expect(onOpen).not.toHaveBeenCalled();
   await input.fill("src");
@@ -622,7 +625,7 @@ test("content search is scoped, previews the matching line, and resumes its last
   render(<Harness />);
   await page.getByRole("button", { name: "Content", exact: true }).click();
   await page.getByRole("combobox", { name: "Search file contents" }).fill("needle");
-  await expect.element(page.getByRole("option", { name: "main.ts:2 src needle" })).toBeVisible();
+  await expect.element(page.getByRole("option", { name: "main.ts:2 needle src" })).toBeVisible();
   expect(api.search).toHaveBeenCalledWith(
     { kind: "worktree", repo: "/feature" },
     "needle",
@@ -640,7 +643,7 @@ test("content search is scoped, previews the matching line, and resumes its last
   await expect
     .element(page.getByRole("combobox", { name: "Search file contents" }))
     .toHaveValue("needle");
-  await expect.element(page.getByRole("option", { name: "main.ts:2 src needle" })).toBeVisible();
+  await expect.element(page.getByRole("option", { name: "main.ts:2 needle src" })).toBeVisible();
   await userEvent.keyboard("{Enter}");
   expect(onOpen).toHaveBeenCalledWith("src/main.ts", 2);
 });
@@ -803,7 +806,7 @@ test("content search retains previews, blocks stale opens, and ignores late resp
   await input.fill("first");
   await expect.poll(() => pending.has("first")).toBe(true);
   resolve("first");
-  const first = page.getByRole("option", { name: "first.ts:1 src first" });
+  const first = page.getByRole("option", { name: "first.ts:1 first src" });
   await expect.element(first).toBeVisible();
   await expect
     .poll(() => api.read)
@@ -816,7 +819,7 @@ test("content search retains previews, blocks stale opens, and ignores late resp
   await expect.element(first).toHaveAttribute("aria-disabled", "true");
   await expect.element(page.getByText("Searching…", { exact: true })).not.toBeInTheDocument();
   await expect
-    .element(page.getByText("No matching files.", { exact: true }))
+    .element(page.getByText("Nothing matches “second”", { exact: true }))
     .not.toBeInTheDocument();
   expect(vi.mocked(api.read).mock.calls.length).toBe(previewCalls);
   await userEvent.keyboard("{Enter}");
@@ -827,9 +830,9 @@ test("content search retains previews, blocks stale opens, and ignores late resp
   await expect.poll(() => pending.has("third")).toBe(true);
   expect(pending.get("second")!.signal!.aborted).toBe(true);
   resolve("third");
-  await expect.element(page.getByRole("option", { name: "third.ts:1 src third" })).toBeVisible();
+  await expect.element(page.getByRole("option", { name: "third.ts:1 third src" })).toBeVisible();
   resolve("second");
-  await expect.element(page.getByRole("option", { name: "third.ts:1 src third" })).toBeVisible();
+  await expect.element(page.getByRole("option", { name: "third.ts:1 third src" })).toBeVisible();
   await userEvent.keyboard("{Enter}");
   expect(onOpen).toHaveBeenCalledWith("src/third.ts", 1, resultSource);
 
@@ -892,7 +895,7 @@ test("resume restores the content query after Enter opens an immutable result", 
   await expect.element(page.getByRole("combobox", { name: "Search file contents" })).toBeVisible();
   await userEvent.keyboard("rewriteForProxiedHttp");
   await expect
-    .element(page.getByRole("option", { name: "main.ts:1 src rewriteForProxiedHttp();" }))
+    .element(page.getByRole("option", { name: "main.ts:1 rewriteForProxiedHttp(); src" }))
     .toBeVisible();
   await userEvent.keyboard("{Enter}");
   expect(onOpen).toHaveBeenCalledWith("src/main.ts", 1, resultSource);
@@ -902,7 +905,7 @@ test("resume restores the content query after Enter opens an immutable result", 
     .element(page.getByRole("combobox", { name: "Search file contents" }))
     .toHaveValue("rewriteForProxiedHttp");
   await expect
-    .element(page.getByRole("option", { name: "main.ts:1 src rewriteForProxiedHttp();" }))
+    .element(page.getByRole("option", { name: "main.ts:1 rewriteForProxiedHttp(); src" }))
     .toBeVisible();
 });
 

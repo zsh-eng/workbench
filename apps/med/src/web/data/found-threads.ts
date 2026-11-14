@@ -47,6 +47,8 @@ export function useFoundCommands(fetcher: typeof fetch = browserFetch) {
   return [
     {
       id: "found-sessions",
+      icon: "sessions" as const,
+      group: "Threads" as const,
       label: listed ? "Hide sessions not kept in Med" : "Show sessions not kept in Med",
       run: () => void updateFound({ shown: !listed }, fetcher).catch(() => {}),
     },

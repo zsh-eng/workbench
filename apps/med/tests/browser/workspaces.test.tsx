@@ -861,7 +861,7 @@ test("the Archived page lists archived threads by day, searches them, opens one 
   await userEvent.keyboard("{Control>}k{/Control}");
   await page.getByRole("combobox", { name: "Search commands" }).fill("history");
   await expect
-    .element(page.getByRole("option", { name: /^Open archived thread…/ }))
+    .element(page.getByRole("option", { name: /^Open archived thread/ }))
     .toBeInTheDocument();
   await page.getByRole("option", { name: "Archived", exact: true }).click();
   await expect.poll(days).toEqual([
@@ -1091,7 +1091,7 @@ test("a tab closes by ×, ⌘⌥W, or the palette; Undo and ⌘⌥T bring it bac
   });
   await expect.poll(threadRows).toContain("Third review(current)");
 
-  // "Open archived thread…" lists the closed threads, newest first.
+  // "Open archived thread" lists the closed threads, newest first.
   await page.getByRole("button", { name: "Actions for Agent review" }).click();
   await page.getByRole("menuitem", { name: /^Archive/ }).click();
   await expect.poll(threadRows).not.toContain("Agent review");

@@ -1,5 +1,5 @@
 import { Icon } from "./Icon";
-import { PaletteHeader, PaletteHint, plural } from "./Palette";
+import { Matched, matchRanges, PaletteTitle, usePaletteFade } from "./Palette";
 import { focusPaletteInput } from "../data/palette-focus";
 import { useEffect, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
@@ -17,6 +17,7 @@ export function ThemePicker({ open, onOpenChange }: ThemePickerProps) {
   const { saved, persistenceError } = useTheme();
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const fade = usePaletteFade<HTMLDivElement>();
 
   useEffect(() => {
     if (!open) {
@@ -61,7 +62,7 @@ export function ThemePicker({ open, onOpenChange }: ThemePickerProps) {
             initialFocus={() => focusPaletteInput(inputRef.current)}
             {...stylex.props(ui.palette, ui.instant)}
           >
-            <PaletteHeader title="Theme" closeLabel="Close theme picker" />
+            <PaletteTitle>Theme</PaletteTitle>
             <Dialog.Description {...stylex.props(ui.srOnly)}>
               Preview with ↑ ↓. Press Enter to save. Escape restores your theme.
             </Dialog.Description>
@@ -76,11 +77,15 @@ export function ThemePicker({ open, onOpenChange }: ThemePickerProps) {
               />
             </div>
             <Combobox.Empty>
-              <div {...stylex.props(ui.paletteEmpty)}>No themes found.</div>
+              <p {...stylex.props(ui.paletteEmpty)}>No themes match “{query.trim()}”</p>
             </Combobox.Empty>
-            <Combobox.List {...stylex.props(ui.paletteList)} aria-label="Themes">
+            <Combobox.List ref={fade} {...stylex.props(ui.paletteList)} aria-label="Themes">
               {(group: (typeof themeGroups)[number]) => (
-                <Combobox.Group key={group.family} items={group.items}>
+                <Combobox.Group
+                  key={group.family}
+                  items={group.items}
+                  {...stylex.props(ui.paletteGroup)}
+                >
                   <Combobox.GroupLabel {...stylex.props(ui.label, ui.paletteSection)}>
                     {group.family}
                   </Combobox.GroupLabel>
@@ -93,39 +98,37 @@ export function ThemePicker({ open, onOpenChange }: ThemePickerProps) {
                         className={(state) =>
                           stylex.props(
                             ui.paletteRow,
-                            state.highlighted && [ui.menuHighlighted, picked],
+                            state.highlighted && [ui.paletteRowOn, picked],
                           ).className
                         }
                       >
-                        {/* The appearance, in place of the words light and dark. */}
+                        {/* The theme's canvas, with its accent in the lower right half. */}
                         <span
+                          aria-hidden="true"
                           data-appearance={theme.appearance}
-                          {...stylex.props(ui.paletteRowIcon)}
+                          {...stylex.props(styles.swatch(theme.palette.canvas))}
                         >
-                          <Icon name={theme.appearance === "light" ? "sun" : "moon"} size={14} />
+                          <span {...stylex.props(styles.accent(theme.palette.accent))} />
                         </span>
-                        <span {...stylex.props(ui.paletteRowText)}>{theme.label}</span>
-                        <span {...stylex.props(styles.swatches)} aria-hidden="true">
-                          {[
-                            theme.palette.canvas,
-                            theme.palette.accent,
-                            theme.palette.green,
-                            theme.palette.red,
-                          ].map((color, index) => (
-                            <span key={index} {...stylex.props(styles.swatch(color))} />
-                          ))}
+                        <span {...stylex.props(ui.paletteRowText)}>
+                          <Matched text={theme.label} ranges={matchRanges(theme.label, query)} />
                         </span>
-                        <span {...stylex.props(ui.paletteCheck)}>
-                          {saved.id === theme.id && (
-                            <span
-                              role="img"
-                              aria-label="Saved theme"
-                              {...stylex.props(styles.check)}
-                            >
-                              <Icon name="check" size={14} />
-                            </span>
-                          )}
+                        {/* Screen readers skip it where the name says it already. */}
+                        <span
+                          aria-hidden={/\b(light|dark)\b/i.test(theme.label) || undefined}
+                          {...stylex.props(ui.paletteAside)}
+                        >
+                          {theme.appearance === "light" ? "Light" : "Dark"}
                         </span>
+                        {saved.id === theme.id && (
+                          <span
+                            role="img"
+                            aria-label="Saved theme"
+                            {...stylex.props(ui.paletteCheck)}
+                          >
+                            <Icon name="check" />
+                          </span>
+                        )}
                       </Combobox.Item>
                     )}
                   </Combobox.Collection>
@@ -137,14 +140,6 @@ export function ThemePicker({ open, onOpenChange }: ThemePickerProps) {
                 {persistenceError}
               </p>
             )}
-            <div {...stylex.props(ui.paletteFooter)}>
-              <PaletteHint keys="↑ ↓">Preview</PaletteHint>
-              <PaletteHint keys="↵">Save</PaletteHint>
-              <PaletteHint keys="Esc">Restore</PaletteHint>
-              <span {...stylex.props(ui.paletteCount)}>
-                <ThemeCount />
-              </span>
-            </div>
           </Dialog.Popup>
         </Dialog.Portal>
       </Dialog.Root>
@@ -152,26 +147,24 @@ export function ThemePicker({ open, onOpenChange }: ThemePickerProps) {
   );
 }
 
-/** The themes that the search shows. */
-function ThemeCount() {
-  const groups = Combobox.useFilteredItems<(typeof themeGroups)[number]>();
-  return plural(
-    groups.reduce((count, group) => count + group.items.length, 0),
-    "theme",
-  );
-}
-
 const styles = stylex.create({
   // Nearly clear: the whole app previews the highlighted theme behind the list.
   backdrop: { backgroundColor: `color-mix(in srgb, ${tokens.panel} 16%, transparent)` },
-  swatches: { display: "flex", flexShrink: 0, gap: 3, alignItems: "center" },
-  swatch: (color: string) => ({
-    width: 8,
-    height: 14,
-    borderRadius: `calc(2px * ${tokens.round})`,
-    backgroundColor: color,
-    boxShadow: "inset 0 0 0 1px #80808030",
+  swatch: (canvas: string) => ({
+    position: "relative",
+    flexShrink: 0,
+    width: 16,
+    height: 16,
+    borderRadius: "50%",
+    overflow: "hidden",
+    backgroundColor: canvas,
+    boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${tokens.text} 16%, transparent)`,
   }),
-  check: { display: "inline-flex" },
+  accent: (color: string) => ({
+    position: "absolute",
+    inset: 0,
+    backgroundColor: color,
+    clipPath: "polygon(100% 0, 100% 100%, 0 100%)",
+  }),
   error: { color: tokens.warning },
 });
