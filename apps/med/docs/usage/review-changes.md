@@ -13,6 +13,9 @@
    and stays until you close it. A branch
    without a worktree opens its committed content.
 
+The diff ends with how many files changed, or, while a filter hides some, how
+many of them it shows ("3 of 12 changed files").
+
 To comment, drag the gutter **+** across lines, or select line numbers and
 press `c`. A comment shows its Markdown rendered, such as code and lists, and
 keeps your line breaks; `$HOME` and `$3` stay text, and only `$$` starts math.

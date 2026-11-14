@@ -1,0 +1,95 @@
+/* The end of Changes (StreamEnd.tsx) in the icon's colours: its dawn
+   (public/icons/icon-dawn.svg) in a light theme, its night in a dark one. The
+   reflection is 62% of the sun at dawn and half at night, as in the icon. */
+[data-stream-end] {
+  --med-stream-sky: #b1b1ddcc;
+  --med-stream-glow: #f3bf9acc;
+  --med-stream-sea: #93b5bccc;
+  --med-stream-horizon: #e6ac8699;
+  --med-stream-rim: #eaa77f;
+  --med-stream-halo: #f0b48c;
+  --med-stream-reflection: 0.62;
+}
+:root[data-appearance="dark"] [data-stream-end] {
+  --med-stream-sky: #2e2c4c;
+  --med-stream-glow: #5c4566;
+  --med-stream-sea: #1c3542;
+  --med-stream-horizon: #7c648799;
+  --med-stream-rim: transparent;
+  --med-stream-halo: #9c7b98;
+  --med-stream-reflection: 0.5;
+}
+
+/* The colours rise from the pane's bottom edge when the end is there, at the
+   end of a stream longer than the pane. A shorter stream ends higher up, and
+   there they thin out below as well, so that they never stop at a hard edge
+   in the middle of the pane. The end's own view timeline says which: 40px
+   above the pane's bottom edge, the floor is gone. Without scroll timelines,
+   the colours always thin out below. */
+@property --med-stream-floor {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+@supports (animation-timeline: view()) {
+  [data-stream-end] {
+    view-timeline: --med-stream-end block;
+    animation-name: med-stream-floor;
+    animation-duration: auto;
+    animation-timing-function: linear;
+    animation-fill-mode: both;
+    animation-timeline: --med-stream-end;
+    animation-range: contain 0% contain 40px;
+  }
+  /* As the reader scrolls to the end, the colours come up and the sun rises
+     from behind the horizon, from when the horizon shows (64px into the end)
+     to the end of the stream. The browser drives it from the scroll position,
+     with no script. With reduced motion, the end shows as it is when reached.
+     StyleX has no animation-range, so this is here. */
+  @media (prefers-reduced-motion: no-preference) {
+    [data-stream-end] [data-stream-dawn],
+    [data-stream-end] [data-stream-sun],
+    [data-stream-end] [data-stream-reflection] {
+      animation-duration: auto;
+      animation-timing-function: ease-out;
+      animation-fill-mode: both;
+      animation-timeline: --med-stream-end;
+      animation-range: entry 64px entry 100%;
+    }
+    [data-stream-end] [data-stream-dawn] {
+      animation-name: med-stream-dawn;
+      animation-range: entry 0% entry 100%;
+    }
+    [data-stream-end] [data-stream-sun] {
+      animation-name: med-stream-sun;
+    }
+    [data-stream-end] [data-stream-reflection] {
+      animation-name: med-stream-reflection;
+    }
+  }
+}
+@keyframes med-stream-floor {
+  from {
+    --med-stream-floor: 1;
+  }
+  to {
+    --med-stream-floor: 0;
+  }
+}
+@keyframes med-stream-dawn {
+  from {
+    opacity: 0.25;
+  }
+}
+/* In the icon's units: the sun starts just below the horizon. */
+@keyframes med-stream-sun {
+  from {
+    transform: translateY(17px);
+  }
+}
+@keyframes med-stream-reflection {
+  from {
+    transform: translateY(-4px);
+    opacity: 0;
+  }
+}

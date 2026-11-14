@@ -62,6 +62,7 @@ import {
   type ReviewPage,
 } from "./components/ReviewHeader";
 import { GeneratedGroup, type GeneratedRow } from "./components/GeneratedGroup";
+import { StreamEnd } from "./components/StreamEnd";
 import { generatedIndex, splitGenerated, useProvenance } from "./data/generated";
 import { DependencyCard } from "./components/DependencyCard";
 import {
@@ -5551,13 +5552,9 @@ export function App({
         <>
           {skipped.length > 0 && renderMetadataRows()}
           {generatedGroup}
-          {!skipped.length && (
-            <div {...stylex.props(styles.streamEnd)}>
-              <span {...stylex.props(styles.streamRule)} />
-              End of review · {files.length} {files.length === 1 ? "file" : "files"}
-              <span {...stylex.props(styles.streamRule)} />
-            </div>
-          )}
+          {/* The same end for a saved review, a branch, working changes, a
+              commit, or a range, so it names none of them. */}
+          <StreamEnd shown={files.length} total={state.files.length} />
         </>
       ),
     [
@@ -5566,6 +5563,7 @@ export function App({
       renderMetadataRows,
       generatedGroup,
       files.length,
+      state.files.length,
       nextGuideLabel,
       stepGuide,
       openGuide,
@@ -7577,17 +7575,6 @@ const styles = stylex.create({
     borderBottomStyle: "solid",
     borderBottomColor: tokens.line,
   },
-  streamEnd: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    paddingBlock: 28,
-    paddingInline: 24,
-    color: tokens.faint,
-    fontSize: 11.5,
-    whiteSpace: "nowrap",
-  },
-  streamRule: { flex: "1", height: 1, backgroundColor: tokens.line },
   emptyState: {
     display: "flex",
     flexDirection: "column",

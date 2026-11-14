@@ -2587,6 +2587,59 @@ describe("graphical review", () => {
     ).toBe("assets/model.bin");
   });
 
+  test("ends the stream with its count of changed files, in every comparison", async () => {
+    // A metadata-only file comes last in the stream, and the end still follows it.
+    const { controller } = await mountApp({ metadataFile: true, branches: true });
+    const end = () =>
+      [...document.querySelectorAll("[data-stream-end]")].find(
+        (node) => node.getClientRects().length,
+      )?.textContent;
+    await expect.poll(end).toBe("3 changed files");
+    expect(
+      document
+        .querySelector("[data-stream-end]")
+        ?.compareDocumentPosition(
+          document.querySelector('[data-metadata-file="assets/model.bin"]')!,
+        ),
+    ).toBe(Node.DOCUMENT_POSITION_PRECEDING);
+    // Branch changes, staged and unstaged changes, a commit, and a range end
+    // the same way: none of them is a review.
+    for (const comparison of [
+      { kind: "working", base: "main" },
+      { kind: "staged" },
+      { kind: "unstaged" },
+      { kind: "commit", commit: secondCommit },
+      { kind: "range", base: secondCommit, head: firstCommit },
+    ] satisfies Comparison[]) {
+      await controller.selectComparison(comparison);
+      await expect.poll(() => controller.getSnapshot().comparison).toEqual(comparison);
+      await expect.poll(end).toBe("3 changed files");
+    }
+    // A filter that hides files says how many the stream shows.
+    controller.setFilter("alpha");
+    await expect.poll(end).toBe("1 of 3 changed files");
+    controller.setFilter("");
+    await expect.poll(end).toBe("3 changed files");
+  });
+
+  test("ends a saved review's stream, and a one-file change, with the same words", async () => {
+    await mountApp({ savedReview: true });
+    const end = () =>
+      [...document.querySelectorAll("[data-stream-end]")].find(
+        (node) => node.getClientRects().length,
+      )?.textContent;
+    await expect.poll(end).toBe("2 changed files");
+    root?.unmount();
+    mount?.remove();
+    await mountApp({
+      review: {
+        paths: ["src/alpha.ts"],
+        patch: patch.slice(0, patch.indexOf("diff --git a/src/beta.ts")),
+      },
+    });
+    await expect.poll(end).toBe("1 changed file");
+  });
+
   test("edits a stale note outside current hunks and preserves an orphaned note", async () => {
     const { controller } = await mountApp({
       notes: [
