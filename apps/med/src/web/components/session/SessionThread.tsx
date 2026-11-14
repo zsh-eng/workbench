@@ -1733,19 +1733,24 @@ export function SessionThread({
   }, [handled]);
 
   // A message that the reader sends from Med brings the view to the end, and
-  // the view follows again.
+  // the view follows again. It can come before the reply that streams now.
+  const [sending] = useState(() => new Set<string>());
   useLayoutEffect(() => {
-    if (
-      all.some(
-        (unit) =>
-          appended.has(unit.key) &&
-          "item" in unit &&
-          unit.item.kind === "user" &&
-          unit.item.sent?.delivery === "sending",
-      )
-    )
-      list.current?.toEnd(false);
-  }, [all, appended]);
+    let sent = false;
+    for (let at = all.length - 1; at >= 0; at--) {
+      const unit = all[at]!;
+      if (!("item" in unit)) break;
+      // Messages that wait end the thread, before the streaming reply.
+      if (unit.item.kind !== "user") {
+        if (unit.item.kind === "agent") continue;
+        break;
+      }
+      if (unit.item.sent?.delivery !== "sending" || sending.has(unit.item.id)) continue;
+      sending.add(unit.item.id);
+      sent = true;
+    }
+    if (sent) list.current?.toEnd(false);
+  }, [all, sending]);
 
   // After a render: units that rendered take their own heights; then the
   // view keeps its place, the range follows the view, and the view loads

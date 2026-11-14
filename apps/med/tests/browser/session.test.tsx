@@ -1366,15 +1366,19 @@ test("while a reply streams in, the reader's move up holds the view until the re
   await page.viewport(1280, 900);
   initializeTheme();
   const store = longThread(40);
+  // As in SessionPanel: the messages that the reader sent, then the reply
+  // that streams now, until the transcript has it.
   let sent: SentMessage | undefined;
+  let text = "";
   const render = () => {
     const snapshot = store.getSnapshot();
+    const items = sent ? withSentMessages(snapshot.items, [sent]) : snapshot.items;
     root!.render(
       <SessionThread
         snapshot={{
           ...snapshot,
           running: true,
-          items: sent ? withSentMessages(snapshot.items, [sent]) : snapshot.items,
+          items: text ? [...items, { kind: "agent", id: "streaming-1", at: 50_000, text }] : items,
         }}
       />,
     );
@@ -1384,16 +1388,7 @@ test("while a reply streams in, the reader's move up holds the view until the re
   const scroller = threadScroller();
   await expect.poll(() => gapOf(scroller)).toBeLessThan(32);
   const reply = streamReply((count) => {
-    store.applyAll([
-      {
-        at: 50_000 + count,
-        update: {
-          sessionUpdate: "agent_message_chunk" as const,
-          messageId: "live",
-          content: { type: "text" as const, text: word(count) },
-        },
-      },
-    ]);
+    text += word(count);
     render();
   });
   const latest = page.getByRole("button", { name: "Latest" });
@@ -1426,7 +1421,19 @@ test("while a reply streams in, the reader's move up holds the view until the re
       await back();
     }
 
-    // A drag of the scroll bar: a press on it, then a few pixels up.
+    // A touch that drags the content down.
+    const finger = (y: number) => [
+      new Touch({ identifier: 1, target: scroller, clientX: 200, clientY: y }),
+    ];
+    scroller.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, touches: finger(300) }));
+    scroller.dispatchEvent(new TouchEvent("touchmove", { bubbles: true, touches: finger(306) }));
+    scroller.scrollTop -= 6;
+    await held();
+    scroller.dispatchEvent(new TouchEvent("touchend", { bubbles: true, touches: [] }));
+    await back();
+
+    // A drag of the scroll bar: a press on it, then a few pixels up. Headless
+    // Chromium hides scroll bars, so the press and the move are the page's.
     const box = scroller.getBoundingClientRect();
     const at = { bubbles: true, clientX: box.right - 3, clientY: box.bottom - 40 };
     scroller.dispatchEvent(new PointerEvent("pointerdown", at));
@@ -1437,7 +1444,7 @@ test("while a reply streams in, the reader's move up holds the view until the re
     await back();
 
     // A selection that the reader drags in the reply.
-    const live = document.querySelector<HTMLElement>('[data-unit="live"]')!;
+    const live = document.querySelector<HTMLElement>('[data-unit="streaming-1"]')!;
     const press = live.getBoundingClientRect();
     live.dispatchEvent(
       new PointerEvent("pointerdown", {
@@ -1452,11 +1459,17 @@ test("while a reply streams in, the reader's move up holds the view until the re
     getSelection()!.removeAllRanges();
     await held();
 
-    // Back at the end, the view follows again.
+    // Back at the end, by End or by the wheel, the view follows again.
+    scroller.focus({ preventScroll: true });
+    await userEvent.keyboard("{End}");
+    await following();
+    await userEvent.wheel(scroller, { delta: { y: -600 } });
+    await held();
     await userEvent.wheel(scroller, { delta: { y: 100_000 } });
     await following();
 
-    // A message that the reader sends brings the view to the end, and it follows.
+    // A message that the reader sends brings the view to the end, and it
+    // follows. The message comes before the reply that streams.
     await userEvent.wheel(scroller, { delta: { y: -600 } });
     await held();
     sent = {
@@ -1470,7 +1483,6 @@ test("while a reply streams in, the reader's move up holds the view until the re
       delivery: "sending",
     };
     await following();
-    await expect.element(page.getByText("Also check the import.")).toBeVisible();
   } finally {
     await reply.stop();
   }

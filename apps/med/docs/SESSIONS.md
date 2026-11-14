@@ -395,7 +395,9 @@ those messages as another session's, not as the user's.
   an input, such as the browser's clamp when the thread gets shorter, does not
   let go. The view follows again only when the reader moves down to the end
   (within 32 px of it), clicks **Latest**, or sends a message from Med; a view
-  that rests a few pixels above the end stays there. A wheel or a key that
+  that rests a few pixels above the end stays there. A view that the thread
+  lets go itself, as when a turn's work opens, follows again whenever it is
+  at the end. A wheel or a key that
   goes to the end or past it follows at the input: the browser scrolls a
   wheel before it sends the event, and stops at the end as it was, which
   streamed text has moved on. The subagent view follows its thread by the

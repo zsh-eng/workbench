@@ -30,7 +30,8 @@ export function atEnd(node: HTMLElement) {
 
 /** How far a key scrolls a focused view down, and up as a negative distance. */
 function keyDistance(event: KeyboardEvent, node: HTMLElement) {
-  const page = node.clientHeight;
+  // Chrome pages by 87.5% of the view.
+  const page = node.clientHeight * 0.875;
   // ⌘↑ and ⌘↓ go to the start and the end on a Mac.
   if (event.key === "ArrowDown") return event.metaKey ? Infinity : LINE;
   if (event.key === "ArrowUp") return event.metaKey ? -Infinity : -LINE;
@@ -38,9 +39,11 @@ function keyDistance(event: KeyboardEvent, node: HTMLElement) {
   if (event.key === "PageUp") return -page;
   if (event.key === "End") return Infinity;
   if (event.key === "Home") return -Infinity;
+  if (event.key !== " ") return 0;
   // Space on a button in the view presses it.
-  if (event.key === " " && event.target === node) return event.shiftKey ? -page : page;
-  return 0;
+  const target = event.target instanceof Element ? event.target : null;
+  const control = target?.closest("button, summary, [role=button]");
+  return control && node.contains(control) ? 0 : event.shiftKey ? -page : page;
 }
 
 /**
@@ -48,7 +51,8 @@ function keyDistance(event: KeyboardEvent, node: HTMLElement) {
  * `changed` runs when an input lets go or follows, before the view moves.
  * The caller calls `check` on scroll and before it follows, and `wrote`
  * after each move that it makes itself, so the next check does not take it
- * for the reader's.
+ * for the reader's. The caller can let go itself, as for a row that opens:
+ * that view follows again whenever it is at the end.
  */
 export function followEnd(node: HTMLElement, stuck: { current: boolean }, changed = () => {}) {
   let top = node.scrollTop;
@@ -56,21 +60,26 @@ export function followEnd(node: HTMLElement, stuck: { current: boolean }, change
   // whether a pointer is down in the view.
   let up = Number.NEGATIVE_INFINITY;
   let pressed = false;
+  // The reader let go: only a move to the end follows again.
+  let away = false;
   let touch: number | undefined;
   // The reader moves the view by this distance, up when it is negative.
   const move = (distance: number) => {
-    let follows = stuck.current;
-    // Up lets go, unless the view is at its top.
+    const was = stuck.current;
     if (distance < 0) {
       up = performance.now();
-      if (node.scrollTop > 0) follows = false;
+      // Up lets go, unless the view is at its top.
+      if (node.scrollTop > 0) {
+        stuck.current = false;
+        away = true;
+      }
     }
     // Down to the end, or past it, follows.
-    else if (node.scrollHeight - node.scrollTop - node.clientHeight - distance < END)
-      follows = true;
-    if (follows === stuck.current) return;
-    stuck.current = follows;
-    changed();
+    else if (node.scrollHeight - node.scrollTop - node.clientHeight - distance < END) {
+      stuck.current = true;
+      away = false;
+    }
+    if (stuck.current !== was) changed();
   };
   const onWheel = (event: WheelEvent) => {
     // A pinch is a wheel with Control, and a wheel across a wide block scrolls it.
@@ -114,12 +123,16 @@ export function followEnd(node: HTMLElement, stuck: { current: boolean }, change
       if (distance) move(distance);
     } else if (distance < 0) up = performance.now();
   };
-  const onPress = () => {
-    pressed = true;
+  // The primary button: a menu that opens on another one takes its release.
+  const onPress = (event: PointerEvent) => {
+    if (event.button === 0) pressed = true;
   };
   // The last scroll of a drag in the view can come after its pointer's release.
   const onRelease = () => {
     if (pressed) up = performance.now();
+    pressed = false;
+  };
+  const onLost = () => {
     pressed = false;
   };
   // A selection that the reader drags in the view: the text holds still under it.
@@ -135,6 +148,8 @@ export function followEnd(node: HTMLElement, stuck: { current: boolean }, change
   node.addEventListener("pointerdown", onPress);
   doc.addEventListener("pointerup", onRelease);
   doc.addEventListener("pointercancel", onRelease);
+  doc.addEventListener("contextmenu", onLost);
+  doc.defaultView?.addEventListener("blur", onLost);
   doc.addEventListener("keydown", onKey);
   doc.addEventListener("selectionchange", onSelect);
   return {
@@ -144,11 +159,19 @@ export function followEnd(node: HTMLElement, stuck: { current: boolean }, change
       if (!node.clientHeight) return;
       const y = node.scrollTop;
       const gap = node.scrollHeight - y - node.clientHeight;
-      if (y + 1 < top) {
-        // The browser's clamp, as the thread gets shorter, leaves the view at its very end.
-        if (gap >= 1 && (pressed || performance.now() - up < RECENT)) stuck.current = false;
-        else if (gap < END) stuck.current = true;
-      } else if (y > top + 1 && gap < END) stuck.current = true;
+      if (stuck.current) away = false;
+      // The reader's move up lets go. The browser's clamp, as the thread gets
+      // shorter, leaves the view at its very end, and does not.
+      if (y + 1 < top && gap >= 1 && (pressed || performance.now() - up < RECENT)) {
+        stuck.current = false;
+        away = true;
+      }
+      // A move to the end follows again, and so does a view at the end that
+      // the reader did not take away.
+      else if (gap < END && (Math.abs(y - top) > 1 || !away)) {
+        stuck.current = true;
+        away = false;
+      }
       top = y;
     },
     /** The view moved itself. */
@@ -162,6 +185,8 @@ export function followEnd(node: HTMLElement, stuck: { current: boolean }, change
       node.removeEventListener("pointerdown", onPress);
       doc.removeEventListener("pointerup", onRelease);
       doc.removeEventListener("pointercancel", onRelease);
+      doc.removeEventListener("contextmenu", onLost);
+      doc.defaultView?.removeEventListener("blur", onLost);
       doc.removeEventListener("keydown", onKey);
       doc.removeEventListener("selectionchange", onSelect);
     },
