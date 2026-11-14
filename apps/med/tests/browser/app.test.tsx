@@ -1670,7 +1670,10 @@ describe("graphical review", () => {
 
     const reading = page.getByRole("region", { name: "Markdown preview" });
     await expect.element(reading.getByRole("heading", { name: "Plan" })).toBeVisible();
-    await expect.element(page.getByText("notes · Projects/Plan.md", { exact: true })).toBeVisible();
+    // The page has no bar; its tab names the note and its vault.
+    await expect
+      .element(page.getByRole("tab", { name: /Plan\.md/ }))
+      .toHaveAttribute("title", "Projects/Plan.md · notes");
     await reading.getByRole("link", { name: "Target" }).click();
     await expect.element(page.getByRole("tab", { name: /Target.md/ })).toBeVisible();
     await expect.element(reading.getByRole("heading", { name: "Target" })).toBeVisible();
@@ -1708,7 +1711,10 @@ describe("graphical review", () => {
     await userEvent.keyboard("{Enter}");
     const reading = page.getByRole("region", { name: "Markdown preview" });
     await expect.element(reading.getByRole("heading", { name: "Plan" })).toBeVisible();
-    await expect.element(page.getByText("notes · Projects/Plan.md", { exact: true })).toBeVisible();
+    // The page has no bar; its tab names the note and its vault.
+    await expect
+      .element(page.getByRole("tab", { name: /Plan\.md/ }))
+      .toHaveAttribute("title", "Projects/Plan.md · notes");
 
     // The chip under the field scopes the search to the vault.
     open();
