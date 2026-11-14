@@ -118,12 +118,16 @@ export class FileSymbolService {
       try {
         const path = join(directory, basename(input.path));
         await writeFile(path, file.text, { mode: 0o600 });
-        const language = await runProcess(tool.path, ["--options=NONE", "--print-language", path], {
-          cwd: directory,
-          signal,
-          timeoutMs: 5000,
-          maxBytes: 8192,
-        });
+        const language = await runProcess(
+          tool.path,
+          ["--options=NONE", TSX, "--print-language", path],
+          {
+            cwd: directory,
+            signal,
+            timeoutMs: 5000,
+            maxBytes: 8192,
+          },
+        );
         if (/NONE\s*$/.test(language.stdout.toString("utf8")))
           result = {
             matches: [],
@@ -135,6 +139,7 @@ export class FileSymbolService {
             tool.path,
             [
               "--options=NONE",
+              TSX,
               "--output-format=json",
               "--fields=+nKZ",
               "--sort=no",
@@ -167,6 +172,9 @@ export class FileSymbolService {
 /** Languages whose tags are data, not declarations: one large JSON file can
  * give hundreds of thousands of keys. */
 const DATA_LANGUAGES = "-JSON,-SVG,-XML,-PlistXML";
+/** Universal Ctags maps .jsx to JavaScript, but no language to .tsx, which
+ * its TypeScript parser reads. */
+const TSX = "--map-TypeScript=+.tsx";
 /** Larger files are generated or data, and slow to parse. */
 const MAX_TAGGED_BYTES = 1024 * 1024;
 /** A line of more bytes than this is minified code or data; the file view
@@ -346,6 +354,7 @@ export class WorkingTreeSymbols {
       tool.path,
       [
         "--options=NONE",
+        TSX,
         `--languages=${DATA_LANGUAGES}`,
         "--output-format=json",
         // Not the pattern: the source line, which no search reads.

@@ -147,7 +147,8 @@ change, so the results follow each key in about 30 ms
 or a branch switch, the next search parses only the files that changed. A commit, and a checkout of more than 20,000 files, use
 [Zoekt](#search-file-contents). Languages follow the installed Ctags parsers;
 Ctags 6.2.1, for example, has no Zig parser, but text search still works for
-Zig.
+Zig. Med reads `.tsx` files with Ctags' TypeScript parser, which has no
+mapping for them of its own.
 
 Vim navigation is on by default; the command palette turns it off for this
 browser address. Files take focus when they open, in Normal mode:

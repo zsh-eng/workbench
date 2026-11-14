@@ -86,6 +86,16 @@ test.skipIf(!tool)(
     );
     await writeFile(join(repo, "binary.ts"), Buffer.from([0, 1, 2]));
     expect((await service.search({ source, query: "", path: "binary.ts" })).matches).toEqual([]);
+    // A .tsx file reads as TypeScript, its markup and all.
+    await writeFile(
+      join(repo, "view.tsx"),
+      'export function Panel() {\n  return <div className="x">{1}</div>;\n}\n',
+    );
+    expect(
+      (await service.search({ source, query: "", path: "view.tsx" })).matches.map(
+        (match) => `${match.name} ${match.kind}`,
+      ),
+    ).toEqual(["Panel function"]);
   },
 );
 
@@ -118,6 +128,7 @@ test.skipIf(!tool)(
     git("add", ".");
     git("commit", "-qm", "test");
     await writeFile(join(repo, "b.ts"), "export class UntrackedCounter {}\n");
+    await writeFile(join(repo, "c.tsx"), "export function CounterView() {\n  return <b />;\n}\n");
     await writeFile(join(repo, "ignored.ts"), "export function ignoredName() {}\n");
     await writeFile(join(outside, "secret.ts"), "export function outsideName() {}\n");
     await symlink(join(outside, "secret.ts"), join(repo, "link.ts"));
@@ -126,7 +137,10 @@ test.skipIf(!tool)(
       (await service.search(repo, query))!.matches.map((match) => `${match.name} ${match.path}`);
     const first = await service.search(repo, "Counter");
     expect(first?.resultSource).toEqual({ kind: "worktree", repo });
-    expect(first?.matches.map((match) => match.name)).toEqual(["UntrackedCounter"]);
+    expect(first?.matches.map((match) => match.name).toSorted()).toEqual([
+      "CounterView",
+      "UntrackedCounter",
+    ]);
     expect(await names("committed")).toEqual(["committedName a.ts"]);
     // Ignored files, data files, and links are not parsed.
     expect(await names("ignored")).toEqual([]);
@@ -137,7 +151,7 @@ test.skipIf(!tool)(
     await rm(join(repo, "b.ts"));
     expect(await names("committed")).toEqual([]);
     expect(await names("renamed")).toEqual(["renamedFunction a.ts"]);
-    expect(await names("Counter")).toEqual([]);
+    expect(await names("Counter")).toEqual(["CounterView c.tsx"]);
     // Names on a line of more than 20,000 bytes, as in minified code, are
     // left out; the file's other lines keep theirs.
     const minified = `function minifiedName(){}var x=${JSON.stringify("x".repeat(20_000))};`;
