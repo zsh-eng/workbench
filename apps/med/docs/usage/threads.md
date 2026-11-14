@@ -132,10 +132,16 @@ does not load them or read their agents until you open one again.
     click switches between the two; the tooltip names the other, with its
     branch.
   - **Model**: the agent's mark and its model. Its **Agent** submenu chooses
-    another agent, when Med has more than one.
-  - **Effort**, such as **High effort**, while the model has efforts. Claude
+    another agent, when Med has more than one. The model that Claude Code
+    recommends shows **Recommended**.
+  - **Effort**, such as **High effort**, while the model has efforts. Its
+    menu starts with one line on what more effort trades. Claude
     Code starts on Opus 5.5 at medium effort and Codex on `gpt-6-astra`; Med
     keeps your last choice for each agent.
+
+  **Model** and **Effort** sit at the line's end, so their menus open from
+  the trigger's right edge; **Repository**'s opens from its left edge. A
+  chosen item's check is at its row's end.
 
   A choice with only two options, here or anywhere in Med, such as the pull
   requests page's **Where to look**, switches on a click. A menu opens only
@@ -430,7 +436,8 @@ Antigravity (`agy`) is off unless the server starts with `MED_AGY=1`
 lines from `med skills instructions` to your CLAUDE.md or AGENTS.md. The agent
 gets your messages from Med as new turns. The message box has `/` commands
 and **Stop** (or `Esc`); the model, effort, and mode pickers are under it, with
-the context and spend, as in Claude Desktop. Model and effort
+the context and spend, as in Claude Desktop. Their menus open from the
+pickers' right edge, as on the new thread page. Model and effort
 change while the agent works too, from its next step; Claude Code's max
 effort, or its default, waits for the turn to end. A tool call that
 needs an answer shows **Allow** and **Deny**. While the agent works, **Send now**

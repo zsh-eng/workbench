@@ -25,6 +25,8 @@ export interface Choice {
   value: string;
   label: string;
   description?: string;
+  /** A short mark after the label, such as the agent's Recommended. */
+  badge?: string;
 }
 export interface MenuAction {
   label: string;
@@ -39,6 +41,8 @@ export interface MenuAction {
   letter?: string;
   /** The item's tooltip, such as why it is disabled. */
   hint?: string;
+  /** A short mark after the label, such as the agent's Recommended. */
+  badge?: string;
   onClick(): void;
 }
 /** Items that open beside their item, such as a menu's view options, in
@@ -75,6 +79,8 @@ export function ChoiceSelect({
   actions = [],
   triggerRef,
   display,
+  align = "start",
+  note,
 }: {
   value: string;
   choices: Choice[];
@@ -91,7 +97,13 @@ export function ChoiceSelect({
   triggerRef?: Ref<HTMLButtonElement>;
   /** The trigger's text in place of the choice's label, such as a short one. */
   display?: string;
+  /** The trigger's edge that the menu lines up with: "end" for a control at
+   * the end of its row, so that the menu opens back over the row. */
+  align?: "start" | "end";
+  /** A short sentence at the menu's top, such as what the choice trades. */
+  note?: string;
 }) {
+  const noteId = useId();
   // Two choices need no menu: a click switches to the other.
   if (choices.length === 2 && !actions.length)
     return (
@@ -137,12 +149,19 @@ export function ChoiceSelect({
       <Select.Portal>
         <Select.Positioner
           sideOffset={6}
-          align="start"
+          align={align}
           alignItemWithTrigger={false}
           {...stylex.props(styles.positioner)}
         >
           <Select.Popup {...stylex.props(ui.popup, ui.pop)}>
-            <Select.List>
+            {note && (
+              <p id={noteId} {...stylex.props(styles.note)}>
+                {note}
+              </p>
+            )}
+            <Select.List aria-describedby={note ? noteId : undefined}>
+              {/* The check sits at the row's end, where the eye lands after
+                  the label, and the labels keep one left edge. */}
               {choices.map((choice) => (
                 <Select.Item
                   key={choice.value}
@@ -156,18 +175,19 @@ export function ChoiceSelect({
                     ).className
                   }
                 >
-                  <span {...stylex.props(styles.check)}>
-                    <Select.ItemIndicator {...stylex.props(styles.indicator)}>
-                      <Icon name="check" size={14} />
-                    </Select.ItemIndicator>
-                  </span>
                   <span {...stylex.props(styles.choiceText)}>
-                    <Select.ItemText {...stylex.props(styles.choiceLabel)}>
-                      {choice.label}
-                    </Select.ItemText>
+                    <span {...stylex.props(ui.row)}>
+                      <Select.ItemText>{choice.label}</Select.ItemText>
+                      {choice.badge && <span {...stylex.props(styles.badge)}>{choice.badge}</span>}
+                    </span>
                     {choice.description && (
                       <span {...stylex.props(styles.choiceDescription)}>{choice.description}</span>
                     )}
+                  </span>
+                  <span data-check="" {...stylex.props(styles.check)}>
+                    <Select.ItemIndicator {...stylex.props(styles.indicator)}>
+                      <Icon name="check" size={14} />
+                    </Select.ItemIndicator>
                   </span>
                 </Select.Item>
               ))}
@@ -187,13 +207,13 @@ export function ChoiceSelect({
                     ).className
                   }
                 >
-                  <span {...stylex.props(styles.check)}>
-                    {action.checked && <Icon name="check" size={14} />}
-                  </span>
-                  <Select.ItemText {...stylex.props(styles.choiceLabel)}>
+                  <Select.ItemText {...stylex.props(styles.choiceText)}>
                     {action.label}
                   </Select.ItemText>
                   {action.hint && <span {...stylex.props(styles.actionHint)}>{action.hint}</span>}
+                  <span data-check="" {...stylex.props(styles.check)}>
+                    {action.checked && <Icon name="check" size={14} />}
+                  </span>
                 </Select.Item>
               ))}
             </Select.List>
@@ -264,6 +284,7 @@ export function ActionMenu({
   trigger,
   align = "end",
   layer,
+  note,
 }: {
   children?: ReactNode;
   label?: string;
@@ -274,8 +295,11 @@ export function ActionMenu({
   align?: "start" | "end";
   /** "dialog": the menu opens over a dialog, as from its header. */
   layer?: "dialog";
+  /** A short sentence at the menu's top, such as what the choice trades. */
+  note?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const noteId = useId();
   // While the menu is open, a letter chooses its item as a click does, also
   // in a submenu; a toggle keeps the menu open. The key goes to the menu
   // wherever focus is, as focus moves into the menu a moment after it opens.
@@ -313,7 +337,15 @@ export function ActionMenu({
           sideOffset={6}
           {...stylex.props(styles.positioner, layer === "dialog" && styles.overDialog)}
         >
-          <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.menu)}>
+          <Menu.Popup
+            aria-describedby={note ? noteId : undefined}
+            {...stylex.props(ui.popup, ui.pop, styles.menu)}
+          >
+            {note && (
+              <p id={noteId} {...stylex.props(styles.note)}>
+                {note}
+              </p>
+            )}
             <MenuSections sections={sections} />
           </Menu.Popup>
         </Menu.Positioner>
@@ -343,7 +375,8 @@ export const QuietMenuRoot = memo(
 export const lookOf = (node: ReactNode) =>
   isValidElement(node) ? JSON.stringify(node.props) : String(node ?? "");
 
-/** A menu's groups of items, with a check column when any item toggles. */
+/** A menu's groups of items. When any item toggles, each row keeps a column
+ * at its end for the check, so that shortcuts and checks line up. */
 function MenuSections({ sections }: { sections: MenuEntry[][] }) {
   const toggles = sections.some((section) =>
     section.some((action) => !("sections" in action) && action.checked !== undefined),
@@ -351,7 +384,11 @@ function MenuSections({ sections }: { sections: MenuEntry[][] }) {
   const className = (state: { highlighted: boolean }) =>
     stylex.props(ui.menuItem, state.highlighted && [ui.menuHighlighted, picked]).className;
   const check = (indicator: ReactNode) =>
-    toggles && <span {...stylex.props(styles.check)}>{indicator}</span>;
+    toggles && (
+      <span data-check="" {...stylex.props(styles.check)}>
+        {indicator}
+      </span>
+    );
   return sections
     .filter((section) => section.length)
     .map((section, index) => (
@@ -363,11 +400,8 @@ function MenuSections({ sections }: { sections: MenuEntry[][] }) {
               return (
                 <Menu.SubmenuRoot key={action.label}>
                   <Menu.SubmenuTrigger className={className}>
-                    <span {...stylex.props(ui.row, styles.submenuLabel)}>
-                      {check(null)}
-                      <span {...stylex.props(styles.ellipsis)}>{action.label}</span>
-                    </span>
-                    <span {...stylex.props(styles.submenuArrow)}>
+                    <span {...stylex.props(styles.ellipsis)}>{action.label}</span>
+                    <span {...stylex.props(styles.check, styles.submenuArrow)}>
                       <Icon name="chevron" size={12} />
                     </span>
                   </Menu.SubmenuTrigger>
@@ -383,6 +417,11 @@ function MenuSections({ sections }: { sections: MenuEntry[][] }) {
             const content = (
               <>
                 <span {...stylex.props(ui.row)}>
+                  <Lettered label={action.label} letter={action.letter} />
+                  {action.badge && <span {...stylex.props(styles.badge)}>{action.badge}</span>}
+                </span>
+                <span {...stylex.props(ui.row, styles.trailing)}>
+                  <ShortcutKeys value={action.shortcut} />
                   {check(
                     action.checked !== undefined && (
                       <Menu.CheckboxItemIndicator {...stylex.props(styles.indicator)}>
@@ -390,9 +429,7 @@ function MenuSections({ sections }: { sections: MenuEntry[][] }) {
                       </Menu.CheckboxItemIndicator>
                     ),
                   )}
-                  <Lettered label={action.label} letter={action.letter} />
                 </span>
-                <ShortcutKeys value={action.shortcut} />
               </>
             );
             if (action.checked === undefined)
@@ -741,10 +778,41 @@ const styles = stylex.create({
   positioner: { zIndex: 100, outline: "none" },
   // Above the dialogs' popups (111).
   overDialog: { zIndex: 120 },
-  check: { display: "inline-flex", flexShrink: 0, width: 14, color: tokens.accent },
+  // A row's last column: its check, or a submenu's arrow.
+  check: {
+    display: "inline-flex",
+    justifyContent: "center",
+    flexShrink: 0,
+    width: 14,
+    color: tokens.accent,
+  },
   indicator: { display: "inline-flex", color: tokens.accent },
-  submenuArrow: { display: "inline-flex", transform: "rotate(-90deg)", color: tokens.faint },
-  submenuLabel: { minWidth: 0 },
+  submenuArrow: { transform: "rotate(-90deg)", color: tokens.faint },
+  // A row's shortcut, then its check.
+  trailing: { gap: 12, flexShrink: 0 },
+  // As Claude Code marks its default model: quiet, and outlined so that it
+  // reads as a mark and not as a control.
+  badge: {
+    flexShrink: 0,
+    paddingInline: 5,
+    borderRadius: `calc(4px * ${tokens.round})`,
+    boxShadow: `inset 0 0 0 1px ${tokens.lineStrong}`,
+    color: tokens.muted,
+    fontSize: 10.5,
+    fontWeight: 450,
+    lineHeight: "16px",
+  },
+  // A sentence above the items; it wraps rather than widening the menu much.
+  note: {
+    maxWidth: 236,
+    marginBlock: 0,
+    paddingInline: 10,
+    paddingTop: 6,
+    paddingBottom: 8,
+    color: tokens.muted,
+    fontSize: 11.5,
+    lineHeight: 1.45,
+  },
   ellipsis: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   letter: {
     textDecorationLine: "underline",
@@ -752,15 +820,12 @@ const styles = stylex.create({
     textUnderlineOffset: 2.5,
   },
   menu: { minWidth: 220 },
-  choice: { justifyContent: "flex-start", gap: 8, minWidth: 220 },
-  describedChoice: { alignItems: "flex-start", paddingBlock: 6 },
-  choiceText: { display: "flex", flexDirection: "column", gap: 2, minWidth: 0 },
-  choiceLabel: { fontSize: 12.5 },
-  choiceDescription: { color: tokens.faint, fontSize: 11, lineHeight: 1.35 },
-  // What an action changes now, such as the base branch, at the right.
+  choice: { justifyContent: "flex-start", gap: 16, minWidth: 220 },
+  describedChoice: { paddingBlock: 8 },
+  choiceText: { flex: "1", display: "flex", flexDirection: "column", gap: 3, minWidth: 0 },
+  choiceDescription: { color: tokens.faint, fontSize: 11.5, lineHeight: 1.35 },
+  // What an action changes now, such as the base branch, before the check.
   actionHint: {
-    marginInlineStart: "auto",
-    paddingInlineStart: 16,
     maxWidth: 180,
     overflow: "hidden",
     textOverflow: "ellipsis",

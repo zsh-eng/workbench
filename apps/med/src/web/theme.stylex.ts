@@ -179,8 +179,9 @@ export const ui = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.lineStrong,
-    borderRadius: `calc(10px * ${tokens.round})`,
-    padding: 4,
+    // Rows sit 6 px in, so the popup's corner and a row's stay concentric.
+    borderRadius: `calc(12px * ${tokens.round})`,
+    padding: 6,
     boxShadow: tokens.shadow,
     color: tokens.text,
     fontFamily: tokens.ui,
@@ -193,8 +194,9 @@ export const ui = stylex.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 24,
-    minHeight: 28,
-    paddingInline: 8,
+    // Roomy rows, as in Claude's apps: easier to aim at, calmer to read.
+    minHeight: 32,
+    paddingInline: 10,
     borderRadius: `calc(6px * ${tokens.round})`,
     cursor: "default",
     outline: "none",
@@ -204,7 +206,7 @@ export const ui = stylex.create({
       ":is([data-disabled])": "transparent",
     },
     color: { default: tokens.text, ":is([data-disabled])": tokens.faint },
-    fontSize: 12,
+    fontSize: 12.5,
   },
   // With `picked` on the same element, so the row's secondary text follows.
   menuHighlighted: { backgroundColor: tokens.pick, color: tokens.selectedText },
@@ -272,7 +274,14 @@ export const ui = stylex.create({
     letterSpacing: tokens.labelTracking,
     textTransform: tokens.labelCase,
   },
-  separator: { height: 1, backgroundColor: tokens.line, borderWidth: 0, marginBlock: 4 },
+  // A menu's rule, inset a little from the popup's edges.
+  separator: {
+    height: 1,
+    backgroundColor: tokens.line,
+    borderWidth: 0,
+    marginBlock: 6,
+    marginInline: 4,
+  },
   muted: { color: tokens.muted },
   faint: { color: tokens.faint },
   mono: { fontFamily: tokens.code, fontSize: 11, fontVariantNumeric: "tabular-nums" },

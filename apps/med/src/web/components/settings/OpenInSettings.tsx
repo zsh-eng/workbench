@@ -89,6 +89,7 @@ export function OpenInSettings() {
             <Row key={entry.host} label={entry.host} note={note}>
               <ChoiceSelect
                 trigger={settingStyles.select}
+                align="end"
                 label={`Kind of ${entry.host}`}
                 value={chosen ?? (entry.github ? "github" : "")}
                 display={chosen || entry.github ? undefined : "Choose"}

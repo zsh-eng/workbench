@@ -5,7 +5,12 @@ import { threadSlug, threadTitle, type Thread, type ThreadList } from "../../../
 import { createApi } from "../../data/api";
 import { readBrowserToken } from "../../data/auth";
 import type { AgentChoices, AgentOptions } from "../../../shared/owned-session";
-import { useAgentOptions, useAgentPresets } from "../../data/owned-session";
+import {
+  EFFORT_NOTE,
+  optionChoice,
+  useAgentOptions,
+  useAgentPresets,
+} from "../../data/owned-session";
 import { tokens } from "../../theme.stylex";
 import { ActionMenu, FlipChoice, type Choice as Option, type MenuEntry } from "../Controls";
 import { Icon, type IconName } from "../Icon";
@@ -260,7 +265,7 @@ export function NewThread({
   const modelName = options?.model?.options.find((option) => option.value === model);
   const effortName = efforts.find((option) => option.value === effort);
   const modelChoices = (options?.model?.options ?? []).map((option) => ({
-    value: option.value,
+    ...optionChoice(option),
     label: optionName(option),
   }));
   const effortChoices = efforts.map((option) => ({
@@ -388,6 +393,7 @@ export function NewThread({
                 value={effort}
                 choices={effortChoices}
                 onChange={(value) => chooseAgent({ effort: value })}
+                note={EFFORT_NOTE}
               >
                 <EffortLabel text={effortName ? optionName(effortName) : "Default"} />
               </Picker>
@@ -417,10 +423,13 @@ function Picker({
   onChange,
   more = [],
   align,
+  note,
   children,
 }: {
   label: string;
   align?: "start" | "end";
+  /** A sentence at the menu's top, such as what more effort trades. */
+  note?: string;
   value: string;
   choices: Option[];
   onChange(value: string): void;
@@ -444,10 +453,12 @@ function Picker({
     <ActionMenu
       label={label}
       align={align}
+      note={note}
       trigger={styles.menu}
       sections={[
         choices.map((option) => ({
           label: option.label,
+          ...(option.badge ? { badge: option.badge } : {}),
           checked: option.value === value,
           choice: true,
           onClick: () => onChange(option.value),
@@ -460,7 +471,8 @@ function Picker({
   );
 }
 
-/** A model's or an effort's name, with Claude Code's "Default (recommended)" as "Default". */
+/** A model's or an effort's name, with Claude Code's "Default (recommended)" as "Default";
+ * the menu shows its mark as a badge. */
 const optionName = (option: { value: string; name: string }) =>
   option.value === "default" ? "Default" : option.name;
 

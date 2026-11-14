@@ -353,7 +353,7 @@ function SourceRow({
                   {item.label}
                 </Menu.Item>
               ))}
-              <Menu.Separator {...stylex.props(styles.separator)} />
+              <Menu.Separator {...stylex.props(ui.separator)} />
               <Menu.Item
                 onClick={() => setConfirming(true)}
                 className={(state) =>
@@ -559,7 +559,6 @@ const styles = stylex.create({
   moreOpen: { opacity: 1 },
   positioner: { zIndex: 60 },
   menu: { minWidth: 180 },
-  separator: { height: 1, marginBlock: 4, marginInline: 4, backgroundColor: tokens.line },
   danger: { color: tokens.red },
   confirm: {
     flexWrap: "wrap",

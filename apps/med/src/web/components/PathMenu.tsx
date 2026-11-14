@@ -176,10 +176,7 @@ export function PathContextMenu({
                   {entry.label}
                 </ContextMenu.Item>
               ) : (
-                <ContextMenu.Separator
-                  key={`separator-${index}`}
-                  {...stylex.props(styles.separator)}
-                />
+                <ContextMenu.Separator key={`separator-${index}`} {...stylex.props(ui.separator)} />
               ),
             )}
           </ContextMenu.Popup>
@@ -202,7 +199,6 @@ export function treeRowPath(event: MouseEvent) {
 const styles = stylex.create({
   positioner: { zIndex: 60 },
   menu: { minWidth: 200 },
-  separator: { height: 1, marginBlock: 4, marginInline: 4, backgroundColor: tokens.line },
   disabled: {
     color: tokens.faint,
     backgroundColor: { default: "transparent", ":hover": "transparent" },

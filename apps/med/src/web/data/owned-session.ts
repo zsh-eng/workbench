@@ -8,6 +8,7 @@ import {
   type AgentOptions,
   type AgentPreset,
   type OwnedAction,
+  type OwnedSetting,
   type OwnedState,
   type SessionFork,
 } from "../../shared/owned-session";
@@ -16,6 +17,26 @@ import { createApi } from "./api";
 import { browserFetch } from "./live";
 import { readServerEvents } from "./sse";
 import { reconnectPause } from "./reconnect";
+
+const RECOMMENDED = /\s*\(recommended\)$/i;
+
+/**
+ * An agent's option as its menu shows it. Claude Code marks the model that it
+ * recommends in the model's name, "Default (recommended)": the menu shows
+ * the name without the mark, and the mark as a badge.
+ */
+export function optionChoice(option: OwnedSetting["options"][number]) {
+  const recommended = RECOMMENDED.test(option.name);
+  return {
+    value: option.value,
+    label: recommended ? option.name.replace(RECOMMENDED, "") : option.name,
+    ...(recommended ? { badge: "Recommended" } : {}),
+    ...(option.description ? { description: option.description } : {}),
+  };
+}
+
+/** The first line of an effort's menu: what more effort trades. */
+export const EFFORT_NOTE = "Higher effort thinks longer: more thorough, but uses more tokens.";
 
 /** The agents that Med can start on this computer, once `enabled`. */
 export function useAgentPresets(enabled: boolean, fetcher: typeof fetch = browserFetch) {

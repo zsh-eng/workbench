@@ -1,7 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { Menu } from "@base-ui/react/menu";
 import { useMemo } from "react";
-import { picked, tokens, ui } from "../theme.stylex";
+import { picked, ui } from "../theme.stylex";
 
 export interface PointMenuItem {
   label: string;
@@ -62,7 +62,7 @@ export function PointMenu({
                   {item.label}
                 </Menu.Item>
               ) : (
-                <Menu.Separator key={`separator-${index}`} {...stylex.props(styles.separator)} />
+                <Menu.Separator key={`separator-${index}`} {...stylex.props(ui.separator)} />
               ),
             )}
           </Menu.Popup>
@@ -77,5 +77,4 @@ const styles = stylex.create({
   // Above the dialogs' popups (111).
   overDialog: { zIndex: 120 },
   menu: { minWidth: 180 },
-  separator: { height: 1, marginBlock: 4, marginInline: 4, backgroundColor: tokens.line },
 });

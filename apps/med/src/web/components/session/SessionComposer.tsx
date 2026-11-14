@@ -35,6 +35,7 @@ import { mentionPopover, useMentions } from "../Mentions";
 import { SessionNotice } from "./SessionNotice";
 import type { MentionSources } from "../../data/mentions";
 import { readDraft, writeDraft } from "../../data/outbox";
+import { EFFORT_NOTE, optionChoice } from "../../data/owned-session";
 import { column } from "./session-styles";
 import { useViewSetting, viewSettings } from "../../data/view-settings";
 
@@ -896,11 +897,11 @@ export function SessionComposer({
                   key={setting.id}
                   label={setting.name}
                   value={setting.value}
-                  choices={setting.options.map((option) => ({
-                    value: option.value,
-                    label: option.name,
-                    ...(option.description ? { description: option.description } : {}),
-                  }))}
+                  choices={setting.options.map(optionChoice)}
+                  // The pickers sit at the row's end, so each menu lines up
+                  // with its trigger's right edge and opens back over the row.
+                  align="end"
+                  note={setting.category === "effort" ? EFFORT_NOTE : undefined}
                   disabled={stopped || (setting.idleOnly && working)}
                   onChange={(value) => choose(setting, value)}
                   trigger={styles.picker}

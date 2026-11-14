@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { App } from "../../src/web/App";
 import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspaces";
 import { createBrowseApi } from "../../src/web/data/browse";
+import { EFFORT_NOTE } from "../../src/web/data/owned-session";
 import { AUTO_CLOSE_MS } from "../../src/web/data/tabs";
 import type { Comparison } from "../../src/shared/protocol";
 import type { Thread, ThreadList } from "../../src/shared/threads";
@@ -1643,9 +1644,29 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   await model.click();
   await expect.element(page.getByRole("menuitemcheckbox", { name: "Haiku 4.5" })).toBeVisible();
   await expect.element(page.getByRole("menuitem", { name: /^Agent/ })).not.toBeInTheDocument();
+  // The menus sit at the line's end, so each ends where its trigger ends; a
+  // choice's check is at its row's end. Claude Code's recommended model
+  // shows the mark as a badge.
+  const right = (element: Element) => element.getBoundingClientRect().right;
+  await expect
+    .poll(() => Math.abs(right(page.getByRole("menu").element()) - right(model.element())))
+    .toBeLessThan(1);
+  const opus = page.getByRole("menuitemcheckbox", { name: "Opus 5.5" });
+  await expect.element(opus).toHaveAttribute("aria-checked", "true");
+  const check = opus.element().querySelector("[data-check] svg")!;
+  expect(right(opus.element()) - right(check)).toBeLessThanOrEqual(11);
+  await expect
+    .element(
+      page
+        .getByRole("menuitemcheckbox", { name: /^Default/ })
+        .getByText("Recommended", { exact: true }),
+    )
+    .toBeVisible();
   await userEvent.keyboard("{Escape}");
   await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
   await effort.click();
+  // The effort's menu says first what more effort trades.
+  await expect.element(page.getByRole("menu")).toHaveAccessibleDescription(EFFORT_NOTE);
   await page.getByRole("menuitemcheckbox", { name: "high" }).click();
   await expect.element(effort).toHaveTextContent("high effort");
   // The composer sits right under the list, both in the page's middle, and

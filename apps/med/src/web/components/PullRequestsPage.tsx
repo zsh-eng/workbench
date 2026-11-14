@@ -318,6 +318,7 @@ export function PullRequestsPage({
             />
             <ChoiceSelect
               trigger={settingStyles.select}
+              align="end"
               label="Where to look"
               value={all ? "all" : "registered"}
               choices={[

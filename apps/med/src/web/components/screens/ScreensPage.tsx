@@ -75,6 +75,7 @@ export default function ScreensPage() {
         <span {...stylex.props(styles.grow)} />
         <ChoiceSelect
           label="Theme of the screens"
+          align="end"
           icon={<Icon name="theme" size={14} />}
           value={theme}
           choices={themes.map((entry) => ({ value: entry.id, label: entry.label }))}

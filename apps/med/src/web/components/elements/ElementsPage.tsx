@@ -86,6 +86,7 @@ export default function ElementsPage() {
         <span {...stylex.props(styles.grow)} />
         <ChoiceSelect
           label="Theme"
+          align="end"
           icon={<Icon name="theme" size={14} />}
           value={active.id}
           choices={themes.map((theme) => ({ value: theme.id, label: theme.label }))}

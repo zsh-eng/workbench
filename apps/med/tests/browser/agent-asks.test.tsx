@@ -3,6 +3,7 @@ import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { useState } from "react";
 import { SessionComposer } from "../../src/web/components/session/SessionComposer";
+import { EFFORT_NOTE } from "../../src/web/data/owned-session";
 import type {
   OwnedAction,
   OwnedPermission,
@@ -41,6 +42,38 @@ const MODES: OwnedSetting = {
   cycle: ["default", "acceptEdits", "plan", "auto"],
 };
 
+const MODELS: OwnedSetting = {
+  id: "model",
+  name: "Model",
+  category: "model",
+  value: "opus",
+  options: [
+    {
+      value: "default",
+      name: "Default (recommended)",
+      description: "Sonnet 5.5 · Efficient for routine tasks",
+    },
+    { value: "opus", name: "Opus 5.5", description: "For complex work and everyday tasks" },
+    { value: "haiku", name: "Haiku 5.5", description: "Fastest for quick answers" },
+  ],
+};
+
+const EFFORTS: OwnedSetting = {
+  id: "effort",
+  name: "Effort",
+  category: "effort",
+  value: "high",
+  idleOnly: true,
+  options: [
+    { value: "default", name: "Default effort" },
+    { value: "low", name: "Low" },
+    { value: "medium", name: "Medium" },
+    { value: "high", name: "High" },
+    { value: "xhigh", name: "Extra high" },
+    { value: "max", name: "Max" },
+  ],
+};
+
 const QUESTIONS: OwnedPermission = {
   id: "q-1",
   title: "Claude Code asks",
@@ -67,11 +100,17 @@ const QUESTIONS: OwnedPermission = {
 };
 
 /** A composer for a session that Med runs; `actions` has what it sent. A
- * setting takes its value, as the host's state does. */
-function mountComposer(permission?: OwnedPermission) {
+ * setting takes its value, as the host's state does. `width` narrows it, as
+ * a session pane beside a review. */
+function mountComposer(
+  permission?: OwnedPermission,
+  settings: OwnedSetting[] = [MODES],
+  width?: number,
+) {
   initializeTheme();
   const actions: OwnedAction[] = [];
   mount = document.createElement("div");
+  if (width) mount.style.width = `${width}px`;
   document.body.append(mount);
   root = createRoot(mount);
   function Harness() {
@@ -80,7 +119,7 @@ function mountComposer(permission?: OwnedPermission) {
       preset: "claude",
       name: "Claude Code",
       status: permission ? "working" : "idle",
-      settings: [MODES],
+      settings,
       commands: [],
       turns: 1,
       ...(permission ? { permission } : {}),
@@ -282,4 +321,70 @@ test("⇧Tab in the message field steps through the modes, and Bypass asks first
   );
   await expect.element(picker).toHaveTextContent("Bypass permissions");
   expect(actions.at(-1)).toEqual({ action: "setting", id: "mode", value: "bypassPermissions" });
+});
+
+test("the pickers' menus open from their trigger's right edge, with the check at the row's end", async () => {
+  // A session pane at the window's left, with room on both sides of each
+  // picker: the menu could open either way.
+  await page.viewport(1200, 800);
+  const actions = mountComposer(undefined, [MODELS, EFFORTS, MODES], 560);
+  const box = (element: Element) => element.getBoundingClientRect();
+  for (const name of ["Model", "Effort", "Mode"]) {
+    const picker = page.getByRole("combobox", { name, exact: true });
+    await userEvent.click(picker);
+    const list = page.getByRole("listbox");
+    await expect.element(list).toBeVisible();
+    // The popup around the list ends where its trigger ends, once it has
+    // grown in.
+    const popup = list.element().parentElement!;
+    await expect
+      .poll(() => Math.abs(box(popup).right - box(picker.element()).right))
+      .toBeLessThan(1);
+    // The chosen row's check is the row's last thing, at its end.
+    const chosen = list.getByRole("option", { selected: true }).element();
+    const check = chosen.querySelector("[data-check]")!;
+    expect(check.querySelector("svg")).not.toBeNull();
+    expect(box(chosen).right - box(check).right).toBeLessThanOrEqual(11);
+    expect(box(check).left).toBeGreaterThan(box(chosen).left + box(chosen).width / 2);
+    await userEvent.keyboard("{Escape}");
+    await expect.element(list).not.toBeInTheDocument();
+  }
+
+  // The model that Claude Code recommends shows the mark as a badge, not in
+  // its name; the trigger shows the chosen model.
+  const model = page.getByRole("combobox", { name: "Model", exact: true });
+  await expect.element(model).toHaveTextContent("Opus 5.5");
+  await userEvent.click(model);
+  const recommended = page.getByRole("option", { name: /^Default/ });
+  await expect.element(recommended.getByText("Recommended", { exact: true })).toBeVisible();
+  await expect.element(recommended).not.toHaveTextContent("(recommended)");
+  await userEvent.keyboard("{Escape}");
+
+  // The effort's menu says first what more effort trades. From the
+  // keyboard: the trigger opens it, a letter moves to its choice, and Enter
+  // chooses.
+  const effort = page.getByRole("combobox", { name: "Effort", exact: true });
+  effort.element().focus();
+  await userEvent.keyboard("{ArrowDown}");
+  const list = page.getByRole("listbox");
+  await expect.element(list).toHaveAccessibleDescription(EFFORT_NOTE);
+  await expect.element(list.getByRole("option", { name: "High", selected: true })).toBeVisible();
+  await userEvent.keyboard("l");
+  await expect
+    .element(list.getByRole("option", { name: "Low" }))
+    .toHaveAttribute("data-highlighted");
+  await userEvent.keyboard("{Enter}");
+  await expect.element(list).not.toBeInTheDocument();
+  expect(actions.at(-1)).toEqual({ action: "setting", id: "effort", value: "low" });
+  await expect.element(effort).toHaveTextContent("Low");
+  await expect.element(effort).toHaveFocus();
+});
+
+test("at a narrow window's edge, a picker's menu stays in the window", async () => {
+  await page.viewport(360, 700);
+  mountComposer(undefined, [MODELS, EFFORTS, MODES]);
+  await userEvent.click(page.getByRole("combobox", { name: "Model", exact: true }));
+  const popup = page.getByRole("listbox").element().parentElement!;
+  await expect.poll(() => popup.getBoundingClientRect().left).toBeGreaterThanOrEqual(0);
+  expect(popup.getBoundingClientRect().right).toBeLessThanOrEqual(window.innerWidth);
 });

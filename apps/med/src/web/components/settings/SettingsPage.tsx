@@ -114,6 +114,7 @@ function Appearance() {
       <Row label="Light theme" note="In Light, and in System while the system is light.">
         <ChoiceSelect
           trigger={settingStyles.select}
+          align="end"
           label="Light theme"
           value={light.id}
           choices={choices("light")}
@@ -123,6 +124,7 @@ function Appearance() {
       <Row label="Dark theme" note="In Dark, and in System while the system is dark.">
         <ChoiceSelect
           trigger={settingStyles.select}
+          align="end"
           label="Dark theme"
           value={dark.id}
           choices={choices("dark")}
@@ -143,6 +145,7 @@ function Code() {
       <Row label="Diff layout" note="Split needs a review at least 760 pixels wide.">
         <ChoiceSelect
           trigger={settingStyles.select}
+          align="end"
           label="Diff layout"
           value={layout}
           choices={[
@@ -169,6 +172,7 @@ function Code() {
       <Row label="Text size" note="Of code in diffs and files.">
         <ChoiceSelect
           trigger={settingStyles.select}
+          align="end"
           label="Text size"
           value={size}
           choices={CODE_SIZES.map((value) => ({ value, label: `${value} px` }))}
@@ -216,6 +220,7 @@ function Files() {
       <Row label="A message while the agent works" note="⌘↩ does this; ⇧⌘↩ does the other.">
         <ChoiceSelect
           trigger={settingStyles.select}
+          align="end"
           label="A message while the agent works"
           value={followUp}
           choices={[

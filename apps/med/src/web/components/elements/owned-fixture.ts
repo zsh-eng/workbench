@@ -19,25 +19,32 @@ const CLAUDE_SETTINGS: OwnedState["settings"] = [
     id: "model",
     name: "Model",
     category: "model",
-    value: "default",
+    value: "opus",
+    // As Claude Code names them: it marks the model that it recommends.
     options: [
-      { value: "default", name: "Default", description: "The recommended model" },
-      { value: "opus", name: "Opus", description: "For the hardest work" },
-      { value: "sonnet", name: "Sonnet", description: "For everyday work" },
-      { value: "haiku", name: "Haiku", description: "For quick answers" },
+      {
+        value: "default",
+        name: "Default (recommended)",
+        description: "Sonnet · Efficient for routine tasks",
+      },
+      { value: "opus", name: "Opus", description: "For complex work and everyday tasks" },
+      { value: "sonnet", name: "Sonnet", description: "Most efficient for simpler tasks" },
+      { value: "haiku", name: "Haiku", description: "Fastest for quick answers" },
     ],
   },
   {
     id: "effort",
     name: "Effort",
     category: "effort",
-    value: "default",
+    value: "high",
     idleOnly: true,
     options: [
       { value: "default", name: "Default effort" },
       { value: "low", name: "Low" },
       { value: "medium", name: "Medium" },
       { value: "high", name: "High" },
+      { value: "xhigh", name: "Extra high" },
+      { value: "max", name: "Max" },
     ],
   },
   {
