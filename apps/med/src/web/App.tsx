@@ -1930,10 +1930,15 @@ export function App({
     [allCollapsed, streamFiles],
   );
   // The reader looked at the version on screen: the next version's "since"
-  // starts here.
+  // starts here, and the session rail's dot for the review goes. A review
+  // that loads behind the session, out of sight, stays unread.
   const lookedIteration =
-    state.status === "ready" && state.savedReview && (state.savedView || state.inReview)
-      ? shownIteration
+    reviewVisible &&
+    state.status === "ready" &&
+    state.savedReview &&
+    (state.savedView || state.inReview)
+      ? // A review without versions is its first, as the host counts it.
+        (shownIteration ?? (iterations.length ? undefined : 1))
       : undefined;
   useEffect(() => {
     if (lookedIteration !== undefined) controller.markRead(lookedIteration).catch(() => {});
@@ -6085,6 +6090,14 @@ export function App({
         // The hand-off's own title; the pull request's is in its section.
         label: (own ? state.savedReview?.title : undefined) ?? review?.title ?? "Review",
         current: several && own && !apart,
+        // A version that the reader has not opened; this review's own record
+        // is the newer one.
+        unread:
+          own && state.savedReview
+            ? !state.savedReview.readVersions?.includes(
+                state.savedReview.iterations?.at(-1)?.number ?? 1,
+              )
+            : !!review?.unread,
         detail: own
           ? sinceRow?.files
             ? `${sinceRow.files} ${sinceRow.files === 1 ? "file" : "files"} new`

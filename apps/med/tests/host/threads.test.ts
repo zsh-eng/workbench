@@ -295,4 +295,9 @@ test("a thread's agent hands off its work as the setup instructions say, with no
   expect(saved.iterations![0]!.guide?.segments.map((segment) => segment.title)).toEqual([
     "Best result",
   ]);
+  // The reader has not opened it: the thread's list says so, for the session
+  // rail's dot, until the reader opens its version.
+  expect(handedOff!.unread).toBe(true);
+  expect((await api(`/api/reviews/${handedOff!.id}/read`, { version: 1 })).status).toBe(200);
+  await vi.waitFor(async () => expect((await listed(thread)).reviews[0]!.unread).toBeUndefined());
 });

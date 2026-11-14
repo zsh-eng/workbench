@@ -620,7 +620,9 @@ sections with a line between each: no cards. The sections, in order:
   thread shows. While the thread shows another place, the branch's row shows
   the agent's branch in the thread.
 - **Reviews**: what the session handed off to read, newest first, with the
-  one on screen marked. A row shows that review.
+  one on screen marked. A row shows that review. A dot marks a review whose
+  latest version you have not opened; it goes once the review shows. A review
+  that loads behind the session, out of sight, stays unread (`readVersions`).
 - **Pull requests**: each pull request of the thread, with its number; its
   mark has the colour of its state, and the tooltip says the state. A row
   opens that pull request's own page. A review that Med captured from a pull

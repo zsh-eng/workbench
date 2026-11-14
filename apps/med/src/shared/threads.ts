@@ -102,6 +102,8 @@ export const threadReviewSchema = z.object({
    * pull requests. */
   fromPull: z.boolean().optional(),
   changes: changesSchema.optional(),
+  /** The reader has not opened its latest version: the session rail marks it. */
+  unread: z.literal(true).optional(),
 });
 export type ThreadReview = z.infer<typeof threadReviewSchema>;
 

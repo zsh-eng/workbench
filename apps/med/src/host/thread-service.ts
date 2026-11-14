@@ -212,6 +212,9 @@ export function createThreadService(options: ThreadServiceOptions) {
       ...(place && { place }),
       ...(pullRequest && { pullRequest }),
       ...(pullRequest && review.key && isPullReviewKey(review.key) && { fromPull: true }),
+      ...(!review.readVersions?.includes(review.iterations?.at(-1)?.number ?? 1) && {
+        unread: true,
+      }),
       ...(review.totals &&
         handoffTargets(review).length && {
           changes: {

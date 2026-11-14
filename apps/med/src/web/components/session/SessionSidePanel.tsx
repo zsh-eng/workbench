@@ -34,6 +34,9 @@ export interface ThreadLink {
   hint?: string;
   /** The one on screen, among several. */
   current?: boolean;
+  /** A review whose latest version the reader has not opened: a dot, as the
+   * sidebar has for news. */
+  unread?: boolean;
   /** Opens it in Med; or `href` opens a page. */
   onOpen?(): void;
   href?: string;
@@ -154,6 +157,7 @@ function Row({
   onOpen,
   href,
   current = false,
+  unread = false,
   tip,
 }: Omit<ThreadLink, "id"> & {
   /** What a click does, with its keys: the tooltip of a row that is a control. */
@@ -172,6 +176,13 @@ function Row({
       </span>
       <span {...stylex.props(ui.truncate, styles.rowLabel)}>{label}</span>
       {detail && <span {...stylex.props(ui.truncate, styles.rowDetail)}>{detail}</span>}
+      {unread && (
+        <span
+          role="img"
+          aria-label="Not opened yet"
+          {...stylex.props(styles.unread, !!detail && styles.unreadAfter)}
+        />
+      )}
     </>
   );
   // A row's name says its hint, or what a click on it does.
@@ -448,6 +459,16 @@ const styles = stylex.create({
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
   current: { backgroundColor: { default: tokens.fill, ":hover": tokens.fill } },
+  unread: {
+    flex: "none",
+    width: 7,
+    height: 7,
+    marginInlineStart: "auto",
+    borderRadius: "50%",
+    backgroundColor: tokens.accent,
+  },
+  // After a detail, which takes the row's free room.
+  unreadAfter: { marginInlineStart: 6 },
   rowIcon: { display: "inline-flex", flexShrink: 0, color: tokens.muted },
   open: { color: tokens.green },
   draft: { color: tokens.muted },

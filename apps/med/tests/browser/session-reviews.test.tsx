@@ -80,8 +80,11 @@ const session = { agent: "claude" as const, id: "s1", cwd: "/test/repo" };
 const PULL_URL = "https://github.com/acme/tide/pull/7";
 /** A saved review that the session handed off, with its Guide. The review
  * "pull" is pull request #7's, in the worktree that Med made for it. */
+/** The versions the reader opened, by review, as the host records them. */
+const readVersions = new Map<string, number[]>();
 const savedReview = (id: string) => ({
   id,
+  ...(readVersions.has(id) && { readVersions: readVersions.get(id) }),
   title: id === "pull" ? "#7 Add durations" : id === "rev-b" ? "Month view" : "Week view",
   createdAt: "2026-10-01T00:00:00Z",
   revision: 0,
@@ -272,6 +275,12 @@ function createHost(initial: Thread[]) {
         revision: 0,
         notes: [],
       });
+    const read = /^\/api\/reviews\/([\w-]+)\/read$/.exec(url.pathname);
+    if (read && init?.method === "POST") {
+      const { version } = body as { version: number };
+      readVersions.set(read[1]!, [...new Set([...(readVersions.get(read[1]!) ?? []), version])]);
+      return Response.json(savedReview(read[1]!));
+    }
     const saved = /^\/api\/reviews\/([\w-]+)$/.exec(url.pathname);
     if (saved) return Response.json(savedReview(saved[1]!));
     switch (url.pathname) {
@@ -446,6 +455,45 @@ const shown = () =>
 /** Whether the thread's session is on screen. */
 const sessionShown = () =>
   !!document.querySelector("[data-session-panel]")?.checkVisibility({ visibilityProperty: true });
+
+test("a review that the reader has not opened has a dot in the session rail, until it shows", async () => {
+  readVersions.clear();
+  // Room for the session rail beside a review: a session pane of 900 pixels.
+  await page.viewport(2400, 900);
+  const thread = sessionThread(Date.now());
+  render(
+    createHost([
+      {
+        ...thread,
+        reviews: thread.reviews.map((review) => ({ ...review, unread: true as const })),
+      },
+    ]),
+  );
+  await userEvent.click(
+    page.getByRole("navigation", { name: "Sessions" }).getByRole("button", { name: /^Tide times/ }),
+  );
+  const reviews = page.getByRole("region", { name: "Reviews" });
+  await expect.element(reviews).toBeVisible();
+  await expect.poll(shown).toBe("rev-a-target");
+  const dot = (name: RegExp) =>
+    reviews.getByRole("button", { name }).element().querySelector('[aria-label="Not opened yet"]');
+  // The thread opens on its session: the newest review loads behind it, out
+  // of sight, and stays unread, as the other one does.
+  await expect.poll(() => dot(/^Week view/)).not.toBeNull();
+  expect(dot(/^Month view/)).not.toBeNull();
+  await new Promise((done) => setTimeout(done, 300));
+  expect(readVersions.size).toBe(0);
+
+  // A review that shows is read: the host records it, and its dot goes.
+  await reviews.getByRole("button", { name: /^Month view/ }).click();
+  await expect.poll(shown).toBe("rev-b-target");
+  await expect.poll(() => readVersions.get("rev-b")).toEqual([1]);
+  await expect.poll(() => dot(/^Month view/)).toBeNull();
+  expect(dot(/^Week view/)).not.toBeNull();
+  await reviews.getByRole("button", { name: /^Week view/ }).click();
+  await expect.poll(() => readVersions.get("rev-a")).toEqual([1]);
+  await expect.poll(() => dot(/^Week view/)).toBeNull();
+});
 
 test("a session's reviews show in its one thread, and the session stays on screen", async () => {
   render(createHost([sessionThread(Date.now())]));
