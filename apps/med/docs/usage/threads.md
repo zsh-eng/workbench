@@ -302,6 +302,11 @@ searches its branches, its worktrees first; `⇧Tab` goes back. `↵` opens the
 repository's own checkout, or the branch; in a thread, the thread shows it.
 `⌘↵` opens it as a new workspace.
 
+Both pickers end their list with **Add repository…**, which asks for a path.
+The **⋯** in the header has **Add repository…** too, and **Remove** for each
+repository: its tabs close, and its files stay on disk. The footer counts
+what the list shows, such as **15 branches**.
+
 The branch switcher (`⌘⇧G`) searches the branches and worktrees of every
 registered repository. `↵` opens a branch in the current workspace; `⌘↵` opens
 it as a new workspace. In a thread, `↵` shows the branch inside the thread,

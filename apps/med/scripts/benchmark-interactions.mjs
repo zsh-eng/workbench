@@ -248,8 +248,11 @@ function instrument({ workspaces }) {
     switcher: () => !!visible('[aria-label="Recent workspaces"] [role="option"]'),
     palette: () => !!visible('[role="listbox"][aria-label="Commands"] [role="option"]'),
     filePicker: () => !!visible('[role="listbox"][aria-label="Files"] [role="option"]'),
+    // A branch's row, not Add repository…, which ends the list at once.
     branchPicker: () =>
-      !!visible('[role="listbox"][aria-label="Branches and worktrees"] [role="option"]'),
+      !!visible(
+        '[role="listbox"][aria-label="Branches and worktrees"] [role="group"] [role="option"]',
+      ),
     noDialog: () => !visible('[role="dialog"]'),
   };
 

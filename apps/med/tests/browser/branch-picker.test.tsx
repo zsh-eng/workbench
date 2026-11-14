@@ -176,10 +176,16 @@ test("shows and matches worktrees by repository-relative location but opens the 
       ]),
     ].join("\n");
   await page.getByRole("button", { name: "Open branch", exact: true }).click();
-  await page.getByText("Manage repositories", { exact: true }).click();
+  // The header's ⋯ menu manages the repositories.
+  await page.getByRole("button", { name: "Manage repositories", exact: true }).click();
   await expect
-    .element(page.getByRole("button", { name: "Remove repository workbench", exact: true }))
+    .element(page.getByRole("menuitem", { name: "Remove workbench", exact: true }))
     .toBeVisible();
+  expect(shown()).not.toContain(home);
+  await userEvent.keyboard("{Escape}");
+  await expect
+    .element(page.getByRole("menuitem", { name: "Remove workbench", exact: true }))
+    .not.toBeInTheDocument();
   await expect
     .element(page.getByRole("option", { name: "main workbench", exact: true }))
     .toBeVisible();
@@ -213,7 +219,8 @@ test("adds repositories, reports failures, removes their tabs, and keeps committ
   await expect
     .element(page.getByRole("option", { name: "release Committed files only · bbbbbbb" }).first())
     .toBeVisible();
-  await page.getByRole("button", { name: "Add repository…" }).click();
+  // Add repository… is the list's last row.
+  await page.getByRole("option", { name: "Add repository…" }).click();
   await page.getByRole("textbox", { name: "Repository path" }).fill("/missing");
   await page.getByRole("button", { name: "Add", exact: true }).click();
   await expect.element(page.getByRole("alert")).toHaveTextContent("Repository does not exist.");
@@ -224,14 +231,54 @@ test("adds repositories, reports failures, removes their tabs, and keeps committ
   await userEvent.keyboard("{Enter}");
   await expect.element(page.getByRole("tab", { name: "shared / main", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Open branch", exact: true }).click();
-  await page.getByText("Manage repositories", { exact: true }).click();
-  await page.getByRole("button", { name: "Remove repository shared", exact: true }).click();
+  await page.getByRole("button", { name: "Manage repositories", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Remove shared", exact: true }).click();
   await expect
     .element(page.getByRole("tab", { name: "shared / main", exact: true }))
     .not.toBeInTheDocument();
   await expect
-    .element(page.getByRole("button", { name: "Remove repository shared", exact: true }))
+    .element(page.getByRole("group", { name: "shared", exact: true }))
     .not.toBeInTheDocument();
+  await page.getByRole("button", { name: "Manage repositories", exact: true }).click();
+  await expect
+    .element(page.getByRole("menuitem", { name: "Remove frontend", exact: true }))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("menuitem", { name: "Remove shared", exact: true }))
+    .not.toBeInTheDocument();
+});
+
+test("Add repository… ends the list: ↓ reaches it and Enter asks for a path, as the ⋯ menu's item does", async () => {
+  await setup([repository("frontend", "/repos/frontend")]);
+  await page.getByRole("button", { name: "Open branch", exact: true }).click();
+  const search = page.getByRole("combobox", { name: "Search branches" });
+  await expect.element(search).toHaveFocus();
+  // main, its detached worktree, and release; the footer counts only them.
+  await expect.element(page.getByText("3 branches", { exact: true })).toBeVisible();
+  const add = page.getByRole("option", { name: "Add repository…" });
+  for (let step = 0; step < 3; step++) await userEvent.keyboard("{ArrowDown}");
+  await expect.element(add).toHaveAttribute("aria-selected", "true");
+  await expect.element(search).toHaveAttribute("aria-activedescendant", add.element().id);
+  // The pointer moves the same selection: one highlighted row.
+  const release = page.getByRole("option", { name: /^release/ });
+  await release.hover();
+  await expect.element(release).toHaveAttribute("aria-selected", "true");
+  await expect.element(add).toHaveAttribute("aria-selected", "false");
+  // ↓ stops at the last row.
+  await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}");
+  await expect.element(add).toHaveAttribute("aria-selected", "true");
+  await userEvent.keyboard("{Enter}");
+  const path = page.getByRole("textbox", { name: "Repository path" });
+  await expect.element(path).toHaveFocus();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect.element(search).toHaveFocus();
+  // The header's ⋯ menu has Add repository… too, and leaves the focus in the field.
+  await page.getByRole("button", { name: "Manage repositories", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Add repository…" }).click();
+  await expect.element(path).toHaveFocus();
+  await page.getByRole("button", { name: "Manage repositories", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Add repository…" }).click();
+  await expect.element(path).toHaveFocus();
 });
 
 test("shows a limit instead of silently closing tabs and frees capacity when a tab closes", async () => {
@@ -276,7 +323,8 @@ test("bounds the result list while searching every branch", async () => {
   await expect
     .element(page.getByRole("status"))
     .toHaveTextContent("Showing the first 200 of 250 matches. Refine your search.");
-  expect(document.querySelectorAll('[role="option"]').length).toBe(200);
+  expect(document.querySelectorAll('[role="group"] [role="option"]').length).toBe(200);
+  await expect.element(page.getByText("200 of 250 branches")).toBeVisible();
   await page.getByRole("combobox", { name: "Search branches" }).fill("branch-249");
   await userEvent.keyboard("{Enter}");
   await expect
@@ -291,10 +339,14 @@ test("removes the final repository and starts with fresh branch tabs when it is 
   await userEvent.keyboard("{Enter}");
   await expect.element(page.getByRole("tab", { name: "release", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Open branch", exact: true }).click();
-  await page.getByText("Manage repositories", { exact: true }).click();
-  await page.getByRole("button", { name: "Remove repository frontend", exact: true }).click();
+  await page.getByRole("button", { name: "Manage repositories", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Remove frontend", exact: true }).click();
   await expect.poll(() => document.querySelectorAll('[role="tab"]').length).toBe(0);
-  await page.getByRole("button", { name: "Add repository…" }).click();
+  // With nothing to list, Add repository… is the selected row.
+  await expect
+    .element(page.getByRole("option", { name: "Add repository…" }))
+    .toHaveAttribute("aria-selected", "true");
+  await page.getByRole("option", { name: "Add repository…" }).click();
   await page.getByRole("textbox", { name: "Repository path" }).fill("/repos/frontend");
   await page.getByRole("button", { name: "Add", exact: true }).click();
   await expect.element(page.getByRole("group", { name: "frontend", exact: true })).toBeVisible();
@@ -324,7 +376,11 @@ test("⌘O's picker ranks repositories as zoxide does, and Tab searches one's br
   const search = page.getByRole("combobox", { name: "Search repositories" });
   await expect.element(search).toHaveFocus();
   const rows = (name: string) =>
-    [...document.querySelectorAll(`[role="listbox"][aria-label="${name}"] [role="option"]`)].map(
+    [
+      ...document.querySelectorAll(
+        `[role="listbox"][aria-label="${name}"] [role="option"]:not([data-add-repository])`,
+      ),
+    ].map(
       (option) =>
         `${option.textContent}${option.getAttribute("aria-selected") === "true" ? " ✓" : ""}`,
     );
@@ -336,7 +392,11 @@ test("⌘O's picker ranks repositories as zoxide does, and Tab searches one's br
     "team-a/apimain",
     "team-b/apimain",
   ]);
-  await expect.element(page.getByText("Manage repositories")).not.toBeVisible();
+  // Add repository… is the last row, after the repositories.
+  expect(
+    [...document.querySelectorAll('[aria-label="Repositories"] [role="option"]')].at(-1)
+      ?.textContent,
+  ).toBe("Add repository…");
   // One word of the name is enough.
   await userEvent.keyboard("front");
   expect(rows("Repositories")).toEqual(["frontendmain ✓"]);

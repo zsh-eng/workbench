@@ -161,12 +161,12 @@ try {
   // A click without ⌘ opens a branch of the added repository in the current
   // workspace.
   await openBranchPicker();
-  await dialog.getByRole("button", { name: "Add repository…", exact: true }).click();
+  await dialog.getByRole("option", { name: "Add repository…", exact: true }).click();
   await dialog.getByRole("textbox", { name: "Repository path", exact: true }).fill(repositories[2]);
   await dialog.getByRole("button", { name: "Add", exact: true }).click();
   await dialog.getByRole("group", { name: "shared", exact: true }).waitFor();
   await dialog.getByRole("combobox", { name: "Search branches" }).fill("shared release");
-  const release = dialog.getByRole("option");
+  const release = dialog.getByRole("group").getByRole("option");
   assert.equal(await release.count(), 1);
   await release.click();
   await shows("shared", "release");
@@ -203,8 +203,12 @@ try {
     assert.equal(result.matches.length, 1);
   }
   await openBranchPicker();
-  await dialog.getByText("Manage repositories", { exact: true }).click();
-  await dialog.getByRole("button", { name: "Remove repository shared", exact: true }).click();
+  // The header's ⋯ menu removes a repository; the menu opens over the dialog.
+  const removeRepository = async (name) => {
+    await dialog.getByRole("button", { name: "Manage repositories", exact: true }).click();
+    await page.getByRole("menuitem", { name: `Remove ${name}`, exact: true }).click();
+  };
+  await removeRepository("shared");
   // The workspace on the removed repository moves to another one. The open
   // dialog hides the band from the accessibility tree, not from the screen.
   await page
@@ -214,14 +218,13 @@ try {
   const after = await fetch(`${launch.origin}/api/repositories`, { headers }).then((r) => r.json());
   assert.equal(after.repositories.length, 2);
   assert.equal(git(repositories[2], "branch", "--show-current"), "main");
-  for (const name of ["backend", "frontend"])
-    await dialog.getByRole("button", { name: `Remove repository ${name}`, exact: true }).click();
+  for (const name of ["backend", "frontend"]) await removeRepository(name);
   await page.keyboard.press("Escape");
   await page.getByRole("heading", { name: "Add a repository to start", exact: true }).waitFor();
   await page.reload();
   await page.getByRole("heading", { name: "Add a repository to start", exact: true }).waitFor();
   await page.getByRole("button", { name: "Choose repositories", exact: true }).click();
-  await dialog.getByRole("button", { name: "Add repository…", exact: true }).click();
+  await dialog.getByRole("option", { name: "Add repository…", exact: true }).click();
   await dialog.getByRole("textbox", { name: "Repository path", exact: true }).fill(repositories[0]);
   await dialog.getByRole("button", { name: "Add", exact: true }).click();
   await dialog.getByRole("group", { name: "frontend", exact: true }).waitFor();

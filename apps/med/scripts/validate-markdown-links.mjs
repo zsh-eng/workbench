@@ -166,7 +166,12 @@ try {
   // The title band names the branch; ⌘⇧G opens another.
   await page.keyboard.press("Meta+Shift+g");
   await page.getByRole("combobox", { name: "Search branches" }).fill("snapshot");
-  await page.getByRole("dialog", { name: "Open branch" }).getByRole("option").click();
+  // The branch's row, in its repository's group: Add repository… ends the list.
+  await page
+    .getByRole("dialog", { name: "Open branch" })
+    .getByRole("group")
+    .getByRole("option")
+    .click();
   await page.locator('[data-review-status="ready"]').waitFor();
   await page.keyboard.press("Meta+Shift+k");
   await page.getByRole("combobox", { name: "Find file", exact: true }).fill("note.md");
