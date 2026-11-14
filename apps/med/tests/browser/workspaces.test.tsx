@@ -1603,6 +1603,151 @@ test("a row drags into Pinned, to a place among the pins, and out again; its men
   expect(section("Pinned")).toEqual(["Third review"]);
 });
 
+test("a quick drag moves each row once, the row in the hand stays under the pointer, and the drop settles it into its place", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  const now = Date.now();
+  const names = ["p1", "p2", "p3", "p4", "p5", "p6"];
+  host.setThreads([
+    ...names.map((id, index) => thread(id, { pinned: index + 1, updatedAt: now - index * 1000 })),
+    thread("agent", { updatedAt: now }),
+  ]);
+  const pinned = () =>
+    [
+      ...document.querySelectorAll<HTMLElement>('section[aria-label="Pinned"] [data-session-row]'),
+    ].map((row) => row.querySelector("button")?.title);
+  await expect.poll(pinned).toEqual(names);
+  const top = (id: string) =>
+    document.querySelector(`[data-session-row="${id}"]`)!.getBoundingClientRect().top;
+  const lifted = () =>
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        'nav[aria-label="Sessions"] > [aria-hidden="true"]',
+      ),
+    ].find((element) => getComputedStyle(element).position === "fixed");
+  const first = document.querySelector('[data-session-row="p1"]')!.getBoundingClientRect();
+  const start = { x: first.left + first.width / 2, y: first.top + first.height / 2 };
+  const at = (y: number) => ({ clientX: start.x, clientY: y, bubbles: true, pointerId: 1 });
+  const frame = () => new Promise((done) => requestAnimationFrame(done));
+
+  // A flick: three moves a frame, down past four rows in four frames, to
+  // between the fifth row and the sixth. Every frame notes where each row
+  // shows, and where the row in the hand does.
+  const end = first.top + 5 * first.height + 8;
+  const flick = Array.from(
+    { length: 12 },
+    (_, step) => start.y + ((end - start.y) * (step + 1)) / 12,
+  );
+  const frames: { rows: Record<string, number>; lifted?: number; pointer: number }[] = [];
+  let pointer = start.y;
+  document
+    .querySelector<HTMLElement>('[data-session-row="p1"] button')!
+    .dispatchEvent(new PointerEvent("pointerdown", { ...at(start.y), button: 0 }));
+  const RELEASE = 30;
+  for (let index = 0; index < RELEASE + 30; index++) {
+    await frame();
+    for (const y of flick.slice(index * 3, index * 3 + 3)) {
+      pointer = y;
+      document.dispatchEvent(new PointerEvent("pointermove", at(y)));
+    }
+    if (index === RELEASE) document.dispatchEvent(new PointerEvent("pointerup", at(pointer)));
+    frames.push({
+      rows: Object.fromEntries(names.map((id) => [id, top(id)])),
+      lifted: lifted()?.getBoundingClientRect().top,
+      pointer,
+    });
+  }
+
+  // Each row the pointer passed moves up once, by its height, and never
+  // back; the last one stays.
+  const held = frames.slice(0, RELEASE);
+  const motion = (id: string) => {
+    const tops = held.map((entry) => entry.rows[id]!);
+    const travel = tops.slice(1).reduce((sum, y, index) => sum + Math.abs(y - tops[index]!), 0);
+    return { moved: Math.round(tops.at(-1)! - tops[0]!), travel: Math.round(travel) };
+  };
+  expect(names.slice(1).map(motion)).toEqual([
+    ...names.slice(1, 5).map(() => ({ moved: -first.height, travel: first.height })),
+    { moved: 0, travel: 0 },
+  ]);
+  // The row in the hand is where the pointer holds it, in every frame.
+  for (const entry of held)
+    expect(entry.lifted).toBeCloseTo(entry.pointer - (start.y - first.top), 0);
+  // At the release, it glides into its place in steps, not one jump.
+  const dropped = frames.slice(RELEASE - 1).map((entry) => entry.lifted ?? entry.rows.p1!);
+  const place = first.top + 4 * first.height;
+  expect(dropped[0]! - place).toBeGreaterThan(20);
+  const steps = dropped.slice(1).map((y, index) => Math.abs(y - dropped[index]!));
+  expect(Math.max(...steps)).toBeLessThan(12);
+  expect(dropped.at(-1)).toBeCloseTo(place, 0);
+  await expect
+    .poll(() => host.threadRequests.filter((request) => request.path.endsWith("/pin")).at(-1))
+    .toEqual({ path: "/api/threads/p1/pin", body: { pinned: true, at: 4 } });
+  await expect.poll(pinned).toEqual(["p2", "p3", "p4", "p5", "p1", "p6"]);
+
+  // With reduced motion, nothing glides: the rows take their places at once,
+  // and the drop ends at once.
+  const matchMedia = window.matchMedia.bind(window);
+  const reduced = vi
+    .spyOn(window, "matchMedia")
+    .mockImplementation((query) =>
+      query === "(prefers-reduced-motion: reduce)"
+        ? ({ matches: true } as MediaQueryList)
+        : matchMedia(query),
+    );
+  onTestFinished(() => reduced.mockRestore());
+  const glides = () =>
+    document
+      .getAnimations()
+      .filter((animation) =>
+        (animation.effect as KeyframeEffect | null)?.target?.closest("nav[aria-label='Sessions']"),
+      );
+  const p1 = document.querySelector('[data-session-row="p1"]')!.getBoundingClientRect();
+  document
+    .querySelector<HTMLElement>('[data-session-row="p1"] button')!
+    .dispatchEvent(new PointerEvent("pointerdown", { ...at(p1.top + 16), button: 0 }));
+  for (const y of [p1.top + 8, first.top + 24, first.top + 8]) {
+    document.dispatchEvent(new PointerEvent("pointermove", at(y)));
+    expect(glides()).toEqual([]);
+  }
+  expect(top("p2")).toBe(first.top + first.height);
+  document.dispatchEvent(new PointerEvent("pointerup", at(first.top + 8)));
+  expect(lifted()).toBeUndefined();
+  expect(glides()).toEqual([]);
+  expect(top("p1")).toBe(first.top);
+});
+
+test("a row's ⋯ button is in the row's middle, as far from its end as from its top and foot", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  host.setThreads([thread("agent"), thread("second", { pinned: 1 })]);
+  await expect.poll(threadRows).toEqual(["Second review", "Agent review"]);
+  const insets = (id: string) => {
+    const row = document.querySelector(`[data-session-row="${id}"]`)!;
+    const box = row.getBoundingClientRect();
+    const more = row.querySelector('button[aria-haspopup="menu"]')!.getBoundingClientRect();
+    return {
+      middle: more.top + more.height / 2 - (box.top + box.height / 2),
+      top: more.top - box.top,
+      foot: box.bottom - more.bottom,
+      end: box.right - more.right,
+      round: more.width === more.height,
+    };
+  };
+  const centred = { middle: 0, top: 4, foot: 4, end: 4, round: true };
+  expect(insets("agent")).toEqual(centred);
+  await userEvent.hover(page.getByRole("button", { name: "Agent review", exact: true }));
+  expect(insets("agent")).toEqual(centred);
+  await page.getByRole("button", { name: "Actions for Agent review" }).click();
+  await expect.element(page.getByRole("menu")).toBeVisible();
+  expect(insets("agent")).toEqual(centred);
+  await userEvent.keyboard("{Escape}");
+  themeController.commit("graphite-light");
+  expect(insets("second")).toEqual(centred);
+});
+
 test("a new thread starts its agent in a new worktree and opens", async () => {
   const host = createHost();
   render(host);

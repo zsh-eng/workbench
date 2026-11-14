@@ -3,13 +3,13 @@ import * as stylex from "@stylexjs/stylex";
 import {
   memo,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import { flushSync } from "react-dom";
 import type { Thread } from "../../../shared/threads";
 import { resumeCommand } from "../../data/workspaces";
 import type { ReadState } from "../../data/tabs";
@@ -24,18 +24,25 @@ import { HistoryArrows } from "./HistoryArrows";
 /** Where a dragged row would land: a place among the pins, or Recent. */
 type DropTarget = { pinned: true; at: number } | { pinned: false };
 
+/** A drag's row and where it would land. The pointer itself moves the row in
+ * the hand without a render, so it is not here. */
 interface Drag {
   id: string;
-  /** The pointer, and where on the row it holds it. */
-  y: number;
-  grab: number;
+  /** The row's column, for the row in the hand. */
   left: number;
   width: number;
   target: DropTarget;
 }
 
+const sameTarget = (a: DropTarget, b: DropTarget) =>
+  a.pinned && b.pinned ? a.at === b.at : a.pinned === b.pinned;
+
 /** How far the pointer moves before a press on a row becomes a drag. */
 const DRAG_START = 4;
+/** A row's glide to its new place, and the dropped row's into its own. */
+const GLIDE = { duration: 140, easing: "cubic-bezier(0.2, 0, 0, 1)" };
+const SETTLE = { duration: 160, easing: "cubic-bezier(0.2, 0, 0, 1)" };
+const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /**
  * The sessions: New and the Superagent at the top, then the pinned sessions
@@ -47,8 +54,9 @@ const DRAG_START = 4;
  * Pull requests, and Settings are at the foot.
  *
  * A row drags into Pinned, to a place among the pins, and out of it again.
- * While it drags, the list shows where it would land: the other rows make
- * room for it there, and it follows the pointer above them.
+ * While it drags, the list shows where it would land: the other rows slide
+ * aside to make room for it there, and it follows the pointer above them.
+ * On release it settles into that place.
  */
 export function SessionSidebar({
   threads,
@@ -125,7 +133,11 @@ export function SessionSidebar({
   const byId = new Map(ordered.map((thread) => [thread.id, thread]));
   const pins = placed && !settled ? placed : pinnedIds;
   const pinned = pins.flatMap((id) => byId.get(id) ?? []);
-  const recent = ordered.filter((thread) => !pins.includes(thread.id));
+  // Newest first, also a row just dropped out of Pinned that the host still
+  // has pinned, so it does not show first until the host agrees.
+  const recent = ordered
+    .filter((thread) => !pins.includes(thread.id))
+    .toSorted((a, b) => b.updatedAt - a.updatedAt);
 
   const [drag, setDrag] = useState<Drag | null>(null);
   // The drag as the last move left it, for the release.
@@ -133,12 +145,26 @@ export function SessionSidebar({
   const pinnedBox = useRef<HTMLElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const nav = useRef<HTMLElement>(null);
+  // The row in the hand. The pointer moves it, not a render.
+  const lifted = useRef<HTMLDivElement>(null);
+  // Ends a dropped row's glide into its place at once, for a press that
+  // comes first.
+  const settling = useRef<(() => void) | null>(null);
   // A drag ends without the click that would open its row.
   const dragged = useRef(false);
   const dragging = drag ? byId.get(drag.id) : undefined;
 
+  /** Shows the drag as `next` has it, and the rows glide to their places. */
+  const show = (next: Drag | null) => {
+    dragRef.current = next;
+    glide(scroller.current, () => flushSync(() => setDrag(next)));
+  };
+
   /** The landing place under the pointer: the pins' area, up to its foot,
-   * is a place among them, by the rows' middles; below it is Recent. */
+   * is a place among them, by the rows' middles; below it is Recent. The
+   * rows are where the list lays them out, the dragged row's place among
+   * them, so a row that made room is passed again only at its new middle:
+   * a pointer that wavers at a middle does not move it back. */
   const targetAt = (y: number, id: string): DropTarget => {
     const box = pinnedBox.current?.getBoundingClientRect();
     if (!box || y > box.bottom) return { pinned: false };
@@ -147,9 +173,9 @@ export function SessionSidebar({
     ].filter((row) => row.dataset.sessionRow !== id);
     const at = rows.filter((row) => {
       const rect = row.getBoundingClientRect();
-      // Where the row is, not where its glide shows it (useFlip).
-      const glide = new DOMMatrixReadOnly(getComputedStyle(row).transform).m42;
-      return rect.top - glide + rect.height / 2 < y;
+      // Where the row is, not where its glide shows it.
+      const shift = new DOMMatrixReadOnly(getComputedStyle(row).transform).m42;
+      return rect.top - shift + rect.height / 2 < y;
     }).length;
     return { pinned: true, at };
   };
@@ -158,33 +184,41 @@ export function SessionSidebar({
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
     const row = event.currentTarget.closest<HTMLElement>("[data-session-row]");
     if (!row) return;
+    settling.current?.();
     const startX = event.clientX;
     const startY = event.clientY;
     const rect = row.getBoundingClientRect();
+    const from = pins.indexOf(thread.id);
+    // Where the row is now, and where Esc puts it back.
+    const home: DropTarget = from >= 0 ? { pinned: true, at: from } : { pinned: false };
     let started = false;
+    let y = startY;
+    // The row in the hand is where the pointer holds it, in the same frame.
+    const follow = () => {
+      if (lifted.current) lifted.current.style.transform = `translateY(${y - startY + rect.top}px)`;
+    };
     const move = (moved: PointerEvent) => {
+      y = moved.clientY;
       if (!started) {
-        if (Math.hypot(moved.clientX - startX, moved.clientY - startY) < DRAG_START) return;
+        if (Math.hypot(moved.clientX - startX, y - startY) < DRAG_START) return;
         started = true;
         dragged.current = true;
         document.documentElement.dataset.sessionDrag = "";
+        // The row's place empties, and Pinned shows even with no pins.
+        show({ id: thread.id, left: rect.left, width: rect.width, target: home });
       }
       moved.preventDefault();
+      follow();
       // Near the list's ends, the list scrolls under the row.
       const list = scroller.current?.getBoundingClientRect();
       if (list && scroller.current) {
-        if (moved.clientY < list.top + 24) scroller.current.scrollTop -= 8;
-        else if (moved.clientY > list.bottom - 24) scroller.current.scrollTop += 8;
+        if (y < list.top + 24) scroller.current.scrollTop -= 8;
+        else if (y > list.bottom - 24) scroller.current.scrollTop += 8;
       }
-      dragRef.current = {
-        id: thread.id,
-        y: moved.clientY,
-        grab: startY - rect.top,
-        left: rect.left,
-        width: rect.width,
-        target: targetAt(moved.clientY, thread.id),
-      };
-      setDrag(dragRef.current);
+      // Only a new landing place renders, and moves the other rows.
+      const last = dragRef.current!;
+      const target = targetAt(y, thread.id);
+      if (!sameTarget(last.target, target)) show({ ...last, target });
     };
     const stop = (drop: boolean) => {
       document.removeEventListener("pointermove", move);
@@ -192,22 +226,22 @@ export function SessionSidebar({
       document.removeEventListener("pointercancel", cancel);
       document.removeEventListener("keydown", escape, true);
       delete document.documentElement.dataset.sessionDrag;
-      const last = dragRef.current;
-      dragRef.current = null;
-      setDrag(null);
       // The click that follows the release opens nothing.
       setTimeout(() => (dragged.current = false));
-      if (!drop || !started || !last) return;
-      const from = pins.indexOf(thread.id);
-      if (last.target.pinned) {
-        if (from === last.target.at) return;
-        const next = pins.filter((id) => id !== thread.id);
-        setPlaced(next.toSpliced(last.target.at, 0, thread.id));
-        onPin(thread, true, last.target.at);
+      const last = dragRef.current;
+      if (!started || !last) return;
+      if (!drop) show({ ...last, target: home });
+      else if (last.target.pinned) {
+        if (from !== last.target.at) {
+          const next = pins.filter((id) => id !== thread.id);
+          setPlaced(next.toSpliced(last.target.at, 0, thread.id));
+          onPin(thread, true, last.target.at);
+        }
       } else if (from >= 0) {
         setPlaced(pins.filter((id) => id !== thread.id));
         onPin(thread, false);
       }
+      settle(thread.id);
     };
     const up = () => stop(true);
     const cancel = () => stop(false);
@@ -221,6 +255,36 @@ export function SessionSidebar({
     document.addEventListener("pointerup", up);
     document.addEventListener("pointercancel", cancel);
     document.addEventListener("keydown", escape, true);
+  };
+
+  /** The row in the hand glides into its place, and the drag ends there, so
+   * the row shows where the hand left it: no jump. */
+  const settle = (id: string) => {
+    const end = () => {
+      settling.current = null;
+      show(null);
+    };
+    const hand = lifted.current;
+    const list = scroller.current?.getBoundingClientRect();
+    const place = scroller.current?.querySelector<HTMLElement>(
+      `[data-session-row="${CSS.escape(id)}"]`,
+    );
+    if (!hand || !list || !place || still()) return end();
+    // Where the place is laid out, not where its own glide shows it now.
+    const box = place.getBoundingClientRect();
+    const to = box.top - new DOMMatrixReadOnly(getComputedStyle(place).transform).m42;
+    // A place scrolled out of the list's view: the row does not cross the
+    // sidebar's foot to reach it.
+    if (to < list.top || to + box.height > list.bottom) return end();
+    const into = hand.animate(
+      [{ transform: hand.style.transform }, { transform: `translateY(${to}px)` }],
+      { ...SETTLE, fill: "forwards" },
+    );
+    into.onfinish = end;
+    settling.current = () => {
+      into.onfinish = null;
+      end();
+    };
   };
 
   /** Moves a pinned session one place up or down, as a drag would. */
@@ -247,8 +311,6 @@ export function SessionSidebar({
     const at = others.findIndex((thread) => thread.updatedAt < dragging.updatedAt);
     return others.toSpliced(at < 0 ? others.length : at, 0, dragging);
   })();
-  useFlip(scroller, drag ? JSON.stringify(drag.target) : null);
-
   const row = (thread: Thread, index: number, list: readonly Thread[]) => (
     <SessionRow
       key={thread.id}
@@ -306,7 +368,7 @@ export function SessionSidebar({
         </span>
         <span {...stylex.props(styles.name)}>New</span>
       </button>
-      <div ref={scroller} {...stylex.props(styles.scroll)}>
+      <div ref={scroller} {...stylex.props(styles.scroll, drag && styles.dragging)}>
         {onSuperagent && (
           // The Superagent is a pinned session; this opens it, and makes it
           // the first time.
@@ -320,7 +382,9 @@ export function SessionSidebar({
         {/* While a row drags, Pinned shows even with no pins, to drop into. */}
         {(pinnedShown.length > 0 || drag) && (
           <section ref={pinnedBox} aria-label="Pinned">
-            <h2 {...stylex.props(styles.label)}>Pinned</h2>
+            <h2 data-glide="" {...stylex.props(styles.label)}>
+              Pinned
+            </h2>
             {pinnedShown.map(row)}
             {drag && pinnedShown.length === 0 && (
               <div aria-hidden="true" {...stylex.props(styles.dropHint)}>
@@ -331,7 +395,9 @@ export function SessionSidebar({
         )}
         <section aria-label="Recent">
           {(pinnedShown.length > 0 || recentShown.length > 0 || drag) && (
-            <h2 {...stylex.props(styles.label)}>Recent</h2>
+            <h2 data-glide="" {...stylex.props(styles.label)}>
+              Recent
+            </h2>
           )}
           {recentShown.map(row)}
           {loaded && threads.length === 0 && (
@@ -342,8 +408,9 @@ export function SessionSidebar({
       {drag && dragging && (
         // The row in the hand, over the list.
         <div
+          ref={lifted}
           aria-hidden="true"
-          {...stylex.props(styles.lifted, styles.at(drag.y - drag.grab, drag.left, drag.width))}
+          {...stylex.props(styles.lifted, styles.at(drag.left, drag.width))}
         >
           <span {...stylex.props(styles.name)}>{dragging.title}</span>
         </div>
@@ -665,6 +732,9 @@ const styles = stylex.create({
   },
   plus: { color: tokens.muted },
   scroll: { flex: "1", minHeight: 0, overflowY: "auto", marginInline: -8, paddingInline: 8 },
+  // The rows move only as the drag moves them: the browser keeps no row in
+  // place by scrolling while Pinned grows or shrinks above it.
+  dragging: { overflowAnchor: "none" },
   label: {
     marginTop: 18,
     marginBottom: 4,
@@ -692,9 +762,11 @@ const styles = stylex.create({
     color: tokens.faint,
     fontSize: 12.5,
   },
-  // The row in the hand: the row's look, lifted over the list.
+  // The row in the hand: the row's look, lifted over the list. The pointer
+  // moves it by its transform.
   lifted: {
     position: "fixed",
+    top: 0,
     zIndex: 70,
     display: "flex",
     alignItems: "center",
@@ -709,8 +781,9 @@ const styles = stylex.create({
     fontFamily: tokens.ui,
     fontSize: 13,
     pointerEvents: "none",
+    willChange: "transform",
   },
-  at: (top: number, left: number, width: number) => ({ top, left, width }),
+  at: (left: number, width: number) => ({ left, width }),
   row: {
     display: "flex",
     alignItems: "center",
@@ -764,13 +837,18 @@ const styles = stylex.create({
   // Louder than news: the work waits on the reader.
   needs: { boxShadow: `0 0 0 2.5px ${tokens.accentSoft}` },
   halted: { backgroundColor: tokens.warning },
-  // The menu's button takes the dot's place while the pointer is on the row.
+  // The menu's button takes the dot's place while the pointer is on the row:
+  // in the row's middle, as far from its end as from its top and foot.
   more: {
     position: "absolute",
     insetInlineEnd: 4,
-    top: 4,
+    top: 0,
+    bottom: 0,
+    marginBlock: "auto",
     width: 24,
     height: 24,
+    // ui.button's least height would make it taller than wide, and low in the row.
+    minHeight: 0,
     paddingInline: 0,
     opacity: {
       default: 0,
@@ -836,28 +914,43 @@ export function SessionRowsPreview({
   );
 }
 
+// Each element's glide in the list, to cancel when it moves again.
+const glides = new WeakMap<Element, Animation>();
+
 /**
- * Rows glide to their new places when `key` changes, as the list makes room
- * for a dragged row: each starts where it was and moves to where it is.
+ * Makes `change` to the list, and the rows and labels that it moves glide
+ * there from where they show. A glide starts where the row is drawn now,
+ * partway through an earlier glide or not, so changes that come faster than
+ * glides end never make a row jump back. Both places are read in this frame,
+ * so a scroll since the last change does not matter, and a row that `change`
+ * does not move keeps its glide. A row new to the list shows in its place.
  */
-function useFlip(box: { current: HTMLElement | null }, key: string | null) {
-  const last = useRef(new Map<string, number>());
-  useLayoutEffect(() => {
-    const rows = [...(box.current?.querySelectorAll<HTMLElement>("[data-session-row]") ?? [])];
-    const now = new Map(
-      rows.map((row) => [row.dataset.sessionRow!, row.getBoundingClientRect().top]),
+function glide(list: HTMLElement | null, change: () => void) {
+  const elements = () => [
+    ...(list?.querySelectorAll<HTMLElement>("[data-session-row], [data-glide]") ?? []),
+  ];
+  const shown = new Map(
+    elements().map((element) => [element, element.getBoundingClientRect().top]),
+  );
+  change();
+  if (still()) return;
+  // The reads come in batches between the writes, so the list lays out once
+  // for each batch, not once for each row.
+  const moved = elements().flatMap((element) => {
+    const from = shown.get(element);
+    return from !== undefined && Math.abs(element.getBoundingClientRect().top - from) >= 0.5
+      ? [{ element, from }]
+      : [];
+  });
+  for (const { element } of moved) glides.get(element)?.cancel();
+  const places = moved.map(({ element }) => element.getBoundingClientRect().top);
+  moved.forEach(({ element, from }, index) => {
+    glides.set(
+      element,
+      element.animate(
+        [{ transform: `translateY(${from - places[index]!}px)` }, { transform: "none" }],
+        GLIDE,
+      ),
     );
-    const before = last.current;
-    last.current = key === null ? new Map() : now;
-    if (key === null || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    for (const row of rows) {
-      const from = before.get(row.dataset.sessionRow!);
-      const to = now.get(row.dataset.sessionRow!);
-      if (from === undefined || to === undefined || from === to) continue;
-      row.animate([{ transform: `translateY(${from - to}px)` }, { transform: "none" }], {
-        duration: 140,
-        easing: "cubic-bezier(0.2, 0, 0, 1)",
-      });
-    }
-  }, [box, key]);
+  });
 }

@@ -161,9 +161,12 @@ does not load them or read their agents until you open one again.
   menu is open, a letter runs its item. Med keeps the pins, also across a
   restart and in the archive.
 - **Drag a row into Pinned** to pin it at that place, within Pinned to move
-  it, and out to Recent to unpin it. While it drags, the list shows where it
-  would land: the other rows make room, and Pinned shows even with no pins.
-  `Esc` puts it back.
+  it, and out to Recent to unpin it. The row stays under the pointer, and the
+  list shows where it would land: as the pointer passes a row's middle, that
+  row slides aside once to make room, also in a quick flick, and Pinned shows
+  even with no pins. On release the row settles into its place, and `Esc`
+  sends it back to where it was. With reduced motion, rows move without
+  sliding.
 - **Rename a thread** with **Rename…** in its row's menu, a double-click on
   its row, or **Rename thread…** in the palette (`⌘K`). With the sidebar
   hidden, the field shows in the title band, where a double-click on the
