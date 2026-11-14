@@ -1,4 +1,3 @@
-import { ShortcutKeys } from "./ShortcutKeys";
 import { focusPaletteInput, visibleElement } from "../data/palette-focus";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
@@ -12,6 +11,7 @@ import { findSymbolKeys, symbolKeys, symbolMatchId } from "../../shared/symbol-m
 import { picked, tokens, ui } from "../theme.stylex";
 import { FullFileView, type BeginFileSymbolPreview, type FileSymbolPreview } from "./FullFileView";
 import { Icon } from "./Icon";
+import { PaletteHeader, PaletteHint, plural } from "./Palette";
 
 export interface SymbolPickerProps {
   open: boolean;
@@ -219,32 +219,37 @@ function SymbolPickerContents({
       <Dialog.Root open={open} onOpenChange={onOpenChange}>
         <Dialog.Portal>
           <Dialog.Backdrop
-            {...stylex.props(styles.backdrop, mode === "file" && styles.clearBackdrop, ui.instant)}
+            {...stylex.props(
+              ui.scrim,
+              ui.paletteScrim,
+              mode === "file" && styles.clearBackdrop,
+              ui.instant,
+            )}
           />
           <Dialog.Popup
             initialFocus={() => focusPaletteInput(inputRef.current)}
             finalFocus={() => visibleElement('[data-file-pane="main"]') ?? true}
             {...stylex.props(
-              styles.popup,
-              mode === "file" && styles.filePopup,
-              mode === "file" && styles.fileWidth(Math.max(240, sidebarWidth - 16)),
+              ui.palette,
+              ui.palettePreview,
+              mode === "file" && styles.docked,
+              mode === "file" && styles.dockedWidth(Math.max(240, sidebarWidth - 16)),
               ui.instant,
             )}
           >
-            <div {...stylex.props(styles.heading)}>
-              <Dialog.Title {...stylex.props(styles.title)}>
-                {definitionResult ? "Go to definition" : "Find symbol"}
-              </Dialog.Title>
-              <span {...stylex.props(styles.scope)} title={sourceLabel}>
-                {sourceLabel}
-              </span>
+            <PaletteHeader
+              title={definitionResult ? "Go to definition" : "Find symbol"}
+              // Docked, the file is the list's label.
+              context={mode === "file" ? undefined : sourceLabel}
+              closeLabel="Close symbol picker"
+            >
               {onModeChange && (
-                <div {...stylex.props(styles.modes)}>
+                <div {...stylex.props(ui.paletteSegments)}>
                   <button
                     {...stylex.props(
                       ui.button,
-                      styles.mode,
-                      mode === "file" && styles.selectedMode,
+                      ui.paletteSegment,
+                      mode === "file" && ui.paletteSegmentOn,
                     )}
                     aria-pressed={mode === "file"}
                     onClick={() => onModeChange("file")}
@@ -254,8 +259,8 @@ function SymbolPickerContents({
                   <button
                     {...stylex.props(
                       ui.button,
-                      styles.mode,
-                      mode === "project" && styles.selectedMode,
+                      ui.paletteSegment,
+                      mode === "project" && ui.paletteSegmentOn,
                     )}
                     aria-pressed={mode === "project"}
                     onClick={() => onModeChange("project")}
@@ -264,15 +269,12 @@ function SymbolPickerContents({
                   </button>
                 </div>
               )}
-              <Dialog.Close aria-label="Close symbol picker" {...stylex.props(ui.button)}>
-                <ShortcutKeys value="Esc" />
-              </Dialog.Close>
-            </div>
-            <Dialog.Description {...stylex.props(styles.hidden)}>
+            </PaletteHeader>
+            <Dialog.Description {...stylex.props(ui.srOnly)}>
               Search symbol declarations. Arrow keys preview; Enter accepts; Escape restores your
               position.
             </Dialog.Description>
-            <div {...stylex.props(styles.search)}>
+            <div {...stylex.props(ui.paletteInput)}>
               <Icon name="search" />
               <Combobox.Input
                 ref={inputRef}
@@ -308,33 +310,36 @@ function SymbolPickerContents({
                   event.preventBaseUIHandler();
                   if (chosen) choose(chosen);
                 }}
-                {...stylex.props(styles.input)}
+                {...stylex.props(ui.paletteField)}
               />
             </div>
-            <p {...stylex.props(styles.notice)}>
-              {definitionResult
-                ? `Ctags declarations · ${resultSource?.kind === "commit" ? `Commit ${resultSource.oid.slice(0, 8)}` : "Current file"}`
-                : mode === "file"
-                  ? (path ?? "Open a file to search its symbols.")
-                  : resultSource?.kind === "commit"
-                    ? `Committed files · uncommitted changes excluded · ${resultSource.oid.slice(0, 8)}`
-                    : "Working files · with uncommitted changes"}
-            </p>
             <div {...stylex.props(styles.body)}>
-              <div {...stylex.props(styles.results)} aria-busy={busy}>
+              <div
+                {...stylex.props(ui.paletteList, ui.paletteListFill, styles.results)}
+                aria-busy={busy}
+              >
+                <p {...stylex.props(ui.label, ui.paletteSection, styles.section)}>
+                  {definitionResult
+                    ? `Ctags declarations · ${resultSource?.kind === "commit" ? `Commit ${resultSource.oid.slice(0, 8)}` : "Current file"}`
+                    : mode === "file"
+                      ? (path ?? "Open a file to search its symbols.")
+                      : resultSource?.kind === "commit"
+                        ? `Committed files · uncommitted changes excluded · ${resultSource.oid.slice(0, 8)}`
+                        : "Working files · with uncommitted changes"}
+                </p>
                 {previewChanged ? (
-                  <p role="alert" {...stylex.props(styles.message)}>
+                  <p role="alert" {...stylex.props(ui.paletteEmpty)}>
                     The file changed. Close and reopen symbol search to refresh.
                   </p>
                 ) : failure ? (
-                  <p role="alert" {...stylex.props(styles.message)}>
+                  <p role="alert" {...stylex.props(ui.paletteEmpty)}>
                     {failure}
                   </p>
                 ) : (
                   <>
                     {!busy && (
                       <Combobox.Empty>
-                        <div {...stylex.props(styles.message)}>
+                        <div {...stylex.props(ui.paletteEmpty)}>
                           {definitionResult
                             ? `No declaration named “${definitionResult.query}” was found.`
                             : !source
@@ -351,11 +356,7 @@ function SymbolPickerContents({
                         </div>
                       </Combobox.Empty>
                     )}
-                    <Combobox.List
-                      ref={listRef}
-                      aria-label="Symbols"
-                      {...stylex.props(styles.list)}
-                    >
+                    <Combobox.List ref={listRef} aria-label="Symbols">
                       {(match: SymbolMatch) => (
                         <Combobox.Item
                           key={symbolMatchId(match)}
@@ -363,21 +364,22 @@ function SymbolPickerContents({
                           disabled={busy || !!previewChanged}
                           className={() =>
                             stylex.props(
-                              styles.item,
-                              chosen === match && [styles.highlighted, picked],
+                              ui.paletteRow,
+                              ui.paletteRowBare,
+                              chosen === match && [ui.menuHighlighted, picked],
                             ).className
                           }
                         >
-                          <span {...stylex.props(styles.itemText)}>
-                            <span {...stylex.props(styles.itemTop)}>
-                              <span {...stylex.props(styles.name)}>{match.name}</span>
-                              <span {...stylex.props(styles.kind)}>{match.kind}</span>
-                            </span>
-                            <span {...stylex.props(styles.path)}>
-                              {match.scope ? `${match.scope} · ` : ""}
-                              {mode === "project" ? `${match.path}:` : "Line "}
-                              {match.line}
-                            </span>
+                          <span {...stylex.props(styles.name)}>{match.name}</span>
+                          <span {...stylex.props(styles.kind)}>{match.kind}</span>
+                          <span {...stylex.props(ui.paletteRowSecondary, styles.where)}>
+                            {[match.scope, mode === "project" ? match.path : ""]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                          <span {...stylex.props(styles.line)}>
+                            <span {...stylex.props(ui.srOnly)}>Line </span>
+                            {match.line}
                           </span>
                         </Combobox.Item>
                       )}
@@ -388,7 +390,7 @@ function SymbolPickerContents({
               {mode === "project" && (
                 <div {...stylex.props(styles.preview)} aria-label="Symbol preview">
                   {previewChanged ? (
-                    <p role="alert" {...stylex.props(styles.message)}>
+                    <p role="alert" {...stylex.props(ui.paletteEmpty)}>
                       The file changed. Close and reopen symbol search to refresh.
                     </p>
                   ) : chosen && resultSource ? (
@@ -408,19 +410,16 @@ function SymbolPickerContents({
                       onRefresh={() => setRefresh((value) => value + 1)}
                     />
                   ) : (
-                    <p {...stylex.props(styles.message)}>Select a symbol to preview.</p>
+                    <p {...stylex.props(ui.paletteEmpty)}>Select a symbol to preview.</p>
                   )}
                 </div>
               )}
             </div>
-            <div {...stylex.props(styles.footer)}>
-              <span>
-                <kbd {...stylex.props(styles.kbd)}>↑</kbd>
-                <kbd {...stylex.props(styles.kbd)}>↓</kbd> preview ·{" "}
-                <kbd {...stylex.props(styles.kbd)}>Enter</kbd> open
-              </span>
-              <span>
-                {results.length} {results.length === 1 ? "symbol" : "symbols"}
+            <div {...stylex.props(ui.paletteFooter)}>
+              <PaletteHint keys="↑ ↓">Preview</PaletteHint>
+              <PaletteHint keys="↵">Open</PaletteHint>
+              <span {...stylex.props(ui.paletteCount)}>
+                {plural(results.length, "symbol")}
                 {displayed?.truncated || results.length >= 100 ? " · refine to see more" : ""}
               </span>
             </div>
@@ -432,127 +431,47 @@ function SymbolPickerContents({
 }
 
 const styles = stylex.create({
-  backdrop: { position: "fixed", inset: 0, backgroundColor: tokens.scrim, zIndex: 110 },
-  fileWidth: (width: number) => ({ width, maxWidth: "calc(100vw - 16px)" }),
   clearBackdrop: { backgroundColor: "transparent" },
-  filePopup: {
-    left: 8,
+  // Symbols in this file dock at the left, over the tree, so the file
+  // previews beside them.
+  docked: {
     top: 48,
-    transform: "none",
-    width: "min(340px, calc(100vw - 16px))",
+    left: 8,
+    right: "auto",
+    marginInline: 0,
     height: "min(620px, calc(100vh - 80px))",
     maxHeight: "calc(100vh - 80px)",
   },
-  popup: {
-    position: "fixed",
-    top: "10vh",
-    left: "50%",
-    transform: "translateX(-50%)",
-    width: "min(1120px, calc(100vw - 32px))",
-    height: "min(680px, 80vh)",
-    maxHeight: "80vh",
-    display: "flex",
-    flexDirection: "column",
-    backgroundColor: tokens.menu,
-    color: tokens.text,
-    fontFamily: tokens.ui,
-    borderRadius: `calc(12px * ${tokens.round})`,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: tokens.lineStrong,
-    boxShadow: tokens.shadow,
-    zIndex: 111,
-    overflow: "hidden",
-    outline: "none",
-  },
-  heading: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    minHeight: 44,
-    paddingInlineStart: 16,
-    paddingInlineEnd: 10,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
-  },
-  title: { fontSize: 12.5, fontWeight: 550, margin: 0, whiteSpace: "nowrap" },
-  scope: {
-    flex: "1",
-    minWidth: 0,
-    color: tokens.muted,
-    fontSize: 11,
-    textOverflow: "ellipsis",
-    overflow: "hidden",
-    whiteSpace: "nowrap",
-  },
-  search: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    minHeight: 48,
-    paddingInline: 16,
-    color: tokens.faint,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
-  },
-  input: {
-    flex: "1",
-    minWidth: 0,
-    backgroundColor: "transparent",
-    color: tokens.text,
-    borderWidth: 0,
-    outline: "none",
-    fontFamily: tokens.ui,
-    fontSize: 14,
-  },
-  list: { overflowY: "auto", minHeight: 0, flex: "1", padding: 6 },
-  item: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    minHeight: 34,
-    paddingBlock: 6,
-    paddingInline: 10,
-    boxSizing: "border-box",
-    fontSize: 12.5,
-    borderRadius: `calc(7px * ${tokens.round})`,
-    cursor: "default",
-    outline: "none",
-  },
-  highlighted: { backgroundColor: tokens.pick, color: tokens.selectedText },
-  name: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-  path: {
-    minWidth: 0,
-    color: tokens.faint,
-    fontSize: 11,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
-  message: { padding: 24, textAlign: "center", color: tokens.muted, fontSize: 12 },
-  notice: {
-    margin: 0,
-    paddingBlock: 6,
-    paddingInline: 14,
-    color: tokens.muted,
-    fontSize: 11,
-  },
-  footer: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 12,
-    paddingBlock: 8,
-    paddingInline: 14,
-    fontSize: 11,
-    color: tokens.faint,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: tokens.line,
-  },
+  dockedWidth: (width: number) => ({ width, maxWidth: "calc(100vw - 16px)" }),
   body: { display: "flex", flex: "1", minHeight: 0, overflow: "hidden" },
-  results: { display: "flex", flexDirection: "column", flex: "1", minWidth: 0, overflow: "hidden" },
+  results: { minWidth: 0 },
+  // The list's label scrolls with its rows. A path keeps its case in a theme
+  // whose labels are capitals, and wraps rather than losing its file name.
+  section: {
+    display: "block",
+    overflowWrap: "anywhere",
+    textTransform: "none",
+    letterSpacing: "normal",
+  },
+  name: {
+    flexShrink: 0,
+    maxWidth: "70%",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  kind: { flexShrink: 0, color: tokens.faint, fontSize: 11 },
+  // The scope, and in the project the file, before the line at the row's end.
+  where: { flex: "1", textAlign: "end" },
+  line: {
+    flexShrink: 0,
+    minWidth: 20,
+    color: tokens.faint,
+    fontFamily: tokens.code,
+    fontSize: 11,
+    fontVariantNumeric: "tabular-nums",
+    textAlign: "end",
+  },
   preview: {
     display: { default: "flex", "@media (max-width: 700px)": "none" },
     flexDirection: "column",
@@ -563,46 +482,5 @@ const styles = stylex.create({
     borderLeftWidth: 1,
     borderLeftStyle: "solid",
     borderLeftColor: tokens.line,
-  },
-  modes: {
-    display: "flex",
-    gap: 2,
-    padding: 2,
-    borderRadius: `calc(8px * ${tokens.round})`,
-    backgroundColor: tokens.fill,
-    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
-  },
-  mode: {
-    minHeight: 24,
-    height: 24,
-    paddingInline: 10,
-    fontSize: 12,
-    borderRadius: `calc(6px * ${tokens.round})`,
-  },
-  selectedMode: {
-    backgroundColor: { default: tokens.raised, ":hover:not(:disabled)": tokens.raised },
-    color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
-    boxShadow: `0 0 0 1px ${tokens.lineStrong}, 0 1px 2px #0000001f`,
-  },
-  itemText: { display: "flex", flexDirection: "column", flex: "1", minWidth: 0, gap: 4 },
-  itemTop: { display: "flex", gap: 8, minWidth: 0 },
-  kind: { color: tokens.faint, fontSize: 10, flexShrink: 0 },
-  kbd: {
-    fontFamily: tokens.ui,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: tokens.border,
-    borderRadius: `calc(3px * ${tokens.round})`,
-    paddingBlock: 1,
-    paddingInline: 4,
-    marginInline: 2,
-  },
-  hidden: {
-    position: "absolute",
-    width: 1,
-    height: 1,
-    overflow: "hidden",
-    clipPath: "inset(50%)",
-    whiteSpace: "nowrap",
   },
 });

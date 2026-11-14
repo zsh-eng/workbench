@@ -128,7 +128,7 @@ test("project symbols search immediately and ignore stale results and Enter", as
   expect(requests[0]!.signal?.aborted).toBe(true);
   requests[1]!.resolve(response({ query: "example", resultSource: commit, engine: "zoekt" }));
   await expect
-    .element(page.getByRole("option", { name: "example10 function main.ts:10" }))
+    .element(page.getByRole("option", { name: "example10 function main.ts Line 10" }))
     .toBeVisible();
   await input.fill("example80");
   await expect.poll(() => requests.length).toBe(3);
@@ -139,7 +139,7 @@ test("project symbols search immediately and ignore stale results and Enter", as
     response({ query: "example80", resultSource: commit, engine: "zoekt", matches: [symbols[1]!] }),
   );
   await expect
-    .element(page.getByRole("option", { name: "example80 function main.ts:80" }))
+    .element(page.getByRole("option", { name: "example80 function main.ts Line 80" }))
     .toBeEnabled();
   await userEvent.keyboard("{Enter}");
   expect(onOpen).toHaveBeenCalledWith("main.ts", 80, commit, 10);

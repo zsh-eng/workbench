@@ -298,7 +298,7 @@ try {
   await page.keyboard.press("Meta+Shift+O");
   const symbolPicker = page.getByRole("dialog", { name: /Find symbol/ });
   await page.getByRole("combobox", { name: "Find symbol in project" }).fill("line42");
-  await symbolPicker.getByRole("option", { name: /^line42 \w+ long\.ts:42$/ }).waitFor();
+  await symbolPicker.getByRole("option", { name: /^line42 \w+ long\.ts Line 42$/ }).waitFor();
   assert.match(await symbolPicker.innerText(), /Working files · with uncommitted changes/);
   await page.keyboard.press("Enter");
   await page.getByRole("textbox", { name: "Edit long.ts", exact: true }).waitFor();

@@ -130,7 +130,8 @@ The cache is `~/.cache/med/search`, or `$XDG_CACHE_HOME/med/search`. Set
 ![In-file symbol palette with a live jump in the current file](../validation/symbol-navigation.png)
 
 **Symbols in this file** (`⌘⇧O`) starts at the symbol nearest the cursor and
-ranks ties by distance. Arrow keys jump in the file; Enter keeps the position,
+ranks ties by distance. It opens beside the file, under the file's path, and
+each row ends with the symbol's line. Arrow keys jump in the file; Enter keeps the position,
 and Escape restores it. **Symbols in the project**, from the picker or the
 palette, searches the checkout's working files, with their uncommitted
 changes, and has its own preview. Both keep the last query, and both work in
