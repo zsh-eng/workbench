@@ -440,6 +440,17 @@ pre[data-rendered="true"]:is(:hover, :focus-within) :is(.med-md-diagram-tools, .
 .med-md-code:has(> .med-md-copy[data-copied])::before {
   opacity: 1;
 }
+/* On a Markdown page a code block has a strip at its top for its language:
+ * Copy sits at that strip's right end, across from the language, above the
+ * code, so no line needs the patch. A session's reply has no strip and keeps
+ * the button on its first line (SessionThread.css). */
+.med-md-prose:not(.med-session-prose) .med-md-code > .med-md-copy {
+  top: 5px;
+  right: 10px;
+}
+.med-md-prose:not(.med-session-prose) .med-md-code::before {
+  content: none;
+}
 /* The check says that the copy is there; the note is for a screen reader.
  * A copy that failed says why, left of the button. */
 .med-md-code > .med-md-copy-note {

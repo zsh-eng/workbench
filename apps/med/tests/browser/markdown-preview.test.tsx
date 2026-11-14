@@ -320,9 +320,15 @@ test("a code block has Copy, as in a session's replies; it copies the code as it
   );
   const copy = reading.getByRole("button", { name: "Copy code" });
   await expect.element(copy).toBeInTheDocument();
-  // The button sits on the block's first line, at its right end.
+  // The button sits in the block's strip for its language, at its right end,
+  // above the code.
   const block = document.querySelector<HTMLElement>(".med-md-code")!;
-  expect(block.querySelector(":scope > pre > code")?.textContent).toContain("bun install");
+  const code = block.querySelector<HTMLElement>(":scope > pre > code")!;
+  expect(code.textContent).toContain("bun install");
+  const button = copy.element().getBoundingClientRect();
+  const pre = block.querySelector("pre")!.getBoundingClientRect();
+  expect(button.bottom).toBeLessThanOrEqual(code.getBoundingClientRect().top);
+  expect(pre.right - button.right).toBeLessThan(16);
   await copy.click();
   expect(write).toHaveBeenCalledWith("bun install\nbun run dev");
   // The page's own notice says so, as for a table.
