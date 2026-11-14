@@ -311,6 +311,24 @@ test("a diagram's right-click offers it as an image, as an SVG, and its text; te
   ]);
 });
 
+test("a code block has Copy, as in a session's replies; it copies the code as its fence holds it", async () => {
+  const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+  const reading = await show(
+    ["# Setup", "", "```sh", "bun install", "bun run dev", "```", ""].join("\n"),
+    900,
+    "Setup",
+  );
+  const copy = reading.getByRole("button", { name: "Copy code" });
+  await expect.element(copy).toBeInTheDocument();
+  // The button sits on the block's first line, at its right end.
+  const block = document.querySelector<HTMLElement>(".med-md-code")!;
+  expect(block.querySelector(":scope > pre > code")?.textContent).toContain("bun install");
+  await copy.click();
+  expect(write).toHaveBeenCalledWith("bun install\nbun run dev");
+  // The page's own notice says so, as for a table.
+  await expect.element(reading.getByRole("status")).toHaveTextContent("Code copied");
+});
+
 test("without clipboard access, a copy says so briefly", async () => {
   vi.spyOn(navigator.clipboard, "write").mockRejectedValue(
     new DOMException("Write permission denied.", "NotAllowedError"),

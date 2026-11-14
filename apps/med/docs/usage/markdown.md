@@ -41,6 +41,9 @@ for its fonts.
 - **Copy page**, at the page's top corner beside **Edit source**, copies the
   file's Markdown as written, with unsaved edits. The rendered page has no bar
   above it, and while the file loads it stays empty.
+- A code block's **Copy** button sits on its first line while the pointer or
+  the focus is on it, as in a session's replies. It copies the code as its
+  fence holds it.
 - A table's **Copy** button shows while the pointer or the focus is on it.
   It copies the table's Markdown, and the table itself for editors and
   spreadsheets that paste one, without a quote's or a list's `>` or indent.

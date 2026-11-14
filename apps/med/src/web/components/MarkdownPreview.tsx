@@ -30,6 +30,7 @@ import { markdownImageUrl } from "../markdown/images";
 import { copyDiagram, copyDiagramSvg, copyImage, diagramSource } from "../markdown/copy";
 import { PointMenu, type PointMenuState } from "./PointMenu";
 import { useTableCopy } from "./TableCopy";
+import { useCodeCopy } from "./CodeCopy";
 import { copyFailure, useCopyNote } from "./DiagramCopy";
 
 const Block = memo(
@@ -184,6 +185,7 @@ export default function MarkdownPreview({
   const [copied, say] = useCopyNote();
   const scroller = useRef<HTMLDivElement>(null);
   useTableCopy(scroller, model.getText, say);
+  useCodeCopy(scroller, false, say);
   useKeptFolds(scroller);
   const contents = useRef<HTMLElement>(null);
   const scrollController = useRef<ReturnType<typeof connectPreviewScroll> | null>(null);
