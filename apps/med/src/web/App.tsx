@@ -511,6 +511,8 @@ export function App({
   // A review behind a pane that fills the room, as an expanded thread, is
   // not on screen: a page shows it again.
   const reviewVisible = panes.isOpen("review") && (!panes.zoom || panes.zoom === "review");
+  // So is a session behind an expanded review: ⌘⇧B shows it, at one press.
+  const sessionOnScreen = sessionVisible && (!panes.zoom || panes.zoom === "session");
   // Markdown files now read rendered or show their source in the file view
   // (FullFileView), so a saved layout's Preview pane has nothing to show;
   // the changed files are the Changes page's sidebar, not a pane.
@@ -1061,8 +1063,8 @@ export function App({
     closePane("session");
   }, [reviewVisible, showPane, closePane]);
   const toggleSession = useCallback(
-    () => (sessionVisible ? hideSession() : showPane("session")),
-    [sessionVisible, hideSession, showPane],
+    () => (sessionOnScreen ? hideSession() : showPane("session")),
+    [sessionOnScreen, hideSession, showPane],
   );
   const toggleReview = useCallback(
     () => (reviewVisible ? sessionVisible && closePane("review") : showPane("review")),
@@ -4485,7 +4487,7 @@ export function App({
             ? [
                 {
                   id: "agent-session",
-                  label: sessionVisible ? "Hide agent session" : "Show agent session",
+                  label: sessionOnScreen ? "Hide agent session" : "Show agent session",
                   shortcut: "⌘⇧B",
                   run: toggleSession,
                 },

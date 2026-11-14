@@ -338,7 +338,8 @@ background shells and agents. It follows the session live.
   thread** (`⌥N`, or `⌘N` in the installed app) starts another session.
 - `⌘⇧B` hides the session pane. It does not stop or close the session: the
   agent keeps working, and its row in the sidebar shows its state. The
-  review's **Restore**, `⌘K`, or `⌘⇧B` again, shows the pane.
+  review's **Restore**, `⌘K`, or `⌘⇧B` again, shows the pane. While the
+  review is expanded, `⌘⇧B` shows the session beside it.
 - A long session opens on its latest work. Scroll up for earlier work, or
   step back through its prompts with `{`, which also loads the earlier pages.
 - Under a turn's final reply, as in Claude Desktop: **Copy**, which copies

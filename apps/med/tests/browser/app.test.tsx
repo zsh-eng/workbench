@@ -4076,6 +4076,20 @@ describe("saved reviews", () => {
       .poll(() => document.querySelector('[data-pane="session"]')?.checkVisibility() ?? false)
       .toBe(false);
     await expect.element(session).toBeVisible();
+
+    // A session behind the expanded review shows at one press.
+    await userEvent.keyboard("{Control>}{Shift>}B{/Shift}{/Control}");
+    await expect.element(pane).toBeVisible();
+    await page.getByRole("button", { name: "Expand review" }).click();
+    await expect
+      .poll(() => document.querySelector('[data-pane="session"]')?.hasAttribute("inert"))
+      .toBe(true);
+    await userEvent.keyboard("{Control>}{Shift>}B{/Shift}{/Control}");
+    await expect
+      .poll(() => document.querySelector('[data-pane="session"]')?.hasAttribute("inert"))
+      .toBe(false);
+    await expect.element(pane).toBeVisible();
+    expect(document.querySelector('[data-pane="review"]')?.checkVisibility()).toBe(true);
   });
 
   test("shows Codex review findings read-only, at their lines or in the Codex panel", async () => {
