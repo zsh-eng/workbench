@@ -18,7 +18,8 @@ Each page of the review has its own sidebar: Review's guide, Changes' changed
 files, with what the diff compares at its top, and the tree of Files. Its hide button is at its
 heading's end, `⌘⌥B` hides and shows it, and a hidden sidebar leaves a button
 at the start of the review's second row. Each page keeps its own choice. The
-Commit page keeps its files, with the message and Push, beside the diff.
+Commit page keeps its files beside the diff, with commit and push as icons
+at the list's foot.
 
 Every pane and panel hides, and the review hides while the session shows
 beside it, so the workspace always keeps a pane. While the session hides, the

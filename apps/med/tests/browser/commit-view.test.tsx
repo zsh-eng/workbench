@@ -55,6 +55,7 @@ function createCheckout(changed: string[], staged: string[] = []) {
       unstaged: "",
       binary: false,
       tooLarge: false,
+      stamp: `${file.path}:${index.get(file.path) ?? ""}`,
     }),
     diff: async () => ({
       id: `diff-${[...work].join(",")}`,
@@ -112,6 +113,13 @@ function createCheckout(changed: string[], staged: string[] = []) {
       return { head: "b".repeat(40), summary: message };
     },
     push: async (head) => ({ head, remote: "origin", branch: "main" }),
+    // These files have one hunk each; the tests stage and keep whole files.
+    stageHunk: async () => {
+      throw new Error("This checkout stages whole files.");
+    },
+    discard: async () => {
+      throw new Error("This checkout keeps its files.");
+    },
   };
   return {
     api,

@@ -50,35 +50,56 @@ repository. The browser must have opened the launch URL first.
 ## Commit and push
 
 Press `q` in a review of live changes, or click the **Commit** page's Git
-icon, to stage files, commit them, and push the branch. Press `q` again to go
-back to the tab that showed before. In a file, `q` works from Vim's Normal and
-Visual modes, so it does not record a macro; after `f`, `t`, or `m` it is the
-letter that the motion waits for.
+icon, to stage files or hunks, discard changes, commit, and push the branch.
+Press `q` again to go back to the tab that showed before. In a file, `q`
+works from Vim's Normal and Visual modes, so it does not record a macro;
+after `f`, `t`, or `m` it is the letter that the motion waits for. Press `?`
+for the page's keys.
 
 - **Files.** The list shows each changed file: ● staged, ◐ partly staged, ○ not
   staged. Their diffs follow in the same order. `j` and `k` move through the
-  files and scroll the diffs; `Enter` opens a file in a tab.
+  files and scroll the diffs; `o` opens a file in a tab.
 - **Filter.** `/` filters by path. `Enter` keeps the filter and `Esc` clears
   it.
 - **Stage.** `Space`, or a click on the mark, stages or unstages a whole file.
   `a` stages every file shown, or unstages them all when all are staged.
-- **Commit.** `c` or **Commit…** opens the message: a summary, and `Enter`
-  goes on to the description. `⌘↵` commits the staged files. With nothing
+- **Hunks.** `Enter` goes into the focused file's hunks, as in lazygit. `j`
+  and `k` move from hunk to hunk, and the diff selects the focused one, with
+  its keys under it. `Space` stages the hunk, or unstages a staged one, and
+  the next hunk takes the focus. `Esc` goes back to the files. A new, deleted,
+  or binary file has no hunks to choose: its one hunk is the whole file. A
+  staged rename stays staged when you unstage one of its hunks.
+- **Discard.** `d` discards the focused file's changes, or in its hunks, the
+  focused hunk. A confirmation names what goes and says that you cannot undo
+  it; Cancel has the focus, so `Enter` or `Esc` keeps the changes, and `d`
+  again discards. The confirmation takes `d` only after it has shown for a
+  moment, so a quick `dd` does not discard. A file that Git does not track is
+  deleted. Other files go
+  back to the last commit. For a partly staged file, `u` discards only the
+  unstaged changes, back to the staged version, and `d` discards the staged
+  ones too. An unstaged hunk goes back to its staged version; a staged hunk
+  leaves both the staged changes and the working file. Med discards nothing
+  when the file changed after the confirmation showed it, and it does not
+  discard folders or submodules.
+- **Commit.** `c`, or the commit icon at the foot of the list, opens the
+  message: a summary, and `Enter` goes on to the description. `⌘↵`, or the
+  round button in the message, commits the staged files. With nothing
   staged, the commit takes every file that the dialog counts, unless a file
   has a conflict. As with `git commit -a`, those files are staged only for
   the commit: if it does not complete, nothing stays staged. `Esc` keeps the
   message as a draft. Hooks run; if a hook stops the commit, its output shows
   under the message.
-- **Push.** `⇧P` pushes to the upstream. For a branch without one, Med asks,
-  then pushes to the push remote (usually `origin`) and tracks it. Med never
-  force-pushes.
+- **Push.** `⇧P`, or the arrow beside the commit icon, pushes to the
+  upstream; the number beside the arrow counts the commits to push. For a
+  branch without an upstream, Med asks, then pushes to the push remote
+  (usually `origin`) and tracks it. Med never force-pushes.
 
-If the staged files change outside Med, or a stage fails, the commit stops
-and the tab reads them again. A commit holds the files that its dialog
-counted, with the changes that the tab showed, or nothing: when an agent
-changes a file after the tab showed it, the commit stops and keeps the
-message. For hunks, amends, rebases, and branch switches, use **Copy lazygit
-command** on the workspace.
+The icons' tooltips name their keys. If the staged files change outside Med,
+or a stage fails, the commit stops and the tab reads them again. A commit
+holds the files that its dialog counted, with the changes that the tab
+showed, or nothing: when an agent changes a file after the tab showed it, the
+commit stops and keeps the message. For amends, rebases, and branch switches,
+use **Copy lazygit command** on the workspace.
 
 ## Standalone files and dropped previews
 

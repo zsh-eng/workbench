@@ -20,7 +20,8 @@ export const pushResultSchema = z.object({
   branch: z.string(),
 });
 
-// The Commit tab: stage files, commit them, and push the branch.
+// The Commit tab: stage files or hunks, discard them, commit, and push the
+// branch.
 const repoField = z.string().min(1).max(4096);
 /** A Git object ID, SHA-1 or SHA-256. */
 const objectId = z.string().regex(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/);
@@ -67,6 +68,9 @@ export const fileChangesSchema = z.object({
   unstaged: z.string(),
   binary: z.boolean(),
   tooLarge: z.boolean(),
+  /** Names these changes, even when they are too large or binary to show.
+   * A discard of the whole file sends it back. */
+  stamp: z.string(),
 });
 export type FileChanges = z.infer<typeof fileChangesSchema>;
 /** Commit all names every change: at most 10,000, and a rename has two paths. */
@@ -78,6 +82,37 @@ export const stageRequestSchema = z.object({
   stage: z.boolean(),
 });
 export type StageRequest = z.infer<typeof stageRequestSchema>;
+/** One hunk of a file's patch, as `changes` gave it: at most the 2 MiB that
+ * `changes` reads. */
+const patchText = z.string().max(2 * 1024 * 1024);
+const changedFile = {
+  repo: repoField,
+  path: z.string().min(1).max(4096),
+  previousPath: z.string().min(1).max(4096).optional(),
+};
+export const hunkStageRequestSchema = z.object({
+  ...changedFile,
+  /** One hunk of the unstaged patch to stage, or of the staged patch to
+   * unstage. Git must still have it. */
+  hunk: patchText.min(1),
+  stage: z.boolean(),
+});
+export type HunkStageRequest = z.infer<typeof hunkStageRequestSchema>;
+export const discardRequestSchema = z
+  .object({
+    ...changedFile,
+    /** Staged changes go too: the file goes back to HEAD, or a staged hunk
+     * leaves the index and the working file. Without it, the index stays. */
+    staged: z.boolean(),
+    /** One hunk of the unstaged patch, or with `staged`, of the staged one. */
+    hunk: patchText.min(1).optional(),
+    /** The whole file: the stamp of the changes that the confirmation showed. */
+    stamp: z.string().min(1).max(128).optional(),
+  })
+  .refine((input) => (input.hunk === undefined) !== (input.stamp === undefined), {
+    message: "Name one hunk or the whole file.",
+  });
+export type DiscardRequest = z.infer<typeof discardRequestSchema>;
 /** One file of a commit, and what the Commit tab showed of it. */
 export const shownFileSchema = z.object({
   path: z.string().min(1).max(4096),
@@ -138,6 +173,20 @@ export const commitRoutes = {
     input: stageRequestSchema,
     output: workingStatusSchema,
     maxBody: 32 * 1024 * 1024,
+  },
+  stageHunk: {
+    method: "POST",
+    path: "/api/git/stage-hunk",
+    input: hunkStageRequestSchema,
+    output: workingStatusSchema,
+    maxBody: 8 * 1024 * 1024,
+  },
+  discard: {
+    method: "POST",
+    path: "/api/git/discard",
+    input: discardRequestSchema,
+    output: workingStatusSchema,
+    maxBody: 8 * 1024 * 1024,
   },
   commit: {
     method: "POST",

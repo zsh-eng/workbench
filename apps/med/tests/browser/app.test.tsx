@@ -2767,7 +2767,7 @@ describe("graphical review", () => {
       .toHaveAttribute("aria-checked", "true");
 
     // As in Changes, a file name in the stream opens the file (Command-click
-    // behind this tab), and Enter opens the focused file.
+    // behind this tab), and o opens the focused file.
     await userEvent.keyboard("q");
     const tab = (name: string) => page.getByRole("tab", { name, exact: true });
     const commitPage = page.getByRole("radio", { name: "Commit", exact: true });
@@ -2782,7 +2782,7 @@ describe("graphical review", () => {
     // It opens behind this page: Commit stays, and the file waits on Files.
     await expect.element(commitPage).toHaveAttribute("aria-checked", "true");
     await row("src/web/App.tsx").click();
-    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard("o");
     await expect.element(tab("App.tsx")).toHaveAttribute("aria-selected", "true");
     await expect.element(tab("CommitView.tsx")).toBeVisible();
     // Closing the file goes back to Commit, and q leaves Commit for the tab
@@ -2796,6 +2796,137 @@ describe("graphical review", () => {
     await expect
       .element(page.getByRole("radio", { name: "Changes", exact: true }))
       .toHaveAttribute("aria-checked", "true");
+  });
+  test("Enter goes into a file's hunks, where Space stages one, and d discards a hunk or a file after asking", async () => {
+    for (const key of Object.keys(localStorage))
+      if (key.startsWith("med:commit-message:")) localStorage.removeItem(key);
+    const repository = createFakeRepository({
+      upstream: true,
+      hookFails: false,
+      pushRejected: false,
+      slow: false,
+    });
+    await mountApp({ commitApi: repository.api });
+    await userEvent.keyboard("q");
+    const files = page.getByRole("listbox", { name: "Changed files" });
+    await expect.element(files).toHaveFocus();
+    const row = (path: string) => files.getByRole("option", { name: new RegExp(`^${path}, `) });
+    const usage = { path: "docs/USAGE.md", staged: null, unstaged: "modified" } as const;
+    const halves = () => repository.api.changes(usage);
+    const place = (text: string) => page.getByText(text, { exact: true });
+    // The confirmation's answer keys wait 400 ms after it opens.
+    const read = () => new Promise((resolve) => setTimeout(resolve, 450));
+
+    // docs/USAGE.md has two hunks, neither staged. Enter goes into them, and
+    // the focused hunk's keys show under it.
+    await expect
+      .element(row("docs/USAGE.md"))
+      .toHaveAccessibleName("docs/USAGE.md, not staged, modified");
+    await userEvent.keyboard("{Enter}");
+    await expect.element(place("Hunk 1 of 2, not staged")).toBeVisible();
+    const stream = page.getByRole("region", { name: "Changes to commit" });
+    await expect.element(stream.getByRole("toolbar", { name: "Hunk" })).toBeVisible();
+
+    // Space stages the first hunk alone, and the next one takes the focus.
+    await userEvent.keyboard(" ");
+    await expect
+      .element(row("docs/USAGE.md"))
+      .toHaveAccessibleName("docs/USAGE.md, partly staged, modified");
+    await expect.element(place("Hunk 2 of 2, not staged")).toBeVisible();
+    let { staged, unstaged } = await halves();
+    expect(staged).toContain("+Med reads the working files. The Commit tab stages");
+    expect(staged).not.toContain("+## Commit");
+    expect(unstaged).toContain("+## Commit");
+    // k goes back to the staged hunk, and Space unstages it.
+    await userEvent.keyboard("k");
+    await expect.element(place("Hunk 1 of 2, staged")).toBeVisible();
+    await userEvent.keyboard(" ");
+    await expect
+      .element(row("docs/USAGE.md"))
+      .toHaveAccessibleName("docs/USAGE.md, not staged, modified");
+    await expect.element(place("Hunk 1 of 2, not staged")).toBeVisible();
+
+    // d asks first and names the hunk; Cancel has the focus, and Esc keeps it.
+    await userEvent.keyboard("d");
+    const ask = page.getByRole("dialog", { name: "Discard this hunk?" });
+    await expect
+      .element(ask)
+      .toMatchTextContent(
+        /docs\/USAGE\.md, the hunk at line 20 \(\+1 −1\): its lines go back to the last commit\.You cannot undo this\./,
+      );
+    await expect.element(ask.getByRole("button", { name: /^Cancel/ })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(ask).not.toBeInTheDocument();
+    expect((await halves()).unstaged).toContain("+Med reads the working files.");
+    // A quick "dd" only asks. d in the confirmation discards the hunk once
+    // the confirmation has had a moment to be read; the other hunk stays.
+    await userEvent.keyboard("dd");
+    await expect.element(ask).toBeVisible();
+    expect((await halves()).unstaged).toContain("+Med reads the working files.");
+    await read();
+    await userEvent.keyboard("d");
+    await expect
+      .element(page.getByRole("status").filter({ hasText: "Discarded a hunk of docs/USAGE.md" }))
+      .toBeVisible();
+    ({ unstaged } = await halves());
+    expect(unstaged).not.toContain("+Med reads the working files.");
+    expect(unstaged).toContain("+## Commit");
+    await expect.element(place("Hunk 1 of 1, not staged")).toBeVisible();
+    await expect.element(ask).not.toBeInTheDocument();
+
+    // Esc goes back to the files. A file that Git does not track: d asks to
+    // delete it, and Enter on Cancel keeps it.
+    await userEvent.keyboard("{Escape}");
+    await expect.element(place("3 of 5 staged")).toBeVisible();
+    await userEvent.keyboard("jjjj");
+    await expect
+      .element(row("src/web/components/CommitView.tsx"))
+      .toHaveAttribute("aria-selected", "true");
+    await userEvent.keyboard("d");
+    const remove = page.getByRole("dialog", {
+      name: "Delete src/web/components/CommitView.tsx?",
+    });
+    await expect
+      .element(remove)
+      .toMatchTextContent(
+        /Git does not track this file, so Med deletes it\.You cannot undo this\./,
+      );
+    await userEvent.keyboard("{Enter}");
+    await expect.element(remove).not.toBeInTheDocument();
+    await expect.element(files).toHaveFocus();
+    await expect.element(row("src/web/components/CommitView.tsx")).toBeVisible();
+    // Tab goes to Delete file.
+    await userEvent.keyboard("d");
+    await expect.element(remove).toBeVisible();
+    await userEvent.keyboard("{Tab}");
+    await expect.element(remove.getByRole("button", { name: /^Delete file/ })).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(row("src/web/components/CommitView.tsx")).not.toBeInTheDocument();
+    await expect.element(remove).not.toBeInTheDocument();
+
+    // The focus stays at the deleted file's place: the last file now. A partly
+    // staged file offers to keep its staged changes, and says that the other
+    // choice takes them.
+    await expect.element(row("src/web/App.tsx")).toHaveAttribute("aria-selected", "true");
+    await userEvent.keyboard("d");
+    const partial = page.getByRole("dialog", { name: "Discard changes to src/web/App.tsx?" });
+    await expect
+      .element(partial)
+      .toMatchTextContent(
+        "It has staged and unstaged changes.Unstaged only: the file goes back to its staged version.Discard all: the staged changes go too, and the file goes back to the last commit.You cannot undo this.",
+      );
+    await read();
+    await userEvent.keyboard("u");
+    await expect.element(partial).not.toBeInTheDocument();
+    await expect
+      .element(row("src/web/App.tsx"))
+      .toHaveAccessibleName("src/web/App.tsx, staged, modified");
+
+    // ? shows the Commit tab's keys.
+    await userEvent.keyboard("?");
+    const guide = page.getByRole("dialog", { name: "Shortcuts & commands" });
+    await expect.element(guide.getByRole("tab", { name: /Commit/, selected: true })).toBeVisible();
+    await expect.element(guide.getByText("Go into the file's hunks")).toBeVisible();
   });
 });
 

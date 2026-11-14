@@ -2,9 +2,10 @@ import { platform } from "./keys";
 
 // The shortcut guide's content. Each entry documents what Med's dispatchers
 // actually do in that context; keep it in step with App's keydown handler,
-// vim-navigation.ts, and the editor overrides in FileEditor.tsx.
+// CommitView's keys, vim-navigation.ts, and the editor overrides in
+// FileEditor.tsx.
 
-export type GuideContextId = "review" | "file" | "editor" | "pickers";
+export type GuideContextId = "review" | "commit" | "file" | "editor" | "pickers";
 
 export interface GuideEntry {
   label: string;
@@ -116,6 +117,12 @@ export const guideContexts: GuideContext[] = [
             command: "file-symbols",
           },
           { label: "Resume the last file search", keys: ["Alt+R"], command: "resume-picker" },
+          {
+            label: "Open or close the Commit tab",
+            keys: ["q"],
+            note: "Live changes, outside text fields; in a file, in Vim's Normal or Visual mode",
+            command: "commit",
+          },
           { label: "Shortcuts and commands", keys: ["?"], note: "Outside text fields and files" },
         ],
       },
@@ -156,42 +163,6 @@ export const guideContexts: GuideContext[] = [
           { label: "Next / previous excerpt", keys: ["]", "["], note: "In the notes" },
           { label: "Add a note to selected excerpt lines", keys: ["c"], note: "In the notes" },
           { label: "Open the cited lines", keys: ["Enter"], note: "On a link or an excerpt" },
-        ],
-      },
-      {
-        title: "Commit",
-        description: "Stage files, commit them, and push the branch, as in lazygit.",
-        entries: [
-          {
-            label: "Open or close the Commit tab",
-            keys: ["q"],
-            note: "Live changes, outside text fields; in a file, in Vim's Normal or Visual mode",
-            command: "commit",
-          },
-          {
-            label: "Next / previous file",
-            keys: ["j", "k"],
-            note: "In the Commit tab; the diffs scroll with it",
-          },
-          { label: "Filter the files", keys: ["/"], note: "Esc clears it, as in a search" },
-          { label: "Stage or unstage the file", keys: ["Space"], note: "Or click its mark" },
-          { label: "Stage or unstage every file shown", keys: ["a"] },
-          {
-            label: "Open the focused file",
-            keys: ["Enter"],
-            note: "Or click its name in the diff",
-          },
-          {
-            label: "Write the commit message",
-            keys: ["c"],
-            note: "Opens in the middle; Esc keeps it as a draft",
-          },
-          { label: "Commit the staged files", keys: ["Mod+Enter"], note: "In the message" },
-          {
-            label: "Push the branch",
-            keys: ["Shift+P"],
-            note: "A branch without an upstream asks first",
-          },
         ],
       },
       {
@@ -294,6 +265,87 @@ export const guideContexts: GuideContext[] = [
           },
           { label: "Extend a line selection", keys: ["Shift+Click"], note: "Line numbers" },
           { label: "Select a range of commits", keys: ["Shift+Click"], note: "In History" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "commit",
+    label: "Commit",
+    description: "Stage files or hunks, discard changes, commit, and push, as in lazygit.",
+    groups: [
+      {
+        title: "Files",
+        entries: [
+          {
+            label: "Open or close the Commit tab",
+            keys: ["q"],
+            note: "Live changes, outside text fields; in a file, in Vim's Normal or Visual mode",
+            command: "commit",
+          },
+          { label: "Next / previous file", keys: ["j", "k"], note: "The diffs scroll with it" },
+          { label: "Stage or unstage the file", keys: ["Space"], note: "Or click its mark" },
+          { label: "Stage or unstage every file shown", keys: ["a"] },
+          {
+            label: "Go into the file's hunks",
+            keys: ["Enter"],
+            note: "A new, deleted, or binary file stages whole",
+          },
+          {
+            label: "Discard the file's changes",
+            keys: ["d"],
+            note: "Asks first; a file that Git does not track is deleted",
+          },
+          { label: "Open the file", keys: ["o"], note: "Or click its name in the diff" },
+          { label: "Filter the files", keys: ["/"], note: "Esc clears it, as in a search" },
+        ],
+      },
+      {
+        title: "Hunks",
+        description: "After Enter on a file, the keys act on one hunk at a time.",
+        entries: [
+          { label: "Next / previous hunk", keys: ["j", "k"] },
+          { label: "Stage or unstage the hunk", keys: ["Space"] },
+          {
+            label: "Discard the hunk",
+            keys: ["d"],
+            note: "Asks first; an unstaged hunk goes back to its staged version",
+          },
+          { label: "Back to the files", keys: ["Esc"] },
+        ],
+      },
+      {
+        title: "Discard",
+        description: "The confirmation names what goes. Cancel has the focus.",
+        entries: [
+          { label: "Keep the changes", keys: ["Esc", "Enter"] },
+          { label: "Discard", keys: ["d"] },
+          {
+            label: "Discard only the unstaged changes",
+            keys: ["u"],
+            note: "A partly staged file",
+          },
+        ],
+      },
+      {
+        title: "Commit and push",
+        entries: [
+          {
+            label: "Write the commit message",
+            keys: ["c"],
+            note: "Opens in the middle; Esc keeps it as a draft",
+          },
+          {
+            label: "Commit",
+            keys: ["Mod+Enter"],
+            note: "The staged files; with nothing staged, every file",
+          },
+          {
+            label: "Push the branch",
+            keys: ["Shift+P"],
+            note: "A branch without an upstream asks first",
+          },
+          { label: "Shortcuts", keys: ["?"] },
         ],
       },
     ],

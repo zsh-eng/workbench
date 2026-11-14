@@ -28,11 +28,11 @@ export function CommitSection() {
     <Section
       id="commit"
       title="Commit flow"
-      lede="The Commit tab (q in a review) on a pretend repository: staging, commits, and pushes change only this page. Click inside the view to use its keys."
+      lede="The Commit tab (q in a review) on a pretend repository: staging, discards, commits, and pushes change only this page. Click inside the view to use its keys."
     >
       <Specimen
         title="Commit tab"
-        note="j/k move, Space stages a file, a stages all, / filters, c writes the message, ⌘↵ commits, ⇧P pushes."
+        note="j/k move, Space stages a file, Enter goes into its hunks (Esc comes back), d discards after asking, a stages all, / filters, c writes the message, ⌘↵ commits, ⇧P pushes."
         padded={false}
         zoomable={false}
       >

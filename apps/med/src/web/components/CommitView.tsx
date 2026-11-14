@@ -1,6 +1,11 @@
 import { Dialog } from "@base-ui/react/dialog";
 import * as stylex from "@stylexjs/stylex";
-import type { FileDiffMetadata } from "@pierre/diffs";
+import type {
+  DiffLineAnnotation,
+  FileDiffMetadata,
+  SelectedLineRange,
+  SelectionSide,
+} from "@pierre/diffs";
 import {
   CodeView,
   type CodeViewHandle,
@@ -11,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ReviewFile } from "../../shared/protocol";
 import { normalizeDiffMetadataPaths } from "../../shared/hunk/diffPaths";
+import { hunkBody, splitPatch, wholeFilePatch, type PatchHunk } from "../../shared/patch-hunks";
 import { emptyMetadata, parseReviewPatch, reviewFileMatchesFilter } from "../../shared/review";
 import {
   predictStage,
@@ -18,6 +24,7 @@ import {
   stagedPaths,
   stageState,
   type CommitApi,
+  type FileChanges,
   type ShownFile,
   type StageChange,
   type WorkingDiff,
@@ -33,7 +40,7 @@ import { diffSurfaceStyle } from "./diff-surface";
 import { Icon } from "./Icon";
 import { PathLabel } from "./PathLabel";
 import { ShortcutKeys } from "./ShortcutKeys";
-import { clippedTooltip } from "./ToolButton";
+import { clippedTooltip, ToolButton, tooltip } from "./ToolButton";
 import { useWorkspaceShown } from "./Workspaces";
 import { HIGHLIGHTER } from "../pierre-theme";
 
@@ -83,15 +90,43 @@ interface ParsedDiff {
   id: string;
   files: Map<string, { info: ReviewFile; metadata: FileDiffMetadata | null; object?: string }>;
 }
-/** A partly staged file shows its staged and unstaged halves. */
+type Part = "staged" | "unstaged";
+/** A partly staged file shows its staged and unstaged halves. The file in
+ * hunk mode reads them too, for the text of its hunks. */
 interface Split {
   key: string;
   staged: FileDiffMetadata | null;
   unstaged: FileDiffMetadata | null;
+  /** The two patches as Git wrote them. */
+  patches: Pick<FileChanges, Part>;
+  /** Names the two patches, for a discard of the whole file. */
+  stamp: string;
   /** The staged blob, as the last read named it. */
   stagedObject?: string;
   note: string | null;
 }
+/** Hunk mode: the file whose hunks the keys move through, and the hunk in
+ * focus, by its half and its place there. */
+interface HunkFocus {
+  path: string;
+  part: Part;
+  index: number;
+}
+/** One hunk of the file in hunk mode, and where the stream shows it. */
+interface HunkTarget {
+  part: Part;
+  index: number;
+  hunk: PatchHunk;
+  /** A new or deleted file: its one hunk is the whole file. */
+  whole: boolean;
+  entryId: string;
+  range: SelectedLineRange;
+}
+/** A discard that waits for the user's answer: a hunk, or a whole file
+ * with the stamp of the changes that the confirmation names. */
+type PendingDiscard =
+  | { file: WorkingFile; target: HunkTarget }
+  | { file: WorkingFile; stamp: string };
 /** One file, or one half of a partly staged file, in the stream. */
 interface StreamEntry {
   id: string;
@@ -186,6 +221,125 @@ function placeholder(owner: object, file: WorkingFile) {
   return metadata;
 }
 
+/** How long, in milliseconds, the confirmation's answer keys wait after it
+ * opens. */
+const ANSWER_DELAY = 400;
+
+const conflicted = (file: WorkingFile) =>
+  file.staged === "conflicted" || file.unstaged === "conflicted";
+
+/** A hunk's rows in the unified stream, from its first line to its last. */
+function hunkRange(hunk: PatchHunk): SelectedLineRange {
+  const kinds = hunkBody(hunk.text)
+    .split("\n")
+    .map((line) => line[0])
+    .filter((kind) => kind === " " || kind === "+" || kind === "-");
+  const first: SelectionSide = kinds[0] === "-" ? "deletions" : "additions";
+  const last: SelectionSide = kinds.at(-1) === "-" ? "deletions" : "additions";
+  return {
+    start: first === "deletions" ? hunk.oldStart : hunk.newStart,
+    side: first,
+    end:
+      last === "deletions"
+        ? hunk.oldStart + Math.max(0, hunk.oldCount - 1)
+        : hunk.newStart + Math.max(0, hunk.newCount - 1),
+    endSide: last,
+  };
+}
+
+// The item with the hunk's keys redraws when they move to another line: one
+// version for each metadata and each line.
+const barVersions = new WeakMap<FileDiffMetadata, Map<string, number>>();
+function versionWithBar(metadata: FileDiffMetadata, line: string) {
+  let byLine = barVersions.get(metadata);
+  if (!byLine) barVersions.set(metadata, (byLine = new Map()));
+  let version = byLine.get(line);
+  if (version === undefined) byLine.set(line, (version = ++nextVersion));
+  return version;
+}
+
+interface DiscardChoice {
+  label: string;
+  /** The key that answers with this choice in the confirmation. */
+  key: string;
+  /** Staged changes go too. */
+  staged: boolean;
+}
+/** What a discard takes, in words, and its answers. */
+function describeDiscard(pending: PendingDiscard): {
+  title: string;
+  text: string[];
+  choices: DiscardChoice[];
+} {
+  const { file } = pending;
+  if ("target" in pending) {
+    const { hunk, part } = pending.target;
+    const at = `${file.path}, the hunk at line ${hunk.newCount ? hunk.newStart : hunk.oldStart} (+${hunk.added} −${hunk.removed})`;
+    return part === "staged"
+      ? {
+          title: "Discard this staged hunk?",
+          text: [
+            `${at}: its lines leave the staged changes and the working file, and go back to the last commit.`,
+          ],
+          choices: [{ label: "Discard hunk", key: "d", staged: true }],
+        }
+      : {
+          title: "Discard this hunk?",
+          text: [
+            `${at}: its lines go back to ${file.staged ? "their staged version" : "the last commit"}.`,
+          ],
+          choices: [{ label: "Discard hunk", key: "d", staged: false }],
+        };
+  }
+  const { path, previousPath, staged, unstaged } = file;
+  if (!staged)
+    return unstaged === "untracked" || unstaged === "added"
+      ? {
+          title: `Delete ${path}?`,
+          text: [
+            unstaged === "added"
+              ? "Git has only its name (git add -N), so Med deletes the file."
+              : "Git does not track this file, so Med deletes it.",
+          ],
+          choices: [{ label: "Delete file", key: "d", staged: false }],
+        }
+      : {
+          title: `Discard changes to ${path}?`,
+          text: [
+            unstaged === "deleted"
+              ? "The file comes back as it is in the last commit."
+              : "Its changes go, and the file goes back to the last commit.",
+          ],
+          choices: [{ label: "Discard", key: "d", staged: false }],
+        };
+  const back =
+    staged === "added"
+      ? "Med deletes the new file."
+      : staged === "renamed" && previousPath
+        ? `the rename is undone: ${previousPath} comes back, and ${path} goes.`
+        : staged === "deleted"
+          ? "the file comes back as it is in the last commit."
+          : "the staged changes go too, and the file goes back to the last commit.";
+  if (!unstaged)
+    return {
+      title: `Discard staged changes to ${path}?`,
+      text: [`${back[0]!.toUpperCase()}${back.slice(1)}`],
+      choices: [{ label: "Discard", key: "d", staged: true }],
+    };
+  return {
+    title: `Discard changes to ${path}?`,
+    text: [
+      "It has staged and unstaged changes.",
+      `Unstaged only: ${unstaged === "untracked" ? "Med deletes the file on disk, and the staged deletion stays." : "the file goes back to its staged version."}`,
+      `Discard all: ${back}`,
+    ],
+    choices: [
+      { label: "Unstaged only", key: "u", staged: false },
+      { label: "Discard all", key: "d", staged: true },
+    ],
+  };
+}
+
 /**
  * The files that a commit takes, with what the tab shows of each: the blob
  * on its diff's index line, or, for a new file that Git does not track, the
@@ -225,11 +379,13 @@ async function shownToCommit(
 }
 
 /**
- * Stage files, commit them, and push the branch: the part of lazygit that a
- * review needs. The changed files and their diffs are one stream in the same
- * order, so moving through files scrolls. Keys: j/k move, Space stages a
- * file, a stages all, / filters, c writes the message, Mod+Enter commits,
- * P pushes. Staging shows at once; Git's answer follows.
+ * Stage files or hunks, commit them, and push the branch: the part of
+ * lazygit that a review needs. The changed files and their diffs are one
+ * stream in the same order, so moving through files scrolls. Keys: j/k move,
+ * Space stages a file, Enter goes into its hunks (Space stages a hunk, Esc
+ * goes back), d discards after a confirmation, a stages all, / filters, c
+ * writes the message, Mod+Enter commits, P pushes. A file's stage shows at
+ * once; Git's answer follows.
  */
 export default function CommitView({
   api,
@@ -268,8 +424,14 @@ export default function CommitView({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [focused, setFocused] = useState<string | null>(null);
+  const [hunkFocus, setHunkFocus] = useState<HunkFocus | null>(null);
+  // A hunk's stage or discard that Git has not answered yet.
+  const [hunkWrite, setHunkWrite] = useState(false);
+  // The discard that the confirmation names; it stays while the dialog closes.
+  const [asking, setAsking] = useState<PendingDiscard | null>(null);
+  const [askOpen, setAskOpen] = useState(false);
   const [text, setText] = useState(() => (draftKey ? readDraft(draftKey) : ""));
-  const [busy, setBusy] = useState<"commit" | "push" | null>(null);
+  const [busy, setBusy] = useState<"commit" | "push" | "discard" | null>(null);
   const [notice, setNotice] = useState<{ tone: "done" | "error"; text: string } | null>(null);
   const [confirmTrack, setConfirmTrack] = useState(false);
   // The message appears only while the user writes it.
@@ -281,8 +443,11 @@ export default function CommitView({
   const bodyField = useRef<HTMLTextAreaElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const confirmButton = useRef<HTMLButtonElement>(null);
+  const cancelDiscard = useRef<HTMLButtonElement>(null);
   const viewer = useRef<CodeViewHandle<undefined, undefined>>(null);
   const queue = useRef(Promise.resolve());
+  // Writes in the queue that Git has not answered.
+  const inFlight = useRef(0);
   const shownDiff = useRef<ParsedDiff | null>(null);
   const parser = useRef<ReturnType<typeof createPatchParser> | null>(null);
   // After a key or a click on the list, the list leads and the stream follows,
@@ -302,17 +467,23 @@ export default function CommitView({
         : files,
     [files, filter],
   );
-  const focusedFile = shown.find((file) => file.path === focused) ?? shown[0] ?? null;
+  // A file that leaves the list, as after a discard, leaves the focus at its
+  // place, as in lazygit.
+  const [place, setPlace] = useState(0);
+  const found = shown.findIndex((file) => file.path === focused);
+  const focusedFile =
+    found >= 0 ? shown[found]! : (shown[Math.min(place, shown.length - 1)] ?? null);
+  if (found >= 0 && found !== place) setPlace(found);
+  // Hunk mode lasts while its file shows.
+  const hunkFile = hunkFocus ? (shown.find((file) => file.path === hunkFocus.path) ?? null) : null;
+  if (hunkFocus && status && !hunkFile) setHunkFocus(null);
   // The file list's width, as the reader set it with its edge.
   const { measure, width, pane } = useColumnWidth("commit", (pane) => Math.max(240, pane * 0.28));
   const stacked = !!pane && pane <= 720;
   const stagedCount = files.filter((file) => file.staged && file.staged !== "conflicted").length;
   // With nothing staged, a commit takes every change, as `git commit -a`
   // would, unless a conflict needs a choice first.
-  const commitAll =
-    !stagedCount &&
-    files.length > 0 &&
-    !files.some((file) => file.staged === "conflicted" || file.unstaged === "conflicted");
+  const commitAll = !stagedCount && files.length > 0 && !files.some(conflicted);
   const commitCount = stagedCount || (commitAll ? files.length : 0);
 
   const accept = useCallback((next: WorkingStatus) => {
@@ -370,11 +541,15 @@ export default function CommitView({
     return () => abort.abort();
   }, [accept, active, api, revision, showDiff]);
 
-  // A partly staged file reads its two halves; other files use the stream's diff.
+  // A partly staged file reads its two halves, and so does the file in hunk
+  // mode, for its hunks' text. Other files use the stream's diff.
   const splitKey = `${server?.indexKey}\0${diff?.id}`;
-  const partial = useMemo(() => files.filter((file) => stageState(file) === "partial"), [files]);
+  const halved = useMemo(
+    () => files.filter((file) => stageState(file) === "partial" || file.path === hunkFocus?.path),
+    [files, hunkFocus?.path],
+  );
   useEffect(() => {
-    const missing = partial.filter((file) => splits.get(file.path)?.key !== splitKey);
+    const missing = halved.filter((file) => splits.get(file.path)?.key !== splitKey);
     if (!active || !server || !missing.length) return;
     const abort = new AbortController();
     Promise.all(
@@ -398,6 +573,8 @@ export default function CommitView({
             staged: half(staged, before?.staged),
             stagedObject: staged?.newObjectId,
             unstaged: half(parse(halves.unstaged), before?.unstaged),
+            patches: { staged: halves.staged, unstaged: halves.unstaged },
+            stamp: halves.stamp,
             note: halves.binary ? "Binary file" : halves.tooLarge ? "Too large to show" : null,
           },
         ];
@@ -406,12 +583,18 @@ export default function CommitView({
       (loaded) => {
         if (!abort.signal.aborted) setSplits((current) => new Map([...current, ...loaded]));
       },
-      () => {
+      (error) => {
         // The stream keeps the file's whole change until the halves load.
+        if (
+          !abort.signal.aborted &&
+          !aborted(error) &&
+          missing.some((file) => file.path === hunkFocus?.path)
+        )
+          setNotice({ tone: "error", text: message(error) });
       },
     );
     return () => abort.abort();
-  }, [active, api, partial, server, splitKey, splits]);
+  }, [active, api, halved, hunkFocus?.path, server, splitKey, splits]);
 
   useEffect(() => {
     if (draftKey) writeDraft(draftKey, text);
@@ -431,7 +614,8 @@ export default function CommitView({
 
   /** Runs writes one at a time, so quick keys reach Git in order. */
   const run = useCallback(
-    (kind: "commit" | "push" | null, work: () => Promise<string | void>) => {
+    (kind: "commit" | "push" | "discard" | null, work: () => Promise<string | void>) => {
+      inFlight.current += 1;
       queue.current = queue.current.then(async () => {
         if (kind) setBusy(kind);
         try {
@@ -442,27 +626,47 @@ export default function CommitView({
           await readStatus().catch(() => {});
         } finally {
           if (kind) setBusy(null);
+          inFlight.current -= 1;
         }
       });
       return queue.current;
     },
     [readStatus],
   );
+  /** A write whose answer is the new status. Status reads that overlap it
+   * do not replace that answer. `settle` runs with the answer, in the same
+   * render, so the view never shows the status from before the write. */
+  const write = useCallback(
+    (
+      kind: "discard" | null,
+      work: () => Promise<WorkingStatus>,
+      settle?: () => void,
+      after?: () => Promise<string>,
+    ) => {
+      writes.current += 1;
+      return run(kind, async () => {
+        try {
+          accept(await work());
+        } finally {
+          settle?.();
+          writes.current += 1;
+        }
+        return after?.();
+      });
+    },
+    [accept, run],
+  );
   const stage = useCallback(
     (paths: string[] | null, value: boolean) => {
       const change: StageChange = { paths: paths && new Set(paths), stage: value };
       setPending((current) => [...current, change]);
-      writes.current += 1;
-      return run(null, async () => {
-        try {
-          accept(await api.stage(paths, value));
-        } finally {
-          setPending((current) => current.filter((entry) => entry !== change));
-          writes.current += 1;
-        }
-      });
+      return write(
+        null,
+        () => api.stage(paths, value),
+        () => setPending((current) => current.filter((entry) => entry !== change)),
+      );
     },
-    [accept, api, run],
+    [api, write],
   );
   const toggle = useCallback(
     (file: WorkingFile) => stage(rowPaths(file), stageState(file) !== "staged"),
@@ -541,9 +745,10 @@ export default function CommitView({
   const entries = useMemo<StreamEntry[]>(
     () =>
       shown.flatMap((file): StreamEntry[] => {
-        // Halves read for an older index stay until the new ones load.
+        // Halves read for an older index stay until the new ones load, but
+        // not halves read before the file was partly staged.
         const split = stageState(file) === "partial" ? splits.get(file.path) : undefined;
-        if (split)
+        if (split && (split.key === splitKey || (split.staged && split.unstaged)))
           return [
             {
               id: `s:${file.path}`,
@@ -583,23 +788,182 @@ export default function CommitView({
           },
         ];
       }),
-    [diff, shown, splits],
+    [diff, shown, splitKey, splits],
   );
+
+  // Hunk mode: the hunks of its file, in stream order, from the patches Git
+  // wrote, so that a stage or discard names one by its text.
+  const hunkTargets = useMemo<HunkTarget[]>(() => {
+    const split = hunkFile && splits.get(hunkFile.path);
+    if (!hunkFile || !split) return [];
+    const halves = entries.some((entry) => entry.id === `s:${hunkFile.path}`);
+    return (["staged", "unstaged"] as const).flatMap((part) => {
+      const { header, hunks } = splitPatch(split.patches[part]);
+      return hunks.map((hunk, index) => ({
+        part,
+        index,
+        hunk,
+        whole: wholeFilePatch(header),
+        entryId: halves
+          ? `${part === "staged" ? "s" : "u"}:${hunkFile.path}`
+          : `f:${hunkFile.path}`,
+        range: hunkRange(hunk),
+      }));
+    });
+  }, [entries, hunkFile, splits]);
+  // A hunk that left its half takes the focus to the next one there, or to
+  // the nearest in the other half.
+  const focusedHunk = useMemo(() => {
+    if (!hunkFocus || !hunkTargets.length) return null;
+    const same = hunkTargets.filter((target) => target.part === hunkFocus.part);
+    if (same.length) return same[Math.min(hunkFocus.index, same.length - 1)]!;
+    return hunkFocus.part === "unstaged" ? hunkTargets.at(-1)! : hunkTargets[0]!;
+  }, [hunkFocus, hunkTargets]);
+  // Keys act on hunks as Git has them now, not before the last write.
+  const hunksReady = !!hunkFile && !hunkWrite && splits.get(hunkFile.path)?.key === splitKey;
+  const moveHunk = useCallback(
+    (step: number) => {
+      if (!hunkFile || !hunkTargets.length) return;
+      const at = focusedHunk ? hunkTargets.indexOf(focusedHunk) : -1;
+      const next = hunkTargets[Math.max(0, Math.min(hunkTargets.length - 1, at + step))]!;
+      setHunkFocus({ path: hunkFile.path, part: next.part, index: next.index });
+    },
+    [focusedHunk, hunkFile, hunkTargets],
+  );
+  const enterHunks = useCallback(
+    (file: WorkingFile) => {
+      const entry = diff?.files.get(file.path);
+      const flat = conflicted(file)
+        ? "A file with a conflict has no hunks to stage. Resolve it, then stage it whole."
+        : entry?.info.binary || entry?.info.tooLarge || splits.get(file.path)?.note
+          ? `${file.path} has no text hunks. Space stages it whole.`
+          : null;
+      if (flat) {
+        setNotice({ tone: "done", text: flat });
+        return;
+      }
+      setNotice(null);
+      setHunkFocus({ path: file.path, part: file.unstaged ? "unstaged" : "staged", index: 0 });
+    },
+    [diff, splits],
+  );
+  /** Stage or unstage a hunk. The next key waits for Git's answer and the
+   * hunks it leaves. */
+  const toggleHunk = useCallback(
+    (file: WorkingFile, target: HunkTarget) => {
+      setHunkWrite(true);
+      return write(
+        null,
+        // A new or deleted file stages whole, by its paths: its one hunk can
+        // be larger than a hunk request takes.
+        () =>
+          target.whole
+            ? api.stage(rowPaths(file), target.part === "unstaged")
+            : api.stageHunk(file, target.hunk.text, target.part === "unstaged"),
+        () => setHunkWrite(false),
+      );
+    },
+    [api, write],
+  );
+  // When the confirmation opened: its answer keys wait a moment, so that a
+  // quick "dd" does not answer it unread.
+  const askedAt = useRef(0);
+  const openAsk = useCallback((pending: PendingDiscard) => {
+    askedAt.current = performance.now();
+    setAsking(pending);
+    setAskOpen(true);
+  }, []);
+  /** d: ask before a discard, with what the tab shows of the hunk or file. */
+  const askDiscard = useCallback(async () => {
+    if (hunkFile && !hunksReady) return;
+    if (hunkFile && focusedHunk && !focusedHunk.whole) {
+      openAsk({ file: hunkFile, target: focusedHunk });
+      return;
+    }
+    let file: WorkingFile | null | undefined = hunkFile ?? focusedFile;
+    if (!file) return;
+    const split = splits.get(file.path);
+    let fresh = split?.key === splitKey;
+    // A stage that Git has not answered changes what a discard takes: ask
+    // about the file as Git has it after the stage.
+    if (inFlight.current) {
+      await queue.current;
+      const { path } = file;
+      file = latest.current?.files.find((entry) => entry.path === path);
+      if (!file) return;
+      fresh = false;
+    }
+    if (conflicted(file)) {
+      setNotice({ tone: "error", text: "Resolve the conflict in this file first." });
+      return;
+    }
+    try {
+      openAsk({ file, stamp: fresh && split ? split.stamp : (await api.changes(file)).stamp });
+    } catch (error) {
+      setNotice({ tone: "error", text: message(error) });
+    }
+  }, [api, focusedFile, focusedHunk, hunkFile, hunksReady, openAsk, splitKey, splits]);
+  const discard = useCallback(
+    (asked: PendingDiscard, staged: boolean) => {
+      setAskOpen(false);
+      const hunk = "target" in asked;
+      // The hunk keys wait for the new diff too: the working file changed.
+      if (hunk) setHunkWrite(true);
+      return write(
+        "discard",
+        () =>
+          api.discard(
+            asked.file,
+            hunk ? { staged, hunk: asked.target.hunk.text } : { staged, stamp: asked.stamp },
+          ),
+        undefined,
+        async () => {
+          await readDiff();
+          return hunk ? `Discarded a hunk of ${asked.file.path}` : `Discarded ${asked.file.path}`;
+        },
+      ).finally(() => hunk && setHunkWrite(false));
+    },
+    [api, readDiff, write],
+  );
+
   const items = useMemo<CodeViewItem<undefined>[]>(
     () =>
       entries.map((entry) => {
         const fileDiff = entry.metadata ?? placeholder(diff ?? loading, entry.file);
+        // The focused hunk's keys follow its last line.
+        const bar: DiffLineAnnotation | null =
+          focusedHunk?.entryId === entry.id && entry.metadata
+            ? { side: focusedHunk.range.endSide!, lineNumber: focusedHunk.range.end }
+            : null;
         return {
           id: entry.id,
           type: "diff" as const,
           fileDiff,
-          version: versionOf(fileDiff),
+          version: bar
+            ? versionWithBar(fileDiff, `${bar.side}:${bar.lineNumber}`)
+            : versionOf(fileDiff),
           collapsed: !entry.metadata?.hunks.length,
+          ...(bar ? { annotations: [bar] } : {}),
         };
       }),
-    [diff, entries],
+    [diff, entries, focusedHunk],
   );
   const entryById = useMemo(() => new Map(entries.map((entry) => [entry.id, entry])), [entries]);
+  // The focused hunk is selected and sits in the middle of the stream.
+  const selectedLines = useMemo(
+    () => (focusedHunk ? { id: focusedHunk.entryId, range: focusedHunk.range } : null),
+    [focusedHunk],
+  );
+  // Only a new hunk scrolls: a status read leaves the stream where it is.
+  const scrolledTo = useRef("");
+  useEffect(() => {
+    const key = selectedLines ? JSON.stringify(selectedLines) : "";
+    if (key === scrolledTo.current) return;
+    scrolledTo.current = key;
+    if (!selectedLines) return;
+    following.current = true;
+    viewer.current?.scrollTo({ type: "range", ...selectedLines, align: "center" });
+  }, [selectedLines]);
 
   useEffect(() => {
     cursor.current = focusedFile?.path ?? null;
@@ -627,6 +991,10 @@ export default function CommitView({
     },
     [focusedFile, select, shown],
   );
+  const open = useCallback(
+    (file: WorkingFile | null) => file && onDisk(file) && onOpenFile?.(file.path, false),
+    [onOpenFile],
+  );
 
   // The lazygit keys, while this view is on screen and no field has focus.
   useEffect(() => {
@@ -638,39 +1006,60 @@ export default function CommitView({
       const typing =
         !!target &&
         (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable);
-      if (typing || visibleElement('[role="dialog"]')) return;
+      // A key from a dialog, such as the Esc that closes it, stays there.
+      if (typing || visibleElement('[role="dialog"]') || target?.closest('[role="dialog"]')) return;
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
         event.preventDefault();
         compose();
         return;
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      // As in a search: Escape outside the field clears the filter.
+      // Escape leaves the hunks; outside them, as in a search, it clears the
+      // filter.
       if (event.key === "Escape") {
-        if (filter) {
+        if (hunkFile || filter) {
           event.preventDefault();
-          setFilter("");
+          if (hunkFile) setHunkFocus(null);
+          else setFilter("");
         }
         return;
       }
-      const bindings: Record<string, () => void> = {
-        j: () => move(1),
-        ArrowDown: () => move(1),
-        k: () => move(-1),
-        ArrowUp: () => move(-1),
-        " ": () => focusedFile && void toggle(focusedFile),
-        Enter: () => focusedFile && onDisk(focusedFile) && onOpenFile?.(focusedFile.path, false),
+      const both: Record<string, () => void> = {
         a: () => void toggleShown(),
         "/": () => search.current?.focus(),
         c: compose,
+        d: () => void askDiscard(),
+        o: () => open(hunkFile ?? focusedFile),
         P: () => void push(),
       };
+      const bindings: Record<string, () => void> = hunkFile
+        ? {
+            ...both,
+            j: () => moveHunk(1),
+            ArrowDown: () => moveHunk(1),
+            k: () => moveHunk(-1),
+            ArrowUp: () => moveHunk(-1),
+            " ": () => hunksReady && focusedHunk && void toggleHunk(hunkFile, focusedHunk),
+          }
+        : {
+            ...both,
+            j: () => move(1),
+            ArrowDown: () => move(1),
+            k: () => move(-1),
+            ArrowUp: () => move(-1),
+            " ": () => focusedFile && void toggle(focusedFile),
+            Enter: () => focusedFile && enterHunks(focusedFile),
+          };
       // Shift with a letter is its capital, whatever the key event reports.
       const name = event.shiftKey && event.key.length === 1 ? event.key.toUpperCase() : event.key;
       const action = bindings[name];
       if (!action) return;
-      // Enter on a focused button or link presses it.
-      if (name === "Enter" && target?.closest("button, a, [role='button'], [role='link']")) return;
+      // Enter or Space on a focused button or link presses it.
+      if (
+        (name === "Enter" || name === " ") &&
+        target?.closest("button, a, [role='button'], [role='link']")
+      )
+        return;
       event.preventDefault();
       action();
     };
@@ -678,14 +1067,21 @@ export default function CommitView({
     return () => window.removeEventListener("keydown", keydown);
   }, [
     active,
+    askDiscard,
     compose,
+    enterHunks,
     filter,
     focusedFile,
+    focusedHunk,
+    hunkFile,
+    hunksReady,
     keys,
     move,
-    onOpenFile,
+    moveHunk,
+    open,
     push,
     toggle,
+    toggleHunk,
     toggleShown,
     workspaceShown,
   ]);
@@ -709,9 +1105,26 @@ export default function CommitView({
     : status?.pushRemote && status.branch
       ? `${status.pushRemote}/${status.branch}`
       : null;
+  const ahead = status?.ahead ?? 0;
+  const canPush =
+    busy === null && !!status?.head && !!status.branch && (!status.upstream || ahead > 0);
+  const pushTip = !pushLabel
+    ? "No remote to push to"
+    : !status?.upstream
+      ? `Push to ${pushLabel} and track it`
+      : ahead
+        ? `Push ${ahead} ${ahead === 1 ? "commit" : "commits"} to ${pushLabel}`
+        : `Nothing to push: ${pushLabel} has every commit`;
+  const commitTip = commitAll
+    ? `Commit all ${commitCount} ${commitCount === 1 ? "file" : "files"}`
+    : commitCount
+      ? `Commit ${commitCount} staged ${commitCount === 1 ? "file" : "files"}`
+      : "Nothing to commit";
   const bodyRows = Math.min(14, Math.max(4, body.split("\n").length + 1));
   const summaryLength = summary.trim().length;
   const inRow = stageIn !== undefined;
+  const asked = asking && describeDiscard(asking);
+  const hunkPlace = focusedHunk ? hunkTargets.indexOf(focusedHunk) + 1 : 0;
   const stageButton = (
     <button
       type="button"
@@ -791,6 +1204,7 @@ export default function CommitView({
             {shown.map((file) => {
               const state = stageState(file);
               const kind = change(file);
+              const current = file === focusedFile;
               return (
                 // The listbox takes the keys and names the focused row.
                 // oxlint-disable-next-line jsx-a11y/click-events-have-key-events
@@ -799,17 +1213,21 @@ export default function CommitView({
                   id={rowId(file.path)}
                   role="option"
                   tabIndex={-1}
-                  aria-selected={file === focusedFile}
+                  aria-selected={current}
                   aria-label={`${file.path}, ${marks[state].label}${kind ? `, ${kind}` : ""}`}
                   {...clippedTooltip(
                     file.previousPath ? `${file.previousPath} → ${file.path}` : file.path,
                   )}
                   onClick={() => {
+                    setHunkFocus(null);
                     select(file.path, true);
                     list.current?.focus({ preventScroll: true });
                   }}
                   onDoubleClick={() => void toggle(file)}
-                  {...stylex.props(styles.row, file === focusedFile && [styles.rowFocused, picked])}
+                  {...stylex.props(
+                    styles.row,
+                    current && (hunkFile ? styles.rowInHunks : [styles.rowFocused, picked]),
+                  )}
                 >
                   <span
                     aria-hidden="true"
@@ -826,24 +1244,23 @@ export default function CommitView({
                   <span {...stylex.props(styles.path)}>
                     <PathLabel path={file.path} />
                   </span>
+                  {current && hunkFile && hunkPlace > 0 && (
+                    <span {...stylex.props(styles.hunkCount)}>
+                      {hunkPlace}/{hunkTargets.length}
+                    </span>
+                  )}
                   {kind && <ChangeLetter kind={kind} />}
                 </div>
               );
             })}
           </div>
           <footer {...stylex.props(styles.footer)}>
-            {notice ? (
+            {notice && (
               <p
                 role={notice.tone === "error" ? "alert" : "status"}
                 {...stylex.props(styles.notice, notice.tone === "error" && styles.noticeError)}
               >
                 {notice.text}
-              </p>
-            ) : (
-              <p {...stylex.props(styles.notice)}>
-                {stagedCount
-                  ? `${stagedCount} of ${files.length} ${files.length === 1 ? "file" : "files"} staged`
-                  : "Nothing staged"}
               </p>
             )}
             {confirmTrack && pushLabel ? (
@@ -874,41 +1291,44 @@ export default function CommitView({
                 </button>
               </div>
             ) : (
+              // One quiet row: where the keys are, then commit and push as
+              // icons whose tooltips name their keys.
               <div {...stylex.props(styles.actions)}>
+                <span {...stylex.props(styles.state)}>
+                  {hunkFile
+                    ? !hunksReady
+                      ? "Reading hunks…"
+                      : focusedHunk
+                        ? `Hunk ${hunkPlace} of ${hunkTargets.length}, ${focusedHunk.part === "staged" ? "staged" : "not staged"}`
+                        : "No hunks to stage"
+                    : stagedCount
+                      ? `${stagedCount} of ${files.length} staged`
+                      : "Nothing staged"}
+                </span>
+                <ToolButton
+                  icon="commit"
+                  label={commitTip}
+                  shortcut="c"
+                  busy={busy === "commit"}
+                  disabled={busy !== null || !commitCount}
+                  onClick={compose}
+                />
                 <button
                   type="button"
-                  disabled={
-                    busy !== null ||
-                    !status?.head ||
-                    !status.branch ||
-                    (!!status.upstream && status.ahead === 0)
-                  }
-                  title={pushLabel ? `Push to ${pushLabel} (⇧P)` : "No remote to push to"}
+                  aria-label={pushTip}
+                  disabled={!canPush}
                   onClick={() => void push()}
-                  {...stylex.props(ui.button, styles.action)}
+                  {...tooltip(pushTip, "Shift+P")}
+                  {...stylex.props(ui.button, ui.pressable, styles.push)}
                 >
-                  <Icon name="push" size={14} />
-                  {busy === "push" ? "Pushing…" : "Push"}
-                  {!!status?.ahead && <span {...stylex.props(ui.faint)}>↑{status.ahead}</span>}
-                  {/* Without the header, Push also says how far the upstream is ahead. */}
+                  <span {...stylex.props(busy === "push" && styles.spinning)}>
+                    <Icon name="push" size={15} />
+                  </span>
+                  {ahead > 0 && <span {...stylex.props(styles.ahead)}>{ahead}</span>}
+                  {/* Without the header, the arrow also says how far the upstream is ahead. */}
                   {inRow && !!status?.behind && (
                     <span {...stylex.props(ui.faint)}>↓{status.behind}</span>
                   )}
-                </button>
-                <button
-                  type="button"
-                  disabled={busy !== null || !commitCount}
-                  title={
-                    commitAll
-                      ? "Nothing is staged: write the message and commit every change (c)"
-                      : "Write the message and commit (c)"
-                  }
-                  onClick={compose}
-                  {...stylex.props(ui.button, ui.primary, styles.action)}
-                >
-                  <Icon name="commit" size={14} />
-                  {busy === "commit" ? "Committing…" : "Commit…"}
-                  <ShortcutKeys value="c" />
                 </button>
               </div>
             )}
@@ -931,11 +1351,13 @@ export default function CommitView({
                 ref={viewer}
                 items={items}
                 options={options}
+                selectedLines={selectedLines}
                 className={stylex.props(styles.codeView).className}
                 style={diffSurfaceStyle}
-                // The file at the top of the stream is the file in focus.
+                // The file at the top of the stream is the file in focus,
+                // except in hunk mode, where the hunk leads.
                 onScroll={(top, view) => {
-                  if (following.current) return;
+                  if (following.current || hunkFile) return;
                   let current: string | null = null;
                   for (const entry of entries) {
                     const itemTop = view.getTopForItem(entry.id);
@@ -945,6 +1367,48 @@ export default function CommitView({
                   }
                   if (current && current !== focusedFile?.path) setFocused(current);
                 }}
+                renderAnnotation={() =>
+                  hunkFile && focusedHunk ? (
+                    // A click keeps the focus in the list, where the keys are.
+                    // oxlint-disable-next-line jsx-a11y/interactive-supports-focus
+                    <div
+                      role="toolbar"
+                      aria-label="Hunk"
+                      onMouseDown={(event) => event.preventDefault()}
+                      {...stylex.props(styles.hunkBar)}
+                    >
+                      <button
+                        type="button"
+                        disabled={!hunksReady}
+                        onClick={() => void toggleHunk(hunkFile, focusedHunk)}
+                        {...stylex.props(styles.hunkKey)}
+                      >
+                        <ShortcutKeys value="Space" />
+                        {focusedHunk.part === "staged" ? "unstage" : "stage"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!hunksReady}
+                        onClick={() => void askDiscard()}
+                        {...stylex.props(styles.hunkKey)}
+                      >
+                        <ShortcutKeys value="d" />
+                        discard
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHunkFocus(null);
+                          list.current?.focus({ preventScroll: true });
+                        }}
+                        {...stylex.props(styles.hunkKey)}
+                      >
+                        <ShortcutKeys value="Esc" />
+                        files
+                      </button>
+                    </div>
+                  ) : null
+                }
                 renderCustomHeader={(item) => {
                   const entry = entryById.get(item.id);
                   if (!entry) return null;
@@ -1026,7 +1490,11 @@ export default function CommitView({
       >
         <Dialog.Portal>
           <Dialog.Backdrop {...stylex.props(ui.scrim, styles.backdrop)} />
-          <Dialog.Popup initialFocus={field} finalFocus={list} {...stylex.props(styles.dialog)}>
+          <Dialog.Popup
+            initialFocus={field}
+            finalFocus={list}
+            {...stylex.props(styles.dialog, styles.commitDialog)}
+          >
             <header {...stylex.props(styles.dialogHead)}>
               <Dialog.Title {...stylex.props(styles.dialogTitle)}>
                 {commitAll ? "Commit all" : "Commit"} {commitCount}{" "}
@@ -1104,26 +1572,94 @@ export default function CommitView({
                 }}
                 {...stylex.props(styles.body)}
               />
+              {/* As in the session's message box: the keys, then one round
+                  button that sends. */}
+              <div {...stylex.props(styles.composerFoot)}>
+                <span {...stylex.props(styles.composerHint)}>
+                  <ShortcutKeys value="Esc" /> keeps a draft
+                </span>
+                <span {...stylex.props(ui.grow)} />
+                <ShortcutKeys value="Mod+Enter" />
+                <button
+                  type="button"
+                  aria-label={busy === "commit" ? "Committing" : "Commit"}
+                  disabled={busy !== null || !commitCount || !summary.trim()}
+                  onClick={() => void commit()}
+                  {...tooltip(commitTip, "Mod+Enter")}
+                  {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.send)}
+                >
+                  <span {...stylex.props(busy === "commit" && styles.spinning)}>
+                    <Icon name="commit" size={14} />
+                  </span>
+                </button>
+              </div>
             </div>
             {commitError && (
               <p role="alert" {...stylex.props(styles.dialogError)}>
                 {commitError}
               </p>
             )}
-            <div {...stylex.props(styles.dialogActions)}>
-              <Dialog.Close {...stylex.props(ui.button)} disabled={busy === "commit"}>
-                Cancel
-              </Dialog.Close>
-              <button
-                type="button"
-                disabled={busy !== null || !commitCount || !summary.trim()}
-                onClick={() => void commit()}
-                {...stylex.props(ui.button, ui.primary, styles.commitButton)}
-              >
-                {busy === "commit" ? "Committing…" : "Commit"}
-                <ShortcutKeys value="Mod+Enter" />
-              </button>
-            </div>
+          </Dialog.Popup>
+        </Dialog.Portal>
+      </Dialog.Root>
+      <Dialog.Root open={askOpen} onOpenChange={setAskOpen}>
+        <Dialog.Portal>
+          <Dialog.Backdrop {...stylex.props(ui.scrim, styles.backdrop)} />
+          <Dialog.Popup
+            initialFocus={cancelDiscard}
+            finalFocus={list}
+            onKeyDown={(event) => {
+              // A choice's key answers with it; Enter presses the focused
+              // button, which is Cancel at first.
+              const choice =
+                askOpen &&
+                performance.now() - askedAt.current >= ANSWER_DELAY &&
+                !event.repeat &&
+                !event.metaKey &&
+                !event.ctrlKey &&
+                !event.altKey &&
+                asked?.choices.find((entry) => entry.key === event.key);
+              if (!choice || !asking) return;
+              event.preventDefault();
+              void discard(asking, choice.staged);
+            }}
+            {...stylex.props(styles.dialog, styles.confirmDialog)}
+          >
+            {asked && (
+              <>
+                <Dialog.Title {...stylex.props(styles.confirmTitle)}>
+                  <Icon name="trash" size={14} />
+                  {asked.title}
+                </Dialog.Title>
+                <Dialog.Description render={<div />} {...stylex.props(styles.confirmBody)}>
+                  {asked.text.map((line) => (
+                    <p key={line} {...stylex.props(styles.confirmLine)}>
+                      {line}
+                    </p>
+                  ))}
+                  <p {...stylex.props(styles.confirmLine, styles.confirmWarning)}>
+                    You cannot undo this.
+                  </p>
+                </Dialog.Description>
+                <div {...stylex.props(styles.dialogActions)}>
+                  <Dialog.Close ref={cancelDiscard} {...stylex.props(ui.button, styles.answer)}>
+                    Cancel
+                    <ShortcutKeys value="Esc" />
+                  </Dialog.Close>
+                  {asked.choices.map((choice) => (
+                    <button
+                      key={choice.key}
+                      type="button"
+                      onClick={() => asking && void discard(asking, choice.staged)}
+                      {...stylex.props(ui.button, styles.answer, styles.danger)}
+                    >
+                      {choice.label}
+                      <ShortcutKeys value={choice.key} />
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </Dialog.Popup>
         </Dialog.Portal>
       </Dialog.Root>
@@ -1164,6 +1700,7 @@ const rise = stylex.keyframes({
   from: { opacity: 0, transform: "translate(-50%, 6px) scale(0.985)" },
   to: { opacity: 1, transform: "translate(-50%, 0) scale(1)" },
 });
+const spin = stylex.keyframes({ to: { transform: "rotate(360deg)" } });
 // A narrow view puts the file list above the message and the stream.
 const narrow = "@container (max-width: 720px)";
 const styles = stylex.create({
@@ -1266,6 +1803,19 @@ const styles = stylex.create({
     color: tokens.selectedText,
     backgroundColor: { default: tokens.pick, ":hover": tokens.pick },
   },
+  // In hunk mode the keys are in the diff; the row keeps a quieter mark.
+  rowInHunks: {
+    color: tokens.text,
+    backgroundColor: tokens.fill,
+    boxShadow: `inset 2px 0 0 ${tokens.accent}`,
+  },
+  hunkCount: {
+    flexShrink: 0,
+    color: tokens.faint,
+    fontFamily: tokens.code,
+    fontSize: 11,
+    fontVariantNumeric: "tabular-nums",
+  },
   mark: {
     width: 14,
     flexShrink: 0,
@@ -1289,9 +1839,11 @@ const styles = stylex.create({
   footer: {
     display: "flex",
     flexDirection: "column",
-    gap: 8,
+    gap: 6,
     flexShrink: 0,
-    padding: 10,
+    paddingBlock: 6,
+    paddingInlineStart: 12,
+    paddingInlineEnd: 6,
     borderTopWidth: 1,
     borderTopStyle: "solid",
     borderTopColor: tokens.line,
@@ -1305,8 +1857,33 @@ const styles = stylex.create({
     color: tokens.faint,
   },
   noticeError: { color: tokens.red, fontFamily: tokens.code, fontSize: 11.5 },
-  actions: { display: "flex", gap: 8 },
-  action: { flex: "1", minWidth: 0, gap: 6, paddingInline: 10 },
+  actions: { display: "flex", alignItems: "center", gap: 2, minHeight: 28 },
+  state: {
+    flex: "1",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: tokens.faint,
+    fontSize: 12,
+  },
+  // The push arrow, and how many commits it would push.
+  push: {
+    gap: 4,
+    height: 28,
+    minWidth: 28,
+    paddingInline: 6,
+    color: tokens.muted,
+    fontSize: 12,
+  },
+  ahead: { fontFamily: tokens.code, fontSize: 11.5, fontVariantNumeric: "tabular-nums" },
+  spinning: {
+    display: "inline-flex",
+    animationName: { default: spin, "@media (prefers-reduced-motion: reduce)": "none" },
+    animationDuration: "800ms",
+    animationTimingFunction: "linear",
+    animationIterationCount: "infinite",
+  },
   confirm: {
     display: "flex",
     flexWrap: "wrap",
@@ -1425,6 +2002,28 @@ const styles = stylex.create({
     fontFamily: tokens.code,
     fontSize: 11.5,
   },
+  // Under the description, inside the message's surface.
+  composerFoot: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    paddingBottom: 8,
+    paddingInline: 10,
+    color: tokens.faint,
+  },
+  composerHint: { display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5 },
+  // As the session's Send: a round button in the primary colour.
+  send: {
+    width: 26,
+    minWidth: 26,
+    minHeight: 26,
+    borderRadius: 999,
+    color: { default: tokens.primaryText, ":hover:not(:disabled)": tokens.primaryText },
+    backgroundColor: {
+      default: tokens.primary,
+      ":hover:not(:disabled)": `color-mix(in srgb, ${tokens.primary} 86%, ${tokens.canvas})`,
+    },
+  },
   dialogActions: {
     display: "flex",
     alignItems: "center",
@@ -1432,7 +2031,36 @@ const styles = stylex.create({
     gap: 6,
     padding: 14,
   },
-  commitButton: { gap: 8, paddingInline: 14 },
+  commitDialog: { paddingBottom: 14 },
+  confirmDialog: { width: "min(460px, 92vw)" },
+  confirmTitle: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    margin: 0,
+    paddingTop: 16,
+    paddingInline: 18,
+    fontSize: 14,
+    fontWeight: 600,
+    overflowWrap: "anywhere",
+  },
+  confirmBody: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    paddingTop: 10,
+    paddingInline: 18,
+    color: tokens.muted,
+    fontSize: 12.5,
+    lineHeight: 1.5,
+  },
+  confirmLine: { margin: 0, overflowWrap: "anywhere" },
+  confirmWarning: { color: tokens.text, fontWeight: 500 },
+  answer: { gap: 8, paddingInline: 12 },
+  danger: {
+    color: { default: tokens.red, ":hover:not(:disabled)": tokens.red },
+    borderColor: `color-mix(in srgb, ${tokens.red} 40%, transparent)`,
+  },
   count: {
     flexShrink: 0,
     paddingInlineEnd: 12,
@@ -1499,6 +2127,32 @@ const styles = stylex.create({
     backgroundColor: tokens.fill,
   },
   stats: { display: "flex", gap: 6, flexShrink: 0, fontFamily: tokens.code, fontSize: 11.5 },
+  // The focused hunk's keys, under its last line: each one also a button.
+  hunkBar: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    paddingBlock: 4,
+    paddingInline: 10,
+    backgroundColor: headerBackground,
+    boxShadow: `inset 2px 0 0 ${tokens.accent}`,
+    fontFamily: tokens.ui,
+    fontSize: 11.5,
+  },
+  hunkKey: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    height: 22,
+    paddingInline: 6,
+    borderWidth: 0,
+    borderRadius: `calc(5px * ${tokens.round})`,
+    backgroundColor: { default: "transparent", ":hover:not(:disabled)": tokens.fill },
+    color: { default: tokens.muted, ":disabled": tokens.faint },
+    fontFamily: tokens.ui,
+    fontSize: "inherit",
+    cursor: { default: "pointer", ":disabled": "default" },
+  },
   clean: {
     display: "flex",
     alignItems: "center",

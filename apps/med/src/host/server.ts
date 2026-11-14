@@ -42,7 +42,9 @@ import {
 import { gitTargets, pushBranch } from "./repository/git-actions";
 import {
   commitStaged,
+  discardChanges,
   pushCurrentBranch,
+  stageHunk,
   stagePaths,
   workingFileChanges,
   workingStatus,
@@ -1192,6 +1194,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     route(commitRoutes.stage, async (input, { requireRepo, signal }) => {
       const repo = await requireRepo(input.repo);
       await stagePaths({ ...input, repo }, signal);
+      return workingStatus(repo, signal);
+    }),
+    route(commitRoutes.stageHunk, async (input, { requireRepo, signal }) => {
+      const repo = await requireRepo(input.repo);
+      await stageHunk({ ...input, repo }, signal);
+      return workingStatus(repo, signal);
+    }),
+    route(commitRoutes.discard, async (input, { requireRepo, signal }) => {
+      const repo = await requireRepo(input.repo);
+      await discardChanges({ ...input, repo }, signal);
       return workingStatus(repo, signal);
     }),
     route(commitRoutes.commit, async (input, { requireRepo, signal }) =>

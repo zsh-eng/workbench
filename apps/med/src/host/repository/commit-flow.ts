@@ -1,25 +1,29 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, lstat, mkdtemp, realpath, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import type {
   BranchPushRequest,
   ChangeKind,
   CommitRequest,
   CommitResult,
+  DiscardRequest,
   FileChanges,
+  HunkStageRequest,
   ShownFile,
   StageRequest,
   WorkingFile,
   WorkingStatus,
 } from "../../shared/git-actions";
+import { hunkBody, splitPatch, wholeFilePatch, type PatchHunk } from "../../shared/patch-hunks";
 import { HostError } from "../runtime/errors";
 import { git, ProcessFailure, runProcess } from "../runtime/process";
 import { pushBranch } from "./git-actions";
 import { addedPatch, DIFF_FLAGS, readWorkingFile, safeRepoPath } from "./review";
 
 // The Commit tab writes Git state: the index, commits, and one branch on a
-// remote. It never checks out, resets the working files, or forces a push.
+// remote. It discards a file's changes, or one hunk, only when the user
+// confirms; it never checks out a branch or forces a push.
 
 const MAX_FILES = 10_000;
 const MAX_FILE_PATCH = 2 * 1024 * 1024;
@@ -205,16 +209,31 @@ function checkedPaths(repo: string, paths: readonly string[]) {
   return paths;
 }
 
+/** Patch text, and whether bytes that are not UTF-8 became U+FFFD in it:
+ * such text cannot go back to `git apply` as it is. */
+function decodedPatch(data: Buffer) {
+  const text = data.toString("utf8");
+  return { text, lossy: text.includes("\uFFFD") && !Buffer.from(text, "utf8").equals(data) };
+}
+
 /** The staged and the unstaged changes of one file, as unified patches. */
 export async function workingFileChanges(
   repo: string,
   file: { path: string; previousPath?: string },
   signal?: AbortSignal,
 ): Promise<FileChanges> {
+  return (await readFileChanges(repo, file, signal)).changes;
+}
+
+async function readFileChanges(
+  repo: string,
+  file: { path: string; previousPath?: string },
+  signal?: AbortSignal,
+) {
   const paths = checkedPaths(repo, [file.path, ...(file.previousPath ? [file.previousPath] : [])]);
   const diff = async (args: string[]) => {
     try {
-      return (
+      return decodedPatch(
         await git(
           repo,
           ["diff", ...DIFF_FLAGS, "--patch", "--full-index", ...args, "--", ...paths],
@@ -223,8 +242,8 @@ export async function workingFileChanges(
             maxBytes: MAX_FILE_PATCH,
             env: LITERAL,
           },
-        )
-      ).toString("utf8");
+        ),
+      );
     } catch (error) {
       if (error instanceof ProcessFailure && error.code === "output-too-large") return null;
       throw error;
@@ -238,9 +257,15 @@ export async function workingFileChanges(
         env: LITERAL,
       })
     ).length > 0;
-  let [staged, unstaged] = await Promise.all([diff(["--cached"]), untracked ? "" : diff([])]);
+  const none = { text: "", lossy: false };
+  const [stagedPatch, unstagedPatch] = await Promise.all([
+    diff(["--cached"]),
+    untracked ? none : diff([]),
+  ]);
+  let staged = stagedPatch?.text ?? "";
+  let unstaged = unstagedPatch?.text ?? "";
   let binary = false;
-  let tooLarge = staged === null || unstaged === null;
+  let tooLarge = !stagedPatch || !unstagedPatch;
   if (untracked) {
     try {
       unstaged = addedPatch(file.path, await readWorkingFile(repo, file.path)).patch;
@@ -252,7 +277,34 @@ export async function workingFileChanges(
     }
   }
   binary ||= /^(Binary files .* differ|GIT binary patch)$/m.test(`${staged}\n${unstaged}`);
-  return { path: file.path, staged: staged ?? "", unstaged: unstaged ?? "", binary, tooLarge };
+  // The patches name the changes, unless they are too large to read or a
+  // file that Git does not track is binary: then the index's entries and
+  // the working files' sizes and times name them.
+  const stamp = createHash("sha256").update(JSON.stringify([staged, unstaged]));
+  if (tooLarge || binary) {
+    stamp.update(
+      await git(repo, ["ls-files", "--stage", "-z", "--", ...paths], {
+        signal,
+        maxBytes: 64 * 1024,
+        env: LITERAL,
+      }),
+    );
+    for (const path of paths) {
+      const stat = await lstat(safeRepoPath(repo, path)).catch(() => null);
+      stamp.update(stat ? `\0${stat.mode} ${stat.size} ${stat.mtimeMs} ${stat.ino}` : "\0none");
+    }
+  }
+  return {
+    changes: {
+      path: file.path,
+      staged,
+      unstaged,
+      binary,
+      tooLarge,
+      stamp: stamp.digest("hex"),
+    } satisfies FileChanges,
+    lossy: { staged: !!stagedPatch?.lossy, unstaged: !!unstagedPatch?.lossy },
+  };
 }
 
 /** Paths go on standard input: a command line holds about 1 MB, and Commit
@@ -300,6 +352,226 @@ export async function stagePaths(input: StageRequest, signal?: AbortSignal) {
     ["rm", "--cached", "-r", "--quiet", "--ignore-unmatch", ...(named?.args ?? ["--", "."])],
     { ...options, input: named?.input },
   );
+}
+
+/** The hunk of this patch that the tab showed: the same text, or after
+ * another hunk of the file was staged, the same lines at new numbers. */
+function shownHunk(patch: string, shown: string) {
+  const { header, hunks } = splitPatch(patch);
+  const sent = splitPatch(shown).hunks[0];
+  if (!sent) throw new HostError("invalid-hunk", "Choose a hunk of this file.");
+  const body = hunkBody(sent.text);
+  const hunk =
+    hunks.find((entry) => entry.text === sent.text) ??
+    hunks
+      .filter((entry) => hunkBody(entry.text) === body)
+      .toSorted(
+        (a, b) => Math.abs(a.oldStart - sent.oldStart) - Math.abs(b.oldStart - sent.oldStart),
+      )[0];
+  if (!hunk)
+    throw new HostError(
+      "hunk-changed",
+      "The hunk changed since the tab showed it. Check it, then try again.",
+      409,
+    );
+  return { header, hunk };
+}
+
+/** One hunk as a patch of its own, for `git apply`: a change to the file's
+ * new path, without the header's mode, rename, and index lines, so the rest
+ * of the file's change stays as it is. The names keep Git's quoting. */
+export function hunkPatch(header: string, hunk: PatchHunk) {
+  const target = /^\+\+\+ (.+)$/m.exec(header)?.[1];
+  if (!target || target === "/dev/null")
+    throw new HostError("invalid-hunk", "This change has no hunks to choose.", 422);
+  const source = target.replace(/^("?)b\//, "$1a/");
+  // A name with a space ends with a tab on the --- and +++ lines only.
+  const name = (side: string) => side.replace(/\t$/, "");
+  return `diff --git ${name(source)} ${name(target)}\n--- ${source}\n+++ ${target}\n${hunk.text}`;
+}
+
+/** Apply a patch to the index (`--cached`) or the working files. */
+async function applyPatch(repo: string, patch: string, args: string[], signal?: AbortSignal) {
+  try {
+    await git(repo, ["apply", "--whitespace=nowarn", ...args, "-"], {
+      signal,
+      input: patch,
+      maxBytes: 1024 * 1024,
+    });
+  } catch (error) {
+    if (!(error instanceof ProcessFailure) || error.code !== "command-failed") throw error;
+    throw new HostError(
+      "hunk-not-applied",
+      `Git could not apply the hunk. Check the file, then try again.\n\n${error.stderr}`,
+      409,
+    );
+  }
+}
+
+/** The hunk that the tab showed, from the part of the file's changes that
+ * holds it, as text that can go back to Git. */
+async function readHunk(
+  repo: string,
+  file: { path: string; previousPath?: string },
+  part: "staged" | "unstaged",
+  shown: string,
+  signal?: AbortSignal,
+) {
+  const { changes, lossy } = await readFileChanges(repo, file, signal);
+  const found = shownHunk(changes[part], shown);
+  if (lossy[part] && found.hunk.text.includes("\uFFFD"))
+    throw new HostError(
+      "not-utf8",
+      `This hunk of ${file.path} has bytes that are not UTF-8 text, so Med cannot apply it alone. Stage or discard the whole file.`,
+      422,
+    );
+  return found;
+}
+
+/** Stage one hunk of a file's unstaged changes, or unstage one of its staged
+ * hunks. A new or deleted file is one hunk, and stages whole. */
+export async function stageHunk(input: HunkStageRequest, signal?: AbortSignal) {
+  const file = { path: input.path, previousPath: input.previousPath };
+  const part = input.stage ? "unstaged" : "staged";
+  const { header, hunk } = await readHunk(input.repo, file, part, input.hunk, signal);
+  if (wholeFilePatch(header))
+    return stagePaths(
+      {
+        repo: input.repo,
+        paths: [input.path, ...(input.previousPath ? [input.previousPath] : [])],
+        stage: input.stage,
+      },
+      signal,
+    );
+  await applyPatch(
+    input.repo,
+    hunkPatch(header, hunk),
+    input.stage ? ["--cached"] : ["--cached", "--reverse"],
+    signal,
+  );
+}
+
+/**
+ * Discard a file's changes, or one hunk of them. The index changes only
+ * with `staged`. A file that Git does not track is deleted; a tracked file
+ * goes back to the index, or with `staged`, to HEAD. An unstaged hunk goes
+ * back to the index; a staged one leaves the index and the working file.
+ * The discard stops when Git no longer has what the confirmation showed,
+ * and it changes no path but the file's own and, with `staged`, the path
+ * that a rename left.
+ */
+export async function discardChanges(input: DiscardRequest, signal?: AbortSignal) {
+  const { repo } = input;
+  const file = { path: input.path, previousPath: input.previousPath };
+  const paths = checkedPaths(repo, [file.path, ...(file.previousPath ? [file.previousPath] : [])]);
+  // Git would replace a folder, such as a submodule or one that took a
+  // deleted file's place, and everything in it.
+  for (const path of paths)
+    if ((await lstat(safeRepoPath(repo, path)).catch(() => null))?.isDirectory())
+      throw new HostError(
+        "unsupported-source",
+        `${path} is a folder. Med discards only files, not folders or submodules.`,
+        422,
+      );
+  if (input.hunk !== undefined) {
+    const part = input.staged ? "staged" : "unstaged";
+    const { header, hunk } = await readHunk(repo, file, part, input.hunk, signal);
+    // A new or deleted file is one hunk: the confirmation names the whole
+    // file for it.
+    if (wholeFilePatch(header))
+      throw new HostError("whole-file", "Discard this change as a whole file.", 422);
+    const patch = hunkPatch(header, hunk);
+    if (input.staged) {
+      // Check both before either changes, so a working file with other
+      // changes in the same lines keeps the hunk staged.
+      await applyPatch(repo, patch, ["--cached", "--reverse", "--check"], signal);
+      await applyPatch(repo, patch, ["--reverse", "--check"], signal);
+      await applyPatch(repo, patch, ["--reverse"], signal);
+      await applyPatch(repo, patch, ["--cached", "--reverse"], signal);
+    } else await applyPatch(repo, patch, ["--reverse"], signal);
+    return;
+  }
+  if (input.stamp !== (await workingFileChanges(repo, file, signal)).stamp)
+    throw new HostError(
+      "shown-changed",
+      "The file changed after the tab showed it. Check the changes, then discard again.",
+      409,
+    );
+
+  const status = parseStatus(
+    await git(repo, [...STATUS, "--untracked-files=all", "--", ...paths], {
+      signal,
+      maxBytes: 1024 * 1024,
+      env: LITERAL,
+    }),
+  );
+  if (status.files.some((entry) => entry.staged === "conflicted"))
+    throw new HostError("conflicted", "Resolve the conflict in this file first.", 422);
+  // The file's own entries: what Git tracks of it, and a working file that
+  // Git does not track. A staged deletion can have both.
+  const own = status.files.filter((entry) => entry.path === file.path);
+  const tracked = own.find((entry) => entry.unstaged !== "untracked");
+  const loose = own.some((entry) => entry.unstaged === "untracked");
+  const options = { signal, maxBytes: 1024 * 1024, env: LITERAL };
+  const restore = (args: string[], named: string[]) => {
+    const input = pathspecInput(named);
+    return git(repo, ["restore", ...args, ...input.args], { ...options, input: input.input });
+  };
+  if (tracked && !tracked.staged && tracked.unstaged === "added") {
+    // `git add -N`: the index has the name only, so the file goes as an
+    // untracked one does.
+    await git(repo, ["rm", "--cached", "--quiet", "--", file.path], options);
+    await removeWorkingFile(repo, file.path);
+  } else if (input.staged && tracked) {
+    const previous = tracked.previousPath;
+    // The rename's old path comes back from HEAD: it must not hold a new file.
+    if (
+      previous &&
+      status.files.some((entry) => entry.path === previous && entry.unstaged === "untracked")
+    )
+      throw new HostError(
+        "previous-path-taken",
+        `${previous} is a new file that Git does not track. Move it, then discard again.`,
+        409,
+      );
+    await restore(
+      ["--source", await headTree(repo, signal), "--staged", "--worktree"],
+      [file.path, ...(previous ? [previous] : [])],
+    );
+  } else if (tracked && tracked.staged !== "deleted")
+    // The working file takes the index's version.
+    await restore(["--worktree"], [file.path]);
+  else if (loose) await removeWorkingFile(repo, file.path);
+}
+
+/** HEAD, or before the first commit, the empty tree. */
+async function headTree(repo: string, signal?: AbortSignal) {
+  const head = (
+    await git(repo, ["rev-parse", "--verify", "--quiet", "HEAD"], {
+      signal,
+      maxBytes: 1024,
+      acceptedExitCodes: [0, 1],
+    })
+  )
+    .toString("utf8")
+    .trim();
+  if (head) return head;
+  return (await git(repo, ["hash-object", "-t", "tree", "/dev/null"], { signal, maxBytes: 1024 }))
+    .toString("utf8")
+    .trim();
+}
+
+/** Delete a file that Git does not track: a file or a link, never a folder,
+ * such as a nested repository, and never through a linked folder. */
+async function removeWorkingFile(repo: string, path: string) {
+  const absolute = safeRepoPath(repo, path);
+  const [realRepo, realParent] = await Promise.all([realpath(repo), realpath(dirname(absolute))]);
+  const parent = relative(realRepo, realParent);
+  const stat = await lstat(absolute).catch(() => null);
+  if (!stat) return;
+  if (parent === ".." || parent.startsWith(`..${sep}`) || isAbsolute(parent) || stat.isDirectory())
+    throw new HostError("unsupported-source", "Med deletes only files inside this checkout.", 422);
+  await unlink(absolute);
 }
 
 // Hook output keeps its text, not its terminal colors.

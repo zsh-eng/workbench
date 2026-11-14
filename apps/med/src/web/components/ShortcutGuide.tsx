@@ -127,8 +127,8 @@ export function ShortcutGuide({
         >
           <Dialog.Title {...stylex.props(styles.hidden)}>Shortcuts & commands</Dialog.Title>
           <Dialog.Description {...stylex.props(styles.hidden)}>
-            Keyboard shortcuts for review, files, the editor, and pickers. Type to search actions or
-            keys; Enter runs a highlighted command.
+            Keyboard shortcuts for review, commits, files, the editor, and pickers. Type to search
+            actions or keys; Enter runs a highlighted command.
           </Dialog.Description>
           <div {...stylex.props(ui.paletteInput)}>
             <Icon name="search" />

@@ -2,6 +2,7 @@ import {
   commitRoutes,
   type CommitRequest,
   type CommitResult,
+  type DiscardRequest,
   type FileChanges,
   type ShownFile,
   type WorkingFile,
@@ -18,6 +19,9 @@ export const COMMIT_KEY = "med:commit-key";
 export const pressCommitKey = () => window.dispatchEvent(new Event(COMMIT_KEY));
 /** A commit as the tab sends it; the host adds the checkout. */
 export type CommitInput = Omit<CommitRequest, "repo">;
+/** What a discard takes from one file: a hunk, or the whole file as the
+ * confirmation showed it, and whether staged changes go too. */
+export type DiscardInput = Pick<DiscardRequest, "staged" | "hunk" | "stamp">;
 /** Every change from HEAD to the working files, as one patch. */
 export interface WorkingDiff {
   /** Names the content: the same id means the same changes. */
@@ -40,6 +44,11 @@ export interface CommitApi {
   diff(signal?: AbortSignal): Promise<WorkingDiff>;
   /** Stage or unstage these paths, or every change; returns the new status. */
   stage(paths: string[] | null, stage: boolean): Promise<WorkingStatus>;
+  /** Stage one hunk of the file's unstaged patch, or unstage one of its
+   * staged hunks, named by its text as `changes` gave it. */
+  stageHunk(file: WorkingFile, hunk: string, stage: boolean): Promise<WorkingStatus>;
+  /** Discard the file's changes, or one hunk of them. Nothing can undo it. */
+  discard(file: WorkingFile, input: DiscardInput): Promise<WorkingStatus>;
   /** Commit the index, or with `all`, the files named. The commit stops when
    * Git has other files or other content than the tab showed. */
   commit(input: CommitInput): Promise<CommitResult>;
@@ -53,18 +62,14 @@ export function createCommitApi(api: ReturnType<typeof createApi>, repo: string)
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ repo, ...body }),
   });
+  const named = (file: WorkingFile) => ({
+    repo,
+    path: file.path,
+    ...(file.previousPath ? { previousPath: file.previousPath } : {}),
+  });
   return {
     status: (signal) => api.call(commitRoutes.status, { repo }, signal),
-    changes: (file, signal) =>
-      api.call(
-        commitRoutes.changes,
-        {
-          repo,
-          path: file.path,
-          ...(file.previousPath ? { previousPath: file.previousPath } : {}),
-        },
-        signal,
-      ),
+    changes: (file, signal) => api.call(commitRoutes.changes, named(file), signal),
     diff: async (signal) => {
       const review = await api.json("/api/review", reviewSchema, {
         ...post({ comparison: { kind: "working" } }),
@@ -74,6 +79,9 @@ export function createCommitApi(api: ReturnType<typeof createApi>, repo: string)
     },
     stage: (paths, stage) =>
       api.call(commitRoutes.stage, { repo, stage, ...(paths ? { paths } : {}) }),
+    stageHunk: (file, hunk, stage) =>
+      api.call(commitRoutes.stageHunk, { ...named(file), hunk, stage }),
+    discard: (file, input) => api.call(commitRoutes.discard, { ...named(file), ...input }),
     commit: (input) => api.call(commitRoutes.commit, { repo, ...input }),
     push: (head, track) => api.call(commitRoutes.pushBranch, { repo, head, track }),
   };

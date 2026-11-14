@@ -4761,7 +4761,13 @@ export function App({
     },
   ];
   const guideContext: GuideContextId =
-    activeFile && fileState.file?.kind === "text" ? (activeEditing ? "editor" : "file") : "review";
+    fileState.active === "commit"
+      ? "commit"
+      : activeFile && fileState.file?.kind === "text"
+        ? activeEditing
+          ? "editor"
+          : "file"
+        : "review";
   const fileLinkOpened = useRef(false);
   const fileLinkSelecting = useRef(false);
   const [fileLinkError, setFileLinkError] = useState("");

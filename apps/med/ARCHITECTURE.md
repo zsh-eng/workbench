@@ -474,9 +474,26 @@ remotes with more than one push URL and does not show remote diagnostics,
 because they can contain credentials. No browsing or comparison action pushes.
 
 **Commit.** The Commit tab (`src/host/repository/commit-flow.ts`) is the only
-part of Med that changes the index or makes commits. Stage and unstage take
-whole files, and each path is literal (`GIT_LITERAL_PATHSPECS`); paths go to
-Git on standard input, so their number has no command-line limit. A commit
+part of Med that changes the index, discards working changes, or makes
+commits. Stage and unstage take whole files, and each path is literal
+(`GIT_LITERAL_PATHSPECS`); paths go to Git on standard input, so their number
+has no command-line limit. A hunk is named by its text from the file's
+patch (`src/shared/patch-hunks.ts`): the host reads the patch again, finds
+the same lines, at new numbers after another hunk was staged, and applies
+that one hunk with `git apply --cached`, or `--reverse` to unstage. The
+hunk's patch changes the file's new path only, so a staged rename stays; a
+new or deleted file is one hunk and stages whole. A hunk with bytes that are
+not UTF-8 is refused, because its text would reach Git with U+FFFD in their
+place. A discard runs only after the user confirms, and only when Git still
+has what the confirmation showed: the hunk, or the file's stamp, a hash of
+its two patches (and of its index entries and file sizes and times when the
+patches are too large or binary). An unstaged hunk is reverse-applied to the
+working file; a staged hunk, after both checks pass, to the working file and
+the index. A file goes back to the index, or with staged changes, to HEAD
+(the empty tree before the first commit) with `git restore`; a file that Git
+does not track is deleted. A discard changes only the file's own path and,
+with staged changes, the path a rename left; it refuses a folder or submodule
+at either path, and a new file at the rename's old path. A commit
 sends its message on standard input with the index key that the view showed: a
 hash of HEAD and of each index entry that differs from HEAD. It also names its
 files with what the tab showed of each: the blob on the diff's index line, or
@@ -488,8 +505,8 @@ sets those paths in the real index to the new HEAD. Hooks run as in a terminal,
 without an editor or a credential prompt; when a hook stops the commit, the 422
 response has the last 8,000 characters of its output. Push from the Commit tab
 uses the same exact-commit push, to the branch's upstream; a branch without an
-upstream pushes only after the user agrees. There is no force push, amend, hunk
-staging, or branch switch.
+upstream pushes only after the user agrees. There is no force push, amend, or
+branch switch.
 
 **Generated files.** `src/host/repository/generated.ts` marks each
 `ReviewFile` with `generated: { kind, source? }` from Git attributes, the

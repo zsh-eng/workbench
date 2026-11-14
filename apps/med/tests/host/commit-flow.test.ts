@@ -1,11 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { startHost, type RunningHost } from "../../src/host/server";
 import type { FileChanges, WorkingStatus } from "../../src/shared/git-actions";
+import { splitPatch } from "../../src/shared/patch-hunks";
 
 const roots: string[] = [];
 const hosts: RunningHost[] = [];
@@ -64,9 +66,33 @@ async function fixture() {
       head,
       track,
     });
-  return { repo, remote, call, status, stage, commit, push };
+  const changes = async (path: string, previousPath?: string) =>
+    (
+      await call<FileChanges>(
+        `/api/git/file-changes?${new URLSearchParams({ repo, path, ...(previousPath ? { previousPath } : {}) })}`,
+      )
+    ).body;
+  const stageHunk = (path: string, hunk: string, stage: boolean, previousPath?: string) =>
+    call<WorkingStatus & { error?: { message: string } }>("/api/git/stage-hunk", {
+      repo,
+      path,
+      ...(previousPath ? { previousPath } : {}),
+      hunk,
+      stage,
+    });
+  const discard = (path: string, more: object) =>
+    call<WorkingStatus & { error?: { message: string } }>("/api/git/discard", {
+      repo,
+      path,
+      ...more,
+    });
+  return { repo, remote, call, status, stage, commit, push, changes, stageHunk, discard };
 }
 const write = (repo: string, path: string, text: string) => writeFile(join(repo, path), text);
+const hunks = (patch: string) => splitPatch(patch).hunks.map((hunk) => hunk.text);
+/** Thirty numbered lines, the last without a newline, with some changed. */
+const lines = (changed: Record<number, string> = {}) =>
+  Array.from({ length: 30 }, (_, index) => changed[index + 1] ?? String(index + 1)).join("\n");
 const summary = (status: WorkingStatus) =>
   status.files.map(
     (file) =>
@@ -324,4 +350,220 @@ test("pushes a new branch after the user agrees to track it, then pushes to its 
   expect(state.ahead).toBe(1);
   expect(await push(state.head, false)).toMatchObject({ status: 200 });
   expect(git(remote, "rev-parse", "feature")).toBe(state.head);
+});
+
+test("stages and unstages one hunk at a time, the last one without a final newline", async () => {
+  const { repo, changes, stageHunk } = await fixture();
+  await write(repo, "a.ts", lines());
+  git(repo, "add", "a.ts");
+  git(repo, "commit", "-m", "start");
+  // One hunk adds a line; the other changes the last line, which has no newline.
+  const edited = lines({ 3: "3\nthree and a half", 30: "thirty" });
+  await write(repo, "a.ts", edited);
+  const [first, last] = hunks((await changes("a.ts")).unstaged);
+  expect(last).toContain("\\ No newline at end of file");
+
+  let state = (await stageHunk("a.ts", first!, true)).body;
+  expect(summary(state)).toEqual(["a.ts: modified / modified"]);
+  expect(git(repo, "show", ":a.ts")).toBe(lines({ 3: "3\nthree and a half" }));
+  // The staged line moved the last hunk down; its text from before still names it.
+  expect(hunks((await changes("a.ts")).unstaged)).not.toContain(last);
+  state = (await stageHunk("a.ts", last!, true)).body;
+  expect(summary(state)).toEqual(["a.ts: modified / -"]);
+  expect(git(repo, "show", ":a.ts")).toBe(edited);
+
+  const staged = hunks((await changes("a.ts")).staged);
+  expect(staged).toHaveLength(2);
+  state = (await stageHunk("a.ts", staged[0]!, false)).body;
+  expect(git(repo, "show", ":a.ts")).toBe(lines({ 30: "thirty" }));
+  state = (await stageHunk("a.ts", hunks((await changes("a.ts")).staged)[0]!, false)).body;
+  expect(summary(state)).toEqual(["a.ts: - / modified"]);
+  // Staging never touches the working file.
+  expect(await readFile(join(repo, "a.ts"), "utf8")).toBe(edited);
+  // A hunk that Git no longer has stages nothing.
+  const other = first!.replace("three and a half", "three and a quarter");
+  expect(await stageHunk("a.ts", other, true)).toMatchObject({ status: 409 });
+  expect(summary(state)).toEqual(["a.ts: - / modified"]);
+});
+
+test("a staged rename stays staged when one of its hunks is unstaged, and a new file stages whole", async () => {
+  const { repo, changes, stageHunk } = await fixture();
+  await write(repo, "a.ts", lines());
+  git(repo, "add", "a.ts");
+  git(repo, "commit", "-m", "start");
+  // A name with a space: Git ends its --- and +++ lines with a tab.
+  git(repo, "mv", "a.ts", "b c.ts");
+  await write(repo, "b c.ts", lines({ 2: "two", 28: "twenty-eight" }));
+  git(repo, "add", "--all");
+  const staged = hunks((await changes("b c.ts", "a.ts")).staged);
+  expect(staged).toHaveLength(2);
+  let state = (await stageHunk("b c.ts", staged[1]!, false, "a.ts")).body;
+  expect(summary(state)).toEqual(["b c.ts <- a.ts: renamed / modified"]);
+  expect(git(repo, "show", ":b c.ts")).toBe(lines({ 2: "two" }));
+  const [unstaged] = hunks((await changes("b c.ts", "a.ts")).unstaged);
+  state = (await stageHunk("b c.ts", unstaged!, true, "a.ts")).body;
+  expect(summary(state)).toEqual(["b c.ts <- a.ts: renamed / -"]);
+
+  // A new file is one hunk. It stages whole, with its mode, and unstages whole.
+  await write(repo, "new.sh", "#!/bin/sh\necho new\n");
+  await chmod(join(repo, "new.sh"), 0o755);
+  const [added] = hunks((await changes("new.sh")).unstaged);
+  state = (await stageHunk("new.sh", added!, true)).body;
+  expect(summary(state)).toContain("new.sh: added / -");
+  expect(git(repo, "ls-files", "--stage", "new.sh")).toMatch(/^100755 /);
+  state = (await stageHunk("new.sh", hunks((await changes("new.sh")).staged)[0]!, false)).body;
+  expect(summary(state)).toContain("new.sh: - / untracked");
+});
+
+test("discards a hunk or a file only as the tab showed it, and changes the index only with staged", async () => {
+  const { repo, changes, discard } = await fixture();
+  const read = (path: string) => readFile(join(repo, path), "utf8");
+  const stamp = async (path: string, previousPath?: string) =>
+    (await changes(path, previousPath)).stamp;
+  // Before the first commit, a staged file goes back to nothing.
+  await write(repo, "first.ts", "first\n");
+  git(repo, "add", "first.ts");
+  let state = (await discard("first.ts", { staged: true, stamp: await stamp("first.ts") })).body;
+  expect(summary(state)).toEqual([]);
+  expect(existsSync(join(repo, "first.ts"))).toBe(false);
+
+  await write(repo, "a.ts", lines());
+  await write(repo, "b.ts", "b\n");
+  git(repo, "add", "--all");
+  git(repo, "commit", "-m", "start");
+  // An unstaged hunk goes back to the index; the other hunk stays.
+  await write(repo, "a.ts", lines({ 3: "three", 30: "thirty" }));
+  const [first] = hunks((await changes("a.ts")).unstaged);
+  state = (await discard("a.ts", { staged: false, hunk: first })).body;
+  expect(await read("a.ts")).toBe(lines({ 30: "thirty" }));
+  // A staged hunk leaves the index and the working file.
+  git(repo, "add", "a.ts");
+  await write(repo, "a.ts", lines({ 10: "ten", 30: "thirty" }));
+  const [stagedHunk] = hunks((await changes("a.ts")).staged);
+  state = (await discard("a.ts", { staged: true, hunk: stagedHunk })).body;
+  expect(summary(state)).toEqual(["a.ts: - / modified"]);
+  expect(git(repo, "show", ":a.ts")).toBe(lines());
+  expect(await read("a.ts")).toBe(lines({ 10: "ten" }));
+
+  // A partly staged file without staged: the working file takes the index's version.
+  git(repo, "add", "a.ts");
+  await write(repo, "a.ts", lines({ 10: "ten", 20: "twenty" }));
+  state = (await discard("a.ts", { staged: false, stamp: await stamp("a.ts") })).body;
+  expect(summary(state)).toEqual(["a.ts: modified / -"]);
+  expect(await read("a.ts")).toBe(lines({ 10: "ten" }));
+  // An agent changes the file after the tab showed it: nothing goes.
+  const before = await stamp("a.ts");
+  await write(repo, "a.ts", lines({ 10: "ten", 11: "eleven" }));
+  expect(await discard("a.ts", { staged: true, stamp: before })).toMatchObject({ status: 409 });
+  expect(await read("a.ts")).toBe(lines({ 10: "ten", 11: "eleven" }));
+  // With staged, the file goes back to HEAD.
+  state = (await discard("a.ts", { staged: true, stamp: await stamp("a.ts") })).body;
+  expect(summary(state)).toEqual([]);
+  expect(await read("a.ts")).toBe(lines());
+
+  // A file that Git does not track is deleted, and so is a staged new file
+  // with staged; a deleted file comes back; a rename is undone.
+  await write(repo, "new.ts", "new\n");
+  await write(repo, "added.ts", "added\n");
+  git(repo, "add", "added.ts");
+  await rm(join(repo, "b.ts"));
+  git(repo, "mv", "a.ts", "moved.ts");
+  state = (await discard("new.ts", { staged: false, stamp: await stamp("new.ts") })).body;
+  expect(existsSync(join(repo, "new.ts"))).toBe(false);
+  state = (await discard("b.ts", { staged: false, stamp: await stamp("b.ts") })).body;
+  expect(await read("b.ts")).toBe("b\n");
+  state = (await discard("added.ts", { staged: true, stamp: await stamp("added.ts") })).body;
+  expect(existsSync(join(repo, "added.ts"))).toBe(false);
+  const rename = { staged: true, previousPath: "a.ts", stamp: await stamp("moved.ts", "a.ts") };
+  state = (await discard("moved.ts", rename)).body;
+  expect(summary(state)).toEqual([]);
+  expect(await read("a.ts")).toBe(lines());
+  expect(existsSync(join(repo, "moved.ts"))).toBe(false);
+
+  // A folder, such as a nested repository, is never deleted.
+  await mkdir(join(repo, "nested"));
+  git(join(repo, "nested"), "init", "--quiet");
+  await write(repo, "nested/x.ts", "x\n");
+  const folder = await discard("nested/", { staged: false, stamp: await stamp("nested/") });
+  expect(folder.status).toBe(422);
+  expect(existsSync(join(repo, "nested", "x.ts"))).toBe(true);
+});
+
+test("a discard changes no file that the confirmation does not name", async () => {
+  const { repo, changes, discard, stageHunk } = await fixture();
+  const read = (path: string) => readFile(join(repo, path), "utf8");
+  const stamp = async (path: string, previousPath?: string) =>
+    (await changes(path, previousPath)).stamp;
+  await write(repo, "a.txt", "a\n");
+  await write(repo, "gone", "gone\n");
+  await write(repo, "latin.txt", lines());
+  git(repo, "add", "--all");
+  git(repo, "commit", "-m", "start");
+
+  // A rename's old path holds a new file again: it is a row of its own.
+  git(repo, "mv", "a.txt", "b.txt");
+  await write(repo, "b.txt", "b\n");
+  await write(repo, "a.txt", "new work\n");
+  const rename = { previousPath: "a.txt", stamp: await stamp("b.txt", "a.txt") };
+  expect(await discard("b.txt", { ...rename, staged: true })).toMatchObject({
+    status: 409,
+    body: { error: { message: expect.stringContaining("a.txt is a new file") } },
+  });
+  await discard("b.txt", { ...rename, staged: false });
+  expect(await read("a.txt")).toBe("new work\n");
+  expect(await read("b.txt")).toBe("a\n");
+
+  // A folder took a deleted file's place: neither goes.
+  await rm(join(repo, "gone"));
+  await mkdir(join(repo, "gone"));
+  await write(repo, "gone/keep.txt", "keep\n");
+  const folder = await discard("gone", { staged: true, stamp: await stamp("gone") });
+  expect(folder).toMatchObject({
+    status: 422,
+    body: { error: { message: expect.stringContaining("gone is a folder") } },
+  });
+  expect(await read("gone/keep.txt")).toBe("keep\n");
+
+  // `git add -N`: the index has the name only, and the file goes.
+  await write(repo, "named.txt", "named\n");
+  git(repo, "add", "-N", "named.txt");
+  const named = await discard("named.txt", { staged: false, stamp: await stamp("named.txt") });
+  expect(named.body.files.map((file) => file.path)).not.toContain("named.txt");
+  expect(existsSync(join(repo, "named.txt"))).toBe(false);
+
+  // A new file is one hunk: it is discarded as a file, by its stamp.
+  const [whole] = hunks((await changes("a.txt")).unstaged);
+  expect(await discard("a.txt", { staged: false, hunk: whole })).toMatchObject({ status: 422 });
+
+  // Bytes that are not UTF-8 never go back to Git as U+FFFD.
+  await writeFile(
+    join(repo, "latin.txt"),
+    Buffer.from(lines({ 3: "café", 28: "twenty-eight" }), "latin1"),
+  );
+  const [broken, clean] = hunks((await changes("latin.txt")).unstaged);
+  expect(broken).toContain("\uFFFD");
+  expect(await stageHunk("latin.txt", broken!, true)).toMatchObject({
+    status: 422,
+    body: { error: { message: expect.stringContaining("not UTF-8") } },
+  });
+  expect(await discard("latin.txt", { staged: false, hunk: broken })).toMatchObject({
+    status: 422,
+  });
+  expect(git(repo, "diff", "--cached", "--name-only")).not.toContain("latin.txt");
+  expect((await stageHunk("latin.txt", clean!, true)).status).toBe(200);
+  expect(git(repo, "show", ":latin.txt")).toBe(lines({ 28: "twenty-eight" }));
+
+  // A file too large to show still has a stamp that changes with it.
+  const large = (letter: string) => `${letter.repeat(100)}\n`.repeat(15_000);
+  await write(repo, "large.txt", large("x"));
+  git(repo, "add", "large.txt");
+  git(repo, "commit", "-m", "large");
+  await write(repo, "large.txt", large("y"));
+  const shown = await changes("large.txt");
+  expect(shown.tooLarge).toBe(true);
+  await write(repo, "large.txt", large("z"));
+  expect(await discard("large.txt", { staged: false, stamp: shown.stamp })).toMatchObject({
+    status: 409,
+  });
+  expect(await read("large.txt")).toBe(large("z"));
 });

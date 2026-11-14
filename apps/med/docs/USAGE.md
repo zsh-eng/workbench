@@ -71,7 +71,7 @@ The review has three pages, `1`–`3`:
 
 - **Review**: the agent's guide, if it gave one, and its summary.
 - **Changes**: the diff, with your comments and the agent's answers.
-- **Commit**: stage, commit, and push working changes.
+- **Commit**: stage files or hunks, discard, commit, and push working changes.
 
 | Review                                                                      | Changes, with the agent's answer                                         |
 | --------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
