@@ -57,6 +57,7 @@ import {
   roughUnit,
   type ThreadMetrics,
 } from "./thread-heights";
+import { atEnd, followEnd } from "./thread-follow";
 import { whenIdle } from "../../data/idle";
 import "./SessionThread.css";
 
@@ -1035,11 +1036,20 @@ function AgentView({
     if (!node || !inner) return;
     stuck.current = true;
     node.scrollTop = node.scrollHeight;
+    // As the session's thread does (thread-follow.ts).
+    const reader = followEnd(node, stuck);
     const observer = new ResizeObserver(() => {
+      reader.check();
       if (stuck.current) node.scrollTop = node.scrollHeight;
+      reader.wrote();
     });
     observer.observe(inner);
-    return () => observer.disconnect();
+    node.addEventListener("scroll", reader.check, { passive: true });
+    return () => {
+      observer.disconnect();
+      node.removeEventListener("scroll", reader.check);
+      reader.dispose();
+    };
   }, [agent.id]);
   return (
     <section ref={view} aria-label="Subagent" {...stylex.props(styles.agentView)}>
@@ -1058,10 +1068,6 @@ function AgentView({
         ref={scroller}
         // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
         tabIndex={0}
-        onScroll={(event) => {
-          const node = event.currentTarget;
-          stuck.current = node.scrollHeight - node.scrollTop - node.clientHeight < 32;
-        }}
         {...slim(stylex.props(styles.scroller))}
       >
         <div
@@ -1355,6 +1361,7 @@ export function SessionThread({
     loadEarlier(): void;
     go(key: string): void;
     hold(key: string): void;
+    toEnd(sync: boolean): void;
   } | null>(null);
   // Units on screen report later changes, as when their Markdown arrives.
   const observer = useRef<ResizeObserver | null>(null);
@@ -1445,27 +1452,16 @@ export function SessionThread({
     const node = scroller.current;
     const inner = content.current;
     if (!node || !inner) return;
-    // The view follows new items while the reader stays at the bottom. Only
-    // the reader's move up stops it. The view also moves up when the thread
-    // gets shorter, even for a moment within one frame: rows fold into a
-    // group, rows take their real height, a part loads.
-    let top = node.scrollTop;
-    // When the reader last scrolled, and whether a pointer is down in the thread.
-    let input = Number.NEGATIVE_INFINITY;
-    let pressed = false;
-    const atEnd = () => node.scrollHeight - node.scrollTop - node.clientHeight < 32;
+    // The view follows new items while the reader stays at the end, and lets
+    // go at the reader's first move up (thread-follow.ts). The view also moves
+    // up when the thread gets shorter, even for a moment within one frame:
+    // rows fold into a group, rows take their real height, a part loads.
     const listTop = () => head.current?.offsetTop ?? 0;
     // The view's place in the list's offsets.
     const viewTop = () => node.scrollTop - listTop() - latest.current.shift;
     // Half a device pixel: the scroll position moves in device pixels.
     const moved = (from: number, to: number) =>
       Math.abs(from - to) >= 0.5 / globalThis.devicePixelRatio;
-    const check = () => {
-      if (atEnd()) stuck.current = true;
-      else if (node.scrollTop + 1 < top && (pressed || performance.now() - input < 500))
-        stuck.current = false;
-      top = node.scrollTop;
-    };
     // Where the view was when its anchor was recorded or kept.
     let recorded = node.scrollTop;
     const record = () => {
@@ -1480,6 +1476,12 @@ export function SessionThread({
       if (offsets[at]! < y && at + 1 < all.length && offsets[at + 1]! < y + node.clientHeight) at++;
       anchor.current = { key: all[at]!.key, delta: y - offsets[at]! };
     };
+    // The reader's input lets go, and the view keeps its place from here; or
+    // it follows again.
+    const reader = followEnd(node, stuck, () => {
+      if (!stuck.current) record();
+      setAtBottom(stuck.current);
+    });
     // Browser scroll anchoring is off: it would count the spacers. The view
     // keeps its first unit in place itself, or the end while it follows.
     const restore = () => {
@@ -1487,7 +1489,7 @@ export function SessionThread({
       // The view moved since its anchor: a reader's scroll whose event has
       // not come yet, or the browser's clamp. The new place is the anchor.
       if (moved(node.scrollTop, recorded)) {
-        check();
+        reader.check();
         if (!stuck.current) {
           record();
           return;
@@ -1495,6 +1497,7 @@ export function SessionThread({
       }
       if (stuck.current) {
         node.scrollTop = node.scrollHeight;
+        reader.wrote();
         recorded = node.scrollTop;
         return;
       }
@@ -1504,7 +1507,10 @@ export function SessionThread({
       const at = index.get(saved.key) ?? index.get(`explore-${saved.key}`);
       if (at === undefined) return;
       const target = listTop() + latest.current.shift + offsets[at]! + saved.delta;
-      if (moved(node.scrollTop, target)) node.scrollTop = target;
+      if (moved(node.scrollTop, target)) {
+        node.scrollTop = target;
+        reader.wrote();
+      }
       recorded = node.scrollTop;
     };
     const place = (sync: boolean) => {
@@ -1545,7 +1551,7 @@ export function SessionThread({
       // A thread that follows the latest opens at the top of its content and
       // then moves to the end. Until it is there, the top is no reason to
       // load earlier work: the view would stay with it, mid-session.
-      if (stuck.current && !atEnd()) return;
+      if (stuck.current && !atEnd(node)) return;
       if (node.scrollTop - listTop() > node.clientHeight * EARLIER_SCREENS) return;
       requested = more;
       record();
@@ -1559,12 +1565,23 @@ export function SessionThread({
       recorded = node.scrollTop;
       restore();
       // Near the end the view follows again, so it goes all the way there.
-      if (atEnd()) {
+      if (atEnd(node)) {
         stuck.current = true;
         node.scrollTop = node.scrollHeight;
+        reader.wrote();
         recorded = node.scrollTop;
       }
       place(true);
+    };
+    // The view goes to the end and follows it again: Latest, or a message
+    // that the reader sends.
+    const toEnd = (sync: boolean) => {
+      stuck.current = true;
+      setAtBottom(true);
+      node.scrollTop = node.scrollHeight;
+      reader.wrote();
+      record();
+      place(sync);
     };
     // A unit that changes below it, such as a turn's work that opens, keeps
     // its place in the view.
@@ -1576,63 +1593,32 @@ export function SessionThread({
       anchor.current = { key, delta: viewTop() - offsets[at]! };
       recorded = node.scrollTop;
     };
-    list.current = { record, restore, place, loadEarlier, go, hold };
+    list.current = { record, restore, place, loadEarlier, go, hold, toEnd };
     const follow = () => {
-      check();
+      reader.check();
       if (stuck.current) node.scrollTop = node.scrollHeight;
-      top = node.scrollTop;
-      if (stuck.current) recorded = top;
+      reader.wrote();
+      if (stuck.current) recorded = node.scrollTop;
       setAtBottom(stuck.current);
       setSized(node.clientHeight > 0);
     };
     const onScroll = () => {
-      check();
+      reader.check();
       setAtBottom(stuck.current);
       record();
       place(true);
       loadEarlier();
     };
-    const onInput = () => {
-      input = performance.now();
-    };
-    const onPress = () => {
-      pressed = true;
-    };
-    const onRelease = () => {
-      pressed = false;
-      onInput();
-    };
-    const onKey = (event: KeyboardEvent) => {
-      const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest("input, textarea, select, [contenteditable]")) return;
-      if (
-        ["ArrowUp", "PageUp", "Home", "Tab"].includes(event.key) ||
-        (event.key === " " && event.shiftKey)
-      )
-        onInput();
-    };
-    const doc = node.ownerDocument;
     const resize = new ResizeObserver(follow);
     resize.observe(inner);
     resize.observe(node);
     node.addEventListener("scroll", onScroll, { passive: true });
-    node.addEventListener("wheel", onInput, { passive: true });
-    node.addEventListener("touchmove", onInput, { passive: true });
-    node.addEventListener("pointerdown", onPress);
-    doc.addEventListener("pointerup", onRelease);
-    doc.addEventListener("pointercancel", onRelease);
-    doc.addEventListener("keydown", onKey);
     follow();
     return () => {
       list.current = null;
       resize.disconnect();
       node.removeEventListener("scroll", onScroll);
-      node.removeEventListener("wheel", onInput);
-      node.removeEventListener("touchmove", onInput);
-      node.removeEventListener("pointerdown", onPress);
-      doc.removeEventListener("pointerup", onRelease);
-      doc.removeEventListener("pointercancel", onRelease);
-      doc.removeEventListener("keydown", onKey);
+      reader.dispose();
     };
   }, []);
 
@@ -1745,6 +1731,21 @@ export function SessionThread({
     stuck.current = false;
     anchor.current = { key: handled.key, delta: 0 };
   }, [handled]);
+
+  // A message that the reader sends from Med brings the view to the end, and
+  // the view follows again.
+  useLayoutEffect(() => {
+    if (
+      all.some(
+        (unit) =>
+          appended.has(unit.key) &&
+          "item" in unit &&
+          unit.item.kind === "user" &&
+          unit.item.sent?.delivery === "sending",
+      )
+    )
+      list.current?.toEnd(false);
+  }, [all, appended]);
 
   // After a render: units that rendered take their own heights; then the
   // view keeps its place, the range follows the view, and the view loads
@@ -1981,15 +1982,7 @@ export function SessionThread({
               {!atBottom && (
                 <button
                   type="button"
-                  onClick={() => {
-                    const node = scroller.current;
-                    if (!node) return;
-                    stuck.current = true;
-                    setAtBottom(true);
-                    node.scrollTop = node.scrollHeight;
-                    list.current?.record();
-                    list.current?.place(true);
-                  }}
+                  onClick={() => list.current?.toEnd(true)}
                   {...stylex.props(styles.latest, footer !== undefined && styles.above(room + 12))}
                 >
                   <Icon name="arrowDown" size={12} />

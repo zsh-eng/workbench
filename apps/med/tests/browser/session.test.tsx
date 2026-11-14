@@ -1311,6 +1311,228 @@ test("an update that renders during the reader's scroll does not pull the view b
   await expect.element(page.getByRole("button", { name: "Latest" })).toBeVisible();
 });
 
+const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+async function afterFrames(count: number) {
+  for (let at = 0; at < count; at++) await nextFrame();
+}
+const gapOf = (scroller: HTMLElement) =>
+  scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+/** Adds a chunk of a reply each frame until it stops, as an agent streams. */
+function streamReply(add: (count: number) => void) {
+  let count = 0;
+  let on = true;
+  const done = (async () => {
+    while (on) {
+      add(++count);
+      await nextFrame();
+    }
+  })();
+  return {
+    count: () => count,
+    async stop() {
+      on = false;
+      await done;
+    },
+  };
+}
+/** The view keeps to the end as the reply grows. A reply's Markdown can grow
+ * it between frames; the view follows in the next frame's resize callbacks,
+ * before it paints. */
+async function follows(scroller: HTMLElement) {
+  for (let round = 0; round < 3; round++) {
+    await afterFrames(8);
+    await expect.poll(() => gapOf(scroller)).toBeLessThan(32);
+  }
+}
+/** The view stays where the reader put it while text keeps arriving. */
+async function holds(scroller: HTMLElement, reply: { count(): number }) {
+  // A key's scroll can animate: the place is where it stops.
+  let top = Number.NaN;
+  for (let still = 0, at = 0; still < 4 && at < 60; at++) {
+    await nextFrame();
+    still = Math.abs(scroller.scrollTop - top) < 0.5 ? still + 1 : 0;
+    top = scroller.scrollTop;
+  }
+  const from = reply.count();
+  await afterFrames(30);
+  expect(reply.count()).toBeGreaterThan(from + 20);
+  expect(Math.abs(scroller.scrollTop - top)).toBeLessThan(1);
+  expect(gapOf(scroller)).toBeGreaterThan(0);
+}
+/** A word of a streaming reply, and a paragraph's end now and then. */
+const word = (count: number) => (count % 6 ? `word ${count} ` : "word.\n\n");
+
+test("while a reply streams in, the reader's move up holds the view until the reader is back at the end", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(40);
+  let sent: SentMessage | undefined;
+  const render = () => {
+    const snapshot = store.getSnapshot();
+    root!.render(
+      <SessionThread
+        snapshot={{
+          ...snapshot,
+          running: true,
+          items: sent ? withSentMessages(snapshot.items, [sent]) : snapshot.items,
+        }}
+      />,
+    );
+  };
+  render();
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r39");
+  const scroller = threadScroller();
+  await expect.poll(() => gapOf(scroller)).toBeLessThan(32);
+  const reply = streamReply((count) => {
+    store.applyAll([
+      {
+        at: 50_000 + count,
+        update: {
+          sessionUpdate: "agent_message_chunk" as const,
+          messageId: "live",
+          content: { type: "text" as const, text: word(count) },
+        },
+      },
+    ]);
+    render();
+  });
+  const latest = page.getByRole("button", { name: "Latest" });
+  const following = async () => {
+    await follows(scroller);
+    await expect.element(latest).not.toBeInTheDocument();
+  };
+  const held = async () => {
+    await holds(scroller, reply);
+    await expect.element(latest).toBeVisible();
+  };
+  const back = async () => {
+    await userEvent.click(latest);
+    await following();
+    scroller.focus({ preventScroll: true });
+  };
+  try {
+    await following();
+
+    // A trackpad's small steps up, each less than the end's margin.
+    for (let step = 0; step < 3; step++) await userEvent.wheel(scroller, { delta: { y: -8 } });
+    await held();
+    await back();
+
+    // Keys that scroll the focused thread up.
+    scroller.focus({ preventScroll: true });
+    for (const key of ["{ArrowUp}", "{PageUp}", "{Shift>} {/Shift}"]) {
+      await userEvent.keyboard(key);
+      await held();
+      await back();
+    }
+
+    // A drag of the scroll bar: a press on it, then a few pixels up.
+    const box = scroller.getBoundingClientRect();
+    const at = { bubbles: true, clientX: box.right - 3, clientY: box.bottom - 40 };
+    scroller.dispatchEvent(new PointerEvent("pointerdown", at));
+    scroller.scrollTop -= 6;
+    await held();
+    document.dispatchEvent(new PointerEvent("pointerup", at));
+    await held();
+    await back();
+
+    // A selection that the reader drags in the reply.
+    const live = document.querySelector<HTMLElement>('[data-unit="live"]')!;
+    const press = live.getBoundingClientRect();
+    live.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        clientX: press.left + 4,
+        clientY: press.top + 4,
+      }),
+    );
+    getSelection()!.selectAllChildren(live);
+    await held();
+    document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    getSelection()!.removeAllRanges();
+    await held();
+
+    // Back at the end, the view follows again.
+    await userEvent.wheel(scroller, { delta: { y: 100_000 } });
+    await following();
+
+    // A message that the reader sends brings the view to the end, and it follows.
+    await userEvent.wheel(scroller, { delta: { y: -600 } });
+    await held();
+    sent = {
+      id: "m1",
+      sessionId: "s1",
+      agent: "claude",
+      text: "Also check the import.",
+      noteIds: [],
+      attachmentCount: 0,
+      createdAt: new Date(60_000).toISOString(),
+      delivery: "sending",
+    };
+    await following();
+    await expect.element(page.getByText("Also check the import.")).toBeVisible();
+  } finally {
+    await reply.stop();
+  }
+});
+
+test("a subagent's view lets go at the reader's move up while its reply streams, and follows again at the end", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  const chunk = (at: number, text: string) => ({
+    at,
+    update: {
+      sessionUpdate: "agent_message_chunk" as const,
+      messageId: "sub",
+      content: { type: "text" as const, text },
+      _meta: { med: { parentToolCallId: "fetches" } },
+    },
+  });
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "user_message_chunk",
+        content: { type: "text", text: "Clear the cache." },
+      },
+    },
+    {
+      at: 1000,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "fetches",
+        title: "Find every place that fetches",
+        kind: "other",
+        status: "in_progress",
+        _meta: { med: { tool: "Agent" } },
+      },
+    },
+    chunk(1100, "A paragraph of the subagent's reply.\n\n".repeat(40)),
+  ] as Parameters<typeof store.applyAll>[0]);
+  const render = () =>
+    root!.render(<SessionThread snapshot={{ ...store.getSnapshot(), running: true }} />);
+  render();
+  await userEvent.click(page.getByRole("tab", { name: "Find every place that fetches" }));
+  const scroller = page
+    .getByRole("log", { name: "Find every place that fetches" })
+    .element().parentElement!;
+  await expect.poll(() => gapOf(scroller)).toBeLessThan(32);
+  const reply = streamReply((count) => {
+    store.applyAll([chunk(2000 + count, word(count))]);
+    render();
+  });
+  try {
+    await follows(scroller);
+    for (let step = 0; step < 3; step++) await userEvent.wheel(scroller, { delta: { y: -8 } });
+    await holds(scroller, reply);
+    await userEvent.wheel(scroller, { delta: { y: 100_000 } });
+    await follows(scroller);
+  } finally {
+    await reply.stop();
+  }
+});
+
 test("a row keeps its state when it leaves the view and comes back", async () => {
   await page.viewport(1280, 900);
   initializeTheme();

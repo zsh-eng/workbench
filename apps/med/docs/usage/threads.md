@@ -342,6 +342,12 @@ background shells and agents. It follows the session live.
   review is expanded, `⌘⇧B` shows the session beside it.
 - A long session opens on its latest work. Scroll up for earlier work, or
   step back through its prompts with `{`, which also loads the earlier pages.
+- While the agent writes, the thread keeps its newest text in view. Scroll
+  up by any amount, with the wheel, the trackpad, ↑, Page Up, Home, or the
+  scroll bar, or select text in the thread, and it stays where you put it
+  while text arrives below. **Latest** appears; click it, or scroll back
+  down to the end, and the thread follows again. A message that you send
+  also brings the thread to its end.
 - Under a turn's final reply, as in Claude Desktop: **Copy**, which copies
   the whole reply as Markdown; **Fork from here**; and how long ago the reply
   came (hover it for the date and time). They show while the pointer or the

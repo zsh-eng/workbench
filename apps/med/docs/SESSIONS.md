@@ -384,9 +384,22 @@ those messages as another session's, not as the user's.
   (`useInTitleBand`). A workspace out of sight runs its effects but takes
   no keys (`useWorkspaceShown`). The stream's own first view replaces the
   thread in one step. The
-  view follows new items while the reader is at the bottom; only
-  the reader's move up (wheel, touch, keys, or the pointer) stops it. A thread
-  that gets shorter also moves the view up, and that move does not stop it.
+  view follows new items while the reader is at the end, through a resize
+  observer on the thread (`thread-follow.ts`, after shadcn's MessageScroller
+  and use-stick-to-bottom). The reader's first sign of a move up lets go at
+  once, at the input, not at a later scroll event: a wheel up, a touch that
+  drags the content down, an up key in the focused thread (↑, Page Up, Home,
+  ⇧Space), a selection that the reader drags, or any move up while a pointer
+  is down in the thread, as on its scroll bar. Text that streams in then
+  cannot undo a small move or cancel a smooth scroll. A move up without such
+  an input, such as the browser's clamp when the thread gets shorter, does not
+  let go. The view follows again only when the reader moves down to the end
+  (within 32 px of it), clicks **Latest**, or sends a message from Med; a view
+  that rests a few pixels above the end stays there. A wheel or a key that
+  goes to the end or past it follows at the input: the browser scrolls a
+  wheel before it sends the event, and stops at the end as it was, which
+  streamed text has moved on. The subagent view follows its thread by the
+  same rules.
   The Background and Tasks docks sit under the thread. The Background dock
   lists only the tasks that run. A task that the dock saw run ends in its
   row: "Done" leaves after 3 seconds, and "Failed" stays until the reader
