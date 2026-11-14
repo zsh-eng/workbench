@@ -13,6 +13,7 @@ import {
 import { tokens, ui } from "../theme.stylex";
 import type { ReviewCommand } from "./Controls";
 import { Icon } from "./Icon";
+import { PaletteHeader } from "./Palette";
 import { KeySequence, ShortcutKeys } from "./ShortcutKeys";
 
 type Section = { key: string; title: string; description?: string; entries: GuideEntry[] };
@@ -116,17 +117,17 @@ export function ShortcutGuide({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Backdrop {...stylex.props(ui.scrim, styles.backdrop, ui.instant)} />
+        <Dialog.Backdrop {...stylex.props(ui.scrim, ui.paletteScrim, ui.instant)} />
         <Dialog.Popup
           initialFocus={() => {
             commandManagesFocus.current = false;
             return focusPaletteInput(inputRef.current);
           }}
           finalFocus={() => !commandManagesFocus.current}
-          {...stylex.props(ui.palette, styles.dialog, ui.instant)}
+          {...stylex.props(ui.palette, ui.paletteGuide, ui.instant)}
         >
-          <Dialog.Title {...stylex.props(styles.hidden)}>Shortcuts & commands</Dialog.Title>
-          <Dialog.Description {...stylex.props(styles.hidden)}>
+          <PaletteHeader title="Keyboard shortcuts" closeLabel="Close keyboard shortcuts" />
+          <Dialog.Description {...stylex.props(ui.srOnly)}>
             Keyboard shortcuts for review, commits, files, the editor, and pickers. Type to search
             actions or keys; Enter runs a highlighted command.
           </Dialog.Description>
@@ -159,7 +160,6 @@ export function ShortcutGuide({
               aria-activedescendant={rows[selectedIndex]?.id}
               {...stylex.props(ui.paletteField)}
             />
-            <ShortcutKeys value="Esc" />
           </div>
           <Tabs.Root
             value={searching ? null : tab}
@@ -170,7 +170,10 @@ export function ShortcutGuide({
               inputRef.current?.focus();
             }}
           >
-            <Tabs.List aria-label="Shortcut contexts" {...stylex.props(styles.contexts)}>
+            <Tabs.List
+              aria-label="Shortcut contexts"
+              {...stylex.props(ui.paletteStrip, styles.contexts)}
+            >
               {guideContexts.map((guide) => (
                 <Tabs.Tab
                   key={guide.id}
@@ -183,7 +186,7 @@ export function ShortcutGuide({
                   {guide.label}
                   {guide.id === context && (
                     <span {...stylex.props(styles.here)} title="Your current context">
-                      <span {...stylex.props(styles.hidden)}> (current)</span>
+                      <span {...stylex.props(ui.srOnly)}> (current)</span>
                     </span>
                   )}
                 </Tabs.Tab>
@@ -296,33 +299,8 @@ export function ShortcutGuide({
 }
 
 const styles = stylex.create({
-  backdrop: { zIndex: 110 },
-  dialog: {
-    zIndex: 111,
-    top: "9vh",
-    width: "min(880px, calc(100vw - 32px))",
-    height: "min(660px, 82vh)",
-    display: "flex",
-    flexDirection: "column",
-  },
-  hidden: {
-    position: "absolute",
-    width: 1,
-    height: 1,
-    overflow: "hidden",
-    clipPath: "inset(50%)",
-    whiteSpace: "nowrap",
-  },
-  contexts: {
-    display: "flex",
-    alignItems: "center",
-    gap: 2,
-    minHeight: 40,
-    paddingInline: 10,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
-  },
+  // The tabs' pills start under the search glass.
+  contexts: { gap: 2 },
   context: {
     position: "relative",
     display: "inline-flex",

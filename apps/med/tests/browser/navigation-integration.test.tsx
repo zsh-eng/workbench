@@ -192,7 +192,7 @@ test("Vim focus owns question mark while the rest of the app keeps the command g
   document.body.dispatchEvent(
     new KeyboardEvent("keydown", { key: "?", bubbles: true, cancelable: true }),
   );
-  await expect.element(page.getByRole("dialog", { name: "Shortcuts & commands" })).toBeVisible();
+  await expect.element(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeVisible();
 });
 
 test("Find works with Vim disabled and a palette command moves after the modal closes", async () => {

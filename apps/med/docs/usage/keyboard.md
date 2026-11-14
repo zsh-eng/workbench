@@ -1,7 +1,7 @@
 # Keyboard shortcuts
 
-Press `?` for the shortcuts of where you are: Review, Commit, File, Editor, or
-Pickers.
+Press `?` for **Keyboard shortcuts**, open at where you are: Review, Commit,
+File, Editor, or Pickers.
 Type to search every context by action or key, such as `close`, `zz`, or `⌘K`;
 Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, and Ctrl+Alt for ⌘⌃.
 

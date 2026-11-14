@@ -1240,7 +1240,7 @@ describe("graphical review", () => {
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "?", bubbles: true }));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "?", bubbles: true }));
-    await expect.element(page.getByRole("dialog", { name: "Shortcuts & commands" })).toBeVisible();
+    await expect.element(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeVisible();
     expect(document.querySelectorAll('[role="dialog"] kbd').length).toBeGreaterThan(10);
     await page.getByRole("option", { name: /Open command palette/ }).click();
     await expect.element(page.getByRole("combobox", { name: "Search commands" })).toBeVisible();
@@ -1283,7 +1283,7 @@ describe("graphical review", () => {
   test("the shortcut guide opens on the current context and searches keys", async () => {
     await mountApp({ branches: true });
     document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "?", bubbles: true }));
-    const guide = page.getByRole("dialog", { name: "Shortcuts & commands" });
+    const guide = page.getByRole("dialog", { name: "Keyboard shortcuts" });
     await expect.element(guide.getByRole("tab", { name: /Review/, selected: true })).toBeVisible();
     await page.getByRole("combobox", { name: "Search shortcuts and commands" }).fill("zz");
     await expect
@@ -3031,7 +3031,7 @@ describe("graphical review", () => {
 
     // ? shows the Commit tab's keys.
     await userEvent.keyboard("?");
-    const guide = page.getByRole("dialog", { name: "Shortcuts & commands" });
+    const guide = page.getByRole("dialog", { name: "Keyboard shortcuts" });
     await expect.element(guide.getByRole("tab", { name: /Commit/, selected: true })).toBeVisible();
     await expect.element(guide.getByText("Go into the file's hunks")).toBeVisible();
   });
