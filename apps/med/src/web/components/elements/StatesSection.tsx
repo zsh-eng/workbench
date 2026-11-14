@@ -267,7 +267,7 @@ const FRAMES: FrameSpec[] = [
     name: "Open elsewhere",
     tag: "in-med",
     cause: "The same session runs in a terminal. Med can’t type there.",
-    actions: "Messages wait until it closes, or Continue in Med forks it.",
+    actions: "Messages wait until it closes, or Fork in Med forks it.",
     thread: threadIn({}),
     story: "history",
     bottom: <Composer presence="terminal" onContinue={act} />,

@@ -501,7 +501,7 @@ what it read, the turn ends, and nothing gives the message.
 - AgentQueue: Codex and ACP agents (steering, and no messages during a
   turn). Take back (Edit and Remove), which runs under the same lock.
   Images. The `starting` status. A turn that Claude Code begins on its own.
-  More than one round of tools in a turn. Two sessions, and Continue in Med,
+  More than one round of tools in a turn. Two sessions, and Fork in Med,
   which gives the waiting messages to a fork (`host/server.ts:1600-1606`).
   The holder's log replays in one step. A write that fails other than to a
   holder that has gone. The model assumes that Claude Code keeps a line that

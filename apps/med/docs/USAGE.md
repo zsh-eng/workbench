@@ -105,7 +105,7 @@ flowchart TD
   M["You send a message or comments"] --> Q{"Who runs the session?"}
   Q -- "Med: started or resumed in Med" --> P["Its next prompt"]
   Q -- "No one: the session is closed" --> R["Med resumes it with the message,<br/>and runs it from then on"]
-  Q -- "Another app: a terminal, the Claude app, Codex" --> S["The thread is for reading:<br/>Continue in Med (a fork), or Copy comments"]
+  Q -- "Another app: a terminal, the Claude app, Codex" --> S["The thread is for reading:<br/>Fork in Med, or Copy comments"]
 ```
 
 ## Under the hood

@@ -511,7 +511,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
    * process: those that another process has open, such as Claude Code in a
    * terminal or a thread in Codex Desktop, with where each is open, and the
    * Claude sessions that a message resumes in Med. Med cannot type into
-   * another process: the reader sees the thread, and Continue in Med forks it.
+   * another process: the reader sees the thread, and Fork in Med forks it.
    */
   const sessionPlaces = async (sessions: readonly AgentSession[] = [], maxAgeMs = 1000) => {
     const ids = sessions.flatMap((session) => {
@@ -1773,7 +1773,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           return;
         }
         // A session that Med runs: its state, its updates, and the reader's
-        // actions on it. Continue in Med forks a session that another process
+        // actions on it. Fork in Med forks a session that another process
         // has open into one that Med runs, which takes the thread's place.
         const ownedRoute =
           /^\/api\/sessions\/([A-Za-z0-9_-]+)\/(owned|owned\/events|continue)$/.exec(url.pathname);
@@ -1937,7 +1937,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               // Med sends only to a session that it runs, or resumes because no
               // other process has it open. One that Claude Code in a terminal,
               // the Claude app, or Codex Desktop has open is the reader's to
-              // see: Continue in Med forks it into one that Med runs.
+              // see: Fork in Med forks it into one that Med runs.
               let resume = false;
               if ((!live || live.dormant()) && session.agent === "claude" && (!runner || live)) {
                 if (await ownedSessions.runsElsewhere(session.id))
@@ -2294,7 +2294,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send(review);
             return;
           }
-          // Continue in Med: an agy conversation becomes a thread whose agent
+          // Fork in Med: an agy conversation becomes a thread whose agent
           // Med runs, from its history. agy has one writer: while another
           // process has it open, a message says to end it there first.
           const continueAgy = async (input: SessionAdopt): Promise<SessionAdopted> => {

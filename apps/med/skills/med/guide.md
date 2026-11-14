@@ -168,7 +168,7 @@ you work now. For work on another branch, or in another worktree or
 repository, hand off a review with that checkout's `--repo` and its own
 `--key`, or name the branch in your message.
 
-A fork of a session (**Continue in Med**, **Fork from here**) is a new
+A fork of a session (**Fork in Med**, **Fork from here**) is a new
 session. It starts in Auto permission mode, whatever the mode of the session
 that it forks.
 

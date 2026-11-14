@@ -4,8 +4,8 @@ import { canonicalModel, type ThreadUsage } from "../../../shared/model-usage";
 import { tokens, ui } from "../../theme.stylex";
 
 // A thread's context and spend (docs/SESSIONS.md#spend-and-context): a chip
-// in the session's header, whose popover has the details, and the same
-// blocks for the side panel's cards.
+// under the message box, whose popover has the gist, and the side panel's
+// cards with the details.
 
 /** The context to show: the host's reading, or what Med's runner reports
  * before the transcript has a request. */
@@ -58,37 +58,99 @@ function Ring({ share, full }: { share: number; full: boolean }) {
   );
 }
 
-/** The share of the window in use, and where compaction starts. */
-export function ContextBlock({ context }: { context: ShownContext }) {
+/** The share of the window in use as a bar, with a mark where compaction starts. */
+function ContextBar({ context, slim = false }: { context: ShownContext; slim?: boolean }) {
   const share = context.window ? context.used / context.window : 0;
   const at = context.compaction?.at;
   return (
-    <div {...stylex.props(styles.block)}>
-      <div
-        role="meter"
-        aria-label="Context in use"
-        aria-valuemin={0}
-        aria-valuemax={context.window}
-        aria-valuenow={context.used}
-        aria-valuetext={`${Math.round(share * 100)}%`}
-        {...stylex.props(styles.bar)}
-      >
+    <div
+      role="meter"
+      aria-label="Context in use"
+      aria-valuemin={0}
+      aria-valuemax={context.window}
+      aria-valuenow={context.used}
+      aria-valuetext={`${Math.round(share * 100)}%`}
+      {...stylex.props(styles.bar, slim && styles.slim)}
+    >
+      <span
+        {...stylex.props(
+          styles.fill,
+          styles.width(`${Math.min(100, share * 100)}%`),
+          nearFull(context) && styles.fillFull,
+        )}
+      />
+      {at !== undefined && at < context.window && (
         <span
           {...stylex.props(
-            styles.fill,
-            styles.width(`${Math.min(100, share * 100)}%`),
-            nearFull(context) && styles.fillFull,
+            styles.mark,
+            slim && styles.slimMark,
+            styles.left(`${(at / context.window) * 100}%`),
           )}
+          title={`Compacts at ${tokenCount(at)}`}
         />
-        {at !== undefined && at < context.window && (
-          <span
-            {...stylex.props(styles.mark, styles.left(`${(at / context.window) * 100}%`))}
-            title={`Compacts at ${tokenCount(at)}`}
-          />
-        )}
-      </div>
+      )}
+    </div>
+  );
+}
+
+/** The share of the window in use, and where compaction starts. */
+export function ContextBlock({ context }: { context: ShownContext }) {
+  return (
+    <div {...stylex.props(styles.block)}>
+      <ContextBar context={context} />
       <ContextNotes context={context} />
     </div>
+  );
+}
+
+/** The date of the prices, and where they come from. */
+function PriceNote({ prices, short = false }: { prices: ThreadUsage["prices"]; short?: boolean }) {
+  // One date in the note when both price pages were read on the same day.
+  const oneDate = !prices.openai || prices.openai.readAt === prices.readAt;
+  return (
+    <p {...stylex.props(styles.line, styles.note, styles.prose)}>
+      {short ? "List prices" : "Estimate at list prices"}
+      {oneDate ? ` of ${prices.readAt}` : ""}:{" "}
+      <a href={prices.source} target="_blank" rel="noreferrer" {...stylex.props(styles.link)}>
+        Anthropic
+      </a>
+      {!oneDate && ` ${prices.readAt}`}
+      {prices.openai && (
+        <>
+          {", "}
+          <a
+            href={prices.openai.source}
+            target="_blank"
+            rel="noreferrer"
+            {...stylex.props(styles.link)}
+          >
+            OpenAI
+          </a>
+          {!oneDate && ` ${prices.openai.readAt}`}
+        </>
+      )}
+      .
+    </p>
+  );
+}
+
+/** What the total leaves out: models without a price, and transcripts without counts. */
+function SpendGaps({ spend }: { spend: ThreadUsage["spend"] }) {
+  const unpriced = spend.models.filter((model) => model.cost === null);
+  return (
+    <>
+      {unpriced.length > 0 && (
+        <p {...stylex.props(styles.line, styles.note)}>
+          No price for {unpriced.map((model) => modelName(model.model)).join(", ")}: not in the
+          total.
+        </p>
+      )}
+      {spend.missing.length > 0 && (
+        <p {...stylex.props(styles.line, styles.note)}>
+          No token counts for {[...new Set(spend.missing)].join(", ")}: not in the total.
+        </p>
+      )}
+    </>
   );
 }
 
@@ -136,9 +198,6 @@ export function ContextNotes({ context }: { context: ShownContext }) {
 /** The thread's total, its subagents' share, and each model's tokens. */
 export function SpendBlock({ usage, table = true }: { usage: ThreadUsage; table?: boolean }) {
   const { spend, prices } = usage;
-  const unpriced = spend.models.filter((model) => model.cost === null);
-  // One date in the note when both price pages were read on the same day.
-  const oneDate = !prices.openai || prices.openai.readAt === prices.readAt;
   return (
     <div {...stylex.props(styles.block)}>
       {/* A card's title has the total; a popover's table starts with it. */}
@@ -208,45 +267,14 @@ export function SpendBlock({ usage, table = true }: { usage: ThreadUsage; table?
           </div>
         ))
       )}
-      {unpriced.length > 0 && (
-        <p {...stylex.props(styles.line, styles.note)}>
-          No price for {unpriced.map((model) => modelName(model.model)).join(", ")}: not in the
-          total.
-        </p>
-      )}
-      {spend.missing.length > 0 && (
-        <p {...stylex.props(styles.line, styles.note)}>
-          No token counts for {[...new Set(spend.missing)].join(", ")}: not in the total.
-        </p>
-      )}
-      <p {...stylex.props(styles.line, styles.note, styles.prose)}>
-        Estimate at list prices{oneDate ? ` of ${prices.readAt}` : ""}:{" "}
-        <a href={prices.source} target="_blank" rel="noreferrer" {...stylex.props(styles.link)}>
-          Anthropic
-        </a>
-        {!oneDate && ` ${prices.readAt}`}
-        {prices.openai && (
-          <>
-            {", "}
-            <a
-              href={prices.openai.source}
-              target="_blank"
-              rel="noreferrer"
-              {...stylex.props(styles.link)}
-            >
-              OpenAI
-            </a>
-            {!oneDate && ` ${prices.openai.readAt}`}
-          </>
-        )}
-        .
-      </p>
+      <SpendGaps spend={spend} />
+      <PriceNote prices={prices} />
     </div>
   );
 }
 
-/** The chip in the session's header: context and spend at a glance, the
- * details one click away. */
+/** The chip under the message box: context and spend at a glance, the gist
+ * one click away. */
 export function UsageChip({
   usage,
   context,
@@ -282,18 +310,46 @@ export function UsageChip({
       <Popover.Portal>
         <Popover.Positioner align="end" sideOffset={6} {...stylex.props(styles.positioner)}>
           <Popover.Popup {...stylex.props(ui.popup, styles.popup)}>
+            {/* One bar, a line under it, and each model's cost: the tokens
+                are in the session rail's Spend card. */}
             {context && (
               <section aria-label="Context" {...stylex.props(styles.section)}>
-                <h3 {...stylex.props(ui.label, styles.heading)}>
-                  Context<span {...stylex.props(styles.figure)}>{percent}%</span>
-                </h3>
-                <ContextBlock context={context} />
+                <ContextBar context={context} slim />
+                <p {...stylex.props(styles.line, styles.quiet)}>
+                  <span>
+                    {percent}% · {tokenCount(context.used)} of {tokenCount(context.window)}
+                  </span>
+                  {context.compaction && (
+                    <span title={context.compaction.from}>
+                      {context.compaction.at === undefined
+                        ? "Autocompact is off"
+                        : `Compacts at ${context.compaction.approximate ? "about " : ""}${tokenCount(context.compaction.at)}`}
+                    </span>
+                  )}
+                </p>
+                {context.compacted && (
+                  <p {...stylex.props(styles.line, styles.note)}>
+                    Compacted since; the next request tells the new size.
+                  </p>
+                )}
               </section>
             )}
             {usage && (
               <section aria-label="Spend" {...stylex.props(styles.section)}>
-                <h3 {...stylex.props(ui.label, styles.heading)}>Spend in this thread</h3>
-                <SpendBlock usage={usage} />
+                {usage.spend.models.map((model) => (
+                  <p key={model.model} {...stylex.props(styles.line)}>
+                    <span title={model.model}>{modelName(model.model)}</span>
+                    <span>{model.cost === null ? "No price" : dollars(model.cost)}</span>
+                  </p>
+                ))}
+                {usage.spend.subagents.count > 0 && (
+                  <p {...stylex.props(styles.line, styles.note)}>
+                    {dollars(usage.spend.subagents.cost)} by {usage.spend.subagents.count}{" "}
+                    {usage.spend.subagents.count === 1 ? "subagent" : "subagents"}
+                  </p>
+                )}
+                <SpendGaps spend={usage.spend} />
+                <PriceNote prices={usage.prices} short />
               </section>
             )}
           </Popover.Popup>
@@ -325,26 +381,19 @@ const styles = stylex.create({
   track: { fill: "none", stroke: tokens.line, strokeWidth: 1.75 },
   value: { fill: "none", stroke: "currentColor", strokeWidth: 1.75, strokeLinecap: "round" },
   positioner: { zIndex: 100, outline: "none" },
+  // Quiet and roomy: two groups, no rules between them.
   popup: {
-    width: 420,
+    display: "flex",
+    flexDirection: "column",
+    gap: 16,
+    width: 280,
     maxWidth: "calc(100vw - 24px)",
     maxHeight: "min(560px, 80vh)",
-    padding: 0,
+    paddingBlock: 16,
+    paddingInline: 16,
   },
-  section: {
-    paddingInline: 14,
-    paddingBlock: 12,
-    borderTopWidth: { default: 1, ":first-child": 0 },
-    borderTopStyle: "solid",
-    borderTopColor: tokens.line,
-  },
-  heading: {
-    display: "flex",
-    justifyContent: "space-between",
-    margin: 0,
-    marginBottom: 8,
-  },
-  figure: { color: tokens.text, fontVariantNumeric: "tabular-nums" },
+  section: { display: "flex", flexDirection: "column", gap: 4 },
+  quiet: { color: tokens.muted, marginTop: 4 },
   block: { display: "flex", flexDirection: "column", gap: 6, minWidth: 0 },
   bar: {
     position: "relative",
@@ -361,6 +410,8 @@ const styles = stylex.create({
     backgroundColor: tokens.muted,
   },
   fillFull: { backgroundColor: tokens.accent },
+  slim: { height: 4, borderRadius: 2, marginBottom: 0 },
+  slimMark: { top: -2, bottom: -2 },
   width: (width: string) => ({ width }),
   left: (left: string) => ({ left }),
   mark: {

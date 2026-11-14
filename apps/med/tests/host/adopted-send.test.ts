@@ -22,7 +22,7 @@ import { removeFolder } from "./remove-folder";
 // A message to an adopted Claude Code session, through the production host:
 // Med resumes a session that no process runs, holds a message for one that
 // Claude Code runs in a terminal until that process ends, and forks it with
-// Continue in Med. A fake HOME holds Claude Code's process records, and a
+// Fork in Med. A fake HOME holds Claude Code's process records, and a
 // fake `claude` answers.
 
 const directories: string[] = [];
@@ -313,7 +313,7 @@ test("Med does not send to a session that a terminal has open; once it closes, a
   expect(back.data.status).toBe("idle");
 });
 
-test("Continue in Med forks the session; the thread follows the fork, which takes the next message", async () => {
+test("Fork in Med forks the session; the thread follows the fork, which takes the next message", async () => {
   const { api, id, original, send, tabs, args, prompts, started, terminal } = await fixture();
   const open = await terminal();
   const before = await readFile(original, "utf8");
@@ -457,10 +457,10 @@ test("Fork from here makes a thread whose session starts from the history up to 
   await expect.poll(async () => modeOf(await read())).toBe("auto");
 });
 
-test("a kept session resumes with its last reply's model and effort, and Continue in Med forks with them", async () => {
+test("a kept session resumes with its last reply's model and effort, and Fork in Med forks with them", async () => {
   const { api, id, send, args, terminal } = await fixture(TWO_TURNS);
   const open = await terminal();
-  // Continue in Med: the fork reads the session's prompt cache with its model.
+  // Fork in Med: the fork reads the session's prompt cache with its model.
   const continued = await api<{ thread: string; state: OwnedState }>(
     `/api/sessions/${id}/continue`,
     {},

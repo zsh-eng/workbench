@@ -238,18 +238,19 @@ Claude Code session that Med did not start. A message to it
 - **Another process runs it**, such as Claude Code in a terminal or in the
   Claude app. Med cannot type there, and two writers would mix one
   transcript, so Med sends nothing: the host answers `409 session-elsewhere`.
-  The message box is shut, and one line names where the session is open, by
-  the process record's `entrypoint`:
+  In place of the message box, one line has the agent's mark and where the
+  session is open, by the process record's `entrypoint`, with the full
+  sentence in its tooltip:
 
-  | `entrypoint`                          | Line                                                                    |
-  | ------------------------------------- | ----------------------------------------------------------------------- |
-  | `cli` (a terminal)                    | "Claude has this session open in a terminal. Med can't type there."     |
-  | `claude-desktop`, `claude-desktop-3p` | "Claude has this session open in the Claude app. Med can't type there." |
-  | any other, none, or no record         | "Claude has this session open in another app. Med can't type there."    |
+  | `entrypoint`                          | Line                | Tooltip                                                                 |
+  | ------------------------------------- | ------------------- | ----------------------------------------------------------------------- |
+  | `cli` (a terminal)                    | "In a terminal"     | "Claude has this session open in a terminal. Med can't type there."     |
+  | `claude-desktop`, `claude-desktop-3p` | "In the Claude app" | "Claude has this session open in the Claude app. Med can't type there." |
+  | any other, none, or no record         | "In another app"    | "Claude has this session open in another app. Med can't type there."    |
 
-  The reader copies the comments into that session, or continues it in Med.
+  The reader copies the comments into that session, or forks it in Med.
 
-**Continue in Med** (on that line, and in `⌘K`) forks the session:
+**Fork in Med** (at that line's end, and in `⌘K`) forks the session:
 `claude -p --resume <id> --fork-session --session-id <new ID>`, with an ID
 that Med chooses (`POST /api/reviews/:id/owned` with `fork`). The fork is a
 session of the thread that Med runs, after the original in the thread's
@@ -286,7 +287,7 @@ them. A model's ID shows as the model of Claude Code's list that names it,
 such as `opus` for `claude-opus-5-5` (Opus 5.5); an ID that the list does not
 name stays as it is, as an extra choice.
 
-A fork (Continue in Med, or Fork from here) is a new session, so it starts in
+A fork (Fork in Med, or Fork from here) is a new session, so it starts in
 Med's mode for a new Claude Code session: Auto (`--permission-mode auto`, from
 `AGENT_DEFAULTS` in `src/shared/owned-session.ts`), whatever the mode of the
 session that it forks. Med's record of the fork holds the model, effort, and
@@ -330,7 +331,7 @@ does not count. Med's own agents and `--fork-session` processes (questions)
 do not count. A process that names the session in its arguments, such as
 `claude --resume <id>`, also counts, in another app. When Med cannot tell, as
 for a record that it cannot read, the session counts as running in another
-app: a shut message box is safe, and Continue in Med is still there; two
+app: a shut message box is safe, and Fork in Med is still there; two
 writers on one transcript are not safe. Med does not use Claude Code's messaging socket: Claude treats
 those messages as another session's, not as the user's.
 
@@ -545,8 +546,10 @@ the replay do not change.
 
 ## Spend and context
 
-The session's header has a chip with the context in use and the thread's
-spend; a click shows where both come from. `GET /api/thread-usage` reads them
+Under the message box, at its end as in Claude Desktop, a chip has the context
+in use and the thread's spend; a click shows the gist: a bar, the tokens in
+use and where compaction starts, and each model's cost. The session rail's
+Context and Spend cards have the rest. `GET /api/thread-usage` reads them
 from the transcripts (`src/host/session-usage.ts`) and keeps its place in each
 file, so the next call reads only the new lines.
 
@@ -618,7 +621,8 @@ The thread's column has Claude Desktop's 768 pixel text measure
 its sides, and the rail's 300: beside the rail the column narrows to the room
 that is left, as Claude Desktop's transcript narrows beside its session rail.
 In a narrower pane, the rail and its button are gone, the subagents are tabs
-over the thread again, and the header's chip shows the context and spend. The
+over the thread again. The chip under the message box shows the context and
+spend either way. The
 header's list button, `⌘⌥⇧B`, or **Hide session rail** in `⌘K` closes it, and
 Med keeps that choice (`med:session-panel`).
 

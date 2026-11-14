@@ -139,7 +139,9 @@ export function PermissionCard({
  * sent, and other text such as GitHub comments. A session that Med runs takes
  * it as its next prompt, and one that no process has open resumes in Med with
  * it. One that a terminal or another app has open is the reader's to see:
- * the box stays shut, and Continue in Med forks the session.
+ * one line says where, and Fork in Med forks the session. Under the box, as in
+ * Claude Desktop, are the pickers of a session that Med runs and the thread's
+ * context and spend.
  */
 const clock = (at: number) =>
   new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -162,7 +164,10 @@ export function SessionComposer({
   onTakeBack,
   onOpenComment,
   onDeleteComments,
+  usage,
 }: {
+  /** The thread's context and spend (ThreadUsage's UsageChip), under the box. */
+  usage?: ReactNode;
   /** Deletes comments, with their replies, from the review or file that has them. */
   onDeleteComments?(ids: string[]): Promise<void>;
   /** Text that comes back into the box, such as a queued message to edit;
@@ -177,7 +182,7 @@ export function SessionComposer({
   /** Where a Claude session runs, when Med does not run it: in a terminal or
    * another app, or nowhere, so a message resumes it. */
   presence?: SessionPlace | "resumable";
-  /** Continue in Med: a fork of a session that a terminal or another app runs. */
+  /** Fork in Med: a fork of a session that a terminal or another app runs. */
   onContinue?(): Promise<void>;
   /** What @ can name: files, vault notes, and threads. Without it, @ is text. */
   mentions?: MentionSources;
@@ -435,8 +440,6 @@ export function SessionComposer({
       void act({ action: "interrupt" });
     }
   };
-  // Without a Med runner, the line takes the footer's status place.
-  const elsewhere = blocked && !error;
   const ownedStatus = error
     ? error
     : status === "starting"
@@ -444,6 +447,57 @@ export function SessionComposer({
       : stopped
         ? `${name} stopped. Start a new session to continue.`
         : (owned?.state.error ?? openThere);
+
+  // A session that a terminal or another app has open: no box, since Med
+  // can't type there. One centred line says where, beside a fork that Med
+  // runs; context and spend stay where they are under a box.
+  if (blocked)
+    return (
+      <>
+        <div
+          role="group"
+          aria-label={`${name} session ${SESSION_PLACES[presence as SessionPlace].open}`}
+          {...stylex.props(styles.elsewhere, column.bar)}
+        >
+          <span {...tooltip(openThere)} {...stylex.props(styles.place)}>
+            <Icon
+              name={agentIcon(agent)}
+              size={15}
+              style={{ flex: "none", ...(agent === "claude" && { color: CLAUDE }) }}
+            />
+            <span {...stylex.props(styles.placeName)}>
+              {SESSION_PLACES[presence as SessionPlace].open.replace(/^in/, "In")}
+            </span>
+          </span>
+          {onContinue && (
+            <button
+              type="button"
+              disabled={continuing}
+              {...tooltip("Fork this session into one that Med runs; the open one stays as it is")}
+              onClick={() => {
+                setContinuing(true);
+                setError(null);
+                onContinue()
+                  .catch((reason: unknown) =>
+                    setError(reason instanceof Error ? reason.message : "Med did not fork it."),
+                  )
+                  .finally(() => setContinuing(false));
+              }}
+              {...stylex.props(ui.button, ui.pressable, styles.fork)}
+            >
+              <Icon name="fork" size={13} />
+              {continuing ? "Forking…" : "Fork in Med"}
+            </button>
+          )}
+          {error && (
+            <span role="alert" {...stylex.props(styles.forkError)}>
+              {error}
+            </span>
+          )}
+        </div>
+        {usage && <ComposerMeta>{usage}</ComposerMeta>}
+      </>
+    );
 
   return (
     <>
@@ -704,15 +758,12 @@ export function SessionComposer({
           <textarea
             {...mentions.textarea}
             aria-label={`Message ${name}`}
-            disabled={blocked}
             placeholder={
-              blocked
-                ? `Continue in Med to message ${name} here`
-                : owned?.state.commands.length
-                  ? `Message ${name}, @ to mention, or / for commands…`
-                  : mentionSources
-                    ? `Message ${name}, or @ to mention…`
-                    : `Message ${name}…`
+              owned?.state.commands.length
+                ? `Message ${name}, @ to mention, or / for commands…`
+                : mentionSources
+                  ? `Message ${name}, or @ to mention…`
+                  : `Message ${name}…`
             }
             value={text}
             rows={2}
@@ -764,63 +815,15 @@ export function SessionComposer({
             {ownedStatus}
           </span>
         )}
-        <div {...stylex.props(styles.footer, elsewhere && styles.footerWraps)}>
-          {elsewhere ? (
-            // A session that a terminal or another app runs: one quiet line,
-            // and Continue in Med. In a narrow pane the line takes its own row
-            // above the buttons.
-            <span role="status" {...stylex.props(styles.elsewhere)}>
-              {openThere}
-            </span>
-          ) : owned ? (
-            <div {...stylex.props(styles.pickers)}>
-              {settings.map((setting) => (
-                <ChoiceSelect
-                  key={setting.id}
-                  label={setting.name}
-                  value={setting.value}
-                  choices={setting.options.map((option) => ({
-                    value: option.value,
-                    label: option.name,
-                    ...(option.description ? { description: option.description } : {}),
-                  }))}
-                  disabled={stopped || (setting.idleOnly && working)}
-                  onChange={(value) => choose(setting, value)}
-                  trigger={styles.picker}
-                />
-              ))}
-            </div>
-          ) : (
-            // Empty until a send fails; it keeps the buttons at the end.
+        <div {...stylex.props(styles.footer)}>
+          {/* Empty until a send fails; it keeps the buttons at the end. */}
+          {!owned && (
             <span role="status" {...stylex.props(styles.status, error !== null && styles.error)}>
               {error}
             </span>
           )}
           {/* The buttons stay together, at the end, when the line wraps. */}
           <div {...stylex.props(styles.actions)}>
-            {openThere && onContinue && (
-              <button
-                type="button"
-                disabled={continuing}
-                {...tooltip(
-                  "Fork the session into one that Med runs; the open session stays as it is",
-                )}
-                onClick={() => {
-                  setContinuing(true);
-                  setError(null);
-                  onContinue()
-                    .catch((reason: unknown) =>
-                      setError(
-                        reason instanceof Error ? reason.message : "Med did not continue it.",
-                      ),
-                    )
-                    .finally(() => setContinuing(false));
-                }}
-                {...stylex.props(ui.button, ui.pressable, ui.outlined, styles.continue)}
-              >
-                {continuing ? "Continuing…" : "Continue in Med"}
-              </button>
-            )}
             <input
               ref={imageInput}
               type="file"
@@ -836,7 +839,7 @@ export function SessionComposer({
               type="button"
               aria-label="Add images"
               title="Add images, or paste them"
-              disabled={stopped || blocked}
+              disabled={stopped}
               onClick={() => imageInput.current?.click()}
               {...stylex.props(ui.button, ui.iconButton, styles.attach)}
             >
@@ -873,7 +876,7 @@ export function SessionComposer({
                         ? `Queue for the end of ${name}'s turn (⌘↩); ⇧⌘↩ sends it now; ↑ takes it back`
                         : `Send now: ${name} reads it at its next step (⌘↩); ⇧⌘↩ queues it for the turn's end; ↑ takes it back`
                 }
-                disabled={empty || stopped || blocked}
+                disabled={empty || stopped}
                 {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.send)}
               >
                 <Icon name={queues() ? "clock" : "arrowUp"} size={14} />
@@ -882,9 +885,46 @@ export function SessionComposer({
           </div>
         </div>
       </form>
+      {/* Under the box: what Med's runner can change, and the thread's
+          context and spend. */}
+      {((owned && settings.length > 0) || usage) && (
+        <ComposerMeta>
+          {owned && (
+            <div {...stylex.props(styles.pickers)}>
+              {settings.map((setting) => (
+                <ChoiceSelect
+                  key={setting.id}
+                  label={setting.name}
+                  value={setting.value}
+                  choices={setting.options.map((option) => ({
+                    value: option.value,
+                    label: option.name,
+                    ...(option.description ? { description: option.description } : {}),
+                  }))}
+                  disabled={stopped || (setting.idleOnly && working)}
+                  onChange={(value) => choose(setting, value)}
+                  trigger={styles.picker}
+                />
+              ))}
+            </div>
+          )}
+          {usage}
+        </ComposerMeta>
+      )}
     </>
   );
 }
+
+/** The row under the message box, at its end, as in Claude Desktop. */
+export function ComposerMeta({ children }: { children: ReactNode }) {
+  return <div {...stylex.props(styles.meta, column.bar)}>{children}</div>;
+}
+
+/** Claude's mark in its own colour, as on the new thread page. */
+const CLAUDE = "#d97757";
+
+const agentIcon = (agent: AgentMessage["agent"]): IconName =>
+  agent === "claude" ? "claude" : agent === "codex" ? "codex" : "agent";
 
 const styles = stylex.create({
   // The / and @ lists open over the thread above it.
@@ -1063,13 +1103,23 @@ const styles = stylex.create({
     "::placeholder": { color: tokens.faint },
   },
   footer: { display: "flex", alignItems: "center", gap: 8 },
+  // Under the box, at its end: the pickers, then context and spend.
+  meta: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 2,
+    minWidth: 0,
+    marginTop: -6,
+    marginBottom: 8,
+    paddingInline: 2,
+  },
   pickers: {
-    flex: "1",
+    flexShrink: 1,
     minWidth: 0,
     display: "flex",
     alignItems: "center",
     gap: 2,
-    marginInlineStart: -6,
     overflow: "hidden",
   },
   picker: {
@@ -1083,32 +1133,46 @@ const styles = stylex.create({
     fontWeight: 400,
   },
   ownedStatus: { flex: "none", whiteSpace: "normal" },
-  // A session that a terminal or another app runs: one quiet line, and
-  // Continue in Med. The line keeps its natural width as its basis, so in a
-  // narrow pane it wraps to a row of its own and the buttons go below it.
-  footerWraps: { flexWrap: "wrap", rowGap: 6 },
+  // A session that a terminal or another app has open: one centred line
+  // where the box would be, quiet, with room around it.
   elsewhere: {
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: "auto",
+    flexShrink: 0,
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "center",
+    columnGap: 14,
+    rowGap: 6,
+    minHeight: 48,
+    marginBottom: 10,
+  },
+  place: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
     minWidth: 0,
     color: tokens.muted,
-    fontSize: 11.5,
-    lineHeight: 1.45,
+    fontSize: 13,
   },
+  placeName: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  fork: {
+    flexShrink: 0,
+    gap: 6,
+    minHeight: 28,
+    paddingInline: 12,
+    borderRadius: 999,
+    backgroundColor: { default: tokens.fill, ":hover:not(:disabled)": tokens.fillStrong },
+    color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
+    fontSize: 12.5,
+    fontWeight: 500,
+  },
+  forkError: { flexBasis: "100%", color: tokens.red, fontSize: 11.5, textAlign: "center" },
   actions: {
     display: "flex",
     alignItems: "center",
     gap: 8,
     flexShrink: 0,
     marginInlineStart: "auto",
-  },
-  continue: {
-    flexShrink: 0,
-    minHeight: 24,
-    paddingInline: 8,
-    color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
-    fontSize: 11.5,
   },
   commands: {
     listStyle: "none",

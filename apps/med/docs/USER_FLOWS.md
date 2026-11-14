@@ -51,7 +51,7 @@ flowchart LR
 
 Med sends only to a session that it runs. For a session that another app
 runs, **Copy comments** puts them on the clipboard as Markdown to paste there,
-or **Continue in Med** forks the session into Med.
+or **Fork in Med** forks the session into Med.
 
 ## One session, several reviews
 

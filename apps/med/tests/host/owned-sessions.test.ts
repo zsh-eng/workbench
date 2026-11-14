@@ -1611,7 +1611,7 @@ test("an agy conversation continues in Med once its process ends, from its histo
     });
     await owned.until((state) => !!state.permission);
 
-    // Continue in Med makes the agy conversation a thread at once, with its
+    // Fork in Med makes the agy conversation a thread at once, with its
     // history. agy has one writer, so a message waits for agy to end there.
     const adopt = () =>
       api<{ id: string; created: boolean }>("/api/sessions/adopt", {

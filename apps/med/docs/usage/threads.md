@@ -175,7 +175,7 @@ first click on **Superagent** starts it. Med makes it a folder of its own in
 its state folder, which no list of repositories shows, and starts Claude Code
 there on Opus at high effort with its instructions: what the Superagent is
 for, and how it works through `med`. After that it is a thread like any other: change its
-model and effort in the message box, queue messages, or stop it. There is one
+model and effort under the message box, queue messages, or stop it. There is one
 Superagent; the next click opens it.
 
 It reads the threads with `med thread list --json` and their transcripts, and
@@ -411,8 +411,9 @@ the review's repository, with your own sign-in; it does not install them.
 Antigravity (`agy`) is off unless the server starts with `MED_AGY=1`
 ([agent workspaces](../AGENT_WORKSPACES.md#antigravity-is-off)). To have a thread's agent hand off its work with a guide, add the
 lines from `med skills instructions` to your CLAUDE.md or AGENTS.md. The agent
-gets your messages from Med as new turns. The message box has model, effort,
-and mode pickers, `/` commands, and **Stop** (or `Esc`). Model and effort
+gets your messages from Med as new turns. The message box has `/` commands
+and **Stop** (or `Esc`); the model, effort, and mode pickers are under it, with
+the context and spend, as in Claude Desktop. Model and effort
 change while the agent works too, from its next step; Claude Code's max
 effort, or its default, waits for the turn to end. A tool call that
 needs an answer shows **Allow** and **Deny**. While the agent works, **Send now**
@@ -447,7 +448,7 @@ state, in place of the tabs over the thread. Its list button in the header, `⌘
   ask**, or **Bypass permissions**. Med starts a new Claude Code session in
   **Auto**, where a classifier allows safe actions and asks about risky ones.
   A thread's next session starts in the mode that the thread chose last,
-  except Bypass. A fork (**Fork from here**, **Continue in Med**) starts in
+  except Bypass. A fork (**Fork from here**, **Fork in Med**) starts in
   **Auto**. A session keeps its own mode when it resumes. `⇧Tab` in the message box steps through
   Ask, Accept edits, Plan, and Auto, as in the terminal; Bypass joins them once
   you chose it. **Bypass permissions** asks first. If Claude Code started
@@ -469,11 +470,10 @@ Med can run it:
   after a restart. The session goes on with the model and effort of its last
   reply, which the pickers show, so it reads the prompt cache that it wrote.
 - When Claude Code has it open in a terminal, you read the thread in Med, and
-  the message box is shut: "Claude has this session open in a terminal. Med
-  can't type there." In the Claude app it says "open in the Claude app"; in
-  any other app, "open in another app". Copy the comments into that session,
-  or continue it here.
-- **Continue in Med**, on that line or in `⌘K`, forks the session into one
+  one line takes the message box's place: Claude's mark and "In a terminal"
+  ("In the Claude app", "In another app"); its tooltip says Med can't type
+  there. Copy the comments into that session, or fork it here.
+- **Fork in Med**, at that line's end or in `⌘K`, forks the session into one
   that Med runs, with the model and effort of its last reply, and the message
   box opens on the fork. The thread follows the fork; the terminal or app
   keeps its own session.

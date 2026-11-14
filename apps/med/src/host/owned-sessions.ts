@@ -2463,7 +2463,7 @@ export class OwnedSessions {
   /**
    * A new Claude Code session that starts from `session`'s history
    * (`--resume <id> --fork-session --session-id <new ID>`), to message `at`
-   * (`--resume-session-at`) or to its end. Continue in Med forks the whole
+   * (`--resume-session-at`) or to its end. Fork in Med forks the whole
    * session, while another process keeps the original; Fork from here forks a
    * reply, for a thread of its own. The fork takes the model and effort of
    * its last reply, so its first prompt reads the session's prompt cache. Its

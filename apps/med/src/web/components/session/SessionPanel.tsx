@@ -42,7 +42,7 @@ import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
 import { paneHandle } from "../PaneTree";
 import { InTitleBand, useInTitleBand } from "../Workspaces";
-import { SessionComposer, type ComposerAttachment } from "./SessionComposer";
+import { ComposerMeta, SessionComposer, type ComposerAttachment } from "./SessionComposer";
 import { UsageChip, type ShownContext } from "./ThreadUsage";
 import {
   SIDE_PANEL_MIN_PANE,
@@ -235,7 +235,7 @@ export function SessionPanel({
   /** The recap of the thread's last turn, which ended unseen. It shows at
    * the end of the latest session; Reply goes to its message box. */
   recap?: Omit<TurnRecapProps, "onReply">;
-  /** Continue in Med: forks a Claude session that a terminal runs into one
+  /** Fork in Med: forks a Claude session that a terminal runs into one
    * that Med runs, which the thread then follows. */
   onContinue?(sessionId: string): Promise<void>;
   /** Fork from here, on a Claude session's replies: a new thread whose
@@ -704,23 +704,20 @@ export function SessionPanel({
   };
   // The first view has not come, and no earlier thread stays meanwhile.
   const loading = state.status === "connecting" && !snapshot.items.length;
-  // The session's own controls, at the title band's end: how full the
-  // context is, and the session rail's toggle. The band names the thread, and the thread its agent.
-  const sessionTools = bandTools && (
-    <>
-      {!side && <UsageChip usage={usage} context={shownContext} />}
-      {roomy && (
-        <ToolButton
-          icon="sessionRail"
-          label={side ? "Hide session rail" : "Show session rail"}
-          shortcut="Mod+Alt+Shift+B"
-          aria-pressed={side}
-          data-session-rail-toggle=""
-          onClick={() => viewSettings.sessionPanel.set(side ? "closed" : "auto")}
-        />
-      )}
-    </>
+  // The session's own control at the title band's end: the session rail's
+  // toggle. The band names the thread, and the thread its agent; context and
+  // spend are under the message box, as in Claude Desktop.
+  const sessionTools = roomy && (
+    <ToolButton
+      icon="sessionRail"
+      label={side ? "Hide session rail" : "Show session rail"}
+      shortcut="Mod+Alt+Shift+B"
+      aria-pressed={side}
+      data-session-rail-toggle=""
+      onClick={() => viewSettings.sessionPanel.set(side ? "closed" : "auto")}
+    />
   );
+  const usageChip = <UsageChip usage={usage} context={shownContext} />;
 
   // The message box, or what stands in its place, at the pane's foot: over
   // the thread's foot while the thread shows (SessionThread's footer).
@@ -766,10 +763,12 @@ export function SessionPanel({
             }
             mentions={mentions}
             onMentionsWanted={onMentionsWanted}
+            usage={usageChip}
           />
         )
       )}
       {!inbox && footer}
+      {!inbox && (usage || shownContext) && <ComposerMeta>{usageChip}</ComposerMeta>}
     </>
   );
   return (
@@ -782,11 +781,12 @@ export function SessionPanel({
       data-lead={lead || undefined}
       {...stylex.props(styles.panel)}
     >
-      {/* Where the title band does not show this workspace, a row holds them. */}
+      {/* Where the title band does not show this workspace, the pane's own
+          row holds them, and moves the pane. */}
       {inBand ? (
-        <InTitleBand session={sessionTools} />
+        <InTitleBand session={bandTools && sessionTools} />
       ) : (
-        sessionTools && (
+        bandTools && (
           <header {...paneHandle} {...stylex.props(styles.header)}>
             <span {...stylex.props(styles.grow)} />
             {sessionTools}

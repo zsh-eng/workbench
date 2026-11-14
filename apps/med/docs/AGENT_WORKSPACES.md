@@ -160,7 +160,7 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
 - **Adopted sessions**: a Claude Code session that Med did not start, such
   as one that Keep in Med or `med thread adopt` saved, becomes an owned
   session when a message comes and no process runs it (`resume`), with a
-  record as above. **Continue in Med** starts an owned fork of one that a
+  record as above. **Fork in Med** starts an owned fork of one that a
   terminal runs (`--resume <id> --fork-session --session-id <new ID>`), and
   **Fork from here** forks a reply into a thread of its own
   (`--resume-session-at`). Both, and `resume`, start with the model and effort
@@ -183,7 +183,7 @@ while a process other than Med's agents has it open (`lsof`, in
 Codex's guardian reviews and subagents stay out of the session list. A found
 session with a thread opens it;
 **Keep in Med** saves a Claude Code or Codex session as a thread
-(`POST /api/sessions/adopt`), and **Continue in Med** makes an agy
+(`POST /api/sessions/adopt`), and **Fork in Med** makes an agy
 conversation a thread whose agent Med runs, from its transcript's history
 (`{ agent: "agy", session, repo }`). agy has one writer: until the other
 process ends, a message to the thread fails and says to end it there. Turns
@@ -253,7 +253,7 @@ The inbox keeps it as `pending` with `queued: true` (`queued-messages.ts`):
 
 Med's Antigravity support is off by default, while the user does not use it:
 Med offers no agy agent, lists no running agy sessions, and refuses
-Continue in Med for an agy conversation. The code and its tests stay
+Fork in Med for an agy conversation. The code and its tests stay
 (`agy-runner.ts`, `tests/fixtures/agents/agy-stream.jsonl`, `fake-agy.mjs`).
 Start the server with `MED_AGY=1` (or `startHost({ agy: true })`) to turn it
 on. An agy session that Med started while it was on shows as stopped, with
@@ -330,7 +330,7 @@ Desktop's messaging socket is not documented.
   Codex resumes through `thread/resume`.
 - **A session that another app has open** (a terminal, the Claude app, Codex
   Desktop): the thread is for reading. The message box is shut, with
-  **Continue in Med**, which forks the session into one that Med runs. Or
+  **Fork in Med**, which forks the session into one that Med runs. Or
   copy the comments and paste them there. The host refuses a message to such
   a session (`session-elsewhere`), and to one that stopped in Med
   (`session-stopped`).

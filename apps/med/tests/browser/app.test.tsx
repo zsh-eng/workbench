@@ -461,7 +461,7 @@ async function mountApp(
             { status: 404 },
           );
         if (sessionPart === "continue" && init?.method === "POST") {
-          // Continue in Med: a fork that Med runs takes the session's place,
+          // Fork in Med: a fork that Med runs takes the session's place,
           // with the messages that waited for the terminal.
           ownedStarts.push({ preset: "claude", fork: "s1" });
           ownedKind = "claude";
@@ -1075,7 +1075,20 @@ describe("graphical review", () => {
     await expect
       .element(page.getByRole("tab", { name: "beta.ts", exact: true }))
       .toHaveAttribute("aria-selected", "true");
-    await page.getByRole("tab", { name: "alpha.ts", exact: true }).click();
+    // The tabs are the same width, as in Chrome, whatever their names.
+    const items = () =>
+      [...document.querySelectorAll('[aria-label="Open files"] [role="tab"]')].map(
+        (tab) => tab.parentElement!.getBoundingClientRect().width,
+      );
+    expect(items()).toHaveLength(2);
+    expect(new Set(items()).size).toBe(1);
+    // The pointer on a tab's × fills the tab, as on the tab itself.
+    const alpha = page.getByRole("tab", { name: "alpha.ts", exact: true });
+    const fill = () => getComputedStyle(alpha.element()).backgroundColor;
+    const resting = fill();
+    await userEvent.hover(page.getByRole("button", { name: "Close src/alpha.ts" }));
+    await expect.poll(fill).not.toBe(resting);
+    await alpha.click();
     const editor = page.getByRole("textbox", {
       name: "Edit src/alpha.ts",
       exact: true,
@@ -4415,29 +4428,38 @@ describe("agent session", () => {
     });
     await page.getByRole("button", { name: "Show agent session" }).click();
     const panel = page.getByRole("region", { name: "Agent session" });
-    // The chip's name says its figures.
+    // The chip is under the message box, at its end, as in Claude Desktop;
+    // its name says its figures.
     const chip = panel.getByRole("button", { name: "Context 31% full, $230.62 spent" });
     await expect.element(chip).toMatchTextContent("$230.62");
+    const form = panel.getByRole("form", { name: "Message Claude" }).element();
+    expect(chip.element().getBoundingClientRect().top).toBeGreaterThan(
+      form.getBoundingClientRect().bottom - 1,
+    );
+    expect(
+      document.querySelector('[aria-label="Workspace"]')?.contains(chip.element()) ?? false,
+    ).toBe(false);
 
+    // Its popover is the gist: one bar and a line, then each model's cost.
     await userEvent.click(chip);
     const context = page.getByRole("region", { name: "Context" });
     await expect
       .element(context.getByRole("meter", { name: "Context in use" }))
       .toHaveAttribute("aria-valuenow", "312932");
-    await expect.element(context.getByText("312,932 of 1M tokens")).toBeVisible();
-    await expect.element(context.getByText("Autocompact at 500k")).toBeVisible();
+    await expect.element(context).toMatchTextContent("31% · 313k of 1M");
     await expect
-      .element(context.getByText("modelSettings in ~/.claude/settings.json"))
-      .toBeVisible();
+      .element(context.getByText("Compacts at 500k"))
+      .toHaveAttribute("title", "modelSettings in ~/.claude/settings.json");
     const spend = page.getByRole("region", { name: "Spend" });
     await expect.element(spend.getByText("$40.44 by 4 subagents")).toBeVisible();
-    await expect.element(spend.getByRole("cell", { name: "Opus 5.5" })).toBeVisible();
-    // A model without a price shows its tokens, and the total says it leaves it out.
-    await expect.element(spend.getByRole("cell", { name: "No price" })).toBeVisible();
+    await expect.element(spend.getByText("Opus 5.5", { exact: true })).toBeVisible();
+    expect(spend.getByRole("table").query()).toBeNull();
+    // A model without a price says so, and the total leaves it out.
+    await expect.element(spend.getByText("No price", { exact: true })).toBeVisible();
     await expect.element(spend.getByText("No price for gpt-test: not in the total.")).toBeVisible();
-    // The note is one line: an estimate, the date of the prices, and their sources.
+    // The note is one line: the date of the prices, and their sources.
     await expect
-      .element(spend.getByText("Estimate at list prices of 2026-10-29: Anthropic, OpenAI."))
+      .element(spend.getByText("List prices of 2026-10-29: Anthropic, OpenAI."))
       .toBeVisible();
     await expect
       .element(spend.getByRole("link", { name: "Anthropic" }))
@@ -4551,10 +4573,8 @@ describe("agent session", () => {
       .element(page.getByRole("radio", { name: "Pull request" }))
       .toHaveAttribute("aria-checked", "true");
     await expect.element(side.getByRole("region", { name: "Agent" })).toMatchTextContent(/Claude/);
-    // The header leaves context and spend to the panel.
-    await expect
-      .element(pane.getByRole("button", { name: /^Context \d+% full/ }))
-      .not.toBeInTheDocument();
+    // Context and spend stay under the message box beside the rail too.
+    await expect.element(pane.getByRole("button", { name: /^Context \d+% full/ })).toBeVisible();
 
     await pane.getByRole("button", { name: "Hide session rail" }).click();
     await expect.element(side).not.toBeInTheDocument();
@@ -4866,7 +4886,7 @@ describe("agent session", () => {
     await expect.element(panel.getByText("Sending…")).not.toBeInTheDocument();
   });
 
-  test("a session open in a terminal says so, its box stays shut, and Continue in Med forks it", async () => {
+  test("a session open in a terminal says so in one line with no box, and Fork in Med forks it", async () => {
     await page.viewport(1280, 800);
     const reply = (at: number, sessionUpdate: string, text: string) => ({
       at,
@@ -4879,45 +4899,41 @@ describe("agent session", () => {
       agents: [{ id: "claude", name: "Claude Code", kind: "claude", available: true }],
     });
     await userEvent.click(page.getByRole("button", { name: "Show agent session" }));
-    const composer = page.getByRole("form", { name: "Message Claude" });
-    // One quiet line says where the session runs; Med sends nothing there.
+    // One line says where the session runs, with the sentence in its tooltip;
+    // there is no box, and Med sends nothing there.
+    const line = page.getByRole("group", { name: "Claude session in a terminal" });
+    const where = line.getByText("In a terminal", { exact: true });
+    await expect.element(where).toBeVisible();
     await expect
-      .element(
-        composer.getByText("Claude has this session open in a terminal. Med can't type there."),
-      )
-      .toBeVisible();
-    const box = composer.getByRole("combobox", { name: "Message Claude" });
-    await expect.element(box).toBeDisabled();
+      .element(where.element().parentElement!)
+      .toHaveAttribute(
+        "data-tooltip",
+        "Claude has this session open in a terminal. Med can't type there.",
+      );
     await expect
-      .element(box)
-      .toHaveAttribute("placeholder", "Continue in Med to message Claude here");
+      .element(page.getByRole("form", { name: "Message Claude" }))
+      .not.toBeInTheDocument();
     expect(agentMessages).toEqual([]);
 
-    // ⌘K offers Continue in Med for the thread.
+    // ⌘K offers Fork in Med for the thread.
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
-    await page.getByRole("combobox", { name: "Search commands" }).fill("Continue in Med");
-    await expect.element(page.getByRole("option", { name: /^Continue in Med/ })).toBeVisible();
+    await page.getByRole("combobox", { name: "Search commands" }).fill("Fork in Med");
+    await expect.element(page.getByRole("option", { name: /^Fork in Med/ })).toBeVisible();
     await userEvent.keyboard("{Escape}");
 
-    // Continue in Med forks the session; the thread follows the fork.
-    await userEvent.click(composer.getByRole("button", { name: "Continue in Med" }));
+    // Fork in Med forks the session; the thread follows the fork, and the
+    // box opens on it.
+    await userEvent.click(line.getByRole("button", { name: "Fork in Med" }));
     await expect.poll(() => ownedStarts).toEqual([{ preset: "claude", fork: "s1" }]);
+    const composer = page.getByRole("form", { name: "Message Claude" });
     await expect.element(composer.getByText("Starting Claude…")).toBeVisible();
-    await expect
-      .element(page.getByText("Claude has this session open in a terminal. Med can't type there."))
-      .not.toBeInTheDocument();
+    await expect.element(line).not.toBeInTheDocument();
   });
 
   test.each([
-    {
-      place: "claude-app" as const,
-      line: "Claude has this session open in the Claude app. Med can't type there.",
-    },
-    {
-      place: "other-app" as const,
-      line: "Claude has this session open in another app. Med can't type there.",
-    },
-  ])("a session open in $place says where, and offers Continue in Med", async ({ place, line }) => {
+    { place: "claude-app" as const, where: "in the Claude app" },
+    { place: "other-app" as const, where: "in another app" },
+  ])("a session open in $place says where, and offers Fork in Med", async ({ place, where }) => {
     await page.viewport(1280, 800);
     await mountApp({
       savedReview: true,
@@ -4926,10 +4942,14 @@ describe("agent session", () => {
       agents: [{ id: "claude", name: "Claude Code", kind: "claude", available: true }],
     });
     await userEvent.click(page.getByRole("button", { name: "Show agent session" }));
-    const composer = page.getByRole("form", { name: "Message Claude" });
-    await expect.element(composer.getByText(line)).toBeVisible();
-    await expect.element(composer.getByRole("button", { name: "Continue in Med" })).toBeVisible();
-    await expect.element(composer.getByRole("combobox", { name: "Message Claude" })).toBeDisabled();
+    const line = page.getByRole("group", { name: `Claude session ${where}` });
+    const named = line.getByText(where.replace(/^in/, "In"), { exact: true });
+    await expect.element(named).toBeVisible();
+    expect(named.element().parentElement!.getAttribute("data-tooltip")).toBe(
+      `Claude has this session open ${where}. Med can't type there.`,
+    );
+    await expect.element(line.getByRole("button", { name: "Fork in Med" })).toBeVisible();
+    expect(page.getByRole("combobox", { name: "Message Claude" }).query()).toBeNull();
   });
 
   test("a saved review starts an agent in the Session pane, and the composer drives it", async () => {
@@ -4980,8 +5000,11 @@ describe("agent session", () => {
     await expect.element(page.getByRole("button", { name: /^Context 20% full/ })).toBeVisible();
     // Model, effort, and mode are pickers, not commands. With two models, a
     // click switches to the other.
-    await userEvent.click(composer.getByRole("button", { name: "Model: Default" }));
-    await expect.element(composer.getByRole("button", { name: "Model: Haiku" })).toBeVisible();
+    // They are under the message box, as in Claude Desktop.
+    const model = page.getByRole("button", { name: "Model: Default" });
+    expect(composer.element().contains(model.element())).toBe(false);
+    await userEvent.click(model);
+    await expect.element(page.getByRole("button", { name: "Model: Haiku" })).toBeVisible();
     expect(ownedActions).toContainEqual({
       action: "setting",
       id: "model",

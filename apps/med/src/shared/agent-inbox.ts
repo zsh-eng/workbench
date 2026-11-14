@@ -125,7 +125,7 @@ export const agentInboxStateSchema = z.object({
    * Sessions that another process has open, such as Claude Code in a
    * terminal or a thread in Codex Desktop, with where each is open. Med
    * cannot type there: the reader sees the thread, copies the comments, or
-   * forks the session with Continue in Med.
+   * forks the session with Fork in Med.
    */
   elsewhere: z.record(z.string(), sessionPlaceSchema).default({}),
   /** Claude sessions that no process runs: a message resumes the session,

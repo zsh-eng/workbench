@@ -1373,7 +1373,7 @@ export function App({
     }),
     [agentPresets, controller, workspace, threadId],
   );
-  // Continue in Med: a fork of a Claude session that a terminal runs. The
+  // Fork in Med: a fork of a Claude session that a terminal runs. The
   // fork takes the thread's place; the terminal keeps its session.
   const continueInMed = useCallback(async () => {
     if (!sessionThreadId) return;
@@ -4513,7 +4513,7 @@ export function App({
                   ? [
                       {
                         id: "continue-in-med",
-                        label: "Continue in Med",
+                        label: "Fork in Med",
                         run: () =>
                           void continueInMed().catch((error: unknown) =>
                             showToast(

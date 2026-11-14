@@ -643,7 +643,7 @@ one, resumes in Med when no process runs it (`OwnedSessions.resume`). When
 another process runs it, which `src/host/session-processes.ts` reads from
 Claude Code's process records, the message waits until that process takes it
 with `med review wait` or ends; `src/host/held-messages.ts` checks the
-process only while a message waits. Continue in Med forks such a session into
+process only while a message waits. Fork in Med forks such a session into
 one that Med runs. See [messages to adopted
 sessions](docs/SESSIONS.md#messages-to-adopted-sessions).
 

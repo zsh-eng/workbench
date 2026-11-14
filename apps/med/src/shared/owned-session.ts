@@ -306,7 +306,7 @@ export const ownedStartSchema = z.object({
   preset: z.string().min(1).max(80),
   choices: agentChoicesSchema.optional(),
 });
-/** What a start or Continue in Med answers: the session's thread, which can
+/** What a start or Fork in Med answers: the session's thread, which can
  * be another thread than the one asked, and the agent's state. */
 export const ownedStartedSchema = z.object({
   thread: z.string(),

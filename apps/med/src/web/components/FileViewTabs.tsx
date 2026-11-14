@@ -256,16 +256,17 @@ const styles = stylex.create({
   // Longhands win over the list's flex shorthand. In a narrow row the tabs
   // narrow before the row's last controls shrink.
   keep: { flexBasis: "auto", flexShrink: 100 },
-  // A tab is as wide as its name, to a limit, and narrows as more open.
+  // Every tab is as wide as the others, as in Chrome: up to a width, and
+  // narrower alike as more open.
   item: {
     position: "relative",
     display: "flex",
     alignItems: "center",
-    flexGrow: 0,
+    flexGrow: 1,
     flexShrink: 1,
-    flexBasis: "auto",
+    flexBasis: 0,
     minWidth: 56,
-    maxWidth: 240,
+    maxWidth: 200,
   },
   tab: {
     display: "flex",
@@ -292,7 +293,22 @@ const styles = stylex.create({
     animationDuration: "200ms",
     animationTimingFunction: tokens.easeOut,
   },
-  fileTab: { width: "100%", paddingInlineStart: 8, paddingInlineEnd: 26 },
+  // The tab and its close button are one: the pointer on either fills the tab.
+  fileTab: {
+    width: "100%",
+    paddingInlineStart: 8,
+    paddingInlineEnd: 26,
+    backgroundColor: {
+      default: "transparent",
+      ":hover": tokens.fill,
+      [stylex.when.ancestor(":hover")]: tokens.fill,
+    },
+    color: {
+      default: tokens.muted,
+      ":hover": tokens.text,
+      [stylex.when.ancestor(":hover")]: tokens.text,
+    },
+  },
   active: {
     color: { default: tokens.text, ":hover": tokens.text },
     backgroundColor: { default: tokens.fillStrong, ":hover": tokens.fillStrong },
@@ -346,7 +362,7 @@ const styles = stylex.create({
     borderWidth: 0,
     borderRadius: `calc(5px * ${tokens.round})`,
     cursor: "pointer",
-    backgroundColor: { default: "transparent", ":hover": tokens.fillStrong },
+    backgroundColor: { default: "transparent", ":hover": tokens.pick },
     color: { default: tokens.faint, ":hover": tokens.text },
     opacity: { default: 0, [stylex.when.ancestor(":hover")]: 1, ":focus-visible": 1 },
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },

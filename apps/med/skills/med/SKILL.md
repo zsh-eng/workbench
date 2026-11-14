@@ -25,7 +25,7 @@ worktree has shows only its newest commit.
 - `MED_SESSION=owned`: you run in a Med thread. Hand off each round of work.
   `MED_THREAD_KEY` and `MED_THREAD_REPO` are the default `--key` and
   `--repo`. The user's messages arrive as new turns. A fork of a session
-  (**Continue in Med**, **Fork from here**) starts in Auto permission mode,
+  (**Fork in Med**, **Fork from here**) starts in Auto permission mode,
   whatever the mode of the session that it forks.
 - Without it: hand off when the user, or the project's instructions, ask for
   Med or a review, or when this session has handed off before. If none of

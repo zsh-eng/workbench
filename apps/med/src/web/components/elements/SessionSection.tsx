@@ -528,7 +528,7 @@ export function SessionSection() {
       </Specimen>
       <Specimen
         title="Reply to the agent"
-        note="Comments and GitHub threads go into one message. Claude takes it as its next prompt, or at its next step while it works. A session open in a terminal is read-only here: Continue in Med forks it."
+        note="Comments and GitHub threads go into one message. Claude takes it as its next prompt, or at its next step while it works. A session open in a terminal is read-only here: Fork in Med forks it."
         padded={false}
         zoomable={false}
         span="half"
