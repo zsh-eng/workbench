@@ -27,7 +27,7 @@ const file = (id: string, at: string, extra: Partial<FileComment> = {}): FileCom
   ...extra,
 });
 
-test("All comments lists the diff's top-level comments and the files', newest first", () => {
+test("All comments lists the diff's top-level comments and the files', new answers first", () => {
   const listed = listComments(
     [
       note("a", "2026-11-08T10:00:00Z"),
@@ -49,10 +49,11 @@ test("All comments lists the diff's top-level comments and the files', newest fi
     ],
     new Set(["b"]),
   );
-  // A reply is not an item of its own; it counts under its comment.
-  expect(listed.map((comment) => comment.id)).toEqual(["b", "f", "a"]);
-  expect(listed[0]).toMatchObject({ kind: "diff", endLine: 6, unsent: true, replies: 0 });
-  expect(listed[1]).toMatchObject({
+  // A reply is not an item of its own; it counts under its comment. The
+  // answers that the reader has not opened come first, newest first.
+  expect(listed.map((comment) => comment.id)).toEqual(["f", "a", "b"]);
+  expect(listed[2]).toMatchObject({ kind: "diff", endLine: 6, unsent: true, replies: 0 });
+  expect(listed[0]).toMatchObject({
     kind: "file",
     path: "docs/guide.md",
     line: 2,
@@ -60,7 +61,31 @@ test("All comments lists the diff's top-level comments and the files', newest fi
     resolved: true,
     replies: 1,
     answeredBy: "Codex",
+    answer: "Done.",
+    unread: true,
     unsent: false,
   });
-  expect(listed[2]).toMatchObject({ replies: 1, answeredBy: "Claude", resolved: false });
+  expect(listed[1]).toMatchObject({ replies: 1, answeredBy: "Claude", resolved: false });
+});
+
+test("An answer that the reader opened is read, and the list goes by each thread's newest entry", () => {
+  const listed = listComments(
+    [
+      note("a", "2026-11-08T10:00:00Z"),
+      note("a1", "2026-11-08T13:00:00Z", { parentId: "a", author: { agent: "claude" } }),
+      note("b", "2026-11-08T12:00:00Z"),
+      note("c", "2026-11-08T09:00:00Z"),
+      note("c1", "2026-11-08T09:30:00Z", { parentId: "c", author: { agent: "claude" } }),
+      // The user replied after the answer: nothing new to read.
+      note("c2", "2026-11-08T14:00:00Z", { parentId: "c" }),
+    ],
+    [],
+    new Set(),
+    { a: "2026-11-08T13:00:00Z" },
+  );
+  expect(listed.map((comment) => [comment.id, !!comment.unread])).toEqual([
+    ["c", false],
+    ["a", false],
+    ["b", false],
+  ]);
 });

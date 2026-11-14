@@ -424,10 +424,11 @@ const styles = stylex.create({
     boxShadow: `inset 0 0 0 1px ${tokens.line}`,
     backgroundColor: tokens.canvas,
   },
+  // Narrower in a narrow row or band, so the pages fit beside the rest.
   page: {
     justifyContent: "center",
-    width: 30,
-    minWidth: 30,
+    width: { default: 30, "@container (max-width: 400px)": 26 },
+    minWidth: { default: 30, "@container (max-width: 400px)": 26 },
     height: 24,
     paddingInline: 0,
     borderRadius: `calc(7px * ${tokens.round})`,

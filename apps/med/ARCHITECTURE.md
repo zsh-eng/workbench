@@ -42,9 +42,10 @@ branch opens its working changes; a branch without a worktree opens its
 committed snapshot, without working-copy controls. A stale worktree mapping
 falls back to the snapshot. No tab action runs checkout or switch.
 
-The read-only file browser has a right sidebar and center tabs beside a
-permanent Changes tab. Attached worktrees give current files; other branches
-give an exact commit tree.
+Files are a page of the review, beside Review, Changes, and Commit: the tree
+as its sidebar, and tabs of the open files and Search. The other pages have
+no tabs. Attached worktrees give current files; other branches give an exact
+commit tree.
 
 ## Boundaries and dependencies
 
@@ -257,8 +258,12 @@ window holds that stream under a Web Lock and passes reviews to the other
 windows on a `BroadcastChannel`.
 
 The address follows the active workspace: `/review/<id>`, `/vault/<id>`, or `/`
-with the workspace ID in `history.state`. Back and Forward move between
-workspaces.
+with the workspace ID in `history.state`. Each step the reader takes is a
+history entry, as routes have them, without a router (`data/navigation.ts`):
+another workspace, a page that covers them, and in a workspace its page,
+file, and review, which the entry holds as its `screen`. Back and Forward,
+the browser's or the title band's, show an entry's screen again. A window
+that starts at `/` opens the workspace and screen that showed last.
 
 Search is a tab of each workspace (`components/SearchView.tsx`), after Commit
 in the row. The file workspace store keeps its query with the workspace's

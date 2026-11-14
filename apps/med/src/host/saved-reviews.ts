@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
 import type { SentComment } from "../shared/agent-inbox";
+import { lastSaid, type LastSaid } from "../shared/comment-thread";
 import { ByteLru } from "../shared/byte-lru";
 import { generatedMarkSchema } from "../shared/generated";
 import { normalizeDiffMetadataPaths } from "../shared/hunk/diffPaths";
@@ -1665,18 +1666,21 @@ export class SavedReviewStore {
   }
 
   /** Top-level comments across the review's targets, for the agent's drafts. */
-  comments(id: string): Promise<(Note & { replies: number })[]> {
+  comments(id: string): Promise<(Note & { replies: number; said: LastSaid })[]> {
     return this.serial(async () => {
       const record = await this.read(id);
       return record.captures.flatMap((target) =>
         target.notes.notes
           .filter((note) => !note.parentId)
-          .map((note) => ({
-            ...note,
-            updatedAt: threadVersion(target.notes.notes, note),
-            replies: target.notes.notes.filter((item) => item.parentId === note.id && !item.author)
-              .length,
-          })),
+          .map((note) => {
+            const replies = target.notes.notes.filter((item) => item.parentId === note.id);
+            return {
+              ...note,
+              updatedAt: threadVersion(target.notes.notes, note),
+              replies: replies.filter((item) => !item.author).length,
+              said: lastSaid(note, replies),
+            };
+          }),
       );
     });
   }
@@ -1881,7 +1885,10 @@ export class SavedReviewStore {
               path: note.path,
               line: note.line,
               ...(note.endLine ? { endLine: note.endLine } : {}),
-              text: note.text,
+              ...lastSaid(
+                note,
+                target.notes.notes.filter((item) => item.parentId === note.id),
+              ),
             },
           });
         }

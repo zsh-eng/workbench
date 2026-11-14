@@ -23,6 +23,8 @@ export interface FileRefs {
   comments?: RefOptions;
   /** Opens the file at its lines; `background` keeps the current tab. */
   open(ref: FileRef, background: boolean): void;
+  /** The repository's branches, which inline code names link to. */
+  branches?: { names: ReadonlySet<string>; open(name: string, background: boolean): void };
 }
 export const FileRefsContext = createContext<FileRefs | null>(null);
 export const useFileRefs = () => useContext(FileRefsContext);
@@ -33,23 +35,37 @@ export const CommentRefsContext = createContext<FileRefs | null>(null);
 // thread's list does not read its HTML again.
 const decorated = new WeakMap<
   readonly MarkdownBlock[],
-  { index: FileIndex; cwd?: string; comments?: RefOptions; blocks: MarkdownBlock[] }
+  {
+    index: FileIndex;
+    cwd?: string;
+    comments?: RefOptions;
+    branches?: ReadonlySet<string>;
+    blocks: MarkdownBlock[];
+  }
 >();
-/** The blocks of a rendered reply or comment, with links to the files that it names. */
+/** The blocks of a rendered reply or comment, with links to the files and
+ * branches that it names. */
 export function useFileRefBlocks(blocks: readonly MarkdownBlock[] | undefined) {
   const refs = useFileRefs();
   const index = refs?.index;
   const cwd = refs?.cwd;
   const comments = refs?.comments;
+  const branches = refs?.branches?.names;
   return useMemo(() => {
     if (!blocks || !index) return blocks;
     const kept = decorated.get(blocks);
-    if (kept && kept.index === index && kept.cwd === cwd && kept.comments === comments)
+    if (
+      kept &&
+      kept.index === index &&
+      kept.cwd === cwd &&
+      kept.comments === comments &&
+      kept.branches === branches
+    )
       return kept.blocks;
-    const next = decorateFileRefs(blocks, index, cwd, comments);
-    decorated.set(blocks, { index, cwd, comments, blocks: next });
+    const next = decorateFileRefs(blocks, index, cwd, comments, branches);
+    decorated.set(blocks, { index, cwd, comments, branches, blocks: next });
     return next;
-  }, [blocks, index, cwd, comments]);
+  }, [blocks, index, cwd, comments, branches]);
 }
 
 /** Plain text, such as a prompt, with the paths that name a file of the

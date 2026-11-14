@@ -41,6 +41,8 @@ export const agentMessageInputSchema = z.object({
 });
 export type AgentMessageInput = z.input<typeof agentMessageInputSchema>;
 
+const inReplyToSchema = z.object({ author: z.string(), text: z.string() });
+
 /** A comment as it read when the user sent it. */
 export const sentCommentSchema = z.object({
   /** A file, or "Notes" for a comment on a passage of the Notes. */
@@ -49,7 +51,10 @@ export const sentCommentSchema = z.object({
   endLine: z.number().optional(),
   /** The passage of the Notes. */
   quote: z.string().optional(),
+  /** What the user said last in the comment's thread (comment-thread.ts). */
   text: z.string(),
+  /** The agent's answer that the text replies to. */
+  inReplyTo: inReplyToSchema.optional(),
 });
 export type SentComment = z.infer<typeof sentCommentSchema>;
 
@@ -97,7 +102,9 @@ export const draftCommentSchema = z.object({
   endLine: z.number().optional(),
   /** The passage of the Notes. */
   quote: z.string().optional(),
+  /** What the user said last in the comment's thread (comment-thread.ts). */
   text: z.string(),
+  inReplyTo: inReplyToSchema.optional(),
   replies: z.number().int().nonnegative(),
 });
 export type DraftComment = z.infer<typeof draftCommentSchema>;

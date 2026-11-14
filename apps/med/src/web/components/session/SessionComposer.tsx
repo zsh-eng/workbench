@@ -639,7 +639,10 @@ export function SessionComposer({
                     {...tooltip(onOpenComment ? "Show in the review" : undefined)}
                     {...stylex.props(styles.draftOpen)}
                   >
-                    <span {...stylex.props(styles.draftPath)}>{name}</span>
+                    <span {...stylex.props(styles.draftPath)}>
+                      {name}
+                      {draft.inReplyTo && ` · reply to ${draft.inReplyTo.author}`}
+                    </span>
                     <span {...stylex.props(styles.draftText)}>{draft.text}</span>
                   </button>
                   {onDeleteComments && (

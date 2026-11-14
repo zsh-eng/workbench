@@ -372,7 +372,9 @@ test("reopening a highlighted working file shows its current contents", async ()
     .toBeGreaterThan(2);
   await page.getByRole("radio", { name: "Changes", exact: true }).click();
   source = 'export const revised = "fresh";';
-  await page.getByRole("tab", { name: "main.ts", exact: true }).click();
+  // Files shows the file that showed last.
+  await page.getByRole("radio", { name: "Files", exact: true }).click();
+  await expect.element(page.getByRole("tab", { name: "main.ts", exact: true })).toBeVisible();
   await expect
     .poll(() =>
       tokens()
@@ -404,7 +406,8 @@ test("Vim edits, undo, retained drafts, and :w use the production file API", asy
     .element(page.getByRole("img", { name: "Unsaved changes", exact: true }))
     .toBeVisible();
   await page.getByRole("radio", { name: "Changes", exact: true }).click();
-  await page.getByRole("tab", { name: /main.ts/ }).click();
+  await page.getByRole("radio", { name: "Files", exact: true }).click();
+  await expect.element(page.getByRole("tab", { name: /main.ts/ })).toBeVisible();
   await expect.element(editor).toHaveTextContent("const total = 1;");
   await userEvent.keyboard("u");
   await expect.element(editor).toHaveTextContent("const count = 1;");
@@ -581,6 +584,7 @@ test("files start in Normal mode and a clean reopen uses fresh contents", async 
   await expect.element(editor).toHaveTextContent("const count = 1;");
   await page.getByRole("radio", { name: "Changes", exact: true }).click();
   source = "const external = 2;";
-  await page.getByRole("tab", { name: "main.ts", exact: true }).click();
+  await page.getByRole("radio", { name: "Files", exact: true }).click();
+  await expect.element(page.getByRole("tab", { name: "main.ts", exact: true })).toBeVisible();
   await expect.element(editor).toHaveTextContent(source);
 });

@@ -949,7 +949,6 @@ export default function CommitView({
                   const entry = entryById.get(item.id);
                   if (!entry) return null;
                   const state = stageState(entry.file);
-                  const slash = entry.file.path.lastIndexOf("/") + 1;
                   const kind = change(entry.file);
                   return (
                     <div
@@ -981,17 +980,12 @@ export default function CommitView({
                           }
                           {...stylex.props(styles.path, styles.headerPath, styles.fileLink)}
                         >
-                          <span {...stylex.props(ui.faint)}>{entry.file.path.slice(0, slash)}</span>
-                          <span {...stylex.props(styles.fileName)}>
-                            {entry.file.path.slice(slash)}
-                          </span>
+                          {/* A long name gives way, its folders first, in a narrow pane. */}
+                          <PathLabel path={entry.file.path} strong />
                         </button>
                       ) : (
                         <span {...stylex.props(styles.path, styles.headerPath)}>
-                          <span {...stylex.props(ui.faint)}>{entry.file.path.slice(0, slash)}</span>
-                          <span {...stylex.props(styles.fileName)}>
-                            {entry.file.path.slice(slash)}
-                          </span>
+                          <PathLabel path={entry.file.path} strong />
                         </span>
                       )}
                       {entry.part && (
@@ -1494,7 +1488,6 @@ const styles = stylex.create({
     textUnderlineOffset: 3,
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
-  fileName: { fontWeight: 550 },
   part: {
     flexShrink: 0,
     paddingInline: 6,

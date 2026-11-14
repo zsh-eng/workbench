@@ -1061,20 +1061,20 @@ describe("graphical review", () => {
       .getByRole("link", { name: "src/alpha.ts", exact: true })
       .click({ modifiers: ["Meta"] });
     await expect
-      .element(page.getByRole("tab", { name: "alpha.ts", exact: true }))
-      .toHaveAttribute("aria-selected", "false");
-    await expect
       .element(page.getByRole("radio", { name: "Changes", exact: true }))
       .toHaveAttribute("aria-checked", "true");
     const selected = controller.getSnapshot().selectedFileId;
     await page.getByRole("treeitem", { name: /beta.ts/ }).click({ modifiers: ["Meta"] });
     await expect
-      .element(page.getByRole("tab", { name: "beta.ts", exact: true }))
-      .toHaveAttribute("aria-selected", "false");
-    await expect
       .element(page.getByRole("radio", { name: "Changes", exact: true }))
       .toHaveAttribute("aria-checked", "true");
     expect(controller.getSnapshot().selectedFileId).toBe(selected);
+    // The tabs are the Files page's: Changes has none.
+    expect(page.getByRole("tab", { name: "alpha.ts", exact: true }).query()).toBeNull();
+    await page.getByRole("radio", { name: "Files", exact: true }).click();
+    await expect
+      .element(page.getByRole("tab", { name: "beta.ts", exact: true }))
+      .toHaveAttribute("aria-selected", "true");
     await page.getByRole("tab", { name: "alpha.ts", exact: true }).click();
     const editor = page.getByRole("textbox", {
       name: "Edit src/alpha.ts",
@@ -1104,6 +1104,8 @@ describe("graphical review", () => {
     for (const name of ["src/alpha.ts", "src/beta.ts"])
       await page.getByRole("link", { name, exact: true }).click({ modifiers: ["Meta"] });
     const blame = page.getByRole("button", { name: "Toggle Git blame" });
+    // Files opened behind wait on the Files page.
+    await page.getByRole("radio", { name: "Files", exact: true }).click();
     await page.getByRole("tab", { name: "alpha.ts", exact: true }).click();
     await blame.click();
     await expect.element(blame).toHaveAttribute("aria-pressed", "true");
@@ -1481,9 +1483,12 @@ describe("graphical review", () => {
       .element(page.getByRole("combobox", { name: "Find file", exact: true }))
       .not.toBeInTheDocument();
   });
-  test("the folder button toggles only the files sidebar; it has no shortcut", async () => {
+  test("Show files sidebar opens the Files page with its tree; it has no shortcut", async () => {
     await page.viewport(1280, 800);
     await mountApp();
+    const tree = () =>
+      document.querySelector('nav[aria-label="Workspace files"]')?.checkVisibility() ?? false;
+    const filesPage = page.getByRole("radio", { name: "Files", exact: true });
     // Without an agent session, Command Shift B does nothing.
     window.dispatchEvent(
       new KeyboardEvent("keydown", {
@@ -1494,21 +1499,18 @@ describe("graphical review", () => {
       }),
     );
     await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(
-      document.querySelector('[aria-label="Workspace files"]')?.checkVisibility() ?? false,
-    ).toBe(false);
+    expect(tree()).toBe(false);
+    await expect.element(filesPage).not.toBeChecked();
+    // The tree is the Files page's sidebar: showing it shows the page, and
+    // hiding it leaves the page on screen.
     for (const visible of [true, false]) {
       await toggleFilesSidebar();
-      await expect
-        .poll(
-          () =>
-            document.querySelector('[aria-label="Workspace files"]')?.checkVisibility() ?? false,
-        )
-        .toBe(visible);
-      expect(document.querySelector('nav[aria-label="Files and commits"]')?.checkVisibility()).toBe(
-        true,
-      );
+      await expect.poll(tree).toBe(visible);
+      await expect.element(filesPage).toBeChecked();
     }
+    // With no file open, the page says how to open one, and has no tabs.
+    await expect.element(page.getByText("No file open", { exact: true })).toBeVisible();
+    expect(page.getByRole("tab").elements()).toHaveLength(0);
     window.dispatchEvent(
       new KeyboardEvent("keydown", {
         key: "K",
@@ -1523,43 +1525,58 @@ describe("graphical review", () => {
   });
   test("side panes tile beside the review: zoom, resize, balance, and close", async () => {
     await page.viewport(1280, 800);
-    await mountApp();
-    await toggleFilesSidebar();
-    const files = page.getByRole("region", {
-      name: "Workspace files",
-      exact: true,
+    const events = [
+      {
+        at: 0,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Renamed in [alpha.ts:1](src/alpha.ts:1)." },
+        },
+      },
+    ];
+    await mountApp({
+      savedReview: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events, idle: true, modifiedAt: 0, truncated: false })}\n\n`,
     });
+    await page.getByRole("button", { name: "Show agent session" }).click();
+    const session = page.getByRole("region", { name: "Agent session", exact: true });
     const panes = () =>
       [...document.querySelectorAll<HTMLElement>("[data-pane]:not([hidden])")]
         .map((pane) => [pane.dataset.pane!, pane.getBoundingClientRect()] as const)
         .sort((a, b) => a[1].left - b[1].left);
-    await expect.poll(() => panes().map(([id]) => id)).toEqual(["review", "files"]);
+    // The session leads, at the left.
+    await expect.poll(() => panes().map(([id]) => id)).toEqual(["session", "review"]);
 
     // Zoom gives one pane the whole tree; the others wait behind it, inert.
+    // The review's row has Expand; ⌘E expands the pane in use.
     const tree = document.querySelector("[data-pane-tree]")!.getBoundingClientRect();
-    // Expand in a pane's header zooms it; so does a double-click on the
-    // header, as on a window's title bar.
-    await files.getByRole("button", { name: "Expand files" }).click();
-    const filesPane = document.querySelector<HTMLElement>('[data-pane="files"]')!;
-    await expect.poll(() => filesPane.getBoundingClientRect().width).toBe(tree.width);
-    expect(document.querySelector<HTMLElement>('[data-pane="review"]')!.inert).toBe(true);
-    await files.getByRole("button", { name: "Restore the other panes" }).click();
-    await expect.poll(() => filesPane.getBoundingClientRect().width).toBeLessThan(tree.width / 2);
-    await userEvent.dblClick(files.getByText("Files", { exact: true }));
-    await expect.poll(() => filesPane.getBoundingClientRect().width).toBe(tree.width);
-    await userEvent.dblClick(files.getByText("Files", { exact: true }));
-    await expect.poll(() => filesPane.getBoundingClientRect().width).toBeLessThan(tree.width / 2);
+    const sessionPane = document.querySelector<HTMLElement>('[data-pane="session"]')!;
+    const reviewPane = document.querySelector<HTMLElement>('[data-pane="review"]')!;
+    await page.getByRole("button", { name: "Expand review" }).click();
+    await expect.poll(() => reviewPane.getBoundingClientRect().width).toBe(tree.width);
+    expect(sessionPane.inert).toBe(true);
+    await page.getByRole("button", { name: "Restore the other panes" }).click();
+    await expect.poll(() => sessionPane.inert).toBe(false);
+    const expandSession = async () => {
+      sessionPane.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      await userEvent.keyboard("{Meta>}e{/Meta}");
+      await expect.poll(() => sessionPane.getBoundingClientRect().width).toBe(tree.width);
+      expect(reviewPane.inert).toBe(true);
+    };
+    await expandSession();
+    await userEvent.keyboard("{Meta>}e{/Meta}");
+    await expect
+      .poll(() => sessionPane.getBoundingClientRect().width)
+      .toBeLessThan(tree.width * 0.75);
 
     // A gutter's arrow keys move the edge between two panes; ⌘⌃= gives each
     // pane the same width.
-    const gutter = page.getByRole("separator", {
-      name: "Resize Changes and Files",
-    });
+    const gutter = page.getByRole("separator", { name: /^Resize Session and .+$/ });
     const share = () => Number(gutter.element().getAttribute("aria-valuenow"));
     const start = share();
     (gutter.element() as HTMLElement).focus();
-    await userEvent.keyboard("{ArrowLeft}");
-    await expect.poll(share).toBeLessThan(start);
+    await userEvent.keyboard("{ArrowRight}");
+    await expect.poll(share).toBeGreaterThan(start);
     await userEvent.keyboard("{Meta>}{Control>}={/Control}{/Meta}");
     await expect
       .poll(() => {
@@ -1568,32 +1585,26 @@ describe("graphical review", () => {
       })
       .toBeLessThanOrEqual(2);
 
-    // A window too small for every pane hides them from the left; the pane in
-    // use and the review stay. Smaller still, one shows: the pane in use,
-    // Files here, or else the review.
+    // A window too small for both panes shows one, and both come back.
     const ids = () => panes().map(([id]) => id);
-    await page.viewport(640, 800);
-    await expect.poll(ids).toEqual(["review", "files"]);
     await page.viewport(400, 800);
-    await expect.poll(ids).toEqual(["files"]);
+    await expect.poll(() => ids().length).toBe(1);
     await page.viewport(1280, 800);
-    await expect.poll(ids).toEqual(["review", "files"]);
+    await expect.poll(ids).toEqual(["session", "review"]);
 
     // A file that opens from a zoomed pane shows: the review gets its room back.
-    await files.getByRole("button", { name: "Expand files" }).click();
-    await expect.poll(() => filesPane.getBoundingClientRect().width).toBe(tree.width);
-    await files.getByRole("treeitem", { name: "alpha.ts", exact: true }).click();
-    await expect.poll(() => filesPane.getBoundingClientRect().width).toBeLessThan(tree.width / 2);
-    expect(document.querySelector<HTMLElement>('[data-pane="review"]')!.inert).toBe(false);
+    await expandSession();
+    await session.getByRole("link", { name: "Open src/alpha.ts at L1" }).click();
+    await expect
+      .poll(() => sessionPane.getBoundingClientRect().width)
+      .toBeLessThan(tree.width * 0.75);
+    expect(reviewPane.inert).toBe(false);
   });
   test("a Markdown file reads rendered, and ⌘⇧V shows its source in its place", async () => {
     await page.viewport(1280, 800);
     await mountApp();
     await toggleFilesSidebar();
-    const files = page.getByRole("region", {
-      name: "Workspace files",
-      exact: true,
-    });
+    const files = page.getByRole("navigation", { name: "Workspace files", exact: true });
     await files.getByRole("treeitem", { name: "GUIDE.md", exact: true }).click();
     const reading = page.getByRole("region", { name: "Markdown preview" });
     await expect.element(reading.getByRole("heading", { name: "Guide" })).toBeVisible();
@@ -1692,19 +1703,22 @@ describe("graphical review", () => {
   });
   test("a pane's header drags it beside another pane or swaps the two; Escape keeps it", async () => {
     await page.viewport(1280, 800);
-    await mountApp();
-    await toggleFilesSidebar();
+    await mountApp({
+      savedReview: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+    });
+    await page.getByRole("button", { name: "Show agent session" }).click();
     const order = () =>
       [...document.querySelectorAll<HTMLElement>("[data-pane]:not([hidden])")]
         .map((pane) => [pane.dataset.pane!, pane.getBoundingClientRect()] as const)
         .sort((a, b) => a[1].top - b[1].top || a[1].left - b[1].left)
         .map(([id]) => id);
-    await expect.poll(order).toEqual(["review", "files"]);
+    await expect.poll(order).toEqual(["session", "review"]);
     const rect = (id: string) =>
       document.querySelector(`[data-pane="${id}"]`)!.getBoundingClientRect();
-    const grip = () => document.querySelector('[data-pane="files"] [data-pane-handle]')!;
+    const grip = () => document.querySelector('[data-pane="session"] [data-pane-handle]')!;
     const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
-    /** Drags the Files header to a point, then drops it or presses Escape. */
+    /** Drags the Session header to a point, then drops it or presses Escape. */
     const dragTo = async (x: number, y: number, end: "drop" | "escape" = "drop") => {
       const handle = grip();
       const start = handle.getBoundingClientRect();
@@ -1728,18 +1742,18 @@ describe("graphical review", () => {
       else at("pointerup", x, y);
     };
 
-    // The lower edge of the review: Files goes below it.
+    // The lower edge of the review: the session goes below it.
     const review = rect("review");
     await dragTo(review.left + review.width / 2, review.bottom - 10);
-    await expect.poll(order).toEqual(["review", "files"]);
-    expect(Math.round(rect("files").top)).toBeGreaterThan(Math.round(review.top) + 100);
+    await expect.poll(order).toEqual(["review", "session"]);
+    expect(Math.round(rect("session").top)).toBeGreaterThan(Math.round(review.top) + 100);
     // It settles in from a slight scale, as a new pane does.
-    await expect.poll(() => Math.round(rect("files").left)).toBe(Math.round(rect("review").left));
+    await expect.poll(() => Math.round(rect("session").left)).toBe(Math.round(rect("review").left));
 
     // The middle of the review swaps the two.
     const above = rect("review");
     await dragTo(above.left + above.width / 2, above.top + above.height / 2);
-    await expect.poll(() => Math.round(rect("files").top)).toBe(Math.round(above.top));
+    await expect.poll(() => Math.round(rect("session").top)).toBe(Math.round(above.top));
 
     // Escape keeps the pane where it was.
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -1751,50 +1765,54 @@ describe("graphical review", () => {
     expect(document.querySelector("[data-pane-tree] > [aria-hidden='true']")).toBeNull();
 
     // ⌘⌥⇧ and an arrow move the focused pane past its neighbor.
-    document.querySelector<HTMLElement>('[data-pane="files"]')!.focus();
-    const files = Math.round(rect("files").top);
+    document.querySelector<HTMLElement>('[data-pane="session"]')!.focus();
+    const top = Math.round(rect("session").top);
     await userEvent.keyboard("{Meta>}{Alt>}{Shift>}{ArrowDown}{/Shift}{/Alt}{/Meta}");
-    await expect.poll(() => Math.round(rect("files").top)).toBeGreaterThan(files);
+    await expect.poll(() => Math.round(rect("session").top)).toBeGreaterThan(top);
   });
 
-  test("files sidebar retains its tree and collapsed folders across toggles", async () => {
+  test("the Files page keeps its tree and collapsed folders across toggles and pages", async () => {
     await page.viewport(1280, 800);
     await mountApp({ branches: true });
-    const toggle = toggleFilesSidebar;
+    const selector = 'nav[aria-label="Workspace files"] file-tree-container';
+    // The tree waits, prepared and hidden, before the Files page shows.
     await expect
-      .poll(() => {
-        const tree = document.querySelector('[aria-label="Workspace files"] file-tree-container');
-        return tree?.shadowRoot?.querySelectorAll('[role="treeitem"]').length ?? 0;
-      })
+      .poll(
+        () =>
+          document.querySelector(selector)?.shadowRoot?.querySelectorAll('[role="treeitem"]')
+            .length ?? 0,
+      )
       .toBeGreaterThan(0);
-    const preparedHost = document.querySelector(
-      '[aria-label="Workspace files"] file-tree-container',
-    );
+    const preparedHost = document.querySelector(selector);
     expect(preparedHost?.checkVisibility()).toBe(false);
-    await toggle();
-    const sidebar = page.getByRole("region", {
-      name: "Workspace files",
-      exact: true,
-    });
+    await toggleFilesSidebar();
+    const sidebar = page.getByRole("navigation", { name: "Workspace files", exact: true });
     const folder = sidebar.getByRole("treeitem", { name: "src", exact: true });
     await expect.element(folder).toHaveAttribute("aria-expanded", "true");
     await folder.click();
     await expect.element(folder).toHaveAttribute("aria-expanded", "false");
-    const host = document.querySelector('[aria-label="Workspace files"] file-tree-container');
+    const host = document.querySelector(selector);
     expect(host).toBe(preparedHost);
-    await toggle();
+    await toggleFilesSidebar();
     await expect.poll(() => host?.checkVisibility()).toBe(false);
-    await toggle();
+    await toggleFilesSidebar();
     await expect.poll(() => host?.checkVisibility()).toBe(true);
-    expect(document.querySelector('[aria-label="Workspace files"] file-tree-container')).toBe(host);
+    expect(document.querySelector(selector)).toBe(host);
     await expect.element(folder).toHaveAttribute("aria-expanded", "false");
+    // Another page and back: the same tree, as the reader left it.
+    await page.getByRole("radio", { name: "Changes", exact: true }).click();
+    await expect.poll(() => host?.checkVisibility()).toBe(false);
+    await page.getByRole("radio", { name: "Files", exact: true }).click();
+    await expect.poll(() => host?.checkVisibility()).toBe(true);
+    expect(document.querySelector(selector)).toBe(host);
+    await expect.element(folder).toHaveAttribute("aria-expanded", "false");
+    // Another branch has its own files. It opens on Changes.
     await openBranch("feature");
+    await page.getByRole("radio", { name: "Files", exact: true }).click();
     await expect
       .element(sidebar.getByRole("treeitem", { name: "feature-only.ts", exact: true }))
       .toBeVisible();
-    expect(document.querySelector('[aria-label="Workspace files"] file-tree-container')).not.toBe(
-      host,
-    );
+    expect(document.querySelector(selector)).not.toBe(host);
     await expect
       .element(sidebar.getByRole("treeitem", { name: "alpha.ts", exact: true }))
       .not.toBeInTheDocument();
@@ -2737,11 +2755,12 @@ describe("graphical review", () => {
       })
       .element()
       .dispatchEvent(new MouseEvent("click", { bubbles: true, metaKey: true }));
-    await expect.element(tab("CommitView.tsx")).toBeVisible();
+    // It opens behind this page: Commit stays, and the file waits on Files.
     await expect.element(commitPage).toHaveAttribute("aria-checked", "true");
     await row("src/web/App.tsx").click();
     await userEvent.keyboard("{Enter}");
     await expect.element(tab("App.tsx")).toHaveAttribute("aria-selected", "true");
+    await expect.element(tab("CommitView.tsx")).toBeVisible();
     // Closing the file goes back to Commit, and q leaves Commit for the tab
     // that showed before it, by the same rule.
     window.dispatchEvent(

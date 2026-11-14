@@ -142,8 +142,8 @@ flowchart LR
    the top of the files picks branch, working, staged, or unstaged changes;
    **Base branch…** picks the base, and **Compare revisions…** in **⋯** picks
    a range of commits.
-3. **Show files sidebar** in `⌘K` walks the whole tree; any file opens in a
-   tab, as above.
+3. **Files** (`4`), or **Show files sidebar** in `⌘K`, walks the whole tree;
+   any file opens in a tab of that page, as above.
 4. In a review whose range has two or more commits, the rail's **All files**
    lists them; each opens alone, with its message, and **Whole range** goes
    back.

@@ -1,5 +1,6 @@
 import type { BrowseEntry } from "../../shared/browse";
 import { fileIconHtml } from "./file-icons";
+import { pierreIcons } from "../components/pierre-icons";
 
 // File references in an agent's text: `src/a.ts:12`, `src/a.ts:12-20`,
 // `path#L12-L20`, an absolute path, a file:// or editor URL, or a GitHub blob
@@ -159,6 +160,9 @@ export function createFileIndex(
 }
 
 const FILE_REF = "med-file-ref";
+const BRANCH_REF = "med-branch-ref";
+// Pierre's branch, as the band and the branch picker draw it.
+const BRANCH_ICON = `<svg class="${FILE_REF}-icon" aria-hidden="true" viewBox="${pierreIcons.gitBranch.box}" fill="currentColor"><path d="${pierreIcons.gitBranch.shapes[0][1].d}"/></svg>`;
 const escape = (text: string) =>
   text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -204,6 +208,22 @@ export function fileRefHtml(ref: FileRef, label: string) {
   );
 }
 
+/** A link to a branch of the thread's repository, as HTML: it shows the
+ * branch in the thread, as the branch picker does. It looks like a file's. */
+export function branchRefHtml(name: string) {
+  return (
+    `<a href="#" class="${FILE_REF} ${BRANCH_REF}" data-branch="${escape(name)}"` +
+    ` data-tooltip="${escape(`Show branch ${name}`)}" aria-label="${escape(`Show branch ${name}`)}">` +
+    BRANCH_ICON +
+    `<span class="${FILE_REF}-name">${escape(name)}</span></a>`
+  );
+}
+
+/** The branch that a rendered link names. */
+export function branchRefOf(element: Element): string | null {
+  return element.closest<HTMLElement>(`a.${BRANCH_REF}`)?.dataset.branch || null;
+}
+
 /** The file that a rendered link names, from its attributes. */
 export function fileRefOf(element: Element): FileRef | null {
   const link = element.closest<HTMLElement>(`a.${FILE_REF}`);
@@ -239,16 +259,18 @@ function headBlob(href: string, github: PullRequestHead) {
 /**
  * Links in rendered Markdown blocks: inline code and links that name a file
  * of the checkout become links to the file, which show its name and lines.
- * A relative link that names no file loses its link, when the index has
- * every file. Web links, code blocks, and other text stay as they are; with
- * `options`, a comment's paths in its text and its GitHub links to the head
- * link too.
+ * Inline code that is the name of one of `branches`, and no file, links to
+ * that branch. A relative link that names no file loses its link, when the
+ * index has every file. Web links, code blocks, and other text stay as they
+ * are; with `options`, a comment's paths in its text and its GitHub links to
+ * the head link too.
  */
 export function decorateFileRefs<T extends { html: string }>(
   blocks: readonly T[],
   index: FileIndex,
   cwd?: string,
   options: RefOptions = {},
+  branches?: ReadonlySet<string>,
 ): T[] {
   const templates = blocks.map((block) => {
     if (!options.text && !/<code|data-brief-href/.test(block.html)) return null;
@@ -257,15 +279,18 @@ export function decorateFileRefs<T extends { html: string }>(
     return template;
   });
   const found: { node: Element; ref: FileRef; keepText: boolean }[] = [];
+  const named: { node: Element; branch: string }[] = [];
   const dead: Element[] = [];
   for (const template of templates) {
     if (!template) continue;
     for (const node of template.content.querySelectorAll("a[data-brief-href], code")) {
       if (node.tagName === "CODE") {
         if (node.closest("pre, a")) continue;
-        const target = parseCodeTarget(node.textContent ?? "");
+        const text = (node.textContent ?? "").trim();
+        const target = parseCodeTarget(text);
         const ref = target && index.resolve(target, cwd);
         if (ref) found.push({ node, ref, keepText: false });
+        else if (branches?.has(text)) named.push({ node, branch: text });
         continue;
       }
       const href = (node as HTMLElement).dataset.briefHref ?? "";
@@ -295,7 +320,12 @@ export function decorateFileRefs<T extends { html: string }>(
         if (parts) texts.push({ node: node as Text, parts });
       }
     }
-  if (!found.length && !dead.length && !texts.length) return [...blocks];
+  for (const { node, branch } of named) {
+    const holder = document.createElement("template");
+    holder.innerHTML = branchRefHtml(branch);
+    node.replaceWith(holder.content.firstElementChild!);
+  }
+  if (!found.length && !dead.length && !texts.length && !named.length) return [...blocks];
   const labels = refLabels([
     ...found.map((entry) => entry.ref.path),
     ...texts.flatMap(({ parts }) =>

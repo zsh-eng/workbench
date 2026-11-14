@@ -92,6 +92,7 @@ import {
   useThreadReader,
   useWorkspace,
   useWorkspaceEntry,
+  useWorkspaceInView,
   useWorkspaceShown,
 } from "./components/Workspaces";
 import { whenFree, whenIdle } from "./data/idle";
@@ -110,8 +111,8 @@ import {
 import { createBrowseApi, useBrowseFiles, useVaults, type BrowseApi } from "./data/browse";
 import { useMentionSources } from "./data/mentions";
 import { isBrowseFile, type FileRead } from "../shared/local-file";
-import { createFileWorkspace, sourceKey, useFileWorkspace } from "./data/file-workspace";
-import { RepositoryFiles } from "./components/RepositoryFiles";
+import { createFileWorkspace, isFileTab, sourceKey, useFileWorkspace } from "./data/file-workspace";
+import { FilesRail } from "./components/FilesRail";
 import { PaneTree, usePaneTree, type PaneSpec } from "./components/PaneTree";
 import type { PaneNode, Side } from "./data/pane-tree";
 import { FilePicker } from "./components/FilePicker";
@@ -155,6 +156,8 @@ import {
 import { placeThreads } from "./data/pull-request";
 import type { CodexFinding, CodexReviewRun } from "../shared/codex-review";
 import { listComments, type ListedComment } from "./data/listed-comments";
+import { record, sameScreen, screenOf, settle, step, type Screen } from "./data/navigation";
+import { markCommentsRead, useCommentReads } from "./data/comment-reads";
 import {
   PullRequestTitle,
   SavedReviewHeader,
@@ -402,6 +405,9 @@ const GUIDE_RAIL_MIN_WIDTH = 721;
 /** Below this width, the line selection bar leaves out its label and keys. */
 const SELECTION_BAR_FULL_WIDTH = 420;
 
+/** The review's pages, which Back and Forward show by name; other tabs are files. */
+const PAGES = new Set(["review", "changes", "commit", "pull", "search", "guide", "files"]);
+
 export function App({
   controller,
   browseApi: providedBrowseApi,
@@ -501,7 +507,6 @@ export function App({
     [threadLayout, entry?.kind],
   );
   const panes = usePaneTree({ key: layoutKey, initial: initialPanes });
-  const filesVisible = panes.isOpen("files");
   const sessionVisible = panes.isOpen("session");
   // A review behind a pane that fills the room, as an expanded thread, is
   // not on screen: a page shows it again.
@@ -509,13 +514,16 @@ export function App({
   // Markdown files now read rendered or show their source in the file view
   // (FullFileView), so a saved layout's Preview pane has nothing to show;
   // the changed files are the Changes page's sidebar, not a pane.
+  // The files' tree is the Files page's sidebar, not a pane.
   const retiredPreview = panes.isOpen("preview");
   const retiredChanged = panes.isOpen("changed");
+  const retiredFiles = panes.isOpen("files");
   const closeRetired = panes.close;
   useEffect(() => {
     if (retiredPreview) closeRetired("preview");
     if (retiredChanged) closeRetired("changed");
-  }, [retiredPreview, retiredChanged, closeRetired]);
+    if (retiredFiles) closeRetired("files");
+  }, [retiredPreview, retiredChanged, retiredFiles, closeRetired]);
   const comparisonActions = useRef<ComparisonActionsHandle>(null);
   const comparisonTrigger = useRef<HTMLButtonElement>(null);
   // The comparison's place in the review's row; empty while it is in ⋯.
@@ -549,7 +557,6 @@ export function App({
   const openPush = useCallback(() => comparisonActions.current?.openPush(), []);
   const clearComments = useCallback(() => savedActions.current?.clearComments(), []);
   const filePreviewShown = useFilePreviewShown();
-  const rightVisible = filesVisible;
   const [filePickerOpen, setFilePickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState<string | undefined>();
   const fileSelection = useRef<(() => string) | null>(null);
@@ -1035,21 +1042,18 @@ export function App({
       showInTree(id, { ...PANE_PLACES[id], ...options }),
     [showInTree],
   );
-  const showFiles = useCallback(() => showPane("files"), [showPane]);
   // A file that opens shows: a zoomed pane, or a session that fills the row,
   // makes room for the review, as Restore does.
   const otherZoomed = !!panes.zoom && panes.zoom !== "review";
   useEffect(
     () =>
       fileWorkspace.onShow(() => {
+        // Opening a file is a step: Back shows what showed before it.
+        step();
         if (!reviewVisible || otherZoomed) showPane("review");
       }),
     [fileWorkspace, reviewVisible, otherZoomed, showPane],
   );
-  const toggleFilesSidebar = useCallback(() => {
-    if (rightVisible) closePane("files");
-    else showFiles();
-  }, [rightVisible, showFiles, closePane]);
   // The workspace keeps one pane: hiding the session while the review is
   // hidden shows the review instead.
   const hideSession = useCallback(() => {
@@ -1845,8 +1849,11 @@ export function App({
       ...(hasPullTab
         ? [{ value: "pull", label: "Pull request", icon: "pullRequest" as const }]
         : []),
+      // The files of what the workspace shows: a screen of its own, with its
+      // tree and its tabs, apart from the review's pages.
+      ...(browseSource ? [{ value: "files", label: "Files", icon: "folder" as const }] : []),
     ],
-    [reviewAvailable, commitApi, livePullUrl, hasPullTab],
+    [reviewAvailable, commitApi, livePullUrl, hasPullTab, browseSource],
   );
   const reviewShown =
     reviewAvailable &&
@@ -1856,6 +1863,9 @@ export function App({
     : fileState.active === "guide"
       ? "changes"
       : fileState.active;
+  // The Files page: an open file, Search, or the page with no file open.
+  const filesPage =
+    fileState.active === "files" || fileState.active === "search" || isFileTab(fileState.active);
   // The diff stream shows in Review and Changes, and in the Guide for a segment or commit.
   const streamShown = fileState.active === "changes" || guideDiff;
   // Each page has its own sidebar. Changes (and a Review without a guide)
@@ -1865,7 +1875,13 @@ export function App({
   // "auto" shows it in a review with room for it; the reader's choice holds
   // in any width, so a review at the edge of the breakpoint stays as chosen.
   const guideRail = guideTab;
-  const railSetting = guideRail ? viewSettings.guideSidebar : viewSettings.changesSidebar;
+  // The Files page's sidebar is the tree of the files.
+  const filesRail = filesPage && !!browseSource;
+  const railSetting = guideRail
+    ? viewSettings.guideSidebar
+    : filesRail
+      ? viewSettings.filesSidebar
+      : viewSettings.changesSidebar;
   const railChoice = useViewSetting(railSetting);
   // The session's side panel shows where its pane has room (SessionPanel.tsx).
   const sessionPanelChoice = useViewSetting(viewSettings.sessionPanel);
@@ -1875,16 +1891,17 @@ export function App({
   const railOpen = railChoice === "open" || (railChoice === "auto" && railRoom);
   const railShown = changesRail && railOpen;
   const guideRailShown = guideRail && railOpen;
+  const filesRailShown = filesRail && railOpen;
   const toggleRail = useCallback(
     () => railSetting.set(railOpen ? "closed" : "open"),
     [railSetting, railOpen],
   );
-  const railLabel = `${railOpen ? "Hide" : "Show"} ${guideRail ? "the guide" : "changed files"}`;
+  const railLabel = `${railOpen ? "Hide" : "Show"} ${guideRail ? "the guide" : filesRail ? "the files" : "changed files"}`;
   // The rail's own icon: what it lists, not a sidebar.
-  const railIcon: IconName = guideRail ? "guide" : "fileTree";
+  const railIcon: IconName = guideRail ? "guide" : filesRail ? "folder" : "fileTree";
   // ⌘B shows or hides the window's thread list; alone, the page's sidebar.
   const toggleReviewSidebar = shell?.toggleSidebar ?? toggleRail;
-  const sidebarShown = railShown || guideRailShown;
+  const sidebarShown = railShown || guideRailShown || filesRailShown;
   // Outside the Guide, whose order the agent chose, generated files come
   // last, and only while their group is open.
   const fileGroups = useMemo(() => splitGenerated(files, generatedFiles), [files, generatedFiles]);
@@ -2057,13 +2074,15 @@ export function App({
         ...(commitApi ? ["commit"] : []),
         ...(search !== undefined ? ["search"] : []),
         ...tabs.map((tab) => tab.id),
+        // The Files page with no file open.
+        ...(active === "files" ? ["files"] : []),
       ],
       active: inReview ? "review" : active === "guide" ? "changes" : active,
     };
   }, [browseSource, hasPullTab, reviewAvailable, commitApi, fileWorkspace, controller]);
   /** Shows a tab of the row: Review (its Guide, or its saved diff), Changes
    * (the checkout's live diff), Notes, Commit, or a file. */
-  const selectTab = useCallback(
+  const showTab = useCallback(
     (id: string) => {
       pendingTab.current = null;
       if (!reviewVisible) showPane("review");
@@ -2086,10 +2105,84 @@ export function App({
         }
         return;
       }
+      if (id === "files") {
+        // The Files page shows the file that showed last, else its tree.
+        const { tabs, recent, search, active } = fileWorkspace.getSnapshot();
+        if (active === "files" || active === "search" || isFileTab(active)) return;
+        const last = recent.find(
+          (each) =>
+            (each === "search" && search !== undefined) || tabs.some((tab) => tab.id === each),
+        );
+        fileWorkspace.select(last ?? tabs.at(-1)?.id ?? "files");
+        return;
+      }
       fileWorkspace.select(id);
     },
     [hasGuide, openGuide, guideScope, fileWorkspace, controller, reviewVisible, showPane],
   );
+  // Back and Forward (navigation.ts): the entry on screen holds the page or
+  // file and the review that this workspace shows, and an entry that Back
+  // or Forward reaches shows them again, with no step of its own.
+  const inView = useWorkspaceInView();
+  const entryReview = entry?.kind === "thread" ? entry.reviewId : undefined;
+  const restoring = useRef<{ screen: Screen; until: number } | null>(null);
+  const showScreen = useRef<(screen: Screen) => void>(() => {});
+  useEffect(() => {
+    showScreen.current = (screen) => {
+      if (workspace && entry?.kind === "thread" && screen.review && screen.review !== entryReview)
+        workspace.update(workspace.id, { reviewId: screen.review });
+      const tab = screen.tab;
+      const known =
+        tab && (PAGES.has(tab) || fileWorkspace.getSnapshot().tabs.some((each) => each.id === tab));
+      if (known && tab !== tabRow().active) showTab(tab);
+    };
+  });
+  useEffect(() => {
+    if (!inView || !workspaceId) return;
+    const follow = () => {
+      settle();
+      const screen = screenOf(history.state);
+      if (!screen || screen.workspace !== workspaceId) return;
+      // A workspace that opens now chooses its page when its view is ready
+      // (`reviewOpened`), which takes this one instead.
+      restoring.current = { screen, until: Date.now() + 10_000 };
+      showScreen.current(screen);
+    };
+    // An entry that Back reached while another workspace showed.
+    follow();
+    addEventListener("popstate", follow);
+    return () => removeEventListener("popstate", follow);
+  }, [inView, workspaceId]);
+  useEffect(() => {
+    if (!inView || !workspaceId) return;
+    const screen: Screen = {
+      workspace: workspaceId,
+      ...(shownTab ? { tab: shownTab } : {}),
+      ...(entryReview ? { review: entryReview } : {}),
+    };
+    // While an entry's screen shows again, the entry keeps it.
+    const target = restoring.current;
+    if (target && !sameScreen(target.screen, screen) && Date.now() < target.until) return;
+    restoring.current = null;
+    record(screen);
+  }, [inView, workspaceId, shownTab, entryReview]);
+  /** The reader shows a tab: a step that Back goes back from. */
+  const selectTab = useCallback(
+    (id: string) => {
+      const active = tabRow().active;
+      const onFiles = active === "files" || active === "search" || isFileTab(active);
+      if (id !== active && !(id === "files" && onFiles)) step();
+      showTab(id);
+    },
+    [showTab, tabRow],
+  );
+  // The files' tree is the Files page's sidebar: this shows the page with
+  // it, or hides it there.
+  const toggleFilesSidebar = useCallback(() => {
+    if (filesRailShown) return viewSettings.filesSidebar.set("closed");
+    viewSettings.filesSidebar.set("open");
+    selectTab("files");
+  }, [filesRailShown, selectTab]);
   // A file, or Commit, that opens while the review is hidden shows the
   // review. Review (or its Guide) and Changes take each other's place as a
   // saved review loads, which leaves the thread alone; their pages show it
@@ -2164,6 +2257,10 @@ export function App({
       return;
     }
     reviewOpened.current = { controller, review: state.savedReview?.id };
+    // Back, Forward, or a restart chose the page.
+    const restored = restoring.current;
+    if (restored?.screen.tab && Date.now() < restored.until)
+      return showScreen.current(restored.screen);
     if (!state.savedReview) return;
     // The controller opens a thread with a hand-off on its Review's diff.
     if (reviewAvailable) fileWorkspace.select(hasGuide ? "guide" : "changes");
@@ -2240,17 +2337,21 @@ export function App({
   // All comments, in the review's header: the diff's and the files'.
   const savedFileComments = state.fileComments;
   const draftIds = inboxState?.drafts;
+  const commentReads = useCommentReads();
   const listedComments = useMemo(
     () =>
       listComments(
         notes,
         savedFileComments ?? [],
         new Set(draftIds?.map((draft) => draft.id) ?? []),
+        commentReads,
       ),
-    [notes, savedFileComments, draftIds],
+    [notes, savedFileComments, draftIds, commentReads],
   );
   const openListedComment = useCallback(
     (comment: ListedComment) => {
+      // Opening a comment reads its answer.
+      markCommentsRead([comment]);
       if (comment.kind === "diff") openComment(comment.id);
       else openFromPane(comment.path, comment.line);
     },
@@ -3020,7 +3121,7 @@ export function App({
         event.altKey &&
         !event.shiftKey &&
         event.code === "KeyB" &&
-        (changesRail || guideRail)
+        (changesRail || guideRail || filesRail)
       ) {
         // ⌘⌥B shows or hides the review's rail, the nested sidebar.
         event.preventDefault();
@@ -3287,6 +3388,7 @@ export function App({
     shown,
     changesRail,
     guideRail,
+    filesRail,
     toggleRail,
   ]);
 
@@ -3344,6 +3446,35 @@ export function App({
     else if (!existing && newWorkspace) workspace.open(target);
     else if (!existing) entry.run();
   };
+  // A branch that a reply names in code is a link that shows it here, as
+  // the branch picker does; ⌘-click opens it beside.
+  const shownRepository = state.activeRepositoryId;
+  const namedBranches = branches.entries.filter(
+    (entry) => entry.branch && (!shownRepository || entry.repositoryId === shownRepository),
+  );
+  const openNamedBranch = useRef<(name: string, background: boolean) => void>(() => {});
+  useEffect(() => {
+    openNamedBranch.current = (name, background) => {
+      const entry = namedBranches.find((each) => each.branch === name);
+      if (entry) openBranch(entry, background);
+    };
+  });
+  // By the names alone, so that a refresh of the branches' heads does not
+  // link every reply again.
+  const branchNames = [...new Set(namedBranches.map((entry) => entry.branch!))].sort().join("\n");
+  const sessionRefs = useMemo<FileRefs>(
+    () =>
+      branchNames
+        ? {
+            ...fileRefs,
+            branches: {
+              names: new Set(branchNames.split("\n")),
+              open: (name, background) => openNamedBranch.current(name, background),
+            },
+          }
+        : fileRefs,
+    [fileRefs, branchNames],
+  );
   // The workspace list names each workspace and shows its changed-file count.
   const reportTo = workspace?.update;
   const reportTitle =
@@ -3460,7 +3591,6 @@ export function App({
       showToast,
     ],
   );
-  const hideFilesSidebar = useCallback(() => closePane("files"), [closePane]);
   const openChangedFile = useCallback(
     (id: string, background?: boolean) => {
       const file = files.find((item) => item.id === id);
@@ -4339,7 +4469,7 @@ export function App({
           },
           {
             id: "browse-files",
-            label: rightVisible ? "Hide files sidebar" : "Show files sidebar",
+            label: filesRailShown ? "Hide files sidebar" : "Show files sidebar",
             run: toggleFilesSidebar,
           },
           ...(files.length > 1
@@ -4576,7 +4706,7 @@ export function App({
           },
         ]
       : []),
-    ...(changesRail || guideRail
+    ...(changesRail || guideRail || filesRail
       ? [
           {
             id: "changes-rail",
@@ -5432,7 +5562,7 @@ export function App({
   // a saved review's header names its own branch.
   const identity = (
     <div {...stylex.props(styles.identity)}>
-      {!shell && (changesRail || guideRail) && (
+      {!shell && (changesRail || guideRail || filesRail) && (
         <ToolButton
           label={railLabel}
           shortcut="⌘ B"
@@ -5450,7 +5580,7 @@ export function App({
   // A hidden sidebar leaves its button at the start of the review's header
   // (the session's toggle does the same for the session). It hides from its
   // own edge (railHide).
-  const railShow = (changesRail || guideRail) && !railOpen && !identityShown && (
+  const railShow = (changesRail || guideRail || filesRail) && !railOpen && !identityShown && (
     <ToolButton
       icon={railIcon}
       label={railLabel}
@@ -5672,7 +5802,8 @@ export function App({
       <Icon name="more" size={15} />
     </ActionMenu>
   );
-  const shownPage = reviewPages.some((entry) => entry.value === shownTab) ? shownTab : null;
+  const pageValue = filesPage ? "files" : shownTab;
+  const shownPage = reviewPages.some((entry) => entry.value === pageValue) ? pageValue : null;
   // Changes of a place that the reader chose are not the review's. The pull
   // request's own page is the pull request's, whatever Changes show.
   const apart = state.apart && shownPage !== "pull";
@@ -5791,8 +5922,9 @@ export function App({
   );
   const fileTabs = (
     <>
-      {/* An open Search tab has a label, empty before a query. */}
-      {(fileState.tabs.length > 0 || fileState.searchLabel !== undefined) && (
+      {/* An open Search tab has a label, empty before a query. The tabs are
+          the Files page's: the review's pages have none. */}
+      {filesPage && (fileState.tabs.length > 0 || fileState.searchLabel !== undefined) && (
         <FileViewTabs
           panelId={`${idPrefix}file-view-panel`}
           pathActions={pathActions}
@@ -5909,6 +6041,7 @@ export function App({
   const showReviewPage = (id: string | undefined, page: "review" | "pull") => {
     revealPane("review");
     if (id && id !== savedReviewId) {
+      step();
       workspace?.update(workspace.id, { reviewId: id });
       pullWanted.current = page === "pull" ? id : null;
       if (page === "review") selectTab("review");
@@ -6022,10 +6155,11 @@ export function App({
                     }
                     onOpenPath={openFromPane}
                     onOpenComment={openComment}
-                    fileRefs={fileRefs}
+                    fileRefs={sessionRefs}
                     onSideRoom={setSessionSideRoom}
                     bandTools={sessionBandTools}
                     lead={sessionVisible}
+                    waiting={state.status === "loading" && !state.session}
                     mentions={mentionSources}
                     onMentionsWanted={wantMentions}
                     openAgent={openAgent}
@@ -6081,34 +6215,6 @@ export function App({
                   />
                 )}
               </Suspense>
-            ),
-          },
-        ]
-      : []),
-    ...(browseSource
-      ? [
-          {
-            id: "files" as const,
-            label: "Files",
-            ariaLabel: "Workspace files",
-            icon: "folder" as const,
-            // The tree prepares in the background, as the sidebar did.
-            preload: true,
-            render: (controls: ReactNode) => (
-              <RepositoryFiles
-                key={JSON.stringify([sourceKey(browseSource), repositoryFiles.ignored])}
-                {...repositoryFiles}
-                sourceLabel={sourceLabel}
-                repo={browseSource?.repo ?? null}
-                pathActions={pathActions}
-                selectedPath={activeFile?.path ?? selectedFile?.path ?? null}
-                onPrefetch={prefetchFile}
-                onOpen={openWorkingFile}
-                onIgnoredChange={repositoryFiles.setIgnored}
-                onRefresh={repositoryFiles.refresh}
-                onClose={hideFilesSidebar}
-                controls={controls}
-              />
             ),
           },
         ]
@@ -6607,75 +6713,107 @@ export function App({
                 </Suspense>
               </div>
             )}
-            {fileState.search !== undefined && browseSource && searchRepository && (
-              <div
-                {...stylex.props(
-                  styles.reviewSurface,
-                  fileState.active !== "search" && styles.hiddenSurface,
-                )}
-                aria-hidden={fileState.active !== "search"}
-              >
-                <SearchView
-                  api={browseApi}
-                  source={browseSource}
-                  repository={searchRepository}
-                  repositories={state.repositories}
-                  query={fileState.search}
-                  matchCase={!!fileState.searchCase}
-                  active={fileState.active === "search"}
-                  focusRequest={searchFocus}
-                  onQueryChange={fileWorkspace.setSearch}
-                  onMatchCaseChange={fileWorkspace.setSearchCase}
-                  onOpen={openSearchMatch}
-                  onLeave={leaveSearch}
+            {/* The Files page: the tree, and Search or a file beside it. The
+                tree waits hidden on the other pages, with its folders as the
+                reader left them, so the page shows it at once. */}
+            <div {...stylex.props(styles.guideRow, !filesPage && styles.hiddenSurface)}>
+              {browseSource && (
+                <FilesRail
+                  key={JSON.stringify([sourceKey(browseSource), repositoryFiles.ignored])}
+                  hidden={!filesRailShown}
+                  controls={railHide}
+                  {...repositoryFiles}
+                  sourceLabel={sourceLabel}
+                  repo={browseSource?.repo ?? null}
+                  pathActions={pathActions}
+                  selectedPath={activeFile?.path ?? null}
+                  onPrefetch={prefetchFile}
+                  onOpen={openWorkingFile}
+                  onIgnoredChange={repositoryFiles.setIgnored}
+                  onRefresh={repositoryFiles.refresh}
+                  onClose={toggleRail}
                 />
+              )}
+              <div {...stylex.props(styles.reviewSurface)}>
+                {fileState.active === "files" && (
+                  <div {...stylex.props(styles.filesEmpty)}>
+                    <p {...stylex.props(styles.filesEmptyTitle)}>No file open</p>
+                    <p {...stylex.props(styles.filesEmptyNote)}>
+                      Choose a file in the tree, or find one with ⌘⇧K.
+                    </p>
+                  </div>
+                )}
+                {fileState.search !== undefined && browseSource && searchRepository && (
+                  <div
+                    {...stylex.props(
+                      styles.reviewSurface,
+                      fileState.active !== "search" && styles.hiddenSurface,
+                    )}
+                    aria-hidden={fileState.active !== "search"}
+                  >
+                    <SearchView
+                      api={browseApi}
+                      source={browseSource}
+                      repository={searchRepository}
+                      repositories={state.repositories}
+                      query={fileState.search}
+                      matchCase={!!fileState.searchCase}
+                      active={fileState.active === "search"}
+                      focusRequest={searchFocus}
+                      onQueryChange={fileWorkspace.setSearch}
+                      onMatchCaseChange={fileWorkspace.setSearchCase}
+                      onOpen={openSearchMatch}
+                      onLeave={leaveSearch}
+                    />
+                  </div>
+                )}
+                {activeFile && (
+                  <FullFileView
+                    editor={fileEditor}
+                    comments={fileComments}
+                    file={fileState.file}
+                    // A vault's file names its vault: the workspace names only its checkout.
+                    path={
+                      activeFile.source.kind === "vault"
+                        ? `${activeFile.sourceLabel} · ${activeFile.path}`
+                        : activeFile.path
+                    }
+                    loading={fileState.loading}
+                    error={fileState.error}
+                    stale={fileState.stale}
+                    loadBlame={loadBlame}
+                    loadChanges={browseApi.changes ? loadFileChanges : undefined}
+                    blameEnabled={blameEnabled}
+                    onBlameEnabledChange={setFileBlame}
+                    lineBlame={lineBlame}
+                    loadCommit={loadCommit}
+                    sourceLabel={activeFile.sourceLabel}
+                    line={activeFile.line}
+                    column={activeFile.column}
+                    endLine={activeFile.endLine}
+                    revealed={activeFile.revealed}
+                    vimEnabled={vimEnabled}
+                    onNavigationReady={onNavigationReady}
+                    onSelectionReaderReady={onSelectionReaderReady}
+                    onDefinition={goToDefinition}
+                    loadHover={loadHover}
+                    onOpenDefinition={openDefinition}
+                    onSymbolPreviewReady={onSymbolPreviewReady}
+                    onRefresh={refreshFile}
+                    onClose={closeActiveFile}
+                    onOpenFile={openLinkedFile}
+                    openIn={
+                      activeFile.source.kind === "worktree"
+                        ? {
+                            actions: pathActions,
+                            target: { repo: activeFile.source.repo, path: activeFile.path },
+                          }
+                        : undefined
+                    }
+                  />
+                )}
               </div>
-            )}
-            {activeFile && (
-              <FullFileView
-                editor={fileEditor}
-                comments={fileComments}
-                file={fileState.file}
-                // A vault's file names its vault: the workspace names only its checkout.
-                path={
-                  activeFile.source.kind === "vault"
-                    ? `${activeFile.sourceLabel} · ${activeFile.path}`
-                    : activeFile.path
-                }
-                loading={fileState.loading}
-                error={fileState.error}
-                stale={fileState.stale}
-                loadBlame={loadBlame}
-                loadChanges={browseApi.changes ? loadFileChanges : undefined}
-                blameEnabled={blameEnabled}
-                onBlameEnabledChange={setFileBlame}
-                lineBlame={lineBlame}
-                loadCommit={loadCommit}
-                sourceLabel={activeFile.sourceLabel}
-                line={activeFile.line}
-                column={activeFile.column}
-                endLine={activeFile.endLine}
-                revealed={activeFile.revealed}
-                vimEnabled={vimEnabled}
-                onNavigationReady={onNavigationReady}
-                onSelectionReaderReady={onSelectionReaderReady}
-                onDefinition={goToDefinition}
-                loadHover={loadHover}
-                onOpenDefinition={openDefinition}
-                onSymbolPreviewReady={onSymbolPreviewReady}
-                onRefresh={refreshFile}
-                onClose={closeActiveFile}
-                onOpenFile={openLinkedFile}
-                openIn={
-                  activeFile.source.kind === "worktree"
-                    ? {
-                        actions: pathActions,
-                        target: { repo: activeFile.source.repo, path: activeFile.path },
-                      }
-                    : undefined
-                }
-              />
-            )}
+            </div>
           </div>
           {toast && (
             <div key={toast.id} role="status" {...stylex.props(styles.toast)}>
@@ -6993,6 +7131,18 @@ const styles = stylex.create({
     fontSize: 12,
   },
   hiddenSurface: { display: "none" },
+  // The Files page with no file open.
+  filesEmpty: {
+    display: "grid",
+    alignContent: "center",
+    justifyItems: "center",
+    gap: 6,
+    flex: "1",
+    padding: 24,
+    textAlign: "center",
+  },
+  filesEmptyTitle: { margin: 0, color: tokens.muted, fontSize: 13.5 },
+  filesEmptyNote: { margin: 0, color: tokens.faint, fontSize: 12.5 },
   // The Guide's rail beside the stream, or beside its Overview.
   guideRow: {
     display: "flex",

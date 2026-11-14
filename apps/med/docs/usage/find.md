@@ -9,8 +9,8 @@ Vault notes need no scope. Type part of a note's name, and up to three notes
 whose names hold each word show at the top, marked **Note** with the vault's
 name and folder; `↵` opens one. A vault is also a scope: its chip beside
 **Code**, **Tests**, and **Docs**, or its name and **Tab**, searches only its
-notes, such as a plan that an agent works from. The note opens in this
-workspace's tabs, beside the thread, rendered to read; its wiki links stay in
+notes, such as a plan that an agent works from. The note opens on this
+workspace's **Files** page, beside the thread, rendered to read; its wiki links stay in
 the vault, and `⌘⇧V` edits and saves it in place. With spaces, a query matches
 each of its words, so `study plan` finds `study-plan.md`.
 
@@ -20,19 +20,22 @@ both match. Test files follow each language's conventions, such as `.test.ts`,
 `_test.go`, `test_*.py`, `*Test.java`, and `src/test/`. In Find file, `↵` opens
 the file.
 
-Every open makes a tab that stays until you close it: Find file, a click in
-the Files pane, a link, a search result, and Go to definition. A file that is
-open already shows its tab, at the line when the open names one. In the Files
-pane, the arrow keys move without opening files, and `↵` opens the selected
-one. `⌘`-click opens a file in the background. A middle click on a tab closes
+Every open shows the **Files** page, a page of the review beside Review,
+Changes, and Commit, and makes a tab there that stays until you close it:
+Find file, a click in the tree at the page's side, a link, a file name in a
+diff, a search result, and Go to definition. The other pages have no tabs, so
+a file does not stay over the review; **Files**, or `4`, shows it again. A file that is
+open already shows its tab, at the line when the open names one. In the tree,
+the arrow keys move without opening files, and `↵` opens the selected one.
+`⌘`-click opens a file in the background. A middle click on a tab closes
 it. A workspace holds 24 file tabs; when the row is full, a new file takes the
 place of the oldest tab without an unsaved draft.
 
 Files come from what the workspace shows. On **Changes**, they are the
 checkout's working files, to edit. On a saved review, they are the reviewed
 commit's, read-only, as the review shows them; when the checkout has that
-commit checked out, its working files. This holds for Find file, the Files
-pane, and a file name in the diff. A deleted file opens as it was.
+commit checked out, its working files. This holds for Find file, the tree
+of Files, and a file name in the diff. A deleted file opens as it was.
 When Med could not load the checkout, Find file and the file names say why in
 a message at the bottom of the window.
 

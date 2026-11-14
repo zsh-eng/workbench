@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { GENERATED_LABELS, type GeneratedKind } from "../../shared/generated";
 import { tokens } from "../theme.stylex";
+import { PathLabel } from "./PathLabel";
 import { Icon } from "./Icon";
 
 /** One generated file of the group (docs/GENERATED.md). */
@@ -67,7 +68,6 @@ export function GeneratedGroup({
       {!open && (
         <ul {...stylex.props(styles.list)}>
           {rows.slice(0, LISTED).map((row) => {
-            const slash = row.path.lastIndexOf("/") + 1;
             return (
               <li key={row.id} data-generated-file={row.path} {...stylex.props(styles.row)}>
                 <button
@@ -78,8 +78,7 @@ export function GeneratedGroup({
                   onClick={() => onReveal(row.id)}
                   {...stylex.props(styles.path)}
                 >
-                  <span {...stylex.props(styles.directory)}>{row.path.slice(0, slash)}</span>
-                  <span {...stylex.props(styles.name)}>{row.path.slice(slash)}</span>
+                  <PathLabel path={row.path} strong />
                 </button>
                 <span {...stylex.props(styles.details)}>
                   <span {...stylex.props(styles.kind)}>{GENERATED_LABELS[row.kind]}</span>
@@ -206,8 +205,6 @@ const styles = stylex.create({
     textDecorationColor: tokens.lineStrong,
     textUnderlineOffset: 3,
   },
-  directory: { color: tokens.muted, overflow: "hidden", textOverflow: "ellipsis" },
-  name: { fontWeight: 550, flexShrink: 0 },
   details: {
     display: "inline-flex",
     flexWrap: "wrap",

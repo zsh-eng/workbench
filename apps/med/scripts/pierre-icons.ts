@@ -39,6 +39,7 @@ const ICONS: Record<string, string | [string, number]> = {
   arrowLeft: "Arrow",
   arrowUp: ["Arrow", 90],
   arrowDown: ["Arrow", 270],
+  arrowRight: ["Arrow", 180],
   copy: "Copy",
   image: "Image",
   external: "Share",

@@ -8,7 +8,7 @@ import { tokens } from "../theme.stylex";
 // ← or →; a double-click or Enter gives back the first width. Med keeps each
 // kind of list's width in localStorage, for every workspace and window.
 
-export type ColumnKind = "changes" | "guide" | "commit";
+export type ColumnKind = "changes" | "guide" | "commit" | "files";
 
 export const COLUMN_MIN = 180;
 /** At most this part of the pane. */

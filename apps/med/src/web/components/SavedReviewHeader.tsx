@@ -8,6 +8,7 @@ import { checkoutNameFor } from "../data/checkout-names";
 import { paneHandle } from "./PaneTree";
 import { CommentsButton } from "./CommentsPanel";
 import type { ListedComment } from "../data/listed-comments";
+import { markCommentsRead } from "../data/comment-reads";
 import { Icon, IconShapes } from "./Icon";
 import { FadingName } from "./ReviewHeader";
 import { clippedTooltip } from "./ToolButton";
@@ -174,6 +175,7 @@ export function SavedReviewHeader({
         <CommentsButton
           comments={comments}
           onOpen={onOpenComment}
+          onRead={markCommentsRead}
           onCopy={
             saved.commentCount === 0
               ? undefined

@@ -633,6 +633,7 @@ test("Changes are the checkout of the review on screen: a pull request's worktre
   // The pull request's review again: its checkout, with the file that was open there.
   await pulls.getByRole("button", { name: /^Add durations/ }).click();
   await expect.poll(shown).toBe("pull-target");
+  await pages().getByRole("radio", { name: "Files" }).click();
   await expect.element(page.getByRole("tab", { name: /tides\.ts/ })).toBeVisible();
   expect(sessionShown()).toBe(true);
 });

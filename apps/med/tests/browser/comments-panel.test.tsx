@@ -103,3 +103,35 @@ test("Copy comments shows a check once copied, and a failed copy closes the pane
   await copy.click();
   await expect.element(list).not.toBeInTheDocument();
 });
+
+test("A new answer has a dot, on the button and on its comment, with the answer, until it is read", async () => {
+  initializeTheme();
+  mount = document.createElement("div");
+  document.body.append(mount);
+  root = createRoot(mount);
+  const onRead = vi.fn<(comments: readonly ListedComment[]) => void>();
+  root.render(
+    <CommentsButton
+      comments={[
+        comment("a", {
+          replies: 1,
+          answeredBy: "Claude",
+          answer: "Renamed to tidesAt.",
+          answeredAt: new Date().toISOString(),
+          unread: true,
+        }),
+        comment("b"),
+      ]}
+      onOpen={() => {}}
+      onRead={onRead}
+    />,
+  );
+  await expect.element(page.getByLabelText("1 new answer")).toBeInTheDocument();
+  await page.getByRole("button", { name: "All comments" }).click();
+  const list = page.getByRole("list", { name: "Comments" });
+  await expect.element(list.getByLabelText("New answer")).toBeVisible();
+  await expect.element(list.getByText(/Renamed to tidesAt/)).toBeVisible();
+  await page.getByRole("button", { name: "Mark all as read" }).click();
+  expect(onRead).toHaveBeenCalledWith([expect.objectContaining({ id: "a" })]);
+  await userEvent.keyboard("{Escape}");
+});

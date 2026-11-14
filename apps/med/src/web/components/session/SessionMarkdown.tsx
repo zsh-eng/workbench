@@ -3,7 +3,7 @@ import { renderBrief, renderedBrief } from "../../markdown/brief-render";
 import { loadMarkdownImages, markdownImageUrl } from "../../markdown/images";
 import type { MarkdownResult } from "../../markdown/model";
 import { useTheme } from "../../themes";
-import { fileRefOf } from "../../data/file-refs";
+import { branchRefOf, fileRefOf } from "../../data/file-refs";
 import { useCodeCopy } from "../CodeCopy";
 import { DiagramBlock } from "../DiagramBlock";
 import { useFileRefBlocks, useFileRefs } from "../FileRefs";
@@ -95,6 +95,12 @@ export const SessionMarkdown = memo(function SessionMarkdown({
     const node = host.current;
     if (!node) return;
     const follow = (event: MouseEvent) => {
+      const branch = branchRefOf(event.target as Element);
+      if (branch) {
+        event.preventDefault();
+        fileRefs.current?.branches?.open(branch, event.metaKey || event.ctrlKey);
+        return;
+      }
       const file = fileRefOf(event.target as Element);
       if (file) {
         event.preventDefault();

@@ -1816,3 +1816,67 @@ test("⌘⇧F opens the workspace's Search tab; a match opens in a file tab, and
   await userEvent.keyboard("{Enter}");
   await expect.poll(() => shown()?.dataset.activeFile).toBe("lib/other.ts");
 });
+
+test("Back and Forward retrace pages, files, and workspaces; a new page opens on the screen shown last", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  const back = page.getByRole("button", { name: "Back", exact: true });
+  const forward = page.getByRole("button", { name: "Forward", exact: true });
+  const onPage = () =>
+    document
+      .querySelector('[role="radiogroup"][aria-label="Page"] [aria-checked="true"]')
+      ?.getAttribute("aria-label");
+  await expect.poll(onPage).toBe("Changes");
+
+  // Each page, and each file, is a step.
+  await page.getByRole("radio", { name: "Commit", exact: true }).click();
+  await expect.poll(onPage).toBe("Commit");
+  await page.getByRole("radio", { name: "Changes", exact: true }).click();
+  await expect.poll(onPage).toBe("Changes");
+  await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
+  await expect.poll(() => shown()?.dataset.activeFile).toBe("src/alpha.ts");
+  await expect.poll(onPage).toBe("Files");
+  await back.click();
+  await expect.poll(onPage).toBe("Changes");
+  expect(shown()?.dataset.activeFile).toBe("");
+  await back.click();
+  await expect.poll(onPage).toBe("Commit");
+  await forward.click();
+  await expect.poll(onPage).toBe("Changes");
+  await forward.click();
+  await expect.poll(() => shown()?.dataset.activeFile).toBe("src/alpha.ts");
+  await expect.element(forward).toBeDisabled();
+
+  // Another workspace is a step too; Back shows this one as it was.
+  await userEvent.keyboard("{Control>}{Shift>}g{/Shift}{/Control}");
+  await page.getByRole("combobox", { name: "Search branches" }).fill("feature");
+  await userEvent.keyboard("{Control>}{Enter}{/Control}");
+  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("feature");
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  await back.click();
+  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
+  await expect.poll(() => shown()?.dataset.activeFile).toBe("src/alpha.ts");
+  await forward.click();
+  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("feature");
+
+  // A new page opens on the screen that showed last: main's Commit page.
+  await back.click();
+  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
+  await page.getByRole("radio", { name: "Commit", exact: true }).click();
+  await expect.poll(onPage).toBe("Commit");
+  root!.unmount();
+  mount!.remove();
+  render(createHost());
+  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
+  await expect.poll(onPage).toBe("Commit");
+  // So does a launch at the app's own address, with no entry of its own:
+  // not an empty workspace.
+  root!.unmount();
+  mount!.remove();
+  history.replaceState(null, "", "/");
+  render(createHost());
+  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
+  await expect.poll(onPage).toBe("Commit");
+});

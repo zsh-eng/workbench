@@ -30,6 +30,8 @@ export interface RepositoryFilesProps {
   onClose(): void;
   /** The column's pane controls, in place of the close button. */
   controls?: ReactNode;
+  /** The Files page's sidebar (FilesRail): its heading is not a pane's. */
+  rail?: boolean;
 }
 
 /** Memoized: the review renders again for unrelated state, such as a palette. */
@@ -50,6 +52,7 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
     onRefresh,
     onClose,
     controls,
+    rail = false,
   } = props;
   // Parse and sort once per manifest, not on sidebar toggles or file selection.
   const preparedInput = useMemo(
@@ -109,7 +112,7 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
   return (
     <aside {...stylex.props(styles.panel)} aria-label={props.label ?? "Repository files"}>
       {controls !== undefined ? (
-        <div {...paneHandle} {...stylex.props(styles.paneHeading)}>
+        <div {...(!rail && paneHandle)} {...stylex.props(styles.paneHeading)}>
           <span {...stylex.props(styles.paneTitle)}>Files</span>
           <span {...stylex.props(ui.grow)} />
           <ToolButton label="Refresh files" icon="refresh" onClick={onRefresh} />

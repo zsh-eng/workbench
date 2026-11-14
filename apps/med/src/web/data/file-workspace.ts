@@ -45,9 +45,14 @@ interface FileWorkspaceSnapshot extends Workspace {
   error: string | null;
 }
 /** Tabs that are not files: the diff stream, a saved review's guide, its
- * pull request, Commit, and Search. */
+ * pull request, Commit, Search, and the Files page with no file open. */
 export const isFileTab = (id: string) =>
-  id !== "changes" && id !== "pull" && id !== "guide" && id !== "commit" && id !== "search";
+  id !== "changes" &&
+  id !== "pull" &&
+  id !== "guide" &&
+  id !== "commit" &&
+  id !== "search" &&
+  id !== "files";
 
 export function sourceKey(source: TabSource) {
   return JSON.stringify(

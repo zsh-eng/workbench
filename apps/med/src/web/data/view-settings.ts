@@ -97,6 +97,8 @@ export const viewSettings = {
    * shows it in a wide review; a choice holds in any width. */
   changesSidebar: viewSetting("med:changes-rail", "auto", ["auto", "open", "closed"]),
   guideSidebar: viewSetting("med:guide-rail", "auto", ["auto", "open", "closed"]),
+  /** The Files page's tree. */
+  filesSidebar: viewSetting("med:files-rail", "auto", ["auto", "open", "closed"]),
   /** Vim keys in files. */
   vim: viewSetting("med:vim", "on", ["on", "off"]),
   /** The blame of the cursor's line in files. */

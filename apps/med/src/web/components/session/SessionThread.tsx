@@ -478,11 +478,22 @@ function Comment({ comment }: { comment: SentComment }) {
   const lines = comment.line
     ? `:${comment.line}${comment.endLine && comment.endLine !== comment.line ? `–${comment.endLine}` : ""}`
     : "";
+  const answer = comment.inReplyTo;
   return (
     <div {...stylex.props(styles.comment)}>
       <span title={`${comment.path}${lines}`} {...stylex.props(styles.commentPlace)}>
         {comment.quote ? `“${comment.quote}”` : `${comment.path.split("/").at(-1)}${lines}`}
+        {answer && ` · reply to ${answer.author}`}
       </span>
+      {/* A reply quotes the answer it replies to, as a chat quotes a message. */}
+      {answer && (
+        <p
+          title={answer.text}
+          {...stylex.props(styles.userText, styles.userQuote, styles.commentAnswer)}
+        >
+          {answer.text}
+        </p>
+      )}
       <p {...stylex.props(styles.userText)}>{comment.text}</p>
     </div>
   );
@@ -2432,6 +2443,15 @@ const styles = stylex.create({
     flexDirection: "column",
     gap: 2,
     marginBlockStart: { default: 0, ":not(:first-child)": 8 },
+  },
+  commentAnswer: {
+    display: "-webkit-box",
+    marginBlock: 2,
+    overflow: "hidden",
+    fontSize: 13,
+    lineHeight: 1.5,
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: 2,
   },
   commentPlace: {
     overflow: "hidden",

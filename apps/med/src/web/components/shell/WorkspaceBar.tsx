@@ -2,6 +2,8 @@ import * as stylex from "@stylexjs/stylex";
 import { useEffect, useState, type Ref } from "react";
 import type { Thread } from "../../../shared/threads";
 import { basename, type BarContext } from "../../data/bar-context";
+import { platform } from "../../data/keys";
+import { useHistorySteps } from "../../data/navigation";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
@@ -73,6 +75,7 @@ export function WorkspaceBar({
           onClick={showSidebar}
         />
       )}
+      <HistoryButtons />
       {rename?.editing ? (
         <span {...stylex.props(styles.title, styles.naming)}>
           <RenameField thread={rename.thread} onDone={rename.done} />
@@ -106,6 +109,59 @@ export function WorkspaceBar({
         <span ref={slots?.tools} {...stylex.props(styles.endSlot)} />
       </span>
     </header>
+  );
+}
+
+/**
+ * Back and Forward through the steps the reader took: workspaces, pages that
+ * cover them, a thread's pages and files, and its reviews (navigation.ts).
+ * ⌘[ and ⌘] go too, as in a browser, outside a text field or the editor,
+ * where they indent; ⌃- and ⌃⇧-, as in VS Code, go from anywhere.
+ */
+function HistoryButtons() {
+  const { back, forward } = useHistorySteps();
+  useEffect(() => {
+    const go = (event: KeyboardEvent) => {
+      if (event.altKey) return;
+      // Elsewhere, Control and minus zoom out, and Alt and the arrows go back.
+      const vscode =
+        platform === "mac" && event.ctrlKey && !event.metaKey && event.code === "Minus";
+      const browser =
+        event.metaKey &&
+        !event.ctrlKey &&
+        !event.shiftKey &&
+        (event.code === "BracketLeft" || event.code === "BracketRight");
+      if (!vscode && !browser) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        browser &&
+        (target?.isContentEditable || target?.closest("input, textarea, select, .cm-editor"))
+      )
+        return;
+      event.preventDefault();
+      if (vscode ? event.shiftKey : event.code === "BracketRight") history.forward();
+      else history.back();
+    };
+    window.addEventListener("keydown", go);
+    return () => window.removeEventListener("keydown", go);
+  }, []);
+  return (
+    <span {...stylex.props(styles.history)}>
+      <ToolButton
+        label="Back"
+        shortcut={platform === "mac" ? "Ctrl+-" : undefined}
+        icon="arrowLeft"
+        disabled={!back}
+        onClick={() => history.back()}
+      />
+      <ToolButton
+        label="Forward"
+        shortcut={platform === "mac" ? "Ctrl+Shift+-" : undefined}
+        icon="arrowRight"
+        disabled={!forward}
+        onClick={() => history.forward()}
+      />
+    </span>
   );
 }
 
@@ -217,7 +273,14 @@ const styles = stylex.create({
     // A title in the band gives way to the band's width (InTitleBand).
     containerType: "inline-size",
   },
-  // Past the window controls, where the sidebar would otherwise start.
+  // Past the window controls, where the sidebar would otherwise start. A
+  // narrow band gives their room to the workspace; their keys still go.
+  history: {
+    display: { default: "inline-flex", "@container (max-width: 480px)": "none" },
+    flexShrink: 0,
+    gap: 0,
+    color: tokens.muted,
+  },
   afterControls: { paddingInlineStart: "max(calc(var(--med-titlebar-left) + 4px), 8px)" },
   // The covering row reaches the band's end, or the window controls there.
   covered: { paddingInlineEnd: "var(--med-titlebar-right)" },

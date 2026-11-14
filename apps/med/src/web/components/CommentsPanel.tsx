@@ -22,11 +22,14 @@ const where = (comment: ListedComment) =>
 export function CommentsButton({
   comments,
   onOpen,
+  onRead,
   onCopy,
   copied = false,
 }: {
   comments: readonly ListedComment[];
   onOpen(comment: ListedComment): void;
+  /** The reader has seen these answers: Mark all as read. */
+  onRead?(comments: readonly ListedComment[]): void;
   /** Copies the comments for an agent elsewhere; none while there are none.
    * False when the copy failed: the panel closes, so the error shows. */
   onCopy?(): Promise<boolean>;
@@ -39,6 +42,7 @@ export function CommentsButton({
   const unresolved = comments.filter((comment) => !comment.resolved);
   const shown = resolved ? comments : unresolved;
   const hidden = comments.length - unresolved.length;
+  const unread = comments.filter((comment) => comment.unread);
   return (
     <Popover.Root
       open={open}
@@ -54,6 +58,12 @@ export function CommentsButton({
       >
         <Icon name="note" size={14} />
         {unresolved.length > 0 && <span {...stylex.props(styles.count)}>{unresolved.length}</span>}
+        {unread.length > 0 && (
+          <span
+            aria-label={`${unread.length} new ${unread.length === 1 ? "answer" : "answers"}`}
+            {...stylex.props(styles.dot, styles.triggerDot)}
+          />
+        )}
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Positioner
@@ -64,6 +74,17 @@ export function CommentsButton({
           <Popover.Popup {...stylex.props(ui.popup, styles.panel, ui.instant)}>
             <div {...stylex.props(styles.head)}>
               <Popover.Title {...stylex.props(styles.title)}>All comments</Popover.Title>
+              {onRead && unread.length > 0 && (
+                <button
+                  type="button"
+                  aria-label="Mark all as read"
+                  {...tooltip("Mark all as read")}
+                  onClick={() => onRead(unread)}
+                  {...stylex.props(ui.button, ui.iconButton)}
+                >
+                  <Icon name="check" size={14} />
+                </button>
+              )}
               {hidden > 0 && (
                 <button
                   type="button"
@@ -116,11 +137,18 @@ export function CommentsButton({
                       >
                         <span {...stylex.props(styles.where)}>
                           <span {...stylex.props(styles.path)}>{where(comment)}</span>
+                          {comment.unread && (
+                            <span
+                              aria-label="New answer"
+                              {...tooltip("New answer")}
+                              {...stylex.props(styles.dot)}
+                            />
+                          )}
                           {comment.unsent && (
                             <span
                               aria-label="Not sent"
                               {...tooltip("Not sent")}
-                              {...stylex.props(styles.dot)}
+                              {...stylex.props(styles.dot, styles.unsentDot)}
                             />
                           )}
                           <span {...stylex.props(styles.grow)} />
@@ -129,6 +157,12 @@ export function CommentsButton({
                           )}
                         </span>
                         <span {...stylex.props(styles.text)}>{comment.text}</span>
+                        {comment.answer && (
+                          <span {...stylex.props(styles.text, styles.answer)}>
+                            <span {...stylex.props(styles.answerBy)}>{comment.answeredBy}</span>{" "}
+                            {comment.answer}
+                          </span>
+                        )}
                         {(comment.replies > 0 || comment.resolved) && (
                           <span {...stylex.props(styles.state)}>
                             {comment.resolved && (
@@ -140,7 +174,8 @@ export function CommentsButton({
                             {comment.replies > 0 && (
                               <span {...stylex.props(styles.replies)}>
                                 <Icon name="reply" size={12} />
-                                {comment.answeredBy ?? comment.replies}
+                                {/* The answer shows above, with its author. */}
+                                {(!comment.answer && comment.answeredBy) || comment.replies}
                               </span>
                             )}
                           </span>
@@ -222,6 +257,11 @@ const styles = stylex.create({
     fontSize: 11.5,
   },
   dot: { flexShrink: 0, width: 6, height: 6, borderRadius: 3, backgroundColor: tokens.accent },
+  // Waiting to be sent is the reader's own: a ring, not news.
+  unsentDot: { backgroundColor: "transparent", boxShadow: `inset 0 0 0 1.5px ${tokens.faint}` },
+  triggerDot: { marginInlineStart: -2 },
+  answer: { color: tokens.muted },
+  answerBy: { color: tokens.text, fontWeight: 550 },
   grow: { flex: "1" },
   time: { flexShrink: 0, color: tokens.faint, fontSize: 12 },
   text: {

@@ -206,6 +206,7 @@ import {
 import { defaultStateDirectory, getPersistentToken, publishConnection } from "./runtime/connection";
 import { medCommand } from "./runtime/med-command";
 import { ownedEnvironment, writeMedCommand } from "./thread-agents";
+import { lastSaid } from "../shared/comment-thread";
 
 import type { ServiceManager } from "./service/manager";
 
@@ -809,7 +810,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           path: comment.path,
           line: comment.line,
           ...(comment.endLine ? { endLine: comment.endLine } : {}),
-          text: comment.text,
+          ...comment.said,
           replies: comment.replies,
         })),
         ...fileComments
@@ -819,7 +820,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             path: comment.path,
             line: comment.line,
             ...(comment.endLine ? { endLine: comment.endLine } : {}),
-            text: comment.text,
+            ...lastSaid(comment, comment.replies),
             replies: comment.replies.length,
           })),
       ],

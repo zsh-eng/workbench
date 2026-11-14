@@ -10,12 +10,15 @@ export function PathLabel({
   path,
   folder = true,
   quiet = true,
+  strong = false,
 }: {
   path: string;
   /** Shows the folders; else the file name only. */
   folder?: boolean;
   /** The folders in the faint text color. */
   quiet?: boolean;
+  /** The name in the heavier weight of a file's header. */
+  strong?: boolean;
 }) {
   const slash = path.lastIndexOf("/") + 1;
   const name = path.slice(slash);
@@ -29,10 +32,12 @@ export function PathLabel({
           {path.slice(0, slash)}
         </span>
       )}
-      <span data-clip="" {...stylex.props(styles.part, styles.name)}>
+      <span data-clip="" {...stylex.props(styles.part, styles.name, strong && styles.strong)}>
         {name.slice(0, name.length - extension.length)}
       </span>
-      {extension && <span {...stylex.props(styles.extension)}>{extension}</span>}
+      {extension && (
+        <span {...stylex.props(styles.extension, strong && styles.strong)}>{extension}</span>
+      )}
     </span>
   );
 }
@@ -46,4 +51,5 @@ const styles = stylex.create({
   quiet: { color: tokens.faint },
   name: { flexGrow: 0, flexShrink: 1, flexBasis: "auto" },
   extension: { flex: "none" },
+  strong: { fontWeight: 550 },
 });

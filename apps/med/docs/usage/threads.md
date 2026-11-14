@@ -295,7 +295,10 @@ Tabs stay loaded, so a switch is immediate; with more than 16 tabs, the ones
 shown least recently unload and stay in the sidebar. Of the other workspaces,
 such as branches, the six most recent stay loaded. Only the workspace on screen
 gets live updates; the others catch up when you return. A thread keeps its
-`/review/…` address, and Back and Forward move between workspaces. In a
+`/review/…` address. Back and Forward, at the start of the title band, move
+between workspaces, and in a thread between its pages, files, and reviews.
+Med opens on the workspace and the page that showed when the window
+closed, not on an empty workspace. In a
 browser tab, which keeps `⌘1`–`⌘9`, use `Ctrl+1`–`Ctrl+9` or the installed
 app.
 
@@ -386,6 +389,11 @@ background shells and agents. It follows the session live.
   opens the tab behind the current one. Close the tab to go back to the tab
   that you read before it. Text that names no file of the checkout stays as
   it is.
+- A reply's inline code that is the name of one of the repository's
+  branches, such as `agent/tide-rates`, is a link with the branch's mark. A
+  click shows that branch in the thread, as the branch picker does: its
+  Changes, files, and search; `⌘`-click opens it in a workspace of its own.
+  A file wins over a branch of the same name.
 - Comments link files the same way: yours, the agent's (Guide comments and
   replies), and GitHub's (threads on lines, the conversation, review
   summaries, and pending comments). A comment's paths link also in its text,

@@ -2,20 +2,20 @@
 
 ## Panes
 
-A workspace is a set of tiled panes: the review, and **Session** (`⌘⇧B`) and
-**Files** (**Show files sidebar** in `⌘K`) beside it. Each thread keeps its
-own layout.
+A workspace is a set of tiled panes: the review, and **Session** (`⌘⇧B`)
+beside it. Each thread keeps its own layout. Files are a page of the review,
+**Files**, not a pane.
 
 A thread opens on its session alone, which fills the workspace. The pages at
-the title band's top right, **Review**, **Changes**, and **Commit**, open the
-review beside it; the page on screen, clicked again, hides the review. `⌘E`
+the title band's top right, **Review**, **Changes**, **Commit**, and
+**Files**, open the review beside it; the page on screen, clicked again, hides the review. `⌘E`
 expands the review to the whole workspace, opening it if it hides, and
 restores it; in the session beside the review, it expands the session
 instead. The session has no Expand or Hide of its own. A thread without
 an agent session opens on its review, and a pull request on both.
 
-Each page of the review has its own sidebar: Review's guide, and Changes' changed
-files, with what the diff compares at its top. Its hide button is at its
+Each page of the review has its own sidebar: Review's guide, Changes' changed
+files, with what the diff compares at its top, and the tree of Files. Its hide button is at its
 heading's end, `⌘⌥B` hides and shows it, and a hidden sidebar leaves a button
 at the start of the review's second row. Each page keeps its own choice. The
 Commit page keeps its files, with the message and Push, beside the diff.
@@ -23,12 +23,12 @@ Commit page keeps its files, with the message and Push, beside the diff.
 Every pane and panel hides, and the review hides while the session shows
 beside it, so the workspace always keeps a pane. While the session hides, the
 review's **Expand** turns into **Restore** (two arrows pointing in), which
-shows it again. **Files**, which you open yourself, opens again from `⌘K`.
+shows it again.
 The review's **Expand** is at its row's end while the session shows beside
 it. The panel icon,
 shaded on the side where the panel is, is only for the sidebar of threads. A
 rail's button shows what the rail lists: the guide's signpost, the changed
-files' tree, and the session rail's list, as in Claude Desktop. Med keeps
+files' tree, the folder of Files, and the session rail's list, as in Claude Desktop. Med keeps
 each choice: a pane's in the thread's layout, the others in the view settings.
 
 The panes are flat, as in Claude's desktop app: they meet edge to edge, with a
@@ -48,15 +48,14 @@ Sources, names itself, so in a browser tab it reaches the window's top, and
 **Show sidebar** sits in its top left corner while the sidebar hides. The
 installed app keeps the title band there for its window controls.
 
-| Pane or panel                           | Hide                                                                  | Show again                                                          |
-| --------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Sidebar (the threads)                   | **Hide sidebar** in it, `⌘B`                                          | **Show sidebar** at the top left, `⌘B`, or **Show threads** in `⌘K` |
-| Review                                  | Its page in the title band, clicked again, or **Hide review** in `⌘K` | A page in the title band, `⌘E`, `⌘K`, or opening a file             |
-| Session                                 | `⌘⇧B`, or `⌘K`                                                        | **Restore** in the review's header, `⌘⇧B`, or `⌘K`                  |
-| Files                                   | The × in its header                                                   | **Show files sidebar** in `⌘K`                                      |
-| A vault's files sidebar                 | The folder button, or **Hide files sidebar** in `⌘K`                  | The same button, or **Show files sidebar** in `⌘K`                  |
-| A page's sidebar (guide, changed files) | The button at its heading's end, `⌘⌥B`, or `⌘B` in a browser tab      | The button at the start of the review's header, `⌘⌥B`, or `⌘K`      |
-| The session rail                        | The list button in the title band, `⌘⌥⇧B`                             | The same button, `⌘⌥⇧B`, or **Show session rail** in `⌘K`           |
+| Pane or panel                   | Hide                                                                  | Show again                                                          |
+| ------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Sidebar (the threads)           | **Hide sidebar** in it, `⌘B`                                          | **Show sidebar** at the top left, `⌘B`, or **Show threads** in `⌘K` |
+| Review                          | Its page in the title band, clicked again, or **Hide review** in `⌘K` | A page in the title band, `⌘E`, `⌘K`, or opening a file             |
+| Session                         | `⌘⇧B`, or `⌘K`                                                        | **Restore** in the review's header, `⌘⇧B`, or `⌘K`                  |
+| A vault's files sidebar         | The folder button, or **Hide files sidebar** in `⌘K`                  | The same button, or **Show files sidebar** in `⌘K`                  |
+| A page's sidebar (guide, files) | The button at its heading's end, `⌘⌥B`, or `⌘B` in a browser tab      | The button at the start of the review's header, `⌘⌥B`, or `⌘K`      |
+| The session rail                | The list button in the title band, `⌘⌥⇧B`                             | The same button, `⌘⌥⇧B`, or **Show session rail** in `⌘K`           |
 
 The review's header shows the buttons at its ends where it has room; a
 narrower header keeps its room for the title and the pages, and the shortcuts
@@ -86,7 +85,13 @@ list back: it hides the tasks until one starts or fails.
 
 ## The title band and the review's header
 
-The title band is one row for the whole workspace. Its start names the
+The title band is one row for the whole workspace. It starts with **Back**
+and **Forward** (`⌃-` and `⌃⇧-`, as in VS Code, or `⌘[` and `⌘]` outside a
+text field or a file, where they indent), which
+step through what you showed: workspaces and threads, pages such as
+Sources, a thread's pages and files, and its reviews, as a browser steps
+through pages. A narrow window leaves the two buttons out; their keys still
+work. Then it names the
 checkout that the workspace shows, by its repository and branch, or the
 thread while the sidebar hides. Its end always holds, from
 left to right: the session's controls (its context's use, or the session
@@ -104,9 +109,15 @@ the band names it.
 
 - The pages are icons side by side, and a tooltip names each: **Review**, a
   signpost, as its Guide walks through the change; **Changes**, a plus and a
-  minus; and **Commit**, Git's mark, or **Pull request** for a thread with
-  one. The number keys `1` to `3` switch between them while the focus is not
-  in a text field, the diff, or the session.
+  minus; **Commit**, Git's mark, or **Pull request** for a thread with
+  one; and **Files**, a folder. The number keys `1` to `4` switch between
+  them while the focus is not in a text field, the diff, or the session.
+- **Files** is a page of its own: the tree of what the workspace shows, at
+  its side, and a tab for each file that you open, with Search. The other
+  pages have no tabs: a file that opens from a diff, a link, the tree, or
+  Find file (`⌘⇧K`) shows on Files, and **Files** shows the file that
+  showed last. **Show files sidebar** in `⌘K` opens Files with its tree.
+  Closing the last file goes back to the page before it.
 - **Display**, the sliders icon, has a row for each choice, as Pierre lays its own out: the
   diff's **Layout** (**Split** or **Unified**, two icons, `S`), **Wrap long
   lines** (`W`), **Comments in the diff** (`C`), the code's text size, and

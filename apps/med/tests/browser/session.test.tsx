@@ -1589,3 +1589,34 @@ test("a reply's actions show on hover and focus, the latest reply's stay, and a 
     bubble.getBoundingClientRect().left + 1,
   );
 });
+
+test("a reply in a comment's thread shows as the reply, under the answer it replies to", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  const sent: SentMessage = {
+    id: "m1",
+    sessionId: "s1",
+    agent: "claude",
+    text: "",
+    noteIds: ["n1"],
+    comments: [
+      {
+        path: "src/tides.ts",
+        line: 12,
+        text: "Use tideTimes, as the docs do.",
+        inReplyTo: { author: "Claude", text: "Renamed it to tidesAt." },
+      },
+    ],
+    attachmentCount: 0,
+    createdAt: new Date(4000).toISOString(),
+    delivery: "delivered",
+  };
+  const snapshot = store.getSnapshot();
+  root!.render(
+    <SessionThread snapshot={{ ...snapshot, items: withSentMessages(snapshot.items, [sent]) }} />,
+  );
+  await expect.element(page.getByText("Use tideTimes, as the docs do.")).toBeVisible();
+  await expect.element(page.getByText("tides.ts:12 · reply to Claude")).toBeVisible();
+  await expect.element(page.getByText("Renamed it to tidesAt.")).toBeVisible();
+});

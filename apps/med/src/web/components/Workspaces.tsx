@@ -20,6 +20,7 @@ import {
   type ReviewController,
   type ReviewControllerOptions,
 } from "../data/controller";
+import { lastScreen } from "../data/navigation";
 import {
   createWorkspaceStore,
   orderedWorkspaces,
@@ -309,6 +310,9 @@ interface TitleBand {
   /** The workspace's title leads the band, or a pane's row covers its end,
    * until the returned function runs. */
   claim(kind: "lead" | "cover"): () => void;
+  /** The views tell which workspace shows: the one before stays on screen
+   * while the next prepares, and the band names it until they swap. */
+  showing(id: string | null): void;
 }
 const Band = createContext<TitleBand | null>(null);
 
@@ -352,6 +356,14 @@ export function InTitleBand({
   );
 }
 
+/** Whether this workspace is the one in view, which Back and Forward step
+ * through (navigation.ts). Outside the workspace shell, none is. */
+export function useWorkspaceInView() {
+  const id = use(Current);
+  const inView = use(InView);
+  return !!id && inView !== false;
+}
+
 /** Whether the title band shows this workspace: InTitleBand's portals render.
  * While the next workspace prepares out of sight, the band stays with the one
  * on screen, so the band and the view swap in one frame. */
@@ -364,7 +376,7 @@ export function useInTitleBand() {
 
 /** The title band's slots, and whether a workspace's title leads it or a
  * pane's row covers its end. */
-function useTitleBand(workspace: string | null) {
+function useTitleBand(workspace: string | null, showing: (id: string | null) => void) {
   const [lead, setLead] = useState<HTMLElement | null>(null);
   const [trail, setTrail] = useState<HTMLElement | null>(null);
   const [cover, setCover] = useState<HTMLElement | null>(null);
@@ -376,8 +388,8 @@ function useTitleBand(workspace: string | null) {
     return () => setClaims((count) => ({ ...count, [kind]: count[kind] - 1 }));
   }, []);
   const value = useMemo(
-    () => ({ lead, trail, cover, session, tools, workspace, claim }),
-    [lead, trail, cover, session, tools, workspace, claim],
+    () => ({ lead, trail, cover, session, tools, workspace, claim, showing }),
+    [lead, trail, cover, session, tools, workspace, claim, showing],
   );
   return {
     value,
@@ -1013,8 +1025,20 @@ export function WorkspaceHost({
     const active = store
       .getSnapshot()
       .workspaces.find((entry) => entry.id === store.getSnapshot().active);
-    if (active?.kind === "repository" && location.pathname === "/" && !historyWorkspace())
-      history.replaceState({ ...(history.state as object), workspace: active.id }, "");
+    // The start address names the workspace that the window opened on, and
+    // the page that it showed when the window closed.
+    if (active && location.pathname === "/" && !historyWorkspace()) {
+      const screen = lastScreen();
+      history.replaceState(
+        {
+          ...(history.state as object),
+          workspace: active.id,
+          ...(screen?.workspace === active.id && { screen }),
+        },
+        "",
+        workspaceUrl(active),
+      );
+    }
     const follow = () => {
       store.follow(location.pathname, history.state);
       if (location.pathname.startsWith("/vault/"))
@@ -1249,13 +1273,20 @@ export function WorkspaceHost({
   // The Archived page covers them too, at its own address.
   const historyPage = isArchivedAddress(pathname);
   const activeEntry = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
+  // The workspace that the views show: while the next one prepares out of
+  // sight, the one before, so the band and the view swap in one frame.
+  const [viewing, setViewing] = useState<string | null>(null);
+  const shownEntry =
+    (viewing && activeEntry?.kind !== "vault"
+      ? snapshot.workspaces.find((entry) => entry.id === viewing)
+      : undefined) ?? activeEntry;
   // The thread on screen, which the title band names.
-  const barId = workspaceThread(activeEntry);
+  const barId = workspaceThread(shownEntry);
   // Its name, which the band shows and renames.
   const barThread = barId ? tabs.find((thread) => thread.id === barId) : undefined;
   // The band names the workspace on screen; none while a page covers them.
   const covered = newThread || !!overlayAddress(pathname);
-  const band = useTitleBand(covered ? null : (activeEntry?.id ?? null));
+  const band = useTitleBand(covered ? null : (activeEntry?.id ?? null), setViewing);
   // A page such as Settings names itself, so in a browser tab the band would
   // hold only Show sidebar: the page takes the band's height, and the button
   // sits in its corner. The installed app keeps the band for the window
@@ -1923,7 +1954,7 @@ export function WorkspaceHost({
                             context={
                               covered
                                 ? undefined
-                                : barContext(activeEntry, threadList ?? null, barThread?.title)
+                                : barContext(shownEntry, threadList ?? null, barThread?.title)
                             }
                             slots={band.slots}
                             titled={band.titled}
@@ -2219,6 +2250,11 @@ export function WorkspaceViews({
   useLayoutEffect(() => {
     if (visible) seen.add(visible);
   }, [seen, visible]);
+  // The band names what shows; a layout effect, so it changes before the paint.
+  const showingIn = use(Band)?.showing;
+  useLayoutEffect(() => {
+    showingIn?.(visible);
+  }, [showingIn, visible]);
   useEffect(() => {
     if (!preparing) return;
     const started = performance.now();

@@ -592,6 +592,10 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
       else store.open({ kind: "repository", home: true });
     },
   };
-  store.follow(pathname, state);
+  // The app's own start, "/" with no entry of Med's, as when the installed
+  // app or a new tab opens: the window shows what it showed when it closed.
+  const fresh =
+    pathname === "/" && (state as { workspace?: unknown } | null)?.workspace === undefined;
+  if (!fresh || !find(snapshot.active)) store.follow(pathname, state);
   return store;
 }

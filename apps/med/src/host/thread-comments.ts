@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/pro
 import { join } from "node:path";
 import { z } from "zod";
 import type { SentComment } from "../shared/agent-inbox";
+import { lastSaid } from "../shared/comment-thread";
 import type { NoteAuthor } from "../shared/protocol";
 import {
   agentName,
@@ -234,7 +235,7 @@ export function createThreadComments(directory: string) {
             path: comment.path,
             line: comment.line,
             ...(comment.endLine ? { endLine: comment.endLine } : {}),
-            text: comment.text,
+            ...lastSaid(comment, comment.replies),
           },
         });
       }

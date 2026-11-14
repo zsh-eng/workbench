@@ -8,8 +8,9 @@
    snapshots; it does not add patches across merged branches.
 2. Select a changed path to go to it in the diff. Double-click it to open the
    whole file.
-3. Open unchanged files from the file picker or the Files pane. Each file opens
-   in a tab of its own, beside Changes, and stays until you close it. A branch
+3. Open unchanged files from the file picker or the tree of the **Files**
+   page. Each file opens in a tab of its own on Files, a page beside Changes,
+   and stays until you close it. A branch
    without a worktree opens its committed content.
 
 To comment, drag the gutter **+** across lines, or select line numbers and
@@ -188,10 +189,17 @@ comment waits in the message box, to send or copy with the others.
 
 The comment button at the end of the review's header, with the count of open
 comments, lists the thread's comments: those on the diff's lines and those on
-files' lines, newest first. Each shows its file and lines, its time, its
-first two lines, and who answered it. A dot marks one that waits to be sent.
-The filter shows the resolved ones too, and the copy button copies them all
-for an agent elsewhere. Click one to open it at its lines.
+files' lines. A comment whose agent answered since you last opened it has a
+blue dot, and so does the button; those come first, newest answer first,
+and the others follow by their newest reply. Each shows its file and lines,
+its time, its first two lines, and the agent's answer under it. A ring marks
+one that waits to be sent. **Mark all as read** clears the dots. The filter
+shows the resolved ones too, and the copy button copies them all for an
+agent elsewhere. Click one to open it at its lines, which reads its answer.
+
+A reply that you send in a comment's thread shows in the session as the
+reply, under the answer that it replies to, with the comment's place and
+"reply to Claude". The message box lists it the same way before you send.
 
 ## Full-file change markers
 

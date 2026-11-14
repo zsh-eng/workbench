@@ -204,6 +204,7 @@ export function SessionPanel({
   onRemoveAttachment,
   bandTools = true,
   lead,
+  waiting = false,
   mentions,
   onMentionsWanted,
   footer,
@@ -254,6 +255,10 @@ export function SessionPanel({
   /** The pane is on screen, so a new workspace shows once this has its
    * thread, before its review loads (see WorkspaceViews). */
   lead?: boolean;
+  /** The workspace does not know its checkout yet, which names its pages in
+   * the title band: it waits for it too, so the band does not change after
+   * it shows. */
+  waiting?: boolean;
   /** Whether its own controls show at the title band's end: false while the
    * pane hides or another pane fills the workspace. */
   bandTools?: boolean;
@@ -773,7 +778,7 @@ export function SessionPanel({
       data-session-panel=""
       aria-label={`${agent} session`}
       // A workspace shows once this has its thread (see WorkspaceViews).
-      data-pending={loading || undefined}
+      data-pending={loading || waiting || undefined}
       data-lead={lead || undefined}
       {...stylex.props(styles.panel)}
     >
