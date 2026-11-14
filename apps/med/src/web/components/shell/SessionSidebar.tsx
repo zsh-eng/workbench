@@ -18,7 +18,8 @@ import { tokens, ui } from "../../theme.stylex";
 import { Icon } from "../Icon";
 import { RenameField } from "./RenameField";
 import { newThreadKeys } from "../../data/title-bar";
-import { tooltip } from "../ToolButton";
+import { ToolButton, tooltip } from "../ToolButton";
+import { HistoryArrows } from "./HistoryArrows";
 
 /** Where a dragged row would land: a place among the pins, or Recent. */
 type DropTarget = { pinned: true; at: number } | { pinned: false };
@@ -283,32 +284,28 @@ export function SessionSidebar({
   const top = stylex.props(styles.top);
   return (
     <nav ref={nav} aria-label="Sessions" {...stylex.props(styles.list)}>
-      {/* The window's top row: in the installed app, the title bar's strip,
-          after the window's controls. */}
+      {/* The window's top row: in the installed app, the title bar's strip.
+          After the window's controls, the sidebar's toggle and Back and
+          Forward, as in Claude's desktop app; the title band has them at the
+          same place while the sidebar hides. */}
       <div className={`med-title-row ${top.className ?? ""}`} style={top.style}>
-        <button
-          type="button"
-          aria-label="New thread"
-          aria-pressed={newThread}
-          onClick={onNewThread}
-          {...tooltip("New thread", newThreadKeys())}
-          {...stylex.props(styles.row, styles.new, newThread && styles.current)}
-        >
-          <span {...stylex.props(styles.mark, styles.plus)}>
-            <Icon name="plus" size={14} />
-          </span>
-          <span {...stylex.props(styles.name)}>New thread</span>
-        </button>
-        <button
-          type="button"
-          aria-label="Hide sidebar"
-          title="Hide sidebar (⌘B)"
-          onClick={onHide}
-          {...stylex.props(ui.button, styles.hide)}
-        >
-          <Icon name="panelLeft" size={15} />
-        </button>
+        <ToolButton label="Hide sidebar" shortcut="Mod+B" icon="panelLeft" onClick={onHide} />
+        <HistoryArrows />
       </div>
+      {/* A row like the sessions under it; the open New thread is its current row. */}
+      <button
+        type="button"
+        aria-label="New thread"
+        aria-pressed={newThread}
+        onClick={onNewThread}
+        {...tooltip("New thread", newThreadKeys())}
+        {...stylex.props(styles.row, newThread && styles.current)}
+      >
+        <span {...stylex.props(styles.mark, styles.plus)}>
+          <Icon name="plus" size={14} />
+        </span>
+        <span {...stylex.props(styles.name)}>New</span>
+      </button>
       <div ref={scroller} {...stylex.props(styles.scroll)}>
         {onSuperagent && (
           // The Superagent is a pinned session; this opens it, and makes it
@@ -654,19 +651,19 @@ const styles = stylex.create({
     paddingBottom: 8,
     gap: 2,
   },
-  // As tall as the title band beside it, so New and the band share a line.
+  // As tall as the title band beside it, so the two share a line. Its toggle
+  // starts where the band's Show sidebar does (WorkspaceBar's afterControls),
+  // so neither it nor the arrows move as the sidebar hides.
   top: {
     display: "flex",
     alignItems: "center",
     gap: 4,
     height: "var(--med-top-row)",
-    paddingInlineStart: "max(calc(var(--med-titlebar-left) - 8px), 0px)",
+    paddingInlineStart: "max(calc(var(--med-titlebar-left) - 4px), 0px)",
     flex: "none",
+    color: tokens.muted,
   },
-  // A row like the sessions under it; the open New thread is its current row.
-  new: { flex: "1", width: "auto", minWidth: 0 },
   plus: { color: tokens.muted },
-  hide: { width: 28, height: 28, paddingInline: 0, color: tokens.muted },
   scroll: { flex: "1", minHeight: 0, overflowY: "auto", marginInline: -8, paddingInline: 8 },
   label: {
     marginTop: 18,

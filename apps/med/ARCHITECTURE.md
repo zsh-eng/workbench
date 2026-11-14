@@ -264,7 +264,8 @@ with the workspace ID in `history.state`. Each step the reader takes is a
 history entry, as routes have them, without a router (`data/navigation.ts`):
 another workspace, a page that covers them, and in a workspace its page,
 file, and review, which the entry holds as its `screen`. Back and Forward,
-the browser's or the title band's, show an entry's screen again. A window
+the browser's or Med's (shell/HistoryArrows.tsx, after the sidebar's toggle),
+show an entry's screen again. A window
 that starts at `/` opens the workspace and screen that showed last.
 
 Search is a tab of each workspace (`components/SearchView.tsx`), after Commit

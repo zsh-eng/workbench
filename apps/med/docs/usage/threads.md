@@ -42,7 +42,9 @@ place in the list, with the Superagent first.
 A row shows the session's name and at most one dot: blue
 in a ring when the agent needs you, blue when its work finished since you
 looked, amber when the work stopped. While the agent works, its name dims
-under a passing light. **New thread**, a row at the top, starts a thread.
+under a passing light. **New**, the first row, above the Superagent, starts a
+thread. The top row holds the sidebar's toggle and **Back** and **Forward**,
+as in Claude's desktop app.
 **Archived**, **Pull requests**, and **Settings** are at the foot.
 
 Tabs stay loaded and Med follows their agents. Archived threads are cold: Med
@@ -110,7 +112,7 @@ does not load them or read their agents until you open one again.
 
 ## New threads and the sidebar
 
-- **New thread** (`⌥N`; `⌘N` in the installed app, or `⌘K` › **New thread**)
+- **New** (`⌥N`; `⌘N` in the installed app, or `⌘K` › **New thread**)
   asks one thing: **Where to work**. A browser tab keeps `⌘N` for a new
   window; the installed app's window gives Med every key, so `⌘N` opens New
   thread there. Your repositories are one list: those of your newest threads,
@@ -166,7 +168,10 @@ does not load them or read their agents until you open one again.
   its agent's title again.
 - **Settings**, at the foot of the sidebar, opens the Sources page for now:
   the registered repositories and vaults.
-- `⌘B`, or the button beside **New thread**, shows or hides the sidebar. In a window narrower than 760 pixels, the
+- `⌘B`, or the toggle at the start of the top row, shows or hides the
+  sidebar. The toggle and Back and Forward stay in the same place either way:
+  in the sidebar's top row while it shows, in the title band while it hides.
+  In a window narrower than 760 pixels, the
   sidebar opens over the workspace, and a choice closes it.
 
 ## The Superagent
@@ -299,7 +304,7 @@ Tabs stay loaded, so a switch is immediate; with more than 16 tabs, the ones
 shown least recently unload and stay in the sidebar. Of the other workspaces,
 such as branches, the six most recent stay loaded. Only the workspace on screen
 gets live updates; the others catch up when you return. A thread keeps its
-`/review/…` address. Back and Forward, at the start of the title band, move
+`/review/…` address. Back and Forward, after the sidebar's toggle, move
 between workspaces, and in a thread between its pages, files, and reviews.
 Med opens on the workspace and the page that showed when the window
 closed, not on an empty workspace. In a

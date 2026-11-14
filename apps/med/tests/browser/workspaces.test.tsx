@@ -1467,6 +1467,53 @@ test("a row is the thread's name, without the agent's mark; the Superagent's thr
   await expect.poll(() => superagent.getAttribute("aria-current")).toBe("page");
 });
 
+test("as in Claude's desktop app, the sidebar's top row holds its toggle and Back and Forward, which stay in place as it hides; New is the first row", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  host.setThreads([
+    thread("boss", { title: "Superagent", superagent: true, updatedAt: Date.now() }),
+  ]);
+  const sidebar = document.querySelector<HTMLElement>('nav[aria-label="Sessions"]')!;
+  await expect
+    .poll(() => sidebar.querySelector('button[data-thread="boss"]')?.textContent)
+    .toBe("Superagent");
+  const top = sidebar.querySelector(".med-title-row")!;
+  expect([...top.querySelectorAll("button")].map((button) => button.ariaLabel)).toEqual([
+    "Hide sidebar",
+    "Back",
+    "Forward",
+  ]);
+  // The band has no arrows of its own while the sidebar shows them.
+  const band = document.querySelector<HTMLElement>('header[aria-label="Workspace"]')!;
+  expect(band.querySelector('button[aria-label="Back"]')).toBeNull();
+  const newRow = sidebar.querySelector<HTMLElement>('button[aria-label="New thread"]')!;
+  expect(newRow.textContent).toBe("New");
+  const superagent = sidebar.querySelector<HTMLElement>('button[data-thread="boss"]')!;
+  expect(
+    newRow.compareDocumentPosition(superagent) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(newRow.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+    superagent.getBoundingClientRect().top,
+  );
+
+  // The window's top row as TitleRow.css sizes it, in a browser tab.
+  const rowSize = document.createElement("style");
+  rowSize.textContent =
+    ":root { --med-titlebar-left: 0px; --med-titlebar-right: 0px; --med-top-row: 36px; }";
+  document.head.append(rowSize);
+  onTestFinished(() => rowSize.remove());
+  const place = (name: string) => {
+    const box = document.querySelector(`button[aria-label^="${name}"]`)!.getBoundingClientRect();
+    return [Math.round(box.left), Math.round(box.top)];
+  };
+  const shownAt = ["Hide sidebar", "Back", "Forward"].map(place);
+  await page.getByRole("button", { name: "Hide sidebar" }).click();
+  await expect.element(page.getByRole("button", { name: /^Show sidebar/ })).toBeVisible();
+  expect(["Show sidebar", "Back", "Forward"].map(place)).toEqual(shownAt);
+  expect(document.querySelectorAll('button[aria-label="Back"]')).toHaveLength(1);
+});
+
 test("a row drags into Pinned, to a place among the pins, and out again; its menu moves a pin", async () => {
   const host = createHost();
   render(host);

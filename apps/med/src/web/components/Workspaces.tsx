@@ -79,6 +79,7 @@ import {
 } from "../data/tabs";
 import type { ReviewCommand } from "./Controls";
 import { barContext, WorkspaceBar } from "./shell/WorkspaceBar";
+import { HistoryArrows, useHistoryKeys } from "./shell/HistoryArrows";
 import { ToolButton } from "./ToolButton";
 import { newThreadKeys, useTitleBarOverlay } from "../data/title-bar";
 import { NoticeBar, type TabNotice } from "./shell/NoticeBar";
@@ -1294,6 +1295,7 @@ export function WorkspaceHost({
   // controls.
   const drawsTitleBar = useTitleBarOverlay();
   const pageTop = !newThread && !!overlayAddress(pathname) && !drawsTitleBar;
+  useHistoryKeys();
   const activeThread = workspaceThread(activeEntry);
   // The thread on screen; none while a page covers the workspaces.
   const currentThread = newThread || overlayAddress(pathname) ? null : (activeThread ?? null);
@@ -1987,6 +1989,7 @@ export function WorkspaceHost({
                                 dot={needs > 0}
                                 onClick={toggleSidebar}
                               />
+                              <HistoryArrows />
                             </span>
                           )}
                           <div
@@ -3267,6 +3270,8 @@ const styles = stylex.create({
   pageToggle: {
     position: "absolute",
     zIndex: 2,
+    display: "flex",
+    gap: 4,
     top: "calc(var(--med-top-row) / 2 - 14px)",
     left: "max(calc(var(--med-titlebar-left) + 4px), 8px)",
   },

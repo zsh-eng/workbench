@@ -39,7 +39,7 @@ at its edge. A file's tabs are plain rectangles, a line between each, with
 the file's language icon as the file tree draws it; the current one has the
 file's color and joins it.
 
-The window's top row, the title band and the sidebar's **New thread**, is a tight
+The window's top row, the title band and the sidebar's toggle and arrows, is a tight
 36 px in a browser tab, under the browser's own bar. The panes start at its
 foot, below its line, so its title is centred in the room above them. In the
 installed app with its title bar hidden, the row is the title bar's strip, as
@@ -86,12 +86,14 @@ list back: it hides the tasks until one starts or fails.
 
 ## The title band and the review's header
 
-The title band is one row for the whole workspace. It starts with **Back**
-and **Forward** (`⌃-` and `⌃⇧-`, as in VS Code, or `⌘[` and `⌘]` outside a
-text field or a file, where they indent), which
+The title band is one row for the whole workspace. **Back** and **Forward**
+(`⌃-` and `⌃⇧-`, as in VS Code, or `⌘[` and `⌘]` outside a text field or a
+file, where they indent) follow the sidebar's toggle: in the sidebar's top row
+while it shows, and at the band's start, at the same place, while it hides.
+They
 step through what you showed: workspaces and threads, pages such as
 Sources, a thread's pages and files, and its reviews, as a browser steps
-through pages. A narrow window leaves the two buttons out; their keys still
+through pages. A narrow title band leaves the two buttons out; their keys still
 work. Then it names the
 checkout that the workspace shows, by its repository and branch, or the
 thread while the sidebar hides. Its end always holds, from
