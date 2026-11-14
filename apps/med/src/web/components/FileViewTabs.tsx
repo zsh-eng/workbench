@@ -230,15 +230,16 @@ const tabEnter = stylex.keyframes({
 });
 const styles = stylex.create({
   // Plain tabs: a name on the page's own background, filled while the pointer
-  // is on it and more firmly for the file on screen.
+  // is on it and more firmly for the file on screen. Six pixels above and
+  // below a tab give the row room to breathe.
   root: {
     display: "flex",
     alignItems: "center",
     gap: 4,
     flexShrink: 0,
     minWidth: 0,
-    height: 34,
-    minHeight: 34,
+    height: 40,
+    minHeight: 40,
     boxSizing: "border-box",
     paddingInline: 6,
     backgroundColor: tokens.canvas,
@@ -272,7 +273,7 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: 6,
-    height: 26,
+    height: 28,
     minWidth: 0,
     borderWidth: 0,
     borderRadius: `calc(6px * ${tokens.round})`,
