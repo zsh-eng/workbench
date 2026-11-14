@@ -1872,11 +1872,13 @@ test("Back and Forward retrace pages, files, and workspaces; a new page opens on
   await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
   await expect.poll(onPage).toBe("Commit");
   // So does a launch at the app's own address, with no entry of its own:
-  // not an empty workspace.
+  // not an empty workspace. The address keeps what a link to Med carried.
   root!.unmount();
   mount!.remove();
-  history.replaceState(null, "", "/");
+  history.replaceState(null, "", "/?example=kept#anchor=kept");
   render(createHost());
   await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
   await expect.poll(onPage).toBe("Commit");
+  expect(location.search).toBe("?example=kept");
+  expect(location.hash).toBe("#anchor=kept");
 });

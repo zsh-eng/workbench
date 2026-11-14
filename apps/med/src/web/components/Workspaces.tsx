@@ -1026,7 +1026,8 @@ export function WorkspaceHost({
       .getSnapshot()
       .workspaces.find((entry) => entry.id === store.getSnapshot().active);
     // The start address names the workspace that the window opened on, and
-    // the page that it showed when the window closed.
+    // the page that it showed when the window closed. Its query and hash,
+    // which a link to Med can carry, stay.
     if (active && location.pathname === "/" && !historyWorkspace()) {
       const screen = lastScreen();
       history.replaceState(
@@ -1036,7 +1037,7 @@ export function WorkspaceHost({
           ...(screen?.workspace === active.id && { screen }),
         },
         "",
-        workspaceUrl(active),
+        workspaceUrl(active) + location.search + location.hash,
       );
     }
     const follow = () => {

@@ -90,21 +90,24 @@ try {
     await page.getByRole("link", { name: "Samples", exact: true }).waitFor();
   };
   await showPreview();
-  // The files pane opens from ⌘K; ⌘⇧B toggles the agent session.
-  await page.keyboard.press("Meta+k");
-  await page
-    .getByRole("combobox", { name: "Search commands", exact: true })
-    .fill("Show files sidebar");
-  await page.getByRole("option", { name: /^Show files sidebar/ }).click();
-  const filesSidebar = page.getByRole("region", { name: "Workspace files", exact: true });
+  // The file shows on the Files page, whose sidebar is the files' tree;
+  // ⌘K shows it where the page has no room for it.
+  const filesSidebar = page.getByRole("navigation", { name: "Workspace files", exact: true });
+  if (!(await filesSidebar.isVisible())) {
+    await page.keyboard.press("Meta+k");
+    await page
+      .getByRole("combobox", { name: "Search commands", exact: true })
+      .fill("Show files sidebar");
+    await page.getByRole("option", { name: /^Show files sidebar/ }).click();
+  }
   await filesSidebar.waitFor();
   const sidebarBox = await filesSidebar.boundingBox();
-  const mainBox = await page
-    .getByRole("main", { name: "Continuous review", exact: true })
+  const fileBox = await page
+    .getByRole("region", { name: "Markdown preview", exact: true })
     .boundingBox();
   assert.ok(
-    mainBox.x + mainBox.width <= sidebarBox.x + 1,
-    "File sidebar must stay right of the main view",
+    sidebarBox.x + sidebarBox.width <= fileBox.x + 1,
+    "The files' tree must stay left of the file",
   );
   await filesSidebar.getByRole("button", { name: "Refresh files", exact: true }).focus();
   await page.keyboard.press("Meta+Shift+v");
