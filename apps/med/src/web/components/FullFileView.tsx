@@ -11,7 +11,6 @@ import {
   type CodeViewReactOptions,
 } from "@pierre/diffs/react";
 import {
-  lazy,
   memo,
   Suspense,
   useCallback,
@@ -985,10 +984,14 @@ const styles = stylex.create({
   },
 });
 
-const MarkdownPreview = lazy(() => import("./MarkdownPreview"));
+const MarkdownPreview = preloadable(() => import("./MarkdownPreview"));
 const EditableFile = preloadable(() => import("./FileEditor"));
-/** Loads the editor early, such as once a vault opens, so its first note opens at once. */
-export const preloadFileEditor = EditableFile.preload;
+/** Loads the editor and the Markdown page early, such as once a vault opens,
+ * so its first note opens at once. */
+export function preloadFileEditor() {
+  EditableFile.preload();
+  MarkdownPreview.preload();
+}
 const noDrafts = createEditorDrafts();
 /** Markdown files that the reader switched to their source, by source and path. */
 const markdownSources = new Set<string>();
@@ -1008,11 +1011,13 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
   useSyncExternalStore(store.subscribe, store.getSnapshot);
   const draft = props.editor ? store.get(props.editor.key) : undefined;
   const [editError, setEditError] = useState("");
+  // While a file reads again, as when its tab shows again, its open draft
+  // stands in for it, so a Markdown file shows its page in the first frame
+  // rather than its source or an empty page.
+  const shown = props.file ?? (props.loading && draft?.editing ? draft.file : undefined);
   const markdown =
-    !props.compact &&
-    props.file?.kind === "text" &&
-    /\.(md|markdown|mdown|mkd)$/i.test(props.file.path);
-  const sourceKey = props.file ? JSON.stringify(props.file.source) + props.file.path : "";
+    !props.compact && shown?.kind === "text" && /\.(md|markdown|mdown|mkd)$/i.test(shown.path);
+  const sourceKey = shown ? JSON.stringify(shown.source) + shown.path : "";
   // A Markdown file shows one view at a time: rendered to read, or its source
   // to edit. It opens rendered, unless it has unsaved changes or the reader
   // chose its source before.
@@ -1025,7 +1030,7 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
   useEffect(() => onReadingChange?.(reading), [onReadingChange, reading]);
   // The bridge remains stable through disk saves and editor draft notifications.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const markdownModel = useMemo(() => createMarkdownModel(props.file?.text ?? ""), [sourceKey]);
+  const markdownModel = useMemo(() => createMarkdownModel(shown?.text ?? ""), [sourceKey]);
   useLayoutEffect(() => {
     markdownModel.setText(
       draft?.editing ? (draft.state?.sliceDoc() ?? draft.savedText) : (props.file?.text ?? ""),
@@ -1134,20 +1139,21 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
   if (props.file?.media && !props.loading)
     return <MediaFileView key={props.file.identity} {...props} file={props.file} />;
   // A Markdown file reads as its page alone: its tools sit at the page's top
-  // corner, and while it loads the page stays empty, with nothing that flashes.
+  // corner, and while it first loads the page stays empty, with nothing that
+  // flashes.
   if (
     props.loading &&
+    !shown &&
     !props.error &&
     !props.compact &&
-    /\.(md|markdown|mdown|mkd)$/i.test(props.path ?? "") &&
-    !(props.file && markdownSources.has(sourceKey))
+    /\.(md|markdown|mdown|mkd)$/i.test(props.path ?? "")
   )
     return (
       <div className="med-markdown-reader" aria-busy="true">
         <div className="med-markdown" />
       </div>
     );
-  if (reading && props.file && !props.loading && !props.error)
+  if (reading && shown && (!props.loading || shown !== props.file) && !props.error)
     return (
       <div ref={reader} className="med-markdown-reader">
         <Suspense fallback={<div className="med-markdown" aria-hidden="true" />}>
@@ -1155,7 +1161,7 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
             key={sourceKey}
             model={markdownModel}
             onOpenFile={props.onOpenFile}
-            file={draft?.editing ? draft.file : props.file}
+            file={draft?.editing ? draft.file : shown}
             tools={
               <>
                 <CopyPageButton text={markdownModel.getText} />

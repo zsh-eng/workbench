@@ -5,8 +5,9 @@ it, select **Edit source** (the pencil, at the page's top corner) or press
 `⌘⇧V`: the source opens in the
 Vim editor in the same place, at the first line that was in view. **Read** or
 `⌘⇧V` renders it again, at the source's cursor. A file with unsaved changes
-opens as source, and Med keeps each file's view until you reload. The rendered
-view shows unsaved edits; it does not save them.
+opens as source, and Med keeps each file's view until you reload. A file you
+come back to, as by its tab, shows its page at once. The rendered view shows
+unsaved edits; it does not save them.
 
 A document with three or more headings below its title lists them on the left
 when its pane is 760 pixels wide or more; select one to go to it. The heading

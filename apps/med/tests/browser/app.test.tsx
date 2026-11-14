@@ -194,6 +194,8 @@ async function mountApp(
     usage?: ThreadUsage;
     /** The host cannot read the checkout, so the session does not load. */
     sessionFails?: string;
+    /** Waits before a file read answers, as a slow disk does. */
+    readGate?(path: string): Promise<void>;
   } = {},
 ) {
   initializeTheme();
@@ -740,6 +742,7 @@ async function mountApp(
     if (url.pathname === "/api/browse/read") {
       const { source, path } = JSON.parse(String(init?.body));
       fileRequests.push({ source, path });
+      await options.readGate?.(path);
       const kind = path === "image.bin" ? "binary" : path === "missing.ts" ? "missing" : "text";
       return Response.json({
         source,
@@ -1649,6 +1652,57 @@ describe("graphical review", () => {
     await page.getByRole("button", { name: "Read" }).click();
     await expect.element(reading.getByRole("heading", { name: "Guide" })).toBeVisible();
     expect(document.querySelector('[data-pane="preview"]')).toBeNull();
+  });
+  test("a Markdown file that shows again shows its page from the first frame while it reads, never its source", async () => {
+    let holding = false;
+    let release: (() => void) | undefined;
+    await page.viewport(1280, 800);
+    await mountApp({
+      readGate: (path) =>
+        holding && path.endsWith(".md")
+          ? new Promise<void>((done) => (release = done))
+          : Promise.resolve(),
+    });
+    await toggleFilesSidebar();
+    const files = page.getByRole("navigation", { name: "Workspace files", exact: true });
+    await files.getByRole("treeitem", { name: "GUIDE.md", exact: true }).click();
+    const reading = page.getByRole("region", { name: "Markdown preview" });
+    await expect.element(reading.getByRole("heading", { name: "Guide" })).toBeVisible();
+    await files.getByRole("treeitem", { name: "alpha.ts", exact: true }).click();
+    await expect.element(reading).not.toBeInTheDocument();
+
+    // Each frame from here says what it showed: the page with its text, the
+    // page empty, or the note's source.
+    const frames: string[] = [];
+    let recording = true;
+    const look = () => {
+      const editor = [...document.querySelectorAll(".cm-editor")].some((node) =>
+        node.textContent?.includes("# Guide"),
+      );
+      const prose = document.querySelector(".med-md-prose");
+      const state = editor
+        ? "source"
+        : prose?.querySelector("h1")?.textContent === "Guide"
+          ? "page"
+          : document.querySelector(".med-markdown-reader")
+            ? "empty page"
+            : "other file";
+      if (frames.at(-1) !== state) frames.push(state);
+      if (recording) requestAnimationFrame(look);
+    };
+    requestAnimationFrame(look);
+    holding = true;
+    await files.getByRole("treeitem", { name: "GUIDE.md", exact: true }).click();
+    await expect.poll(() => release).toBeDefined();
+    // The read is still out: the note's page shows, not its source.
+    await expect.element(reading.getByRole("heading", { name: "Guide" })).toBeVisible();
+    release!();
+    await new Promise((done) => setTimeout(done, 200));
+    recording = false;
+    expect(frames).toEqual(["other file", "page"]);
+    await expect
+      .element(page.getByRole("textbox", { name: "Edit docs/GUIDE.md", exact: true }))
+      .not.toBeInTheDocument();
   });
   test("Find file opens a vault's note in the workspace's tabs; its links stay in the vault", async () => {
     await page.viewport(1280, 800);

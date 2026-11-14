@@ -148,6 +148,16 @@ function contentsOf(headings: MarkdownHeading[]) {
   return listed.map((heading) => ({ ...heading, depth: heading.level - top }));
 }
 
+// Pages that rendered lately, by theme, options and text, so a page that
+// shows again, as when its tab does, has its blocks in its first frame rather
+// than after its worker starts and renders.
+const rendered = new Map<string, MarkdownResult>();
+function keep(key: string, result: MarkdownResult) {
+  rendered.delete(key);
+  rendered.set(key, result);
+  if (rendered.size > 12) rendered.delete(rendered.keys().next().value!);
+}
+
 export default function MarkdownPreview({
   model,
   file,
@@ -163,7 +173,10 @@ export default function MarkdownPreview({
   const canOpenFiles = !!onOpenFile;
   const { active } = useTheme();
   const text = useSyncExternalStore(model.subscribe, model.getText);
-  const [result, setResult] = useState<MarkdownResult>();
+  const vault = "vault" in file && !!file.vault;
+  const key = `${active.pierreTheme}\0${vault}\0${canOpenFiles}\0${text}`;
+  const [latest, setResult] = useState<MarkdownResult>();
+  const result = rendered.get(key) ?? latest;
   const [error, setError] = useState("");
   const [heading, setHeading] = useState("");
   const [menu, setMenu] = useState<PointMenuState | null>(null);
@@ -176,6 +189,7 @@ export default function MarkdownPreview({
   const scrollController = useRef<ReturnType<typeof connectPreviewScroll> | null>(null);
   const worker = useRef<Worker | null>(null);
   const sequence = useRef(0);
+  const asked = useRef("");
   useEffect(() => {
     const instance = new RenderWorker();
     worker.current = instance;
@@ -183,6 +197,7 @@ export default function MarkdownPreview({
       if (data.id !== sequence.current) return;
       if (data.error) setError(data.error);
       else {
+        keep(asked.current, data);
         setResult(data);
         setError("");
       }
@@ -196,18 +211,21 @@ export default function MarkdownPreview({
   }, []);
   useEffect(() => {
     const id = ++sequence.current;
+    const shown = rendered.get(key);
+    if (shown) {
+      // Kept as the latest, so a text that is not kept next shows this page
+      // until its own renders, not an older one.
+      setResult(shown);
+      setError("");
+      return;
+    }
     const timer = setTimeout(
       () => {
         void resolveSyntaxTheme(active.pierreTheme)
           .then((theme) => {
-            if (id === sequence.current)
-              worker.current?.postMessage({
-                id,
-                text,
-                theme,
-                vault: "vault" in file && !!file.vault,
-                fileLinks: canOpenFiles,
-              });
+            if (id !== sequence.current) return;
+            asked.current = key;
+            worker.current?.postMessage({ id, text, theme, vault, fileLinks: canOpenFiles });
           })
           .catch(() => setError("Preview theme could not load."));
       },
@@ -423,7 +441,7 @@ export default function MarkdownPreview({
               <Block
                 key={index}
                 block={block}
-                vault={"vault" in file && !!file.vault}
+                vault={vault}
                 source={file.source}
                 path={file.path}
               />

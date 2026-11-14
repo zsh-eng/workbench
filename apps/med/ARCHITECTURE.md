@@ -744,7 +744,10 @@ between them (details.ts), before remark-rehype, so no HTML passes through. KaTe
 limits. Pele draws Mermaid diagrams near the viewport, and each diagram type
 loads on demand. Diagram links and images are off. Diagram colors are CSS
 variables that MarkdownPreview.css maps to theme tokens, so a theme change does
-not draw again. Code fences use Pierre's highlighter.
+not draw again. Code fences use Pierre's highlighter. MarkdownPreview keeps
+its last 12 results by theme, options, and text, so a page that shows again
+has its blocks in its first frame; while a file reads again, FullFileView
+renders its open draft in its place, never its source.
 
 Image requests accept only supported image types up to 8 MiB, with exact
 document grants or registered repository access. Standalone images stay in the
