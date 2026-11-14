@@ -38,8 +38,8 @@ request's own page. A row's name is the
 name you gave it in Med, else the session's: the name you gave it in the agent,
 else the title that Claude Code gives a session from its work, else its first
 prompt. `⌘1`–`⌘9` open the thread at that
-place in the list.
-A row shows the agent's mark and the session's name, and at most one dot: blue
+place in the list, with the Superagent first.
+A row shows the session's name and at most one dot: blue
 in a ring when the agent needs you, blue when its work finished since you
 looked, amber when the work stopped. While the agent works, its name dims
 under a passing light. **New thread**, a row at the top, starts a thread.
@@ -178,7 +178,9 @@ its state folder, which no list of repositories shows, and starts Claude Code
 there on Opus at high effort with its instructions: what the Superagent is
 for, and how it works through `med`. After that it is a thread like any other: change its
 model and effort under the message box, queue messages, or stop it. There is one
-Superagent; the next click opens it.
+Superagent; the next click opens it. Its row at the top of the sidebar is its
+only row: it is not among the pinned or recent threads, and its row shows its
+dot and its work as theirs do.
 
 It reads the threads with `med thread list --json` and their transcripts, and
 sends a message to a thread with `med thread send <id> "<message>"`, which the

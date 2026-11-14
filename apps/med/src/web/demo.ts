@@ -485,8 +485,8 @@ function threadList(): ThreadList {
     ...(changes && { changes }),
     open: true,
   };
-  // In the superagent scene, the Superagent's session is pinned on top of
-  // the sidebar.
+  // In the superagent scene, the Superagent's session is its row at the top
+  // of the sidebar.
   const superagent: ThreadList["threads"][number] | undefined =
     scene === "superagent"
       ? {
@@ -497,7 +497,7 @@ function threadList(): ThreadList {
           updatedAt: Date.parse(saved.createdAt) + 60_000,
           session: { agent: "claude", id: "demo-superagent", cwd: "/work" },
           reviews: [],
-          pinned: 1,
+          superagent: true,
           agent: "claude",
           state: "idle",
           open: true,

@@ -2411,14 +2411,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               choices: { ...SUPERAGENT_CHOICES },
             });
             const brief = superagentBrief();
-            // An ordinary session, pinned on top.
+            // An ordinary session, which the sidebar shows at its top.
             const thread = await threads.keep(runner.session, {
               title: SUPERAGENT_TITLE,
               prompt: brief,
               superagent: true,
             });
             await threads.rename(thread, SUPERAGENT_TITLE);
-            await threads.pin(thread, true, 0);
             await runner.prompt(brief);
             send({ thread, created: true });
             return;

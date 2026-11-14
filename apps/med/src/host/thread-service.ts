@@ -223,14 +223,17 @@ export function createThreadService(options: ThreadServiceOptions) {
     };
   };
 
+  /** The pins, without the Superagent's thread, which has its own place. */
+  const pins = () => store.pins().filter((id) => !store.entry(id)?.superagent);
   /** A thread with the reader's name, pin, and marks. */
   const named = (thread: Thread): Thread => {
     const entry = store.entry(thread.id);
-    const place = store.pins().indexOf(thread.id);
+    const place = pins().indexOf(thread.id);
     return {
       ...thread,
       ...(entry?.name && { title: entry.name, agentTitle: thread.title }),
       ...(place >= 0 && { pinned: place + 1 }),
+      ...(entry?.superagent && { superagent: true }),
       ...(entry?.closedAt !== undefined && { closedAt: entry.closedAt }),
       ...(entry?.prompt && !thread.prompt && { prompt: entry.prompt }),
     };
@@ -741,7 +744,12 @@ export function createThreadService(options: ThreadServiceOptions) {
      * moves a pinned one there, or unpins it. */
     async pin(id: string, pinned: boolean, at?: number) {
       await requireKnown(id);
-      if (store.setPinned(id, pinned, at)) await store.save();
+      if (store.entry(id)?.superagent) return;
+      // Med pinned the Superagent's thread before it had a row of its own;
+      // `at` counts the pins without it.
+      const superagent = store.pins().filter((other) => store.entry(other)?.superagent);
+      const unpinned = superagent.filter((other) => store.setPinned(other, false)).length;
+      if (store.setPinned(id, pinned, at) || unpinned) await store.save();
     },
 
     /**

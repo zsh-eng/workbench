@@ -209,6 +209,13 @@ function createHost() {
           )
         : Response.json({ removed: true });
     }
+    // The Superagent's thread, once the host made it (src/host/superagent.ts).
+    if (url.pathname === "/api/superagent" && init?.method === "POST") {
+      const made = threads.find((entry) => entry.superagent);
+      return made
+        ? Response.json({ thread: made.id, created: false })
+        : Response.json({ error: { code: "x", message: "No Superagent here." } }, { status: 500 });
+    }
     // A new thread is the session that the host starts; it has no review
     // until the agent hands one off.
     if (url.pathname === "/api/threads" && init?.method === "POST") {
@@ -1412,6 +1419,33 @@ test("the marks that a browser kept of what the reader saw go to the host once",
   ]);
   expect(localStorage.getItem("med:thread-seen")).toBeNull();
   expect(localStorage.getItem("med:thread-seen-since")).toBeNull();
+});
+
+test("a row is the thread's name, without the agent's mark; the Superagent's thread is only its own row, at the top", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  const now = Date.now();
+  host.setThreads([
+    thread("agent", { updatedAt: now - 1000 }),
+    thread("boss", { title: "Superagent", superagent: true, updatedAt: now, pinned: 1 }),
+  ]);
+  await expect.poll(threadRows).toEqual(["Agent review"]);
+  const agentRow = document.querySelector<HTMLElement>('[data-session-row="agent"] button')!;
+  expect(agentRow.querySelector("svg")).toBeNull();
+  expect(document.querySelector('section[aria-label="Pinned"]')).toBeNull();
+  const superagent = document.querySelector<HTMLElement>(
+    'nav[aria-label="Sessions"] button[data-thread="boss"]',
+  )!;
+  expect(superagent.textContent).toBe("Superagent");
+  expect(superagent.hasAttribute("aria-current")).toBe(false);
+  // ⌘1 follows the sidebar: the Superagent first.
+  await userEvent.keyboard("{Meta>}1{/Meta}");
+  await expect.poll(() => superagent.getAttribute("aria-current")).toBe("page");
+  await userEvent.click(agentRow);
+  await expect.poll(() => superagent.hasAttribute("aria-current")).toBe(false);
+  await userEvent.click(superagent);
+  await expect.poll(() => superagent.getAttribute("aria-current")).toBe("page");
 });
 
 test("a row drags into Pinned, to a place among the pins, and out again; its menu moves a pin", async () => {

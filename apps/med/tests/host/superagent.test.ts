@@ -90,13 +90,15 @@ test("the Superagent is one thread in a hidden folder, started once with its bri
   const first = await api<{ thread: string; created: boolean }>("/api/superagent", {});
   expect(first.status).toBe(200);
   expect(first.data.created).toBe(true);
-  // An ordinary session, named and pinned on top.
+  // An ordinary session, named, that the sidebar shows at its top, not as a pin.
   const tab = async () =>
     (await api<ThreadList>("/api/threads")).data.threads.find(
       (thread) => thread.id === first.data.thread,
     );
   const shown = await tab();
-  expect(shown).toMatchObject({ kind: "session", title: "Superagent", pinned: 1, reviews: [] });
+  expect(shown).toMatchObject({ kind: "session", title: "Superagent", superagent: true });
+  expect(shown).not.toHaveProperty("pinned");
+  expect(shown!.reviews).toEqual([]);
   const folder = join(stateDir, "superagent");
   expect(existsSync(join(folder, ".git"))).toBe(true);
   const session = shown!.session!;
@@ -123,12 +125,15 @@ test("the Superagent is one thread in a hidden folder, started once with its bri
     .repositories;
   expect(repositories.map((entry) => entry.path)).not.toContain(await realpath(folder));
   expect(repositories).toHaveLength(1);
+  // A pin does not move it among the pins.
+  expect((await api(`/api/threads/${first.data.thread}/pin`, { pinned: true })).status).toBe(200);
+  expect(await tab()).not.toHaveProperty("pinned");
   // Archived, it opens again as the same thread.
   expect((await api(`/api/threads/${first.data.thread}/close`, {})).status).toBe(200);
   expect((await api<{ thread: string }>("/api/superagent", {})).data.thread).toBe(
     first.data.thread,
   );
-  expect(await tab()).toMatchObject({ title: "Superagent", pinned: 1 });
+  expect(await tab()).toMatchObject({ title: "Superagent", superagent: true });
 });
 
 test("`med thread send` from the Superagent reaches another thread's agent, labelled as its", async () => {

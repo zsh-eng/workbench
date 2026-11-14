@@ -165,6 +165,9 @@ export const threadSchema = z.object({
   /** Its place among the pins, from 1, when the reader pinned it: the
    * sidebar lists the pinned threads first, in the order they were pinned. */
   pinned: z.number().int().positive().optional(),
+  /** The Superagent's thread (src/host/superagent.ts): the sidebar's row of
+   * its own, at its top, not a row among the others. */
+  superagent: z.literal(true).optional(),
   /** Med runs the session (or resumes it), so a message goes to it from Med. */
   owned: z.boolean().optional(),
   /** The session's last turn, from its transcript's tail: what it does or

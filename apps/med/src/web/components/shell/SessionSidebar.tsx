@@ -15,7 +15,7 @@ import { resumeCommand } from "../../data/workspaces";
 import type { ReadState } from "../../data/tabs";
 import { needsYou, tabOrder } from "../../data/threads";
 import { tokens, ui } from "../../theme.stylex";
-import { Icon, type IconName } from "../Icon";
+import { Icon } from "../Icon";
 import { RenameField } from "./RenameField";
 import { newThreadKeys } from "../../data/title-bar";
 import { tooltip } from "../ToolButton";
@@ -37,9 +37,9 @@ interface Drag {
 const DRAG_START = 4;
 
 /**
- * The sessions: New at the top, then the pinned sessions in the reader's
- * order, then every other one, newest activity first. A row is the agent's
- * mark, the session's name, and at most one dot, by what it asks of the
+ * The sessions: New and the Superagent at the top, then the pinned sessions
+ * in the reader's order, then every other one, newest activity first. A row
+ * is the session's name and at most one dot, by what it asks of the
  * reader, as ⌘0 ranks it: an accent dot in a ring when it needs them, a plain
  * accent dot when its work finished since they looked, amber when the work
  * stopped. A session at work dims its name under a passing light. Archived,
@@ -106,7 +106,9 @@ export function SessionSidebar({
 }) {
   // A drop shows at once: the pins as dropped, until the host's list agrees.
   const [placed, setPlaced] = useState<readonly string[] | null>(null);
-  const ordered = tabOrder(threads);
+  // The Superagent's thread has its own row at the top, not one among these.
+  const superagent = threads.find((thread) => thread.superagent);
+  const ordered = tabOrder(threads).filter((thread) => !thread.superagent);
   const pinnedIds = ordered.filter((thread) => thread.pinned).map((thread) => thread.id);
   const settled =
     placed !== null &&
@@ -311,17 +313,12 @@ export function SessionSidebar({
         {onSuperagent && (
           // The Superagent is a pinned session; this opens it, and makes it
           // the first time.
-          <button
-            type="button"
-            {...tooltip("Superagent: one thread that sees the others")}
-            onClick={onSuperagent}
-            {...stylex.props(styles.row, styles.superagent)}
-          >
-            <span {...stylex.props(styles.mark, styles.spark)}>
-              <Icon name="superagent" size={14} />
-            </span>
-            <span {...stylex.props(styles.name)}>Superagent</span>
-          </button>
+          <SuperagentRow
+            thread={superagent}
+            current={!newThread && !!superagent && superagent.id === current}
+            unread={!!superagent && read.isUnread(superagent)}
+            onOpen={onSuperagent}
+          />
         )}
         {/* While a row drags, Pinned shows even with no pins, to drop into. */}
         {(pinnedShown.length > 0 || drag) && (
@@ -351,9 +348,6 @@ export function SessionSidebar({
           aria-hidden="true"
           {...stylex.props(styles.lifted, styles.at(drag.y - drag.grab, drag.left, drag.width))}
         >
-          <span {...stylex.props(styles.mark)}>
-            <Icon name={agentIcon(dragging.agent)} size={14} />
-          </span>
           <span {...stylex.props(styles.name)}>{dragging.title}</span>
         </div>
       )}
@@ -382,8 +376,62 @@ export function SessionSidebar({
   );
 }
 
-function agentIcon(agent: Thread["agent"]): IconName {
-  return agent === "claude" || agent === "codex" ? agent : "agent";
+/** At most one dot, by what the session asks of the reader; none on the
+ * session on screen, except that its work stopped. */
+function dotOf(thread: Thread, current: boolean, unread: boolean) {
+  if (thread.halt) return "halted";
+  if (current) return null;
+  return needsYou(thread) ? "needs" : unread ? "new" : null;
+}
+
+function RowDot({ dot }: { dot: ReturnType<typeof dotOf> }) {
+  if (!dot) return null;
+  return (
+    <span
+      role="img"
+      aria-label={
+        dot === "needs" ? "Needs you" : dot === "new" ? "New since you looked" : "Stopped"
+      }
+      {...stylex.props(
+        styles.dot,
+        dot === "halted" ? styles.halted : styles.fresh,
+        dot === "needs" && styles.needs,
+      )}
+    />
+  );
+}
+
+/** The Superagent's row: its mark, its name, and its session's dot. It opens
+ * the thread, and makes it the first time. */
+function SuperagentRow({
+  thread,
+  current,
+  unread,
+  onOpen,
+}: {
+  thread?: Thread;
+  current: boolean;
+  unread: boolean;
+  onOpen(): void;
+}) {
+  const working = thread?.state === "working" && !thread.halt;
+  return (
+    <button
+      type="button"
+      data-thread={thread?.id}
+      aria-current={current ? "page" : undefined}
+      aria-busy={working || undefined}
+      {...tooltip("Superagent: one thread that sees the others")}
+      onClick={onOpen}
+      {...stylex.props(styles.row, styles.superagent, current && styles.current)}
+    >
+      <span {...stylex.props(styles.mark, styles.spark)}>
+        <Icon name="superagent" size={14} />
+      </span>
+      <span {...stylex.props(styles.name, working && styles.working)}>Superagent</span>
+      {thread && <RowDot dot={dotOf(thread, current, unread)} />}
+    </button>
+  );
 }
 
 interface RowActions {
@@ -426,17 +474,8 @@ const SessionRow = memo(function SessionRow({
   const [menu, setMenu] = useState<{ x: number; y: number } | "button" | null>(null);
   const more = useRef<HTMLButtonElement>(null);
   const rest = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const halted = !!thread.halt;
-  const working = thread.state === "working" && !halted;
-  const dot = halted
-    ? "halted"
-    : current
-      ? null
-      : needsYou(thread)
-        ? "needs"
-        : unread
-          ? "new"
-          : null;
+  const working = thread.state === "working" && !thread.halt;
+  const dot = dotOf(thread, current, unread);
   const menuOpen = menu !== null;
   // Where the dragged row would land: an empty place, as tall as the row.
   if (placeholder)
@@ -458,7 +497,6 @@ const SessionRow = memo(function SessionRow({
     >
       {editing ? (
         <div {...stylex.props(styles.row, styles.editing)}>
-          <Icon name={agentIcon(thread.agent)} size={14} />
           <RenameField thread={thread} onDone={actions.renamed} xstyle={styles.field} />
         </div>
       ) : (
@@ -478,23 +516,8 @@ const SessionRow = memo(function SessionRow({
           }}
           {...stylex.props(styles.row, current && styles.current, menuOpen && styles.held)}
         >
-          <span {...stylex.props(styles.mark)}>
-            <Icon name={agentIcon(thread.agent)} size={14} />
-          </span>
           <span {...stylex.props(styles.name, working && styles.working)}>{thread.title}</span>
-          {dot && (
-            <span
-              role="img"
-              aria-label={
-                dot === "needs" ? "Needs you" : dot === "new" ? "New since you looked" : "Stopped"
-              }
-              {...stylex.props(
-                styles.dot,
-                dot === "halted" ? styles.halted : styles.fresh,
-                dot === "needs" && styles.needs,
-              )}
-            />
-          )}
+          <RowDot dot={dot} />
         </button>
       )}
       {!editing && (
@@ -640,8 +663,7 @@ const styles = stylex.create({
     paddingInlineStart: "max(calc(var(--med-titlebar-left) - 8px), 0px)",
     flex: "none",
   },
-  // A row like the sessions under it, its mark in their marks' column; the
-  // open New thread is its current row.
+  // A row like the sessions under it; the open New thread is its current row.
   new: { flex: "1", width: "auto", minWidth: 0 },
   plus: { color: tokens.muted },
   hide: { width: 28, height: 28, paddingInline: 0, color: tokens.muted },
