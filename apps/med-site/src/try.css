@@ -135,25 +135,28 @@
   color: var(--ink);
 }
 
+/* Keys as Med shows its shortcuts: quiet glyphs on a faint fill. */
 .try kbd {
   display: inline-block;
   min-width: 20px;
   height: 20px;
   padding: 0 5px;
-  border: 1px solid var(--line);
   border-radius: 5px;
-  background: var(--paper);
+  background: var(--fill-strong);
   color: var(--ink);
-  font: 500 0.6875rem/18px var(--code);
+  font: 500 0.6875rem/20px var(--code);
   text-align: center;
-  transition:
-    background-color 120ms var(--ease-out),
-    border-color 120ms var(--ease-out);
+  transition: background-color 120ms var(--ease-out);
+}
+
+/* On a strong button, the key takes the button's ink. */
+.try .act kbd {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  color: inherit;
 }
 
 .try-keys button[data-hit] kbd {
-  border-color: var(--sea);
-  background: color-mix(in srgb, var(--sea) 14%, var(--paper));
+  background: color-mix(in srgb, var(--sea) 22%, transparent);
 }
 
 .guide .try-status {
@@ -556,6 +559,10 @@
   background: var(--dawn);
 }
 
+.cm-state[data-state="idle"] {
+  display: none;
+}
+
 .cm-state[data-state="working"]::before {
   background: var(--sea);
   animation: try-pulse 1s var(--ease-in-out) infinite alternate;
@@ -607,23 +614,74 @@
   font-size: 0.6875rem;
 }
 
+/* The message box, as in Med: the comments that wait in one line above it,
+   then the text, and the keys and one round button that sends. */
 .cm-compose {
   display: grid;
   gap: 6px;
+  margin: 8px;
   padding: 8px;
-  border-top: 1px solid var(--line);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
 }
 
-.cm-compose div {
+.cm-compose textarea {
+  padding: 2px 2px 0;
+  border: 0;
+  background: transparent;
+}
+
+.cm-compose textarea:focus-visible {
+  outline: none;
+}
+
+.cm-pending:empty {
+  display: none;
+}
+
+.cm-pending,
+.cm-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
 }
 
-.cm-attached {
-  color: var(--muted);
+.cm-count {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sea) 14%, transparent);
+  color: var(--sea);
   font-size: 0.6875rem;
+}
+
+.try .cm-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--sea);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.cm-foot {
+  justify-content: flex-end;
+}
+
+.try .cm-send {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paper);
+  font: 600 0.8125rem/1 var(--ui);
+  cursor: pointer;
 }
 
 @container try (max-width: 560px) {

@@ -60,6 +60,20 @@
               data-copy="install-command"
               data-done="Copied the install command."
             >
+              <svg class="copy-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  opacity="0.4"
+                  d="M2.25 5.5C1.83579 5.5 1.5 5.83579 1.5 6.25V13.75C1.5 14.1642 1.83579 14.5 2.25 14.5H9.75C10.1642 14.5 10.5 14.1642 10.5 13.75V13H12V13.75C12 14.9926 10.9926 16 9.75 16H2.25C1.00736 16 0 14.9926 0 13.75V6.25C0 5.00736 1.00736 4 2.25 4H2.875V5.5H2.25Z"
+                />
+                <path
+                  d="M4 2.25C4 1.00736 5.00736 0 6.25 0H13.75C14.9926 0 16 1.00736 16 2.25V9.75C16 10.9926 14.9926 12 13.75 12H6.25C5.00736 12 4 10.9926 4 9.75V2.25ZM6.25 1.5C5.83579 1.5 5.5 1.83579 5.5 2.25V9.75C5.5 10.1642 5.83579 10.5 6.25 10.5H13.75C14.1642 10.5 14.5 10.1642 14.5 9.75V2.25C14.5 1.83579 14.1642 1.5 13.75 1.5H6.25Z"
+                />
+              </svg>
+              <svg class="done-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  d="M13.8551 3.17382C14.1733 3.439 14.2163 3.91192 13.9512 4.23013L6.86783 12.7301C6.73293 12.892 6.53616 12.9897 6.32565 12.9992C6.11515 13.0088 5.91034 12.9293 5.76134 12.7803L2.21967 9.23865C1.92678 8.94576 1.92678 8.47088 2.21967 8.17799C2.51256 7.8851 2.98744 7.8851 3.28033 8.17799L6.24127 11.1389L12.7988 3.26985C13.064 2.95164 13.5369 2.90865 13.8551 3.17382Z"
+                />
+              </svg>
               <span class="copy-label">Copy</span
               ><span class="sr-only"> the install command</span>
             </button>
@@ -78,6 +92,20 @@
               data-copy="agent-prompt"
               data-done="Copied the prompt for your agent."
             >
+              <svg class="copy-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  opacity="0.4"
+                  d="M2.25 5.5C1.83579 5.5 1.5 5.83579 1.5 6.25V13.75C1.5 14.1642 1.83579 14.5 2.25 14.5H9.75C10.1642 14.5 10.5 14.1642 10.5 13.75V13H12V13.75C12 14.9926 10.9926 16 9.75 16H2.25C1.00736 16 0 14.9926 0 13.75V6.25C0 5.00736 1.00736 4 2.25 4H2.875V5.5H2.25Z"
+                />
+                <path
+                  d="M4 2.25C4 1.00736 5.00736 0 6.25 0H13.75C14.9926 0 16 1.00736 16 2.25V9.75C16 10.9926 14.9926 12 13.75 12H6.25C5.00736 12 4 10.9926 4 9.75V2.25ZM6.25 1.5C5.83579 1.5 5.5 1.83579 5.5 2.25V9.75C5.5 10.1642 5.83579 10.5 6.25 10.5H13.75C14.1642 10.5 14.5 10.1642 14.5 9.75V2.25C14.5 1.83579 14.1642 1.5 13.75 1.5H6.25Z"
+                />
+              </svg>
+              <svg class="done-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  d="M13.8551 3.17382C14.1733 3.439 14.2163 3.91192 13.9512 4.23013L6.86783 12.7301C6.73293 12.892 6.53616 12.9897 6.32565 12.9992C6.11515 13.0088 5.91034 12.9293 5.76134 12.7803L2.21967 9.23865C1.92678 8.94576 1.92678 8.47088 2.21967 8.17799C2.51256 7.8851 2.98744 7.8851 3.28033 8.17799L6.24127 11.1389L12.7988 3.26985C13.064 2.95164 13.5369 2.90865 13.8551 3.17382Z"
+                />
+              </svg>
               <span class="copy-label">Copy prompt</span
               ><span class="sr-only"> for your agent</span>
             </button>
@@ -180,7 +208,7 @@
           >
             <button type="button" aria-pressed="true">Comment</button>
             <button type="button" aria-pressed="false">Agent session</button>
-            <button type="button" aria-pressed="false">History</button>
+            <button type="button" aria-pressed="false">Sessions</button>
           </div>
         </div>
         <figcaption class="column">
@@ -192,23 +220,35 @@
       <section class="features" id="features" aria-labelledby="features-title">
         <h2 id="features-title" class="column">
           One window for the whole review.
-          <span>From the agent's explanation to the pushed commit.</span>
+          <span>From the agent's guide to the pushed commit.</span>
         </h2>
 
         <div class="wide chapters">
           <article class="chapter" aria-labelledby="understand">
+            <!-- Each chapter names the page of Med that it shows, with
+                 the page's icon from Med's set (Pierre's icons, Apache 2.0;
+                 apps/med/src/web/components/pierre-icons.ts). -->
             <div class="chapter-text">
-              <p class="num">01</p>
-              <h3 id="understand">Read the explanation</h3>
+              <p class="part">
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path
+                    fill-rule="evenodd"
+                    clip-rule="evenodd"
+                    d="M8.75 0.75C8.75 0.335786 8.41421 0 8 0C7.58579 0 7.25 0.335786 7.25 0.75V3H3.25C1.45507 3 0 4.45507 0 6.25C0 8.04493 1.45507 9.5 3.25 9.5H7.25V15.25C7.25 15.6642 7.58579 16 8 16C8.41421 16 8.75 15.6642 8.75 15.25V9.5H12.75C12.9489 9.5 13.1397 9.42098 13.2803 9.28033L15.7803 6.78033C16.0732 6.48744 16.0732 6.01256 15.7803 5.71967L13.2803 3.21967C13.1397 3.07902 12.9489 3 12.75 3H8.75V0.75ZM1.5 6.25C1.5 5.2835 2.2835 4.5 3.25 4.5H12.4393L14.1893 6.25L12.4393 8H3.25C2.2835 8 1.5 7.2165 1.5 6.25Z"
+                  />
+                </svg>
+                Review
+              </p>
+              <h3 id="understand">Read the agent's guide</h3>
               <p>
-                The agent explains its work in a brief. Each sentence cites the
-                lines it changed, and each citation opens as a short diff below
-                it.
+                The agent hands over its work with a guide: a summary that
+                cites the lines it changed, then the change in small segments
+                that you check one at a time.
               </p>
               <ul>
+                <li>The checks it ran, and what they miss</li>
+                <li>Its notes on the lines that need care</li>
                 <li>Diagrams, tables, and images in place</li>
-                <li>Changed files the brief does not mention</li>
-                <li>Comment on a passage of the brief</li>
               </ul>
             </div>
             <figure class="window shot">
@@ -220,7 +260,20 @@
 
           <article class="chapter" aria-labelledby="review">
             <div class="chapter-text">
-              <p class="num">02</p>
+              <p class="part">
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path
+                    d="M1.78784 4.29611C1.98352 3.41564 2.26561 2.91472 2.59016 2.59016C2.91472 2.26561 3.41564 1.98352 4.29611 1.78784C5.19362 1.58837 6.38724 1.5 8 1.5C9.61276 1.5 10.8064 1.58837 11.7039 1.78784C12.5844 1.98352 13.0853 2.26561 13.4098 2.59016C13.7344 2.91472 14.0165 3.41564 14.2122 4.29611C14.4116 5.19362 14.5 6.38724 14.5 8C14.5 9.61276 14.4116 10.8064 14.2122 11.7039C14.0165 12.5844 13.7344 13.0853 13.4098 13.4098C13.0853 13.7344 12.5844 14.0165 11.7039 14.2122C10.8064 14.4116 9.61276 14.5 8 14.5C6.38724 14.5 5.19362 14.4116 4.29611 14.2122C3.41564 14.0165 2.91472 13.7344 2.59016 13.4098C2.26561 13.0853 1.98352 12.5844 1.78784 11.7039C1.58837 10.8064 1.5 9.61276 1.5 8C1.5 6.38724 1.58837 5.19362 1.78784 4.29611ZM8 0C1.412 0 0 1.412 0 8C0 14.588 1.412 16 8 16C14.588 16 16 14.588 16 8C16 1.412 14.588 0 8 0Z"
+                  />
+                  <path
+                    d="M8.75003 4.29611C8.75003 3.8819 8.41424 3.54611 8.00003 3.54611C7.58582 3.54611 7.25003 3.8819 7.25003 4.29611V6.25H5.25C4.83579 6.25 4.5 6.58579 4.5 7C4.5 7.41421 4.83579 7.75 5.25 7.75H7.25003V9.25H8.75003V7.75H10.75C11.1642 7.75 11.5 7.41421 11.5 7C11.5 6.58579 11.1642 6.25 10.75 6.25H8.75003V4.29611Z"
+                  />
+                  <path
+                    d="M5.25 10C4.83579 10 4.5 10.3358 4.5 10.75C4.5 11.1642 4.83579 11.5 5.25 11.5H10.75C11.1642 11.5 11.5 11.1642 11.5 10.75C11.5 10.3358 11.1642 10 10.75 10H5.25Z"
+                  />
+                </svg>
+                Changes
+              </p>
               <h3 id="review">Comment on the diff</h3>
               <p>
                 Commits and working changes read as one continuous diff, split
@@ -242,16 +295,29 @@
 
           <article class="chapter" aria-labelledby="agents">
             <div class="chapter-text">
-              <p class="num">03</p>
+              <p class="part">
+                <svg viewBox="0 0 18 16" aria-hidden="true">
+                  <path
+                    d="M14.9768 6.40625C16.7551 7.17244 18.0002 8.94067 18.0002 11C18.0002 12.1096 17.6381 13.1355 17.0266 13.9648L17.7805 14.7197C17.995 14.9342 18.0596 15.2569 17.9436 15.5371C17.8275 15.8173 17.5536 16 17.2502 16H13.0002C11.6485 15.9999 10.4226 15.4625 9.5227 14.5908C10.0565 14.4135 10.565 14.1815 11.0422 13.9014C11.601 14.2792 12.275 14.4999 13.0002 14.5H15.4436C15.1839 14.2055 15.1934 13.7562 15.4749 13.4746C16.109 12.8404 16.5002 11.9667 16.5002 11C16.5002 9.77822 15.8738 8.70322 14.925 8.07715C14.9725 7.72475 14.9993 7.36539 14.9993 7C14.9993 6.80049 14.9912 6.60251 14.9768 6.40625Z"
+                  />
+                  <path
+                    fill-rule="evenodd"
+                    clip-rule="evenodd"
+                    d="M7.00024 0C8.03171 1.5073e-08 9.01315 0.22393 9.89673 0.625977C11.7444 1.46692 13.163 3.08711 13.7307 5.06934C13.9066 5.68345 14.0002 6.33143 14.0002 7C14.0002 10.866 10.8662 14 7.00024 14H0.750243C0.447023 13.9999 0.172929 13.8173 0.0568839 13.5371C-0.059066 13.257 0.00564678 12.9342 0.21997 12.7197L1.54907 11.3896C0.581467 10.1893 0.000243286 8.66218 0.000243262 7C0.000243262 3.13411 3.1344 0.000172175 7.00024 0ZM7.00024 1.5C3.96282 1.50017 1.50024 3.96254 1.50024 7C1.50024 8.51891 2.11554 9.89256 3.11157 10.8887C3.40446 11.1816 3.40446 11.6573 3.11157 11.9502L2.56177 12.5H7.00024C10.0378 12.5 12.5002 10.0376 12.5002 7C12.5002 6.47251 12.4261 5.96359 12.2883 5.48242C11.843 3.92749 10.7283 2.65237 9.27563 1.99121C8.58321 1.67613 7.81318 1.5 7.00024 1.5Z"
+                  />
+                </svg>
+                Session
+              </p>
               <h3 id="agents">Work with your agents</h3>
               <p>
-                The agent's session streams beside the review. Send your
-                comments from its message box, and its next round opens as a
-                new iteration of the review.
+                Each task is a thread, with the agent's session as its main
+                view and the review beside it. Send your comments from the
+                message box, and the next hand-off shows what is new since you
+                looked.
               </p>
               <ul>
-                <li>Start an agent from a saved review</li>
-                <li>See which agent is waiting for you</li>
+                <li>Start Claude Code or Codex from any review</li>
+                <li>See which agent needs you</li>
                 <li>Allow or deny each request</li>
               </ul>
             </div>
@@ -264,12 +330,20 @@
 
           <article class="chapter" aria-labelledby="ship">
             <div class="chapter-text">
-              <p class="num">04</p>
+              <p class="part">
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path
+                    d="M15.6985 7.28738L8.71269 0.30205C8.61699 0.206292 8.50337 0.13033 8.3783 0.0785028C8.25324 0.0266757 8.11918 0 7.98381 0C7.84843 0 7.71438 0.0266757 7.58931 0.0785028C7.46425 0.13033 7.35062 0.206292 7.25492 0.30205L5.80482 1.75285L7.64461 3.59264C7.86091 3.51919 8.09345 3.50772 8.31593 3.55954C8.53841 3.61136 8.74195 3.7244 8.90353 3.88587C9.06601 4.04851 9.17943 4.2536 9.23082 4.47768C9.28221 4.70176 9.2695 4.93578 9.19414 5.15297L10.9679 6.92625C11.1852 6.85079 11.4193 6.83808 11.6434 6.88957C11.8676 6.94107 12.0727 7.05468 12.2352 7.21738C12.3491 7.33121 12.4394 7.46636 12.501 7.6151C12.5626 7.76384 12.5943 7.92326 12.5943 8.08426C12.5943 8.24526 12.5626 8.40468 12.501 8.55342C12.4394 8.70216 12.3491 8.8373 12.2352 8.95113C12.005 9.18107 11.693 9.31023 11.3676 9.31023C11.0423 9.31023 10.7302 9.18107 10.5001 8.95113C10.3291 8.77986 10.2126 8.56183 10.1652 8.32449C10.1179 8.08716 10.1418 7.84111 10.234 7.61734L8.57983 5.96369V10.3163C8.75443 10.4025 8.90597 10.5291 9.02189 10.6856C9.13782 10.8421 9.2148 11.0239 9.24645 11.2161C9.27811 11.4082 9.26353 11.6051 9.20392 11.7905C9.14432 11.9759 9.04141 12.1444 8.9037 12.2821C8.78987 12.396 8.65473 12.4863 8.50599 12.5479C8.35725 12.6095 8.19783 12.6412 8.03683 12.6412C7.87583 12.6412 7.71641 12.6095 7.56767 12.5479C7.41893 12.4863 7.28378 12.396 7.16995 12.2821C7.05607 12.1683 6.96573 12.0331 6.9041 11.8844C6.84247 11.7356 6.81074 11.5762 6.81074 11.4152C6.81074 11.2541 6.84247 11.0947 6.9041 10.9459C6.96573 10.7972 7.05607 10.662 7.16995 10.5482C7.28467 10.4333 7.42102 10.3422 7.57113 10.2802V5.8876C7.42163 5.82602 7.28577 5.73551 7.17136 5.62127C7.05694 5.50703 6.96622 5.3713 6.90441 5.2219C6.84261 5.07249 6.81093 4.91235 6.8112 4.75066C6.81146 4.58898 6.84368 4.42894 6.90598 4.27974L5.09196 2.46537L0.301459 7.25464C0.108418 7.44806 0 7.71017 0 7.98344C0 8.25671 0.108418 8.51882 0.301459 8.71224L7.28766 15.6984C7.48107 15.8914 7.74314 15.9998 8.01637 15.9998C8.28959 15.9998 8.55166 15.8914 8.74508 15.6984L15.6985 8.74497C15.8916 8.55155 16 8.28944 16 8.01618C16 7.74291 15.8916 7.4808 15.6985 7.28738Z"
+                  />
+                </svg>
+                Commit
+              </p>
               <h3 id="ship">Commit, push, and follow the pull request</h3>
               <p>
                 Stage files, write the message, commit, and push from the Commit
-                tab. Paste a pull request link to open it as a workspace, with
-                its GitHub comments beside the diff.
+                page. Pull requests that wait on you are one list, and each
+                opens in its own worktree, with its checks, reviews, and
+                comments from GitHub.
               </p>
               <ul>
                 <li>Med never force-pushes</li>
@@ -286,7 +360,16 @@
 
           <article class="chapter" aria-labelledby="notes">
             <div class="chapter-text">
-              <p class="num">05</p>
+              <p class="part">
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path
+                    fill-rule="evenodd"
+                    clip-rule="evenodd"
+                    d="M4.75 1C3.23122 1 2 2.23122 2 3.75V13.5C2 13.5309 2.00187 13.5614 2.00551 13.5913C2.00186 13.6438 2 13.6967 2 13.75C2 14.9926 3.00736 16 4.25 16C4.26574 16 4.28137 15.9995 4.29688 15.9986C4.31238 15.9995 4.32801 16 4.34375 16H13.75C14.1642 16 14.5 15.6642 14.5 15.25C14.5 14.8358 14.1642 14.5 13.75 14.5H13.5V13H13.75C14.1642 13 14.5 12.6642 14.5 12.25V1.75C14.5 1.33579 14.1642 1 13.75 1H4.75ZM4.29688 14.5014C4.31238 14.5005 4.32801 14.5 4.34375 14.5H12V13H4.5C4.45741 13 4.41565 12.9964 4.375 12.9896C4.33435 12.9964 4.29259 13 4.25 13C3.83579 13 3.5 13.3358 3.5 13.75C3.5 14.1642 3.83579 14.5 4.25 14.5C4.26574 14.5 4.28137 14.5005 4.29688 14.5014ZM4.375 11.5104C4.41565 11.5036 4.45741 11.5 4.5 11.5V2.525C3.92944 2.64082 3.5 3.14526 3.5 3.75V11.628C3.73458 11.5451 3.98702 11.5 4.25 11.5C4.29259 11.5 4.33435 11.5036 4.375 11.5104ZM6 11.5V2.5H8V6L9.5 5L11 6V2.5H13V11.5H6Z"
+                  />
+                </svg>
+                Notes
+              </p>
               <h3 id="notes">Keep your notes beside the code</h3>
               <p>
                 Add an Obsidian vault next to your repositories. Notes open as
@@ -319,7 +402,7 @@
             <h3>Keyboard first</h3>
             <p>
               <kbd>c</kbd> comments on the line, <kbd>q</kbd> opens the Commit
-              tab, and <kbd>⌘K</kbd> finds every command.
+              page, and <kbd>⌘K</kbd> finds every command.
             </p>
           </li>
           <li>
@@ -332,27 +415,55 @@
         </ul>
       </section>
 
-      <section class="end column" aria-labelledby="end-title">
-        <h2 id="end-title">
-          {{closing}}
-          <span>{{closingMore}}</span>
-        </h2>
-        <div class="command card">
-          <button
-            type="button"
-            class="copy"
-            data-copy="install-command-end"
-            data-done="Copied the install command."
-          >
-            <span class="copy-label">Copy</span
-            ><span class="sr-only"> the command</span>
-          </button>
-          <pre><code id="install-command-end">{{installCommand}}</code></pre>
+      <section class="end" aria-labelledby="end-title">
+        <div class="column">
+          <h2 id="end-title">
+            {{closing}}
+            <span>{{closingMore}}</span>
+          </h2>
+          <div class="command card">
+            <button
+              type="button"
+              class="copy"
+              data-copy="install-command-end"
+              data-done="Copied the install command."
+            >
+              <svg class="copy-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  opacity="0.4"
+                  d="M2.25 5.5C1.83579 5.5 1.5 5.83579 1.5 6.25V13.75C1.5 14.1642 1.83579 14.5 2.25 14.5H9.75C10.1642 14.5 10.5 14.1642 10.5 13.75V13H12V13.75C12 14.9926 10.9926 16 9.75 16H2.25C1.00736 16 0 14.9926 0 13.75V6.25C0 5.00736 1.00736 4 2.25 4H2.875V5.5H2.25Z"
+                />
+                <path
+                  d="M4 2.25C4 1.00736 5.00736 0 6.25 0H13.75C14.9926 0 16 1.00736 16 2.25V9.75C16 10.9926 14.9926 12 13.75 12H6.25C5.00736 12 4 10.9926 4 9.75V2.25ZM6.25 1.5C5.83579 1.5 5.5 1.83579 5.5 2.25V9.75C5.5 10.1642 5.83579 10.5 6.25 10.5H13.75C14.1642 10.5 14.5 10.1642 14.5 9.75V2.25C14.5 1.83579 14.1642 1.5 13.75 1.5H6.25Z"
+                />
+              </svg>
+              <svg class="done-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  d="M13.8551 3.17382C14.1733 3.439 14.2163 3.91192 13.9512 4.23013L6.86783 12.7301C6.73293 12.892 6.53616 12.9897 6.32565 12.9992C6.11515 13.0088 5.91034 12.9293 5.76134 12.7803L2.21967 9.23865C1.92678 8.94576 1.92678 8.47088 2.21967 8.17799C2.51256 7.8851 2.98744 7.8851 3.28033 8.17799L6.24127 11.1389L12.7988 3.26985C13.064 2.95164 13.5369 2.90865 13.8551 3.17382Z"
+                />
+              </svg>
+              <span class="copy-label">Copy</span
+              ><span class="sr-only"> the command</span>
+            </button>
+            <pre><code id="install-command-end">{{installCommand}}</code></pre>
+          </div>
+          <p class="note">
+            {{requirements}}
+            <a href="{{links.installDocs}}">Install by hand</a>
+          </p>
         </div>
-        <p class="note">
-          {{requirements}}
-          <a href="{{links.installDocs}}">Install by hand</a>
-        </p>
+        <!-- Med's sun on its horizon, as at the end of Changes in Med. -->
+        <div class="sunrise" aria-hidden="true">
+          <span class="glow"></span>
+          <span class="horizon"></span>
+          <svg viewBox="0 0 36 36">
+            <clipPath id="sunrise-sky"><rect width="36" height="18" /></clipPath>
+            <g clip-path="url(#sunrise-sky)">
+              <path class="sun" d="M0 16A15 15 0 0 1 30 16Z" />
+            </g>
+            <path class="reflection" d="M6 20A15 15 0 0 0 36 20Z" />
+          </svg>
+        </div>
       </section>
     </main>
 

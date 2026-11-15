@@ -10,16 +10,20 @@ import {
   cssV2,
   filtersV1,
   filtersV2,
+  guide,
   rounds,
+  type Round,
   searchBarV1,
   searchBarV2,
 } from "./fixture.ts";
 
 export const sessionId = "6f1d2c84-3b9a-4e57-a0c2-9d8e71b54f30";
 
-/** What a round that Med records live needs: time to pass, files to change,
- * and the next review to hand over, which returns its link. */
+/** What a round that Med records live needs: the reviewer's message, time to
+ * pass, files to change, and the next review to hand over, which returns its
+ * link. */
 export interface Live {
+  prompt: string;
   pause(ms: number): Promise<void>;
   write(files: Record<string, string>): void;
   handoff(): string;
@@ -83,6 +87,15 @@ export class Transcript {
         model: "claude-sonnet-5-5",
         stop_reason: end ? "end_turn" : null,
         content: [block],
+        // Each request reads the conversation from the cache, which grows
+        // as it goes, so the thread shows a spend and a context like a real
+        // one's.
+        usage: {
+          input_tokens: 6,
+          cache_creation_input_tokens: 1400,
+          cache_read_input_tokens: 21_000 + this.count * 1100,
+          output_tokens: 240,
+        },
       },
       ...extra,
     });
@@ -129,17 +142,6 @@ export class Transcript {
     return join(this.repo, name);
   }
 
-  /** Claude Code's report that a background command ended. */
-  finished(task: string, summary: string) {
-    this.write({
-      type: "user",
-      message: {
-        role: "user",
-        content: `<task-notification>\n<task-id>${task}</task-id>\n<status>completed</status>\n<summary>${summary}</summary>\n</task-notification>`,
-      },
-    });
-  }
-
   /** The first prompt, before the first review: Med reads the directory from it. */
   start() {
     this.user(
@@ -171,17 +173,15 @@ export class Transcript {
       { command: "bun test", description: "Run the tests" },
       "bun test v1.3.5\n\n 9 pass\n 0 fail\n 21 expect() calls\nRan 9 tests across 1 file. [48.00ms]",
     );
-    this.handoff(link, rounds[0]!.brief, "bq4w8n2");
+    this.handoff(link, rounds[0]!);
   }
 
-  /** Round two, live while Med records it: the agent takes the reviewer's
-   * comment, edits the files one at a time, and hands over the next review. */
+  /** Round two, live while Med records it: Med resumes the session with the
+   * reviewer's message (agent.ts), and the agent takes the comment, edits the
+   * files one at a time, and hands over the next review. */
   async second(live: Live) {
     this.live = true;
-    this.finished(
-      "bq4w8n2",
-      'Background command "Wait for the review" completed (exit code 0)',
-    );
+    this.user(live.prompt);
     // Med shows the agent idle until it thinks, so it thinks at once.
     await live.pause(200);
     this.thought(1600);
@@ -201,7 +201,7 @@ export class Transcript {
       { command: "bun test", description: "Run the tests" },
       "bun test v1.3.5\n\n 11 pass\n 0 fail\n 25 expect() calls\nRan 11 tests across 1 file. [51.00ms]",
     );
-    this.handoff(live.handoff(), rounds[1]!.brief, "b5t1x7k");
+    this.handoff(live.handoff(), rounds[1]!);
   }
 
   /** A live edit: the call, the file changing, then the result. */
@@ -246,26 +246,15 @@ export class Transcript {
     });
   }
 
-  private handoff(link: string, brief: string, task: string) {
+  private handoff(link: string, round: Round) {
     this.tool(
       "Bash",
       {
-        command: `med review create --key demo --title "Search filters" --repo . --working --brief - <<'BRIEF'\n${brief.trim()}\nBRIEF`,
+        command: `med review create --key demo --title "Search filters" --repo . --working --guide - <<'GUIDE'\n${JSON.stringify(guide(round), null, 2)}\nGUIDE`,
         description: "Hand the change to Med",
       },
       link,
     );
-    this.tool(
-      "Bash",
-      {
-        command: "med review wait --key demo",
-        description: "Wait for the review",
-        run_in_background: true,
-      },
-      `Command running in background with ID: ${task}.`,
-      { backgroundTaskId: task },
-      1,
-    );
-    this.say(`${brief.trim()}\n\n${link}`, true);
+    this.say(`${round.brief.trim()}\n\n${link}`, true);
   }
 }

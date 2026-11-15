@@ -68,9 +68,12 @@ const scene = params.get("scene") ?? "review";
 const file =
   params.get("recording") ??
   (scene === "notes" ? "vault.json" : scene === "review" ? "hero.json" : "recording.json");
-const recording: Recording = await fetch(new URL(file, document.baseURI)).then((response) =>
-  response.json(),
-);
+// The recording names the Med that it recorded as this origin, so links to
+// its reviews open here (apps/med-site/scripts/screenshots/capture.ts).
+const RECORDED_ORIGIN = "http://med.demo.invalid";
+const recording: Recording = await fetch(new URL(file, document.baseURI))
+  .then((response) => response.text())
+  .then((text) => JSON.parse(text.replaceAll(RECORDED_ORIGIN, location.origin)));
 modernize(recording);
 if (scene === "replies") answerComment(recording);
 if (scene === "files" || scene === "comments") commentedFile(recording);
@@ -1178,6 +1181,9 @@ Object.defineProperty(window, "sessionStorage", {
   configurable: true,
 });
 history.replaceState(null, "", recording.path);
+// The demo has no host for Med's live WebSocket, so Med reads each stream
+// through fetch, as the recording did.
+Object.defineProperty(window, "WebSocket", { value: undefined, configurable: true });
 // A page can show several demos at once, so each one highlights in a single
 // worker: Med sizes its pool from the processor count.
 Object.defineProperty(navigator, "hardwareConcurrency", { value: 2 });
@@ -1193,11 +1199,18 @@ const visible = (selector: string) =>
 const until = async (test: () => unknown) => {
   for (let waited = 0; waited < 15_000 && !test(); waited += 100) await pause(100);
 };
-/** Shows a page of the review's header, or a file's tab. */
-const tab = (name: string) =>
-  all<HTMLElement>("[role='radio'], [role='tab']")
-    .find((node) => node.textContent?.trim().startsWith(name))
-    ?.click();
+/** Shows a page of the review, from its icon in the header, or a file's
+ * tab. The open page's button would hide the review again. */
+const tab = (name: string) => {
+  const node = all<HTMLElement>(
+    "[role='radiogroup'][aria-label='Page'] [role='radio'], [role='tab']",
+  )
+    .filter((node) => node.checkVisibility())
+    .find((node) =>
+      (node.getAttribute("aria-label") || node.textContent?.trim() || "").startsWith(name),
+    );
+  if (node?.getAttribute("aria-checked") !== "true") node?.click();
+};
 const scroller = (node: Element | null) => {
   for (let next = node?.parentElement; next; next = next.parentElement)
     if (scrolls(getComputedStyle(next).overflowY) && next.scrollHeight > next.clientHeight)
@@ -1213,40 +1226,76 @@ const type = async (field: HTMLTextAreaElement | HTMLInputElement, text: string,
     await pause(ms);
   }
 };
-/** Scrolls the Changes stream to its first comment. */
+/** The reviewer's comment, not the notes of the agent's guide. */
+const reviewerComment = () =>
+  all<HTMLElement>("[data-comment-card]").find(
+    (node) => node.checkVisibility() && node.textContent?.includes("aria-live"),
+  );
+/** Scrolls the diff to the reviewer's comment. */
 const toComment = async () => {
   await pause(300);
   const stream = scroller(visible("diffs-container") ?? null);
-  for (let step = 0; step < 40 && !visible("[data-comment-card]"); step += 1) {
+  for (let step = 0; step < 40 && !reviewerComment(); step += 1) {
     stream?.scrollBy(0, 400);
     await pause(120);
   }
-  visible("[data-comment-card]")?.scrollIntoView({ block: "center" });
+  reviewerComment()?.scrollIntoView({ block: "center" });
 };
 /** The review, with only the parts that a scene names. The thread sidebar
  * folds away by itself in a narrow window. */
+const toggleReview = () =>
+  dispatchEvent(
+    new KeyboardEvent("keydown", { key: "B", code: "KeyB", metaKey: true, shiftKey: true }),
+  );
 const review = async (panes: { sidebar: boolean; session: boolean }, name: string) => {
-  // The review opens on its Review page, which shows diffs only in a part.
+  // The session is the workspace's main view, and ⌘⇧B shows the review
+  // beside it: a key, not a click, so no button keeps the focus and its
+  // tooltip. The review opens on its Review page. A phone shows one pane,
+  // and opens the review's link on the review.
+  await until(() => visible(session) || visible("[data-pane='review']"));
+  if (!visible("[data-pane='review']")) toggleReview();
   await until(() => visible("[data-review-status='ready']"));
   if (!panes.sidebar) visible("button[aria-label='Hide sidebar']")?.click();
-  // ⌘⇧B shows the session at any width. A phone shows the chosen pane only:
-  // there the session is open without room, so it closes, then opens chosen.
-  // A key, not a click, so no button keeps the focus and its tooltip.
-  for (let press = 0; press < 2 && !!visible(session) !== panes.session; press += 1) {
-    dispatchEvent(
-      new KeyboardEvent("keydown", { key: "B", code: "KeyB", metaKey: true, shiftKey: true }),
+  // Without the session, the review expands to fill the workspace and the
+  // session stays behind it. ⌘E from inside the review expands it: a narrow
+  // window keeps the button in the review's menu.
+  if (!panes.session) {
+    visible("[data-pane='review']")?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "e", code: "KeyE", metaKey: true, bubbles: true }),
     );
-    await pause(300);
+    await until(() => visible("button[aria-label='Restore the other panes']") || !visible(session));
   }
-  // Closing the session gives its toggle the focus, which shows its tooltip.
+  // The button keeps the focus, which shows its tooltip.
   await pause(300);
   (document.activeElement as HTMLElement | null)?.blur();
   tab(name);
   if (name === "Changes") await until(() => visible("diffs-container"));
 };
+/** A row of the review's rail, by its words. */
+const railRow = (name: string) =>
+  all<HTMLElement>("[data-pane='review'] button, [data-pane='review'] [role='option']").find(
+    (node) => node.checkVisibility() && node.textContent?.trim() === name,
+  );
+/** The guide's Overview. A later hand-off opens on what is new since the
+ * reviewer looked: the rail's first row, or the header's arrow beside the
+ * session, goes back. */
+const overview = async () => {
+  const shown = () => visible("section[aria-label='Guide overview']");
+  await until(
+    () => shown() || visible("button[aria-label='Previous part']") || railRow("Overview"),
+  );
+  for (let step = 0; step < 10 && !shown(); step += 1) {
+    const back = railRow("Overview") ?? visible("button[aria-label='Previous part']");
+    if (!back || (back as HTMLButtonElement).disabled) break;
+    back.click();
+    await pause(200);
+  }
+  await until(shown);
+};
 /** Review's every file, with the comments on the saved version. Changes
  * shows the checkout as it is now. */
 const allFiles = async () => {
+  await overview();
   await until(() =>
     all<HTMLButtonElement>("button").find((button) => button.textContent === "All files"),
   );
@@ -1283,27 +1332,32 @@ const scenes: Record<string, () => Promise<void>> = {
   // The agent's summary on the Review page, with links to the lines it cites.
   async brief() {
     await review({ sidebar: false, session: false }, "Review");
-    await until(() => visible("section[aria-label='Guide overview']"));
+    await overview();
   },
-  // A short unified diff with the reviewer's comment.
+  // A short unified diff with the reviewer's comment, on the Changes page
+  // where the reviewer wrote it.
   async comment() {
-    await review({ sidebar: false, session: false }, "Review");
-    await allFiles();
+    await review({ sidebar: false, session: false }, "Changes");
     localStorage.setItem("med:mode", "unified");
     dispatchEvent(new StorageEvent("storage", { key: "med:mode" }));
     await toComment();
   },
   // The agent's answer under the reviewer's comment.
   async replies() {
-    await review({ sidebar: false, session: false }, "Review");
-    await allFiles();
+    await review({ sidebar: false, session: false }, "Changes");
     localStorage.setItem("med:mode", "unified");
     dispatchEvent(new StorageEvent("storage", { key: "med:mode" }));
     await toComment();
   },
   async session() {
-    await review({ sidebar: false, session: true }, "Review");
-    await allFiles();
+    // A phone shows one pane: the session, without the review.
+    if (innerWidth < 600) {
+      await until(() => visible(session) || visible("[data-review-status='ready']"));
+      if (!visible(session)) toggleReview();
+      await until(() => visible(`${session} textarea`));
+      return;
+    }
+    await review({ sidebar: false, session: true }, "Changes");
     await toComment();
   },
   // The Commit tab, with the first four files staged.
@@ -1521,7 +1575,7 @@ if (find) {
   // The comment sits near the foot of its window, under the lines it is about.
   if ((scene === "comment" || scene === "replies") && part) {
     await pause(200);
-    const card = visible("[data-comment-card]");
+    const card = reviewerComment();
     if (card) part.scrollTop += card.getBoundingClientRect().bottom - (innerHeight - 64);
   }
 }
@@ -1549,7 +1603,7 @@ const plays: Record<string, () => Promise<void>> = {
     // When the agent answers, the reviewer opens the edit that it cites.
     const cited = () =>
       all<HTMLAnchorElement>(`${session} a`).findLast(
-        (link) => link.textContent === "SearchBar.tsx:28-34",
+        (link) => link.getAttribute("aria-label") === "Open src/ui/SearchBar.tsx at L28–34",
       );
     await until(cited);
     await pause(1200);
@@ -1564,7 +1618,11 @@ const plays: Record<string, () => Promise<void>> = {
     }
     await pause(900);
     all<HTMLButtonElement>("button")
-      .find((button) => button.textContent?.includes("Commit…") && !button.disabled)
+      .find(
+        (button) =>
+          /^Commit (all \d+|\d+ staged) files?$/.test(button.getAttribute("aria-label") ?? "") &&
+          !button.disabled,
+      )
       ?.click();
     await until(() => visible("input[aria-label='Commit summary']"));
     // The recorded draft fills the fields; the scene writes it out again.
@@ -1578,12 +1636,12 @@ const plays: Record<string, () => Promise<void>> = {
     body.focus();
     if (text) await type(body, text, 18);
     await pause(1100);
-    all<HTMLButtonElement>("[role='dialog'] button")
-      .find((button) => /^Commit\b/.test(button.textContent ?? "") && !button.disabled)
-      ?.click();
+    (
+      visible("[role='dialog'] button[aria-label='Commit']") as HTMLButtonElement | undefined
+    )?.click();
     await until(() => document.body.textContent?.includes("Committed"));
     await pause(2400);
-    visible("button[title^='Push to']")?.click();
+    visible("button[aria-label^='Push ']")?.click();
   },
 };
 const play = plays[scene];

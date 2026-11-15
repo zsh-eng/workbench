@@ -1,7 +1,7 @@
 // Records Med's live demo and captures the site's screenshots. A built Med
 // serves the Trailhead fixture; a fixture transcript (session.ts) stands in
-// for the agent: Med shows it in the Session pane, and `med review wait` takes
-// the comments that Med sends. The recordings of Med's API answers go to
+// for the agent: Med shows it as the thread's session, and resumes it with
+// the reviewer's message through a stand-in for Claude Code (agent.ts). The recordings of Med's API answers go to
 // public/demo: hero.json is a timeline, from the reviewer's message to the
 // agent's next review; recording.json and vault.json are the state after it.
 // Each screenshot is a scene of the live demo itself
@@ -16,6 +16,7 @@
 // repository; the vault's Med and the demo use the next two ports. It never
 // uses the default service port or the user's state.
 import {
+  chmodSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -29,7 +30,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, normalize } from "node:path";
 import { chromium, type Browser, type Locator, type Page } from "playwright";
 import sharp from "sharp";
-import { comments, message, rounds } from "./fixture.ts";
+import { comments, guide, message, rounds } from "./fixture.ts";
 import { applyRound, createRepository, write } from "./repo.ts";
 import { sessionId, Transcript } from "./session.ts";
 import { buildDemo } from "../demo.ts";
@@ -98,8 +99,20 @@ const vault = join(scratch, "trailhead-notes");
 const vaultState = join(scratch, "vault-state");
 const staging = join(scratch, "screenshots");
 const state = join(scratch, "state");
+// The stand-in for Claude Code, first on Med's PATH, and the folder where it
+// and this script pass each turn.
+const bin = join(scratch, "bin");
+const turns = join(scratch, "turns");
+mkdirSync(bin);
+mkdirSync(turns);
+writeFileSync(
+  join(bin, "claude"),
+  `#!/bin/sh\nexec "${process.execPath}" "${join(import.meta.dir, "agent.ts")}" "$@"\n`,
+);
+chmodSync(join(bin, "claude"), 0o755);
 const env = {
-  PATH: process.env.PATH ?? "/usr/bin:/bin",
+  PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+  MED_DEMO_AGENT: turns,
   HOME: join(scratch, "home"),
   MED_HOME_DIR: join(scratch, "home"),
   MED_STATE_DIR: state,
@@ -152,8 +165,8 @@ async function startMed() {
 
 /** Creates the review's next iteration; returns its path and the printed link. */
 function createReview(round: number) {
-  const brief = join(scratch, `brief-${round}.md`);
-  writeFileSync(brief, rounds[round]!.brief);
+  const file = join(scratch, `guide-${round}.json`);
+  writeFileSync(file, JSON.stringify(guide(rounds[round]!)));
   const out = med([
     "review",
     "create",
@@ -167,8 +180,8 @@ function createReview(round: number) {
     "--no-pr",
     "--session",
     `claude:${sessionId}`,
-    "--brief",
-    brief,
+    "--guide",
+    file,
     "--state-dir",
     state,
     "--port",
@@ -179,36 +192,35 @@ function createReview(round: number) {
   return { path: new URL(link[1]!).pathname, link: link[0] };
 }
 
-/** The agent's `med review wait`: it ends when Med sends it a message. */
-function wait() {
-  return Bun.spawn(
-    [
-      "node",
-      cli,
-      "review",
-      "wait",
-      "--key",
-      "demo",
-      "--session",
-      `claude:${sessionId}`,
-      "--state-dir",
-      state,
-      "--port",
-      String(port),
-    ],
-    { env, stdout: "pipe", stderr: "inherit" },
-  );
+/** The reviewer's message, once Med has resumed the session with it and
+ * the stand-in (agent.ts) has passed it on; `done` ends that turn. */
+async function nextTurn(turn: number) {
+  const file = join(turns, `turn-${turn}`);
+  while (!existsSync(`${file}.txt`)) await Bun.sleep(100);
+  return {
+    prompt: await Bun.file(`${file}.txt`).text(),
+    done: () => writeFileSync(`${file}.done`, ""),
+  };
 }
 
-/** Opens the Session pane beside the review and waits for the agent. */
+/** The agent's session, the thread's main view, once its message box
+ * shows. */
 async function showSession(page: Page) {
-  const toggle = page.getByRole("button", { name: "Toggle agent session" });
-  if ((await toggle.getAttribute("aria-pressed")) !== "true")
-    await toggle.click();
-  const pane = page.getByRole("complementary", { name: "Agent session" });
-  await pane.getByText("is waiting for your review").waitFor();
+  const pane = page.getByRole("region", { name: "Agent session" });
+  await pane.getByPlaceholder(/^Message/).waitFor();
   await page.waitForTimeout(600);
   return pane;
+}
+
+/** Shows a page of the review beside the session: Review, Changes, Commit,
+ * or Files. */
+async function view(page: Page, name: string) {
+  const radio = page.getByRole("radio", { name, exact: true });
+  // The open page's button hides the review again.
+  const open = (await radio.getAttribute("aria-checked")) === "true";
+  if (open && (await reviewPane(page).count())) return;
+  await radio.click();
+  await reviewPane(page).waitFor();
 }
 
 /** Opens the review in Med, as the reviewer. */
@@ -221,21 +233,33 @@ async function open(browser: Browser, token: string, path: string) {
   // Med trades the launch token for a cookie, then removes it from the URL.
   await page.goto(`${origin}/#token=${token}`);
   await page.waitForURL((url) => !url.hash.includes("token"));
-  // Let the repository's own workspace open first. With the review as a
-  // second workspace, the sidebar lists both, the same way in every capture.
-  await page.getByText("History", { exact: true }).waitFor();
+  // Let the repository's own workspace open first, then the review's thread.
+  await page.getByRole("button", { name: "New thread" }).waitFor();
   await page.goto(`${origin}${path}`);
-  await page.getByRole("tab", { name: "Notes" }).waitFor();
-  await page.getByText("Workspaces", { exact: true }).waitFor();
+  await page.getByRole("radio", { name: "Review", exact: true }).waitFor();
   // Med keeps a live connection open, so wait for highlighting by time.
   await page.waitForTimeout(1000);
   return page;
 }
 
-/** Scrolls the Changes stream until the target renders, then centers it. */
+/** The review beside the session, in the workspace on screen: each
+ * workspace keeps its own. */
+const reviewPane = (page: Page) =>
+  page.locator("[data-pane='review']").filter({ visible: true });
+
+/** Puts the pointer over the review, so the wheel scrolls its stream. */
+async function overReview(page: Page) {
+  const box = await reviewPane(page).boundingBox();
+  if (!box) throw new Error("The review is not on screen.");
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.6);
+}
+
+/** Scrolls the Changes stream from its top until the target renders, then
+ * centers it. */
 async function reveal(page: Page, target: Locator) {
-  const { width, height } = page.viewportSize()!;
-  await page.mouse.move(width * 0.6, height * 0.6);
+  await overReview(page);
+  for (let step = 0; step < 30; step += 1) await page.mouse.wheel(0, -2000);
+  await page.waitForTimeout(200);
   for (let step = 0; step < 40 && !(await target.count()); step += 1) {
     await page.mouse.wheel(0, 400);
     await page.waitForTimeout(120);
@@ -252,7 +276,7 @@ async function addComment(
   line: number,
   text: string,
 ) {
-  await page.getByRole("tab", { name: "Changes" }).click();
+  await view(page, "Changes");
   const diff = page.locator("diffs-container").filter({ hasText: file });
   const row = diff.locator(
     `[data-gutter] [data-line-type="change-addition"][data-column-number="${line}"]`,
@@ -261,6 +285,17 @@ async function addComment(
   await row.click();
   await page.keyboard.press("c");
   await page.keyboard.type(text);
+  // Once Med runs the session, a comment's box sends it at once; this one
+  // waits in the message box.
+  const now = page.getByRole("checkbox", { name: /^Send to .+ now$/ });
+  if (await now.count()) {
+    await now.first().uncheck();
+    // The box takes the keys again.
+    await page.evaluate((value) => {
+      for (const field of document.querySelectorAll("textarea"))
+        if (field.value === value) field.focus();
+    }, text);
+  }
   await page.keyboard.press("Meta+Enter");
   await page.getByText(text).filter({ visible: true }).first().waitFor();
   // The card shows at once; Med saves it in the background.
@@ -293,6 +328,21 @@ function recorder() {
   };
   const entries: Entry[] = [];
   Object.assign(window, { medRecording: entries });
+  // Med's event streams are channels of one WebSocket, which fetch does not
+  // see: keep each frame, which save() splits into a stream for each path.
+  // (Six streams of their own would take every connection that the browser
+  // keeps for a host, and Med's requests would wait.)
+  const frames: { t: number; text: string }[] = [];
+  Object.assign(window, { medFrames: frames });
+  const Socket = window.WebSocket;
+  window.WebSocket = class extends Socket {
+    constructor(url: string | URL, protocols?: string | string[]) {
+      super(url, protocols);
+      this.addEventListener("message", (event) =>
+        frames.push({ t: performance.now(), text: String(event.data) }),
+      );
+    }
+  };
   const realFetch = window.fetch.bind(window);
   window.fetch = async (input, init) => {
     const request = new Request(input, init);
@@ -348,7 +398,7 @@ function recorder() {
 }
 
 /** Opens each changed file from its header and closes it, as a visitor
- * would. The tree scrolls the stream to the file first. */
+ * would. */
 async function openFiles(page: Page) {
   const status = Bun.spawnSync(["git", "-C", repo, "status", "--porcelain"]);
   const files = status.stdout
@@ -356,13 +406,14 @@ async function openFiles(page: Page) {
     .split("\n")
     .filter(Boolean)
     .map((line) => line.slice(3));
+  await view(page, "Changes");
+  await page.waitForTimeout(800);
   for (const file of files) {
-    const name = file.split("/").at(-1)!;
-    await page.getByRole("treeitem", { name, exact: true }).click();
-    await page.waitForTimeout(600);
-    await page.getByRole("link", { name: file, exact: true }).first().click();
+    const link = reviewPane(page).getByRole("link", { name: file, exact: true });
+    await reveal(page, link);
+    await link.first().click();
     await page.waitForTimeout(800);
-    await page.getByRole("button", { name: "Close file" }).click();
+    await view(page, "Changes");
     await page.waitForTimeout(300);
   }
 }
@@ -378,18 +429,35 @@ async function record(browser: Browser, token: string, path: string) {
   const page = await context.newPage();
   await page.goto(`${origin}/#token=${token}`);
   await page.waitForURL((url) => !url.hash.includes("token"));
-  await page.getByText("History", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "New thread" }).waitFor();
   await page.goto(`${origin}${path}`);
-  await page.getByRole("tab", { name: "Notes" }).waitFor();
+  await page.getByRole("radio", { name: "Review", exact: true }).waitFor();
   await page.waitForTimeout(1000);
-  const pane = await showSession(page);
-  // The session's turns, for its Turns menu.
-  await pane.getByRole("button", { name: "Turns" }).click();
-  await page.waitForTimeout(600);
-  await page.keyboard.press("Escape");
-  await page.getByRole("tab", { name: "Changes" }).click();
+  await showSession(page);
+  // Each part of the guide, from the overview to the last segment, with the
+  // header's arrows (the rail hides beside the session), then the whole diff.
+  await view(page, "Review");
+  const pane = reviewPane(page);
+  const previous = pane.getByRole("button", { name: "Previous part" });
+  const next = pane.getByRole("button", { name: "Next part" });
+  await next.waitFor();
+  for (let step = 0; step < 10 && (await previous.isEnabled()); step += 1) {
+    await previous.click();
+    await page.waitForTimeout(500);
+  }
+  for (let step = 0; step < 10 && (await next.isEnabled()); step += 1) {
+    await next.click();
+    await page.waitForTimeout(800);
+  }
+  for (let step = 0; step < 10 && (await previous.isEnabled()); step += 1) {
+    await previous.click();
+    await page.waitForTimeout(300);
+  }
+  await pane.getByRole("button", { name: "All files" }).click();
+  await page.waitForTimeout(1500);
+  await view(page, "Changes");
   // Load every file in the stream, then come back to the comment.
-  await page.mouse.move(800, 500);
+  await overReview(page);
   for (const delta of [700, -700]) {
     for (let step = 0; step < 30; step += 1) {
       await page.mouse.wheel(0, delta);
@@ -400,37 +468,34 @@ async function record(browser: Browser, token: string, path: string) {
     page,
     page.getByText(comments[1]!.text).filter({ visible: true }),
   );
-  await page.getByRole("tab", { name: "Notes" }).click();
+  await view(page, "Review");
   await page.waitForTimeout(800);
-  await page.getByRole("tab", { name: "Changes" }).click();
+  await view(page, "Changes");
   await page.waitForTimeout(1500);
   await checkPrivacy(page);
-  // A visitor's first clicks: each changed file, each commit, and the
-  // Commit tab.
+  // A visitor's first clicks: each changed file, and the Commit page.
   await openFiles(page);
-  const commits = page.locator("button[role=option]").filter({ visible: true });
-  for (let index = 0; index < (await commits.count()); index += 1) {
-    await commits.nth(index).click();
-    await page.waitForTimeout(800);
-  }
-  await page.getByText("Working changes", { exact: true }).first().click();
   // The commit: Med keeps the message as a draft, which the demo's commit
   // scene types out. The scene stages the files itself, so none stay staged.
-  await page.getByRole("tab", { name: "Commit" }).click();
+  await view(page, "Commit");
   await page.getByRole("button", { name: "Stage all", exact: true }).click();
   await page.getByRole("button", { name: "Unstage all" }).waitFor();
-  await page.getByRole("button").filter({ hasText: "Commit…" }).first().click();
+  await page
+    .getByRole("button", { name: /^Commit (all \d+|\d+ staged) files?$/ })
+    .first()
+    .click();
   const [summary, ...body] = commitMessage.split("\n\n");
   await page.getByRole("textbox", { name: "Commit summary" }).fill(summary!);
   await page
     .getByRole("textbox", { name: "Commit description" })
     .fill(body.join("\n\n"));
   await page.waitForTimeout(400);
-  await page.getByRole("button", { name: "Cancel" }).click();
+  // Esc keeps the draft.
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Unstage all" }).click();
   await page.getByRole("button", { name: "Stage all", exact: true }).waitFor();
   await page.waitForTimeout(600);
-  await page.getByRole("tab", { name: "Changes" }).click();
+  await view(page, "Changes");
   await page.waitForTimeout(800);
   await save(page, "recording.json", path);
   await context.close();
@@ -453,14 +518,14 @@ async function recordHero(
   const page = await context.newPage();
   await page.goto(`${origin}/#token=${token}`);
   await page.waitForURL((url) => !url.hash.includes("token"));
-  await page.getByText("History", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "New thread" }).waitFor();
   await page.goto(`${origin}${path}`);
-  await page.getByRole("tab", { name: "Notes" }).waitFor();
+  await page.getByRole("radio", { name: "Review", exact: true }).waitFor();
   await page.waitForTimeout(1000);
   const pane = await showSession(page);
-  await page.getByRole("tab", { name: "Changes" }).click();
+  await view(page, "Changes");
   // Load every file in the stream, then come back to the first.
-  await page.mouse.move(600, 450);
+  await overReview(page);
   for (const delta of [700, -700]) {
     for (let step = 0; step < 30; step += 1) {
       await page.mouse.wheel(0, delta);
@@ -521,6 +586,49 @@ type Entry = {
   chunks?: { t: number; text: string }[];
 };
 
+type Frame = { t: number; text: string };
+
+/**
+ * The page's event streams as if each were its own request, as the demo
+ * serves them: Med opens a channel of its live WebSocket for a path
+ * (`POST /api/live/<id>` with `{ open: [{ key, path }] }`), and each frame
+ * carries events named `<key>:<event>`. The channels' requests drop out.
+ */
+function streams(entries: Entry[], frames: Frame[]): Entry[] {
+  const live = (entry: Entry) => entry.url.startsWith("/api/live/");
+  const opened = new Map<string, Entry>();
+  for (const entry of entries.filter(live)) {
+    const { open = [] } = JSON.parse(entry.body ?? "{}") as {
+      open?: { key: string; path: string }[];
+    };
+    for (const { key, path } of open)
+      opened.set(key, {
+        method: "GET",
+        url: path,
+        status: 200,
+        type: "text/event-stream",
+        text: "",
+        t: entry.t,
+        chunks: [],
+      });
+  }
+  for (const frame of frames)
+    for (const block of frame.text.split("\n\n")) {
+      const lines = block.split("\n");
+      const event = lines.find((line) => line.startsWith("event:"))?.slice(6).trim();
+      const split = event?.indexOf(":") ?? -1;
+      if (!event || split < 0) continue;
+      const stream = opened.get(event.slice(0, split));
+      const name = event.slice(split + 1);
+      if (!stream || name === "end") continue;
+      const data = lines.filter((line) => line.startsWith("data:")).join("\n");
+      stream.chunks!.push({ t: frame.t, text: `event: ${name}\n${data}\n\n` });
+    }
+  return [...entries.filter((entry) => !live(entry)), ...opened.values()].sort(
+    (a, b) => a.t - b.t,
+  );
+}
+
 /** Writes a page's recording to public/demo: its API answers, and the app's
  * local settings without the theme, which follows the visitor. A page that
  * set window.medRecordingZero keeps a timeline: each answer and event with
@@ -532,13 +640,14 @@ async function save(page: Page, name: string, path: string) {
       Object.entries(localStorage).filter(([key]) => !key.includes("theme")),
     ),
     entries: (window as unknown as { medRecording: Entry[] }).medRecording,
+    frames: (window as unknown as { medFrames: Frame[] }).medFrames,
     zero: (window as unknown as { medRecordingZero?: number }).medRecordingZero,
     // The wall-clock time at the page's start, for the timeline's start.
     origin: Date.now() - performance.now(),
   }));
   const { storage, zero } = recorded;
   const ms = (time: number) => Math.round(time - zero!);
-  const entries = recorded.entries.map(({ t, chunks, ...entry }) =>
+  const entries = streams(recorded.entries, recorded.frames).map(({ t, chunks, ...entry }) =>
     zero === undefined
       ? {
           ...entry,
@@ -568,6 +677,13 @@ async function save(page: Page, name: string, path: string) {
     storage,
     entries,
   });
+  // Links to the recorded Meds name a stand-in origin, which the demo
+  // replaces with its own, so they open in the demo (apps/med/src/web/demo.ts).
+  for (const server of [port, port + 1])
+    json = json.replaceAll(
+      `http://127.0.0.1:${server}`,
+      "http://med.demo.invalid",
+    );
   for (const local of [realpathSync(scratch), scratch]) {
     for (const form of [local, encodeURIComponent(local)]) {
       json = json.replaceAll(form, form === local ? "/work" : "%2Fwork");
@@ -665,7 +781,6 @@ async function recordDemo(browser: Browser) {
   // The vault runs on a second Med server, as `med add` starts one: the Notes
   // screenshot opens it there.
   const vaultServer = ["--port", String(port + 1), "--state-dir", vaultState];
-  let waiter: ReturnType<typeof wait> | undefined;
   try {
     vaultId = (
       JSON.parse(med(["add", vault, "--wait", ...vaultServer])) as {
@@ -678,7 +793,6 @@ async function recordDemo(browser: Browser) {
     // comments on the first file.
     let review = createReview(0);
     transcript.first(review.link);
-    waiter = wait();
     let page = await open(browser, token, review.path);
     const first = comments[0]!;
     await addComment(page, first.file, first.line, first.text);
@@ -687,8 +801,9 @@ async function recordDemo(browser: Browser) {
     // The hero: the reviewer sends the comment, and round two answers it while
     // Med records, one file at a time, and hands over the next review.
     await recordHero(browser, token, review.path, async () => {
-      await waiter!.exited;
+      const turn = await nextTurn(1);
       await transcript.second({
+        prompt: turn.prompt,
         pause: (ms) => Bun.sleep(ms),
         write: (files) => write(repo, files),
         handoff: () => {
@@ -696,7 +811,7 @@ async function recordDemo(browser: Browser) {
           return review.link;
         },
       });
-      waiter = wait();
+      turn.done();
     });
 
     // The reviewer comments on round two, for the other windows.
@@ -709,7 +824,6 @@ async function recordDemo(browser: Browser) {
     await record(browser, token, path);
     await recordVault(browser);
   } finally {
-    waiter?.kill();
     server.kill();
     await server.exited;
     try {

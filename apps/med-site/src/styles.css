@@ -309,6 +309,24 @@ h3 {
   position: absolute;
   top: 8px;
   right: 8px;
+  gap: 6px;
+}
+
+/* Med's copy icon, which turns into a check once copied. */
+.copy svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  fill: currentColor;
+}
+
+.copy .done-icon,
+.copy[data-state="done"] .copy-icon {
+  display: none;
+}
+
+.copy[data-state="done"] .done-icon {
+  display: block;
 }
 
 .copy[data-state="done"] {
@@ -574,10 +592,10 @@ h3 {
 
 /* Narrow screens show screenshots. The review shows at 3.6 times the
    window's width, close enough to read, one part at a time. The parts are in
-   the 1309 by 818 screenshot: the comment at (720, 350), the session's
-   message box at (1098, 672), and the history at (182, 146). The window
+   the 1309 by 818 screenshot: the comment at (1068, 412), the session's
+   message box at (525, 712), and the sessions at the top left. The window
    shows 364 by 291 pixels, so a part at (x, y) moves the image by
-   x / 1309 - 0.139 and y / 818 - 0.178. */
+   x / 1309 - 0.139 and y / 818 - 0.178, up to the image's edge. */
 .stops {
   display: none;
 }
@@ -594,12 +612,12 @@ h3 {
     left: 0;
     width: 360%;
     max-width: none;
-    transform: translate(-41.1%, -25%);
+    transform: translate(-67.7%, -32.6%);
     transition: transform 900ms var(--ease-in-out);
   }
 
   .product .screen[data-stop="1"] img {
-    transform: translate(-70%, -64.4%);
+    transform: translate(-26.2%, -64.4%);
   }
 
   .product .screen[data-stop="2"] img {
@@ -643,10 +661,22 @@ h3 {
   max-width: 30em;
 }
 
-.num {
-  margin: 0 0 10px;
-  color: var(--sea);
-  font: 400 0.8125rem/1.4 var(--code);
+/* Each chapter starts with the page of Med that it shows, as Med's header
+   names it: the page's icon (Pierre's, as in Med) and its name. */
+.part {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  color: var(--muted);
+  font: 500 0.8125rem/1.4 var(--ui);
+}
+
+.part svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  fill: var(--sea);
 }
 
 .chapter h3 {
@@ -728,31 +758,174 @@ h3 {
   line-height: 1.55;
 }
 
+/* Keys as Med shows its shortcuts: quiet glyphs on a faint fill, with no
+   keycap. */
 kbd {
   display: inline-block;
-  min-width: 1.6em;
-  padding: 0.05em 0.4em;
-  border: 1px solid var(--line);
-  border-bottom-width: 2px;
+  min-width: 1.5em;
+  padding: 0.1em 0.35em;
   border-radius: 5px;
+  background: var(--fill-strong);
   color: var(--ink);
   font-size: 0.8125rem;
+  line-height: 1.35;
   text-align: center;
 }
 
-/* The end */
+/* The end: Med's sun on its horizon, as at the end of Changes in Med
+   (apps/med/src/web/components/StreamEnd.tsx), in the icon's colours: its
+   dawn in light, its night in dark. The colours gather around the horizon
+   and the sun rises from behind it as the reader arrives; the browser drives
+   it from the scroll position, with no script. */
 
 .end {
-  padding-block: clamp(96px, 12vw, 160px);
+  padding-top: clamp(96px, 12vw, 160px);
 }
 
-/* Footer */
+.sunrise {
+  --sky: #b1b1ddcc;
+  --glow: #f3bf9acc;
+  --sea-glow: #93b5bccc;
+  --horizon: #e6ac8699;
+  --rim: #eaa77f;
+  --halo: #f0b48c;
+  --reflection: 0.62;
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: min(100%, 1120px);
+  height: clamp(200px, 22vw, 280px);
+  margin: clamp(40px, 6vw, 72px) auto 0;
+  overflow: hidden;
+}
+
+@media (prefers-color-scheme: dark) {
+  .sunrise {
+    --sky: #2e2c4c;
+    --glow: #5c4566;
+    --sea-glow: #1c3542;
+    --horizon: #7c648799;
+    --rim: transparent;
+    --halo: #9c7b98;
+    --reflection: 0.5;
+  }
+}
+
+/* The sky on one side, the sea on the other, the dawn between: they thin
+   out above the horizon and below it. */
+.sunrise .glow {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    radial-gradient(26% 66% at 50% 62%, var(--glow), transparent),
+    radial-gradient(30% 58% at 28% 64%, var(--sky), transparent),
+    radial-gradient(30% 58% at 72% 64%, var(--sea-glow), transparent);
+  mask-image:
+    linear-gradient(
+      to top,
+      transparent,
+      #000 34%,
+      rgb(0 0 0 / 0.45) 64%,
+      transparent 94%
+    ),
+    linear-gradient(to right, transparent, #000 22%, #000 78%, transparent);
+  mask-composite: intersect;
+}
+
+.sunrise .horizon {
+  position: absolute;
+  inset-inline: 0;
+  top: 50%;
+  height: 1px;
+  margin-top: -0.5px;
+  background-image: linear-gradient(
+    to right,
+    transparent 12%,
+    var(--horizon) 50%,
+    transparent 88%
+  );
+}
+
+/* The icon's sun, with its reflection a little to the right. The sky clips
+   the sun, so it comes up from behind the horizon. */
+.sunrise svg {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  overflow: visible;
+  /* A light page is as pale as the sun, so a dawn rim draws its edge. */
+  filter: drop-shadow(0 0 1px var(--rim)) drop-shadow(0 0 10px var(--halo));
+}
+
+.sunrise .sun,
+.sunrise .reflection {
+  fill: #fffaf1;
+}
+
+.sunrise .reflection {
+  fill-opacity: var(--reflection);
+}
+
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .sunrise {
+      view-timeline: --sunrise block;
+    }
+
+    .sunrise .glow,
+    .sunrise .sun,
+    .sunrise .reflection {
+      animation-duration: auto;
+      animation-timing-function: ease-out;
+      animation-fill-mode: both;
+      animation-timeline: --sunrise;
+      animation-range: entry 30% entry 100%;
+    }
+
+    .sunrise .glow {
+      animation-name: sunrise-glow;
+      animation-range: entry 0% entry 100%;
+    }
+
+    .sunrise .sun {
+      animation-name: sunrise-sun;
+    }
+
+    .sunrise .reflection {
+      animation-name: sunrise-reflection;
+    }
+  }
+}
+
+@keyframes sunrise-glow {
+  from {
+    opacity: 0.2;
+  }
+}
+
+/* In the icon's units: the sun starts just below the horizon. */
+@keyframes sunrise-sun {
+  from {
+    transform: translateY(17px);
+  }
+}
+
+@keyframes sunrise-reflection {
+  from {
+    transform: translateY(-4px);
+    opacity: 0;
+  }
+}
+
+/* Footer: under the sunrise, which ends the page, so it needs no rule. */
 
 .foot {
   display: grid;
   gap: 6px;
-  padding-block: 24px 56px;
-  border-top: 1px solid var(--line);
+  padding-block: 8px 56px;
   color: var(--muted);
   font-size: 0.8125rem;
 }

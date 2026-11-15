@@ -1,6 +1,8 @@
 // A small, invented app for the site's screenshots: "Trailhead", a day-hike
 // search. `history` becomes commits; each round is an agent's working changes
-// and the brief it hands to Med. No real repository, person, or path is used.
+// and the guide it hands to Med: its summary, which is also the agent's last
+// message, and the segments to review one at a time. No real repository,
+// person, or path is used.
 
 export const author = { name: "Jordan Lee", email: "jordan@example.com" };
 
@@ -15,10 +17,25 @@ export interface Commit {
   files: Files;
 }
 
+export interface Segment {
+  title: string;
+  area: string;
+  summary: string;
+  files: string[];
+  comments?: { file: string; line: number; kind: string; body: string }[];
+}
+
 export interface Round {
   files: Files;
   brief: string;
+  segments: Segment[];
 }
+
+/** The guide that `med review create --guide` takes for a round. */
+export const guide = (round: Round) => ({
+  summary: round.brief.trim(),
+  segments: round.segments,
+});
 
 const trails = `export type Difficulty = "easy" | "moderate" | "hard";
 
@@ -440,6 +457,36 @@ Filters run before ranking, so scores only compare eligible trails ([index.ts:15
 
 Two tests cover a combined filter and an unknown token ([search.test.ts:15-22](tests/search.test.ts:15-22)).
 `,
+    segments: [
+      {
+        title: "Filter tokens in the query",
+        area: "core",
+        summary:
+          "`parseQuery` takes `difficulty:`, `under:`, and `is:loop` out of the text. An unknown token stays free text.",
+        files: ["src/search/query.ts"],
+        comments: [
+          {
+            file: "src/search/query.ts",
+            line: 36,
+            kind: "risk",
+            body: "`under:` reads kilometres only, so `under:8mi` stays free text.",
+          },
+        ],
+      },
+      {
+        title: "Filter before ranking",
+        area: "core",
+        summary:
+          "The checks live in their own module. Search runs them before it scores, so scores only compare eligible trails.",
+        files: ["src/search/filters.ts", "src/search/index.ts"],
+      },
+      {
+        title: "Tests",
+        area: "tests",
+        summary: "A combined filter, and an unknown token that stays in the text.",
+        files: ["tests/**"],
+      },
+    ],
   },
   {
     files: {
@@ -451,6 +498,42 @@ Two tests cover a combined filter and an unknown token ([search.test.ts:15-22](t
 
 \`describeFilters\` turns the parsed filters into labels in a fixed order ([filters.ts:19-27](src/search/filters.ts:19-27)). The chips use the existing surface color ([search.css:16-29](src/ui/search.css:16-29)).
 `,
+    segments: [
+      {
+        title: "Active filters in the search bar",
+        area: "ui",
+        summary:
+          "Each active filter shows as a chip under the input, in the existing surface color.",
+        files: ["src/ui/SearchBar.tsx", "src/ui/search.css"],
+      },
+      {
+        title: "Filter tokens and their labels",
+        area: "core",
+        summary:
+          "`parseQuery` reads the filters; `describeFilters` names them in a fixed order.",
+        files: ["src/search/query.ts", "src/search/filters.ts"],
+        comments: [
+          {
+            file: "src/search/query.ts",
+            line: 36,
+            kind: "risk",
+            body: "`under:` reads kilometres only, so `under:8mi` stays free text.",
+          },
+        ],
+      },
+      {
+        title: "Filter before ranking",
+        area: "core",
+        summary: "Search runs the checks before it scores.",
+        files: ["src/search/index.ts"],
+      },
+      {
+        title: "Tests",
+        area: "tests",
+        summary: "A combined filter, and an unknown token that stays in the text.",
+        files: ["tests/**"],
+      },
+    ],
   },
 ];
 

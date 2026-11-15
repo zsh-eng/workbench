@@ -79,17 +79,22 @@ SIL Open Font License notices. After Med's fonts change, run `bun run fonts`.
 
 `bun run screenshots` builds a small invented repository ("Trailhead"), starts a
 built Med on port 4310 with temporary state, creates the review "Search filters"
-with a brief, and comments on the first changed file. A fixture Claude Code
+with a guide, and comments on the first changed file. A fixture Claude Code
 transcript (`scripts/screenshots/session.ts`) stands in for the agent, and Med
-shows it in the Session pane.
+shows it as the thread's session. When the reviewer sends a message, Med
+resumes the session, as it resumes a real one, through a stand-in for Claude
+Code (`scripts/screenshots/agent.ts`, first on Med's PATH): it answers Med's
+control requests and passes the prompt to the run, which plays the agent's
+round in the transcript. It runs no model and reads no account.
 
 Then the run records the hero, live: the reviewer types a short message and
 sends it with the comment. The fixture agent's next round runs in real time:
 it thinks, edits three files one at a time, runs the tests, and hands over the
-second iteration. Med follows it there, and the run opens the changed files.
+second version. Med follows it there, and the run opens the changed files.
 Every API answer and stream chunk goes to `public/demo/hero.json` with its time
-from the message. After that, the run adds a second comment, opens the Commit
-tab and the commit dialog, and opens a small Obsidian vault
+from the message. After that, the run adds a second comment, steps through the
+guide, opens the Commit page and the commit dialog, and opens a small Obsidian
+vault
 (`scripts/screenshots/vault.ts`) on a second Med server, on the next port. It
 records those answers into `public/demo/recording.json` and
 `public/demo/vault.json`. Then it builds the live demo, serves it on the
@@ -146,8 +151,8 @@ Simple Icons (CC0); Codex and OpenCode have no free mark, so a glyph stands in.
 
 On screens narrower than 960 px, the product window shows the screenshot at
 3.6 times the window's width, so the text is legible, one part at a time: the
-comment, the agent's session, and the history. Buttons under the window pick a
-part, and a swipe on the window moves to the next or previous one. While the
+comment, the agent's session, and the sessions list. Buttons under the window
+pick a part, and a swipe on the window moves to the next or previous one. While the
 window is in view, it moves to the next part every few seconds until the
 visitor picks one; with reduced motion it waits. The review's 2880 px files
 serve this zoom on phones.
@@ -168,9 +173,9 @@ the features. The scene sets the panes, opens the tab or note, scrolls to the
 comment, and then marks the page ready. The `review` scene replays `hero.json`,
 the `notes` scene replays `vault.json`, and the others replay `recording.json`.
 
-The product window shows Med in zen mode: the thread in the sidebar, the
-agent's session, and the diff with the comment, without other bars and
-buttons. The demo makes the thread list from the recorded review and the
+The product window shows Med as a thread opens: the thread in the sidebar,
+the agent's session, and the review beside it (`⌘⇧B`) on Changes, with the
+comment. The demo makes the thread list from the recorded review and the
 agent's recorded state. It renders at 1309 by 818, so its text is 10% larger
 than in a 1440 by 900 window. When most of the window is in view, the demo
 starts the hero's clock, types the message, and sends it. The agent's edits
@@ -194,8 +199,9 @@ the rest of Med runs under it, so the part works as it does in the app. When
 the visitor opens something outside the part, the whole app shows.
 
 The demos on a page do not affect each other. Each one keeps its own storage,
-opens its event streams directly (the recording keeps each stream by its path,
-not as a channel of Med's shared live stream), and highlights in one worker.
+opens its event streams directly, and highlights in one worker. In the app,
+the streams are channels of one WebSocket; the recording keeps each frame and
+splits them into a stream for each path, which the demo serves.
 
 `src/main.js` runs the demo only on screens 960 px or wider, and not with
 Save-Data. After the page loads, it opens each window's scene as the window

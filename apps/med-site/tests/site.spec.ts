@@ -85,7 +85,7 @@ test("every window runs Med on a wide screen, and the page still scrolls", async
   const med = page.frameLocator(".product .live");
   await expect(
     med
-      .getByRole("navigation", { name: "Threads" })
+      .getByRole("navigation", { name: "Sessions" })
       .getByText("Search filters"),
   ).toBeVisible();
   await med
@@ -114,10 +114,10 @@ test("every window runs Med on a wide screen, and the page still scrolls", async
 
   // Each feature's window opens on its own scene as it comes near.
   const scenes = {
-    brief: "Cites 3 of 6 changed files",
+    brief: "Start reviewing",
     comment: "Add aria-live",
-    session: "is waiting for your review",
-    commit: "Commit 6 files",
+    session: "Send 1 comment",
+    commit: "search.css",
     notes: "From query to chips",
   };
   for (const [scene, text] of Object.entries(scenes)) {
@@ -210,9 +210,9 @@ test("a phone shows the part of the review that the visitor picks", async ({
     "true",
   );
   expect(await left()).toBeLessThan(0);
-  // The history is at the screenshot's left edge.
-  await parts.getByRole("button", { name: "History" }).click();
-  await expect(parts.getByRole("button", { name: "History" })).toHaveAttribute(
+  // The sessions are at the screenshot's left edge.
+  await parts.getByRole("button", { name: "Sessions" }).click();
+  await expect(parts.getByRole("button", { name: "Sessions" })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -309,8 +309,8 @@ test("the docs' prototypes run a commit and a comment's trip to the agent", asyn
     .click({ modifiers: ["Shift"] });
   await page.keyboard.press("c");
   await page.keyboard.press("ControlOrMeta+Enter");
-  await review.getByRole("button", { name: /Send to Claude/ }).click();
-  await page.keyboard.press("ControlOrMeta+Enter");
+  // The message box offers the saved comment, and sends it on its own.
+  await review.getByRole("button", { name: "Send 1 comment →" }).click();
   await expect(review.getByText("Taken")).toBeVisible();
   await expect(review.getByText("to the chip list")).toBeVisible();
   await expect(

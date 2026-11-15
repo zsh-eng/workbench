@@ -320,7 +320,8 @@ function commitTab({ stage, say, focusStage }) {
         h(
           "button",
           { type: "button", class: "act", onclick: compose },
-          "Commit…",
+          "Commit ",
+          h("kbd", {}, "c"),
         ),
       );
     const file = list[at];
@@ -468,7 +469,8 @@ function commitTab({ stage, say, focusStage }) {
   };
 }
 
-// A comment on lines, then Send to the agent, which replies.
+// A comment on lines, which waits in the session's message box until you
+// send it to the agent, which replies.
 function sendComments({ stage, say, focusStage, later }) {
   const agent = "Claude";
   const path = "src/ui/FilterChips.tsx";
@@ -491,7 +493,6 @@ function sendComments({ stage, say, focusStage, later }) {
   let dragging = false;
   let draft = null; // { from, to } while a comment is written
   const comments = []; // { from, to, text, sent }
-  let attached = [];
   let working = false;
   const thread = [
     {
@@ -499,7 +500,7 @@ function sendComments({ stage, say, focusStage, later }) {
       parts: [
         "Added filter chips under the search bar ",
         h("span", { class: "cite" }, "FilterChips.tsx:1-11"),
-        ". The review is in Med; I wait for your comments there.",
+        ". It is ready to review in Med.",
       ],
     },
   ];
@@ -511,7 +512,7 @@ function sendComments({ stage, say, focusStage, later }) {
   const note = h("textarea", { rows: 2, "aria-label": "Comment" });
   const box = h("textarea", {
     rows: 2,
-    placeholder: `Write to ${agent}…`,
+    placeholder: `Message ${agent}, or @ to mention…`,
     "aria-label": `Message to ${agent}`,
   });
   const bar = h("div", { class: "cm-bar" });
@@ -561,7 +562,8 @@ function sendComments({ stage, say, focusStage, later }) {
   );
   const state = h("span", { class: "cm-state" });
   const list = h("div", { class: "cm-thread", "aria-live": "polite" });
-  const attachedView = h("span", { class: "cm-attached" });
+  // The comments that wait, as one line above the message box.
+  const pending = h("div", { class: "cm-pending" });
   const session = h(
     "div",
     { class: "cm-session", "aria-label": `${agent} session` },
@@ -570,16 +572,16 @@ function sendComments({ stage, say, focusStage, later }) {
     h(
       "div",
       { class: "cm-compose" },
+      pending,
       box,
       h(
         "div",
-        {},
-        attachedView,
+        { class: "cm-foot" },
+        h("kbd", {}, keyLabel("Mod+Enter")),
         h(
           "button",
-          { type: "button", class: "act", onclick: send },
-          "Send ",
-          h("kbd", {}, keyLabel("Mod+Enter")),
+          { type: "button", class: "cm-send", "aria-label": "Send", onclick: send },
+          "↑",
         ),
       ),
     ),
@@ -595,14 +597,13 @@ function sendComments({ stage, say, focusStage, later }) {
         {},
         h("strong", {}, "You"),
         h("span", {}, range(comment)),
-        comment.sent ? h("span", {}, "· Sent") : null,
+        comment.sent ? h("span", {}, `· Sent to ${agent}`) : null,
         h(
           "button",
           {
             type: "button",
             onclick: () => {
               comments.splice(comments.indexOf(comment), 1);
-              attached = attached.filter((entry) => entry !== comment);
               draw();
             },
           },
@@ -664,12 +665,6 @@ function sendComments({ stage, say, focusStage, later }) {
       h("strong", {}, "Search filters"),
       h(
         "button",
-        { type: "button", class: "chip", onclick: openSend },
-        h("span", {}, `Send to ${agent}`),
-        h("span", { class: "count" }, unsent),
-      ),
-      h(
-        "button",
         {
           type: "button",
           class: "chip",
@@ -680,11 +675,21 @@ function sendComments({ stage, say, focusStage, later }) {
         h("span", { class: "count" }, comments.length),
       ),
     );
-    state.dataset.state = working ? "working" : "waiting";
-    state.textContent = working ? "Working" : "Waiting for you";
-    attachedView.textContent = attached.length
-      ? `${plural(attached.length, "comment")} attached`
-      : "";
+    state.dataset.state = working ? "working" : "idle";
+    state.textContent = working ? "Working" : "";
+    put(
+      pending,
+      unsent
+        ? [
+            h("span", { class: "cm-count" }, plural(unsent, "comment")),
+            h(
+              "button",
+              { type: "button", class: "cm-link", onclick: sendComments },
+              `Send ${plural(unsent, "comment")} →`,
+            ),
+          ]
+        : null,
+    );
     put(
       list,
       ...thread.flatMap((item) =>
@@ -742,27 +747,26 @@ function sendComments({ stage, say, focusStage, later }) {
     focusStage();
     say(`Saved a comment on ${range(comments.at(-1))}.`);
   }
-  function openSend() {
-    attached = comments.filter((comment) => !comment.sent);
-    draw();
-    box.focus();
+  /** The comments that wait, on their own. */
+  function sendComments() {
+    send({ commentsOnly: true });
   }
-  function send() {
+  function send({ commentsOnly = false } = {}) {
     if (working)
       return say(`${agent} is working. Your message waits until it is done.`);
-    const text = box.value.trim();
+    const text = commentsOnly ? "" : box.value.trim();
+    const attached = comments.filter((comment) => !comment.sent);
     if (!text && !attached.length)
       return say("Write a message, or add a comment first.");
     const item = {
       who: "you",
       text,
       comments: attached,
-      delivery: "Waiting for the agent",
+      delivery: "Sending",
     };
     for (const comment of attached) comment.sent = true;
     thread.push(item);
-    attached = [];
-    box.value = "";
+    if (!commentsOnly) box.value = "";
     draw();
     focusStage();
     later(() => {
@@ -790,13 +794,13 @@ function sendComments({ stage, say, focusStage, later }) {
               h("code", {}, 'aria-live="polite"'),
               " to the chip list, so a screen reader reads each change ",
               h("span", { class: "cite" }, "FilterChips.tsx:7"),
-              ". The next iteration is ready to review.",
+              ". The change is ready to review again.",
             ]
           : [
               item.comments.length
                 ? `Applied your ${plural(item.comments.length, "comment")}. `
                 : "Done. ",
-              "The next iteration is ready to review.",
+              "The change is ready to review again.",
             ],
       });
       draw();
