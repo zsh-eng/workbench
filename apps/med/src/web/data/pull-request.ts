@@ -8,7 +8,7 @@ export interface ThreadPlacement {
   inline: ReadonlySet<number>;
   /** Why no thread can show in this diff. */
   reason?: string;
-  /** Why one thread is in the panel and not at its line. */
+  /** Why one thread is on the Pull request page and not at its line. */
   reasons: ReadonlyMap<number, string>;
 }
 

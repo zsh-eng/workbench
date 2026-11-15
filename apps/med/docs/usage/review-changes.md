@@ -130,7 +130,7 @@ or **Delete all** beside the count, asks once (the button then says
 **Delete**, or how many), and the second click deletes the comments with their
 replies from the review or file that holds them. Escape keeps them. A GitHub
 comment's **Add to the message** button, or **Add all to**
-the agent in the pull request panel, adds GitHub comments. Press `⌘↵` or **Send**.
+the agent on the Pull request page, adds GitHub comments. Press `⌘↵` or **Send**.
 
 When Med runs the session, a new comment's box, and a reply's, has **Send to
 Claude now** (the agent's name). Ticked, **Comment** saves the comment and

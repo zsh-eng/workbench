@@ -14,11 +14,8 @@ import { FadingName } from "./ReviewHeader";
 import { clippedTooltip } from "./ToolButton";
 import {
   CodexReviewPanel,
-  PullRequestPanel,
   type CodexReviewState,
   type FindingPlacement,
-  type PullRequestState,
-  type ThreadPlacement,
 } from "./PullRequestComments";
 
 /** The header's actions for ⌘K. */
@@ -30,8 +27,6 @@ export interface SavedReviewActions {
 export function SavedReviewHeader({
   controller,
   state,
-  pullRequest,
-  threadPlacement,
   codexReviews,
   findingPlacement,
   compact = false,
@@ -51,9 +46,6 @@ export function SavedReviewHeader({
   ref?: Ref<SavedReviewActions>;
   controller: ReviewController;
   state: ReviewControllerSnapshot;
-  /** GitHub comments, when the review has a pull request. */
-  pullRequest?: PullRequestState;
-  threadPlacement?: ThreadPlacement;
   /** Codex reviews of the review's checkouts. */
   codexReviews?: CodexReviewState;
   findingPlacement?: FindingPlacement;
@@ -142,9 +134,6 @@ export function SavedReviewHeader({
         <span title={details} {...stylex.props(styles.reviewTitle)}>
           <span {...stylex.props(styles.ellipsis)}>{saved.title}</span>
         </span>
-      )}
-      {!compact && saved.pullRequestUrl && pullRequest && threadPlacement && (
-        <PullRequestPanel state={pullRequest} placement={threadPlacement} />
       )}
       {codexReviews && findingPlacement && (codexReviews.runs?.length || codexReviews.error) && (
         <CodexReviewPanel state={codexReviews} placement={findingPlacement} />

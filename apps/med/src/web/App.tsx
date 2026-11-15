@@ -143,7 +143,6 @@ import {
   PullRequestThreadCard,
   AgentReplyContext,
   CodexFindingCard,
-  PullRequestPanel,
   type AgentReplyTarget,
   type FindingPlacement,
   useCodexReviews,
@@ -5938,8 +5937,6 @@ export function App({
         compact={compact}
         comments={listedComments}
         onOpenComment={openListedComment}
-        pullRequest={pullRequest}
-        threadPlacement={pullRequestThreads.placement}
         codexReviews={codexReviews}
         findingPlacement={codexFindings.placement}
       />
@@ -5991,16 +5988,9 @@ export function App({
       {comparisonActionsElement}
     </>
   );
-  // What acts on the whole review, in its title row: the pull request's
-  // comments, then Copy comments.
-  const reviewActions = (
-    <>
-      {state.savedReview?.pullRequestUrl && (
-        <PullRequestPanel state={pullRequest} placement={pullRequestThreads.placement} />
-      )}
-      {savedHeader(true)}
-    </>
-  );
+  // What acts on the whole review, in its title row: Copy comments. The
+  // pull request's discussion is its own page, Pull request.
+  const reviewActions = savedHeader(true);
   // ⋯: what the second row folds away when narrow, before its pages.
   const rowMore = quietFolded && (
     <ActionMenu label="More actions" trigger={[ui.button, ui.iconButton]} sections={quietSections}>

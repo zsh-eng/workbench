@@ -5,12 +5,7 @@ import { ChangeTotals } from "../ChangeTotals";
 import { CommitCard } from "../CommitCard";
 import { DiffStat } from "../DiffStat";
 import { NoteCard } from "../NoteCard";
-import {
-  CodexFindingCard,
-  CodexPanelContent,
-  PanelContent,
-  PullRequestThreadCard,
-} from "../PullRequestComments";
+import { CodexFindingCard, CodexPanelContent, PullRequestThreadCard } from "../PullRequestComments";
 import PullRequestView from "../PullRequestView";
 import type { CodexFinding } from "../../../shared/codex-review";
 import type { Note, PullRequestThread } from "../../../shared/protocol";
@@ -157,25 +152,6 @@ export function ReviewSection() {
         />
       </Specimen>
       <Specimen
-        title="Pull request panel"
-        note="Opens from the count beside the pull request link: reviews, conversation, and threads the diff cannot show."
-        span="half"
-      >
-        <div {...stylex.props(styles.card, styles.panel)}>
-          <PanelContent
-            data={pullRequest}
-            error={null}
-            loading={false}
-            placement={{
-              inline: new Set([pullRequest.threads[0]!.id]),
-              reasons: new Map([[pullRequest.threads[1]!.id, "Outdated on GitHub."]]),
-            }}
-            now={now}
-            onRefresh={() => {}}
-          />
-        </div>
-      </Specimen>
-      <Specimen
         title="Pull request tab"
         note="A real pull request, as GitHub has it: state, merge, checks with a failed job's log on request, reviewers, then the description and the discussion. Narrow the page to move the status above the description."
         padded={false}
@@ -200,18 +176,6 @@ export function ReviewSection() {
             error={null}
             placement={{ inline: new Set([codexReview.findings[0]!.id]), reasons: new Map() }}
             now={now}
-          />
-        </div>
-      </Specimen>
-      <Specimen title="Pull request panel without gh" note="Med reads GitHub with gh." span="half">
-        <div {...stylex.props(styles.card, styles.panel)}>
-          <PanelContent
-            data={null}
-            error="Install the GitHub CLI (gh) and run gh auth login to show pull request comments."
-            loading={false}
-            placement={{ inline: new Set(), reasons: new Map() }}
-            now={now}
-            onRefresh={() => {}}
           />
         </div>
       </Specimen>

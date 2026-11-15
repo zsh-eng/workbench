@@ -69,9 +69,9 @@ comment by itself.
   its line with the GitHub mark. This includes Changes when the branch tip is
   the pull request's head. A file with changes after that commit lists its
   threads instead.
-- The comment count beside the title, such as "3 comments", opens the reviews,
-  the general comments, and the threads that the diff cannot show, each with
-  the reason.
+- The **Pull request** page holds the reviews, the general comments, and
+  every code thread, in one timeline. A thread that the diff cannot show says
+  why; one that it shows has **Show in diff**.
 - A thread whose agent opens a pull request later gets the link by itself: while
   the thread's tab is open, Med asks `gh` for an open pull request from its
   branch.
@@ -86,13 +86,12 @@ comment by itself.
   starts one when you have none. Its comments show **Pending**. A comment on
   another commit, or on captured working changes, cannot go: GitHub's lines
   belong to the head.
-- **Your pending review** at the top of the panel says how many comments it
+- **Your pending review** at the top of the Pull request page says how many comments it
   holds. Add a summary, then **Submit comments**, **Approve** or **Request
   changes**; **Discard** deletes it on GitHub.
-- Med reads again when the window gets focus, at most every 30 seconds, when
-  you open the panel, after each change to your pending review, and with
-  **Refresh** in the panel. **Hide comments** hides GitHub's comments and
-  Med's.
+- Med reads again when the window gets focus, at most every 30 seconds, while
+  the Pull request page shows, and after each change to your pending review.
+  **Hide comments** hides GitHub's comments and Med's.
 
 ## A pull request in a thread
 

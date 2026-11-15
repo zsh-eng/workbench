@@ -364,7 +364,7 @@ async function openChanges() {
   await expect.poll(() => shown()?.dataset.reviewId).toBe("live-working");
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
 }
-/** A GitHub thread, at its line or in the panel. */
+/** A GitHub thread, at its line or on the Pull request page. */
 const inDiff = '[aria-label^="GitHub thread by"]';
 const thread = (author: string, line: string) =>
   page.getByRole("article", { name: `GitHub thread by ${author} at ${line}` });
@@ -381,34 +381,37 @@ test("Branch changes at the pull request head show its threads at their lines, a
   expect(thread("mira", "R1").element().textContent).toMatch(/lee\s*Pending.*And in the docs\./);
   expect(shown()!.querySelectorAll(inDiff)).toHaveLength(1);
 
-  // The row says the count in words.
-  const trigger = page.getByRole("button", { name: "5 pull request comments" });
-  await expect.element(trigger).toHaveTextContent("5 comments");
-  await trigger.click();
-  const panel = page.getByRole("dialog", { name: "Pull request comments" });
-  await expect.element(panel).toBeVisible();
-  const text = panel.element().textContent;
-  expect(text).toContain("1 thread shows in the diff.");
+  // The Pull request page lists every thread; one that the diff cannot
+  // show says why.
+  await page.getByRole("radio", { name: "Pull request" }).click();
+  const view = page.getByRole("region", { name: "Pull request" });
+  await expect.element(view.getByText("Is this still needed?")).toBeVisible();
+  const text = view.element().textContent;
   expect(text).toMatch(
     /src\/beta\.ts\s*R1\s*src\/beta\.ts has changes after the pull request head\..*Is this still needed\?/,
   );
-  expect(text).toMatch(/src\/gamma\.ts\s*R4\s*Outdated on GitHub\..*Was this off by one\?/);
+  // An outdated thread is one line, which opens to its reason.
+  await view.getByRole("button", { name: /src\/gamma\.ts, outdated$/ }).click();
+  await expect.element(view.getByText("Was this off by one?")).toBeVisible();
+  expect(view.element().textContent).toMatch(
+    /src\/gamma\.ts\s*R4\s*Outdated on GitHub\..*Was this off by one\?/,
+  );
 });
 
 test("Changes whose head is not the pull request head list every thread with the reason", async () => {
   pullHead = "c".repeat(40);
   await openChanges();
-  const trigger = page.getByRole("button", { name: "5 pull request comments" });
-  await expect.element(trigger).toHaveTextContent("5 comments");
-  await trigger.click();
-  const panel = page.getByRole("dialog", { name: "Pull request comments" });
-  await expect.element(panel).toBeVisible();
-  expect(panel.element().textContent).toContain(
-    "Lines refer to the pull request head, ccccccc. This comparison shows aaaaaaa, so they are listed here.",
-  );
-  // The diff has none; the panel lists them.
+  // The diff has none; the Pull request page lists them, and says why.
   expect(shown()!.querySelector(inDiff)).toBeNull();
-  expect(panel.element().querySelectorAll(inDiff)).toHaveLength(3);
+  await page.getByRole("radio", { name: "Pull request" }).click();
+  const view = page.getByRole("region", { name: "Pull request" });
+  await expect
+    .element(
+      view.getByText(
+        "Lines refer to the pull request head, ccccccc. This comparison shows aaaaaaa, so they are listed here.",
+      ),
+    )
+    .toBeVisible();
 });
 
 test("a GitHub comment shows its Markdown: code, lists, task lists, quotes, and links that open in the browser; raw HTML stays out", async () => {
@@ -455,7 +458,7 @@ test("a GitHub comment shows its Markdown: code, lists, task lists, quotes, and 
   expect(element.textContent).not.toContain("```");
 });
 
-test("a pull request names the review in its row, quietly: its mark in its state's colour, its title, and its number; the band keeps the checkout and the comments", async () => {
+test("a pull request names the review in its row, quietly: its mark in its state's colour, its title, and its number; the band keeps the checkout", async () => {
   pullTitle = `Rename the export ${"and every caller of it ".repeat(12)}`;
   await openChanges();
   const link = page.getByRole("link", { name: /^Open pull request #7: Rename the export/ });
@@ -477,20 +480,18 @@ test("a pull request names the review in its row, quietly: its mark in its state
     .filter((span) => span.textContent?.startsWith("Rename the export"))
     .at(-1)!;
   expect(title.scrollWidth).toBeGreaterThan(title.clientWidth);
-  // The band names the checkout, and the comments count is at its end, with
-  // the pages; it holds no review header.
+  // The band names the checkout, with the pages at its end; it holds no
+  // review header, and no comments button: they are on the Pull request page.
   const band = document.querySelector<HTMLElement>('header[aria-label="Workspace"]')!;
   const checkout = page.getByRole("button", { name: "fixture. Copy the path", exact: true });
   await expect.element(checkout).toBeVisible();
   expect(band.contains(checkout.element())).toBe(true);
-  const comments = page.getByRole("button", { name: "5 pull request comments" });
-  await expect.element(comments).toHaveTextContent("5 comments");
-  expect(band.contains(comments.element())).toBe(true);
+  expect(page.getByRole("button", { name: /pull request comments?$/ }).query()).toBeNull();
   expect(band.querySelector('[aria-label="Review header"]')).toBeNull();
   // The band moves the window; its buttons take clicks.
   const region = (element: Element) => getComputedStyle(element).getPropertyValue("app-region");
   expect(region(band)).toBe("drag");
-  expect(region(comments.element())).toBe("no-drag");
+  expect(region(checkout.element())).toBe("no-drag");
 });
 
 /** The thread's Pull request tab, once its review shows. */

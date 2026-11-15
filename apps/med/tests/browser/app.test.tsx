@@ -4315,17 +4315,22 @@ describe("saved reviews", () => {
       noteId: "saved-note-0",
     });
 
-    // The panel holds the pending review, the conversation, and the thread
-    // the diff cannot show.
-    await page.getByRole("button", { name: "6 pull request comments" }).click();
-    const panel = page.getByRole("dialog", { name: "Pull request comments" });
-    await expect.element(panel).toBeVisible();
-    const text = panel.element().textContent;
-    expect(text).toMatch(/jordan\s*Approved/);
-    expect(text).toContain("Ready for review.");
-    expect(text).toContain("1 thread shows in the diff.");
-    expect(text).toMatch(/src\/beta\.ts\s*L2\s*Outdated.*Is this still needed\?/);
-    const pending = panel.getByRole("region", { name: "Your pending review" });
+    // The Pull request page holds the pending review, the conversation, and
+    // every thread; opening it reads the comments again. There is no
+    // comments button beside the pull request's link.
+    expect(page.getByRole("button", { name: /pull request comments?$/ }).query()).toBeNull();
+    const reads = pullRequestReads.length;
+    await page.getByRole("radio", { name: "Pull request" }).click();
+    const view = page.getByRole("region", { name: "Pull request" });
+    await expect.element(view.getByText("Ready for review.")).toBeVisible();
+    await expect.poll(() => pullRequestReads.length).toBeGreaterThan(reads);
+    const text = view.element().textContent;
+    expect(text).toMatch(/jordan\s*approved/);
+    expect(text).toMatch(/src\/beta\.ts/);
+    await expect
+      .element(view.getByRole("button", { name: "Show alpha.ts:R1 in the diff" }))
+      .toBeVisible();
+    const pending = view.getByRole("region", { name: "Your pending review" });
     await expect.element(pending).toMatchTextContent(/1 comment, only you see them/);
     await pending.getByRole("textbox", { name: "Review summary" }).fill("Looks right.");
     await pending.getByRole("button", { name: "Submit comments" }).click();
@@ -4335,10 +4340,7 @@ describe("saved reviews", () => {
       event: "COMMENT",
       body: "Looks right.",
     });
-    await expect.element(panel).toMatchTextContent(/me\s*Reviewed.*Looks right\./);
-    await panel.getByRole("button", { name: "Read again from GitHub" }).click();
-    await expect.poll(() => pullRequestReads.at(-1)).toBe("?refresh=1");
-    expect(pullRequestReads.slice(0, -1).every((search) => search === "")).toBe(true);
+    await expect.element(view).toMatchTextContent(/Looks right\./);
   });
 
   test("⌘⇧B shows and hides the review, the pane beside the session", async () => {

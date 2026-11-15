@@ -22,8 +22,6 @@ import { tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
 import { PendingReviewContext, type PendingReviewInput } from "../data/pending-review";
 import { CommentEditor, CommentText } from "./NoteCard";
-import { useRowPart } from "./QuietChrome";
-import { tooltip } from "./ToolButton";
 import { Fold } from "./Fold";
 
 // Review comments that Med reads but does not write: GitHub pull request
@@ -51,7 +49,7 @@ interface Loaded {
 }
 
 /** Loads a saved review's pull request comments, again when the window gets
- * focus, when the reader opens the panel, and after each change that the
+ * focus, when the Pull request tab reads GitHub, and after each change that the
  * reader makes to their pending review. */
 export function usePullRequestComments(
   load: (refresh: boolean) => Promise<PullRequestComments>,
@@ -394,7 +392,7 @@ function Entry({
   );
 }
 
-/** A GitHub thread, in the diff or the panel. A reply goes into the reader's
+/** A GitHub thread, in the diff or on the Pull request page. A reply goes into the reader's
  * pending review on GitHub; Med does not edit or resolve threads. */
 export function PullRequestThreadCard({
   thread,
@@ -552,148 +550,6 @@ function PendingReview({ data, children }: { data: PullRequestComments; children
 
 export type { ThreadPlacement };
 
-/** The pull request's conversation and the code comments that are not in the
- * diff, in a popover beside the pull request link. */
-export function PullRequestPanel({
-  state,
-  placement,
-}: {
-  state: PullRequestState;
-  placement: ThreadPlacement;
-}) {
-  const [open, setOpen] = useState(false);
-  const [part, setPart] = useState<HTMLSpanElement | null>(null);
-  const { data, error, loading, refresh } = state;
-  const count = data
-    ? data.conversation.length +
-      data.reviews.length +
-      data.threads.reduce((sum, thread) => sum + thread.comments.length, 0)
-    : null;
-  const label = error
-    ? "Pull request comments: could not load"
-    : count === null
-      ? "Pull request comments"
-      : `${count} pull request ${count === 1 ? "comment" : "comments"}`;
-  const room = useRowPart(part, error ? "error" : "count");
-  return (
-    <Popover.Root
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (next) refresh();
-      }}
-    >
-      <Popover.Trigger
-        {...stylex.props(ui.button, ui.pressable, styles.trigger)}
-        aria-label={label}
-        {...tooltip(error ?? label)}
-      >
-        <Icon name="note" size={14} />
-        {(error || count !== null) && (
-          // The words give way before the review's title shortens: "7", or "!".
-          <span {...stylex.props(styles.words, !room && error ? styles.bad : null)}>
-            {error ? (
-              <>
-                <span ref={setPart} {...stylex.props(!room && styles.hidden)}>
-                  Comments could not load
-                </span>
-                {!room && "!"}
-              </>
-            ) : (
-              <>
-                {count}
-                <span ref={setPart} {...stylex.props(!room && styles.hidden)}>
-                  {count === 1 ? " comment" : " comments"}
-                </span>
-              </>
-            )}
-          </span>
-        )}
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Positioner
-          align="start"
-          sideOffset={5}
-          {...stylex.props(styles.positioner, ui.instant)}
-        >
-          <Popover.Popup
-            aria-label="Pull request comments"
-            {...stylex.props(ui.popup, styles.panel, ui.instant)}
-          >
-            <PanelContent
-              data={data}
-              error={error}
-              loading={loading}
-              placement={placement}
-              onRefresh={() => refresh(true)}
-            />
-          </Popover.Popup>
-        </Popover.Positioner>
-      </Popover.Portal>
-    </Popover.Root>
-  );
-}
-
-/** The panel's contents; the elements page shows them without the popover. */
-export function PanelContent({
-  data,
-  error,
-  loading,
-  placement,
-  now: fixedNow,
-  onRefresh,
-}: {
-  data: PullRequestComments | null;
-  error: string | null;
-  loading: boolean;
-  placement: ThreadPlacement;
-  now?: number;
-  onRefresh(): void;
-}) {
-  // The popover mounts its contents when it opens; ages count from then.
-  const [openedAt] = useState(Date.now);
-  const now = fixedNow ?? openedAt;
-  const writable = !!useContext(PendingReviewContext);
-  return (
-    <div {...stylex.props(styles.content)}>
-      <header {...stylex.props(styles.head)}>
-        <h2 {...stylex.props(styles.title)}>Pull request comments</h2>
-        <span {...stylex.props(ui.grow)} />
-        {data && (
-          <span {...stylex.props(styles.time)}>
-            {loading
-              ? "Updating…"
-              : `Read ${relativeTime(data.fetchedAt, Math.max(now, data.fetchedAt))}`}
-          </span>
-        )}
-        <button
-          type="button"
-          title="Read again from GitHub. Med also reads when the window gets focus."
-          aria-label="Read again from GitHub"
-          aria-busy={loading}
-          {...stylex.props(ui.button, ui.pressable, styles.addAll)}
-          onClick={onRefresh}
-        >
-          <Icon name="refresh" size={12} />
-          Refresh
-        </button>
-      </header>
-      <p {...stylex.props(styles.lede)}>
-        {writable
-          ? "A reply, or a Med comment that you add to GitHub, goes into your pending review. Nobody else sees it until you submit it."
-          : "Read-only from GitHub. To reply, open a comment on GitHub. Med notes stay local."}
-      </p>
-      {error && (
-        <p role="alert" {...stylex.props(styles.error)}>
-          {error}
-        </p>
-      )}
-      {!data && !error && <p {...stylex.props(styles.lede)}>Reading comments…</p>}
-      {data && <Discussion data={data} placement={placement} now={now} />}
-    </div>
-  );
-}
-
 const hasPending = (thread: PullRequestThread) => thread.comments.some((entry) => entry.draft);
 
 /** A code thread in a list: where it is, and why the diff does not show it. */
@@ -736,10 +592,10 @@ function ThreadItem({
 }
 
 /**
- * The reader's pending review, the conversation in time order, and the code
- * comments. The panel lists only the threads that the diff cannot show.
- * With `onShowThread`, as in the Pull request tab, every thread shows, with
- * the pending ones in the pending review and a link to each that the diff has.
+ * The Pull request tab's discussion: the reader's pending review with its
+ * pending threads, then one timeline of the conversation and every other
+ * thread, each with a link to its line when the diff has it. When the diff
+ * cannot show the threads, as when it shows another commit, one line says why.
  */
 export function Discussion({
   data,
@@ -750,83 +606,25 @@ export function Discussion({
   data: PullRequestComments;
   placement: ThreadPlacement;
   now: number;
-  onShowThread?(thread: PullRequestThread): void;
+  onShowThread(thread: PullRequestThread): void;
 }) {
-  const timeline = [
-    ...data.reviews.map((review) => ({ comment: review, state: review.state })),
-    ...data.conversation.map((comment) => ({ comment, state: undefined })),
-  ].sort((a, b) => a.comment.createdAt.localeCompare(b.comment.createdAt));
-  const others = data.threads.filter((thread) => !placement.inline.has(thread.id));
-  const inline = data.threads.length - others.length;
-  const pending = onShowThread ? data.threads.filter(hasPending) : [];
-  const listed = onShowThread ? data.threads.filter((thread) => !hasPending(thread)) : others;
+  const pending = data.threads.filter(hasPending);
+  const listed = data.threads.filter((thread) => !hasPending(thread));
+  const away = data.threads.some((thread) => !placement.inline.has(thread.id));
   const item = (thread: PullRequestThread) => (
     <ThreadItem
       key={thread.id}
       thread={thread}
       why={placement.reasons.get(thread.id)}
       now={now}
-      onShow={
-        onShowThread && placement.inline.has(thread.id) ? () => onShowThread(thread) : undefined
-      }
+      onShow={placement.inline.has(thread.id) ? () => onShowThread(thread) : undefined}
     />
   );
-  if (onShowThread)
-    return (
-      <>
-        <PendingReview data={data}>{pending.length > 0 && pending.map(item)}</PendingReview>
-        <Timeline data={data} threads={listed} now={now} item={item} />
-      </>
-    );
   return (
     <>
       <PendingReview data={data}>{pending.length > 0 && pending.map(item)}</PendingReview>
-      <section aria-label="Conversation" {...stylex.props(styles.section)}>
-        <h3 {...stylex.props(ui.label, styles.heading)}>Conversation</h3>
-        {timeline.length ? (
-          timeline.map(({ comment, state }) => (
-            <div key={comment.id} {...stylex.props(styles.item)}>
-              <Entry
-                comment={comment}
-                now={now}
-                state={state}
-                tools={
-                  <>
-                    {comment.body.trim() && (
-                      <>
-                        <AddToReplyButton
-                          label={`@${comment.author}`}
-                          text={() => commentText(comment)}
-                        />
-                        <CopyButton label="Copy comment" text={() => commentText(comment)} />
-                      </>
-                    )}
-                    <OpenButton url={comment.url} />
-                  </>
-                }
-              />
-            </div>
-          ))
-        ) : (
-          <p {...stylex.props(styles.lede)}>No conversation comments.</p>
-        )}
-      </section>
-      <section aria-label="Code comments" {...stylex.props(styles.section)}>
-        <div {...stylex.props(styles.headingRow)}>
-          <h3 {...stylex.props(ui.label, styles.heading)}>Code comments</h3>
-          <AddAllToReply threads={data.threads.filter((thread) => thread.line !== null)} />
-        </div>
-        {!onShowThread && inline > 0 && (
-          <p {...stylex.props(styles.lede)}>
-            {inline} {inline === 1 ? "thread shows" : "threads show"} in the diff.
-          </p>
-        )}
-        {placement.reason && others.length > 0 && (
-          <p {...stylex.props(styles.lede)}>{placement.reason}</p>
-        )}
-        {listed.map(item)}
-        {!data.threads.length && <p {...stylex.props(styles.lede)}>No code comments.</p>}
-      </section>
+      {placement.reason && away && <p {...stylex.props(styles.lede)}>{placement.reason}</p>}
+      <Timeline data={data} threads={listed} now={now} item={item} />
     </>
   );
 }
@@ -1440,15 +1238,6 @@ const styles = stylex.create({
   },
   trigger: { flexShrink: 0, gap: 5 },
   count: { fontVariantNumeric: "tabular-nums" },
-  // The header's muted text.
-  words: {
-    color: tokens.muted,
-    fontSize: 12,
-    fontWeight: 400,
-    whiteSpace: "nowrap",
-    fontVariantNumeric: "tabular-nums",
-  },
-  hidden: { display: "none" },
   why: { margin: 0, paddingTop: 2, color: tokens.faint, fontSize: 11.5, lineHeight: 1.45 },
   positioner: { zIndex: 60 },
   panel: {

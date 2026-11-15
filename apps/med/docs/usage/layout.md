@@ -98,7 +98,7 @@ work. Then it names the
 checkout that the workspace shows, by its repository and branch, or the
 thread while the sidebar hides. Its end always holds, from
 left to right: the session's controls (its context's use, or the session
-rail's list button where the rail has room), then the pages, the pull request's comments,
+rail's list button where the rail has room), then the pages,
 **Copy comments** with their number while the review has comments, and
 **Display** (an icon). They show whether or not the review does.
 

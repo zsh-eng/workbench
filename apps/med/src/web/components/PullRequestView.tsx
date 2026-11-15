@@ -430,7 +430,7 @@ function Reviewers({ pull }: { pull: LivePullRequest }) {
  * state of it, which Med reads while this tab is on screen, then the
  * description and the discussion. The status goes in a column beside them
  * when the pane has room, and above them when it has not (PullRequestView.css).
- * The only writes are the pending review's, as in the comments panel.
+ * The only writes are the pending review's.
  */
 export default function PullRequestView({
   reviewId,
