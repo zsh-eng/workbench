@@ -108,7 +108,8 @@ if (!webBuilt || newer!.length) {
 run(process.execPath, ["run", "build:server"]);
 say("built");
 
-const installing = dry ? Promise.resolve() : installHere();
+// An install that fails is reported at the end; the release goes on.
+const installing = dry ? Promise.resolve() : installHere().catch((error: Error) => error);
 const output = await mkdtemp(join(tmpdir(), "med-release-"));
 execFileSync(process.execPath, ["scripts/release-macos.ts", output], {
   cwd: app,
@@ -140,8 +141,8 @@ await runAsync("gh", [
 say(`published https://github.com/${repo}/releases/tag/${tag}`);
 await runAsync("git", ["push", "-q", "origin", `${commit}:main`]);
 say("pushed main");
-await installing;
-say("done");
+const failed = await installing;
+say(failed ? `released; not installed: ${failed.message}` : "done");
 
 function nextVersion(from: string, step: string) {
   if (/^\d+\.\d+\.\d+$/.test(step)) return step;
@@ -154,7 +155,8 @@ function nextVersion(from: string, step: string) {
 
 /**
  * This Mac runs the release: the main checkout, whose dist the `med` command
- * runs, moves to the release commit and takes this build, and a Med server
+ * runs, moves to the release commit (or merges it, when main has commits that
+ * origin's does not) and takes this build, and a Med server
  * that runs restarts with the same command, in a login shell of its own.
  */
 async function installHere() {
@@ -163,7 +165,10 @@ async function installHere() {
   if (resolve(mainApp) !== app) {
     const branch = run("git", ["branch", "--show-current"], main);
     if (branch !== "main") return say(`not installed: ${main} is on ${branch}`);
-    await runAsync("git", ["merge", "-q", "--ff-only", commit], main);
+    // A main with commits of its own takes the release as a merge.
+    await runAsync("git", ["merge", "-q", "--ff-only", commit], main).catch(() =>
+      runAsync("git", ["merge", "-q", "--no-edit", "-m", `Merge Med v${version}`, commit], main),
+    );
     await runAsync("rsync", [
       "-a",
       "--delete",
