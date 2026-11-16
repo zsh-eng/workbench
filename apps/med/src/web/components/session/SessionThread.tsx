@@ -1048,26 +1048,37 @@ function AgentView({
     stuck.current = true;
     node.scrollTop = node.scrollHeight;
     // As the session's thread does (thread-follow.ts, thread-glide.ts).
-    const reader = followEnd(node, stuck);
     const glide = glideContent(inner, OVERSCAN);
     let height = node.clientHeight;
+    const letGo = () => {
+      if (stuck.current) return;
+      const rest = glide.settle();
+      if (!rest) return;
+      node.scrollTop -= rest;
+      reader.wrote();
+    };
+    const reader = followEnd(node, stuck, letGo);
+    const onScroll = () => {
+      reader.check();
+      letGo();
+    };
     const observer = new ResizeObserver(() => {
       reader.check();
       if (stuck.current) {
         const from = node.scrollTop;
         node.scrollTop = node.scrollHeight;
+        // A glide under way runs on.
         if (working.current && node.clientHeight === height) glide.moved(node.scrollTop - from);
-        else glide.stop();
       }
       height = node.clientHeight;
       reader.wrote();
     });
     observer.observe(inner);
-    node.addEventListener("scroll", reader.check, { passive: true });
+    node.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       glide.stop();
       observer.disconnect();
-      node.removeEventListener("scroll", reader.check);
+      node.removeEventListener("scroll", onScroll);
       reader.dispose();
     };
   }, [agent.id]);
@@ -1368,10 +1379,9 @@ export function SessionThread({
   const [sized, setSized] = useState(false);
 
   // The latest values for the scroll and resize handlers.
-  const running = snapshot.running;
-  const latest = useRef({ model, metrics, range: { start, end }, earlier, shift, running });
+  const latest = useRef({ model, metrics, range: { start, end }, earlier, shift, settled });
   useLayoutEffect(() => {
-    latest.current = { model, metrics, range: { start, end }, earlier, shift, running };
+    latest.current = { model, metrics, range: { start, end }, earlier, shift, settled };
   });
 
   // The first unit that starts in view, and how far the view is below its
@@ -1499,25 +1509,54 @@ export function SessionThread({
       if (offsets[at]! < y && at + 1 < all.length && offsets[at + 1]! < y + node.clientHeight) at++;
       anchor.current = { key: all[at]!.key, delta: y - offsets[at]! };
     };
+    // Work that lands at the end glides up into view (thread-glide.ts), as do
+    // the rows that end a turn. The view jumps while the thread opens, and
+    // when it changes size, as when the message box grows; a glide under way
+    // runs on.
+    const glide = glideContent(inner, OVERSCAN);
+    let height = node.clientHeight;
+    // The last unit as the view last showed it. The content glides by the
+    // view's move, less the part that a change above that unit made: as when
+    // a unit out of sight measures its text, the view moves with the change,
+    // and nothing on screen moves. New work below the unit, or its own
+    // growth, glides in whole. A change that the view does not move for, as
+    // in a thread that fits, does not glide.
+    let seen: { unit: HTMLElement; top: number; scroll: number } | undefined;
+    const see = () => {
+      let unit = inner.lastElementChild as HTMLElement | null;
+      while (unit && unit.dataset.unit === undefined)
+        unit = unit.previousElementSibling as HTMLElement | null;
+      seen = unit ? { unit, top: unit.offsetTop, scroll: node.scrollTop } : undefined;
+    };
     // The reader's input lets go, and the view keeps its place from here; or
     // it follows again.
     const reader = followEnd(node, stuck, () => {
-      if (!stuck.current) record();
+      if (!stuck.current) {
+        letGo();
+        record();
+      }
       setAtBottom(stuck.current);
     });
-    // Work that lands at the end while the agent works glides up into view
-    // (thread-glide.ts). The view jumps when the thread opens or settles its
-    // heights, and when it changes size, as when the message box grows.
-    const glide = glideContent(inner, OVERSCAN);
-    let height = node.clientHeight;
+    // A view that stops following ends its glide where the reader sees the
+    // content: the rest of the glide becomes scroll position, so nothing on
+    // screen moves but by the reader's own scroll.
+    const letGo = () => {
+      const rest = glide.settle();
+      if (!rest) return;
+      node.scrollTop -= rest;
+      reader.wrote();
+    };
     const followed = () => {
+      const last = seen?.unit.isConnected ? seen : undefined;
       const from = node.scrollTop;
       node.scrollTop = node.scrollHeight;
       reader.wrote();
-      if (latest.current.running && node.clientHeight === height)
-        glide.moved(node.scrollTop - from);
-      else glide.stop();
+      const move = node.scrollTop - (last?.scroll ?? from);
+      const above = last ? last.unit.offsetTop - last.top : 0;
+      const rose = move - Math.min(Math.max(above, Math.min(0, move)), Math.max(0, move));
+      if (latest.current.settled && node.clientHeight === height) glide.moved(rose);
       height = node.clientHeight;
+      see();
     };
     // Browser scroll anchoring is off: it would count the spacers. The view
     // keeps its first unit in place itself, or the end while it follows.
@@ -1608,6 +1647,7 @@ export function SessionThread({
         recorded = node.scrollTop;
       }
       glide.stop();
+      see();
       place(true);
     };
     // The view goes to the end and follows it again: Latest, or a message
@@ -1618,6 +1658,7 @@ export function SessionThread({
       glide.stop();
       node.scrollTop = node.scrollHeight;
       reader.wrote();
+      see();
       record();
       place(sync);
     };
@@ -1628,6 +1669,7 @@ export function SessionThread({
       const at = index.get(key);
       if (at === undefined) return;
       stuck.current = false;
+      letGo();
       anchor.current = { key, delta: viewTop() - offsets[at]! };
       recorded = node.scrollTop;
     };
@@ -1643,6 +1685,9 @@ export function SessionThread({
     };
     const onScroll = () => {
       reader.check();
+      if (!stuck.current) letGo();
+      // The place the next glide measures from.
+      see();
       setAtBottom(stuck.current);
       record();
       place(true);

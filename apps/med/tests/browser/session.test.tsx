@@ -1498,14 +1498,22 @@ test("while a reply streams in, the reader's move up holds the view until the re
 
 /** The thread as the Session panel shows it: the transcript's items, then
  * the replies that the host streams. */
-function Streamed({ store, streaming }: { store: SessionStore; streaming?: Streaming }) {
+function Streamed({
+  store,
+  streaming,
+  running = true,
+}: {
+  store: SessionStore;
+  streaming?: Streaming;
+  running?: boolean;
+}) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const replies = useStreamedReplies(snapshot.items, streaming);
   return (
     <SessionThread
       snapshot={{
         ...snapshot,
-        running: true,
+        running,
         items: withStreamedReplies(snapshot.items, replies),
       }}
     />
@@ -1534,6 +1542,109 @@ test("a streaming reply shows whole blocks, and all of its text once it ends", a
     ended: true,
   });
   await expect.element(thread.getByText("The filters run first.")).toBeVisible();
+});
+
+test("new work glides in only while the view follows the end; a reader elsewhere sees nothing move", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(40);
+  const paragraph = (index: number) =>
+    `Paragraph ${index}. ${"The filters run before ranking. ".repeat(3)}`;
+  let count = 6;
+  const text = () =>
+    `${Array.from({ length: count }, (_, index) => paragraph(index)).join("\n\n")}\n\n`;
+  const show = () =>
+    root!.render(<Streamed store={store} streaming={{ id: "m1", text: text() }} />);
+  show();
+  await expect.element(page.getByText(/^Paragraph 5\./)).toBeInTheDocument();
+  const scroller = threadScroller();
+  const log = page.getByRole("log", { name: "Session" }).element() as HTMLElement;
+  await expect.poll(() => gapOf(scroller)).toBeLessThan(32);
+  await afterFrames(30);
+  const glides = () => log.getAnimations().filter((animation) => animation.playState === "running");
+
+  // At the end, a new block glides in.
+  count++;
+  show();
+  await expect.element(page.getByText(/^Paragraph 6\./)).toBeInTheDocument();
+  await expect.poll(() => glides().length).toBe(1);
+
+  // The reader moves up mid-glide: the content stays where it shows, and only
+  // the reader's own scroll moves it. (This wheel event scrolls nothing.)
+  const unit = units().at(-2)!;
+  const before = unit.getBoundingClientRect().top;
+  scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -40, bubbles: true }));
+  expect(Math.abs(unit.getBoundingClientRect().top - before)).toBeLessThan(0.5);
+  expect(glides()).toHaveLength(0);
+  await expect.element(page.getByRole("button", { name: "Latest" })).toBeVisible();
+
+  // Away from the end, new blocks land below and nothing in view moves.
+  const shown = firstInView();
+  for (let round = 0; round < 4; round++) {
+    count++;
+    show();
+    for (let frame = 0; frame < 12; frame++) {
+      await nextFrame();
+      expect(glides()).toHaveLength(0);
+      expect(Math.abs(topOf(shown.key) - shown.top)).toBeLessThan(0.5);
+    }
+  }
+  await expect.element(page.getByText(/^Paragraph 10\./)).toBeInTheDocument();
+});
+
+test("a change above the view moves nothing, and a glide under way runs on as the turn ends", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(40);
+  const paragraph = (index: number) =>
+    `Paragraph ${index}. ${"The filters run before ranking. ".repeat(3)}`;
+  let count = 6;
+  const text = () =>
+    `${Array.from({ length: count }, (_, index) => paragraph(index)).join("\n\n")}\n\n`;
+  const show = (running = true) =>
+    root!.render(
+      <Streamed
+        store={store}
+        streaming={{ id: "m1", text: text(), ended: !running }}
+        running={running}
+      />,
+    );
+  show();
+  await expect.element(page.getByText(/^Paragraph 5\./)).toBeInTheDocument();
+  const scroller = threadScroller();
+  const log = page.getByRole("log", { name: "Session" }).element() as HTMLElement;
+  await expect.poll(() => gapOf(scroller)).toBeLessThan(32);
+  await afterFrames(30);
+  const glides = () => log.getAnimations().filter((animation) => animation.playState === "running");
+  const offset = () => new DOMMatrixReadOnly(getComputedStyle(log).transform).m42;
+
+  // A unit above the view grows. The view keeps the end, so nothing on screen
+  // moves, and nothing glides.
+  const above = units()[0]!;
+  expect(above.getBoundingClientRect().bottom).toBeLessThan(scroller.getBoundingClientRect().top);
+  const last = units().at(-1)!;
+  const top = last.getBoundingClientRect().top;
+  above.style.paddingBottom = "120px";
+  for (let frame = 0; frame < 8; frame++) {
+    await nextFrame();
+    expect(glides()).toHaveLength(0);
+    expect(Math.abs(last.getBoundingClientRect().top - top)).toBeLessThan(0.5);
+  }
+  expect(gapOf(scroller)).toBeLessThan(32);
+
+  // The last block glides in, and the turn ends meanwhile: the glide runs on
+  // to its place, and the content does not jump there.
+  count++;
+  show();
+  await expect.poll(() => glides().length).toBe(1);
+  await nextFrame();
+  show(false);
+  await afterFrames(2);
+  expect(glides()).toHaveLength(1);
+  expect(offset()).toBeGreaterThan(1);
+  await expect.poll(() => glides().length).toBe(0);
+  expect(offset()).toBe(0);
+  expect(gapOf(scroller)).toBeLessThan(32);
 });
 
 test("a reply that stops streaming stays until the transcript has it, so the reader's place holds", async () => {
