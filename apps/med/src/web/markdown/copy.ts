@@ -81,7 +81,7 @@ async function pngOf(blob: Blob) {
 }
 
 /** An SVG blob drawn to an image first: createImageBitmap does not take SVG everywhere. */
-async function svgPng(svg: string, width: number, height: number, background: string) {
+export async function svgPng(svg: string, width: number, height: number, background: string) {
   const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
   try {
     const image = new Image();
@@ -200,7 +200,7 @@ export async function copyDiagramSvg(svg: SVGSVGElement) {
 }
 
 /** A CSS color, such as a `color-mix()` or a variable, as the canvas can paint it. */
-function resolveColor(color: string, near: Element) {
+export function resolveColor(color: string, near: Element) {
   const probe = document.createElement("span");
   probe.style.color = color;
   probe.style.display = "none";

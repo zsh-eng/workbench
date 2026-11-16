@@ -8,6 +8,7 @@ import { ToolButton } from "../ToolButton";
 import { AgentsSection } from "./AgentsSection";
 import { PullSection } from "./PullSection";
 import { PanesSection } from "./PanesSection";
+import { ChartsSection } from "./ChartsSection";
 import { CodeSection } from "./CodeSection";
 import { CommitSection } from "./CommitSection";
 import { ControlsSection } from "./ControlsSection";
@@ -25,6 +26,7 @@ const sections = [
   { id: "controls", label: "Controls" },
   { id: "review", label: "Review parts" },
   { id: "code", label: "Code colors" },
+  { id: "charts", label: "Charts" },
   { id: "panes", label: "Side panes" },
   { id: "sources", label: "Sources" },
   { id: "session", label: "Agent session" },
@@ -149,6 +151,7 @@ export default function ElementsPage() {
             <ControlsSection />
             <ReviewSection />
             <CodeSection />
+            <ChartsSection />
             <PanesSection />
             <SourcesSection />
             <SessionSection />
