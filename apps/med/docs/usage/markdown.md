@@ -105,8 +105,9 @@ Med keeps what it read from Grafana, so a chart draws the same each time.
 At rest a chart shows its data and where it came from. Hover it to read each
 line at a time; the time sits on the axis. Drag across to zoom, and
 double-click or **Reset zoom** to zoom out. The key hides and shows a line.
-The rest is in **Chart options** (`⋯`), which shows while the pointer or the
-focus is on the chart: **Log scale**, **Full screen**, **Refresh**, **Open
+While the pointer or the focus is on the chart, two buttons show at its
+corner, as on a diagram. **Full screen** shows the chart over the page.
+**Chart options** (`⋯`) holds the rest: **Log scale**, **Refresh**, **Open
 in Grafana**, and **Copy as image** (with its title, key, and source), **as
 CSV**, or the **link**. The menu also says when Med read the data.
 

@@ -414,6 +414,16 @@ test("a chart fence draws its rows as a chart, with prose spacing kept out, and 
     .element(page.getByRole("menuitemcheckbox", { name: "Log scale" }))
     .toHaveAttribute("aria-checked", "true");
   await userEvent.keyboard("{Escape}");
+  // Full screen sits beside the menu, as on a diagram, and Escape closes it.
+  await reading.getByRole("button", { name: "Show the chart full screen" }).first().click();
+  const large = page.getByRole("dialog", { name: "p99 went past 2 s after the deploy" });
+  await expect.element(large).toBeVisible();
+  await expect.element(large.getByRole("slider")).toBeVisible();
+  await expect
+    .element(large.getByRole("button", { name: "Show the chart full screen" }))
+    .not.toBeInTheDocument();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(large).not.toBeInTheDocument();
 });
 
 test("a Grafana chart without a Grafana in Settings says so, and its button opens Settings → Grafana", async () => {

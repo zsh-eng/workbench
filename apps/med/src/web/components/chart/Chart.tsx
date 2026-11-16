@@ -18,6 +18,7 @@ import {
 import { siteIcon } from "../../markdown/site-icons";
 import { tokens, ui } from "../../theme.stylex";
 import { ActionMenu } from "../Controls";
+import { tooltip } from "../ToolButton";
 import { CopyNoteText, copyFailure, useCopyNote } from "../DiagramCopy";
 import { Icon } from "../Icon";
 import { copyChart } from "./chart-copy";
@@ -358,7 +359,7 @@ export function LineChart({
         ]
       : []),
   ];
-  // Everything but the data waits in one menu.
+  // Everything but the data and Full screen waits in one menu.
   const options = [
     [
       {
@@ -368,7 +369,6 @@ export function LineChart({
         disabled: !drawn,
         onClick: () => setScale((last) => (last === "log" ? "linear" : "log")),
       },
-      ...(large ? [] : [{ label: "Full screen", letter: "f", onClick: () => setFullScreen(true) }]),
     ],
     [
       ...(onRefresh
@@ -788,6 +788,18 @@ export function LineChart({
               {...stylex.props(ui.button, styles.tool, styles.textTool)}
             >
               Reset zoom
+            </button>
+          )}
+          {!large && (
+            // As on a Mermaid diagram: Full screen sits beside the menu.
+            <button
+              type="button"
+              aria-label="Show the chart full screen"
+              {...tooltip("Full screen")}
+              onClick={() => setFullScreen(true)}
+              {...stylex.props(ui.button, ui.iconButton, styles.tool, styles.more)}
+            >
+              <Icon name="focus" size={14} />
             </button>
           )}
           <ActionMenu
