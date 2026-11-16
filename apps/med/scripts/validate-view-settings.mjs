@@ -303,7 +303,8 @@ try {
   await sideDetails(page).waitFor();
   await page.getByRole("button", { name: "Hide session rail" }).click();
   await sideDetails(page).waitFor({ state: "detached" });
-  await page.keyboard.press("ControlOrMeta+Shift+b");
+  // ⌘⇧B shows or hides the review; the session pane hides from ⌘K.
+  await palette(page, "Hide agent session");
   await sessionPane(page).waitFor({ state: "hidden" });
   await page.waitForTimeout(600);
   await restart(page, "2-changed-again");
@@ -313,7 +314,7 @@ try {
   assert.equal(await sessionPane(page).count(), 0);
   // The files rail stays hidden, and the session pane, shown, has no session rail.
   assert.equal(await filesRail(page).count(), 0);
-  await page.keyboard.press("ControlOrMeta+Shift+b");
+  await palette(page, "Show agent session");
   await page.getByRole("button", { name: "Show session rail" }).waitFor();
   assert.equal(await sideDetails(page).count(), 0);
   await sidebar(page).waitFor();
