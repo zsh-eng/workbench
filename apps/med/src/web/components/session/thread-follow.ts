@@ -16,6 +16,14 @@
 // it sends the event, and stops at the end as it was then, which text that
 // streams in has moved on.
 
+/**
+ * The event that a block sends, bubbling, before it changes size at the
+ * reader's hand, as a diagram does when it turns: a thread keeps the block's
+ * unit in place, where a view that follows the end would move it away from
+ * the reader's pointer.
+ */
+export const HOLD_PLACE = "med-hold-place";
+
 /** Within this distance of its end, a view is at the end. */
 const END = 32;
 /** How long after an input a move up is still the reader's. */

@@ -241,6 +241,56 @@ test("Full screen draws a diagram larger over the page, with zoom; Escape closes
   await expect.element(reading.getByRole("img", { name: "Mermaid diagram" })).toBeVisible();
 });
 
+/** Whether the page's diagram, as drawn, is taller than it is wide. */
+const tall = (within: Element = document.body) => {
+  const svg = within.querySelector(".med-md-diagram > svg");
+  return svg ? Number(svg.getAttribute("height")) > Number(svg.getAttribute("width")) : undefined;
+};
+
+test("Turn draws a diagram top to bottom, and back; Full screen shows it turned", async () => {
+  const diagram =
+    "# Flow\n\nIntro text.\n\n```mermaid\nflowchart LR\n  A[Take] --> B[Hold] --> C[Renew] --> D[Done]\n```\n";
+  const reading = await show(diagram, 900, "Flow");
+  await expect.element(reading.getByRole("img", { name: "Mermaid diagram" })).toBeVisible();
+  expect(tall()).toBe(false);
+  await reading.getByRole("button", { name: "Turn the diagram" }).click();
+  await expect.poll(() => tall()).toBe(true);
+  await reading.getByRole("button", { name: "Show the diagram full screen" }).click();
+  const dialog = page.getByRole("dialog", { name: "Diagram" });
+  await expect.element(dialog.getByRole("img", { name: "Mermaid diagram" })).toBeVisible();
+  await expect.poll(() => tall(dialog.element())).toBe(true);
+  await userEvent.keyboard("{Escape}");
+  await expect.element(dialog).not.toBeInTheDocument();
+  await reading.getByRole("button", { name: "Turn the diagram" }).click();
+  await expect.poll(() => tall()).toBe(false);
+});
+
+test("a diagram that a narrow pane already turned downward turns back to its own way", async () => {
+  const steps = ["Take the job", "Hold the lease", "Renew the hold", "Write the result", "Done"];
+  const flow = steps.map((step, index) => `S${index}[${step}]`).join(" --> ");
+  const diagram = `# Flow\n\nIntro text.\n\n\`\`\`mermaid\nflowchart LR\n  ${flow}\n\`\`\`\n`;
+  const reading = await show(diagram, 420, "Flow");
+  await expect.element(reading.getByRole("img", { name: "Mermaid diagram" })).toBeVisible();
+  // Pele runs it downward to fit; the first turn is the other way.
+  expect(tall()).toBe(true);
+  await reading.getByRole("button", { name: "Turn the diagram" }).click();
+  await expect.poll(() => tall()).toBe(false);
+  await reading.getByRole("button", { name: "Turn the diagram" }).click();
+  await expect.poll(() => tall()).toBe(true);
+});
+
+test("a diagram with no direction, such as a sequence, has no Turn", async () => {
+  const diagram = "# Flow\n\nIntro text.\n\n```mermaid\nsequenceDiagram\n  A->>B: hi\n```\n";
+  const reading = await show(diagram, 900, "Flow");
+  await expect.element(reading.getByRole("img", { name: "Mermaid diagram" })).toBeVisible();
+  await expect
+    .element(reading.getByRole("button", { name: "Show the diagram full screen" }))
+    .toBeInTheDocument();
+  await expect
+    .element(reading.getByRole("button", { name: "Turn the diagram" }))
+    .not.toBeInTheDocument();
+});
+
 test("a diagram's right-click offers it as an image, as an SVG, and its text; text keeps the browser's menu", async () => {
   const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
   const items: ClipboardItem[] = [];

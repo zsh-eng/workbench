@@ -58,7 +58,7 @@ import {
   roughUnit,
   type ThreadMetrics,
 } from "./thread-heights";
-import { atEnd, followEnd } from "./thread-follow";
+import { atEnd, followEnd, HOLD_PLACE } from "./thread-follow";
 import { glideContent } from "./thread-glide";
 import { whenIdle } from "../../data/idle";
 import "./SessionThread.css";
@@ -1674,6 +1674,11 @@ export function SessionThread({
       recorded = node.scrollTop;
     };
     list.current = { record, restore, place, loadEarlier, go, hold, toEnd };
+    const keep = (event: Event) => {
+      const unit = (event.target as Element).closest<HTMLElement>("[data-unit]");
+      if (unit?.dataset.unit !== undefined) hold(unit.dataset.unit);
+    };
+    inner.addEventListener(HOLD_PLACE, keep);
     const follow = () => {
       reader.check();
       if (stuck.current) followed();
@@ -1702,6 +1707,7 @@ export function SessionThread({
       list.current = null;
       glide.stop();
       resize.disconnect();
+      inner.removeEventListener(HOLD_PLACE, keep);
       node.removeEventListener("scroll", onScroll);
       reader.dispose();
     };

@@ -2,7 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { Dialog } from "@base-ui/react/dialog";
 import { useEffect, useLayoutEffect, useState, type CSSProperties } from "react";
 import type { Mounted } from "pele/lazy";
-import { mountDiagram } from "../markdown/diagrams";
+import { mountDiagram, turnDiagram, type Turn } from "../markdown/diagrams";
 import { tokens, ui } from "../theme.stylex";
 import { useTheme } from "../themes";
 import {
@@ -27,15 +27,17 @@ const BOTTOM = 32;
 /**
  * A Mermaid diagram over the page, as large as the window lets it be: the SVG
  * scales, so its text stays sharp, and Pele's zoom and drag go further.
- * Copy, in the header, and right-click copy it as on the page. Escape or ×
- * closes it.
+ * Copy, in the header, and right-click copy it as on the page. It shows
+ * turned as the page does. Escape or × closes it.
  */
 export function DiagramDialog({
-  source,
+  source: written,
+  turn,
   natural,
   onClose,
 }: {
   source: string;
+  turn?: Turn;
   /** The diagram's own size, as the page drew it. */
   natural?: { width: number; height: number };
   onClose(): void;
@@ -49,6 +51,8 @@ export function DiagramDialog({
   const [note, say] = useCopyNote();
   const theme = useTheme().active.id;
   const figure = () => element;
+  // What the copies give: the diagram as it shows.
+  const source = (turn === "turned" && turnDiagram(written)) || written;
   // The width that fills the room in both directions, as the window resizes.
   useLayoutEffect(() => {
     if (!room || !natural?.width || !natural.height) return;
@@ -68,7 +72,7 @@ export function DiagramDialog({
     if (!element) return;
     let cancelled = false;
     let diagram: Mounted | undefined;
-    mountDiagram(element, source, { zoom: { maxScale: MAX_ZOOM } }).then(
+    mountDiagram(element, written, { zoom: { maxScale: MAX_ZOOM }, turn }).then(
       (drawn) => {
         if (cancelled) return drawn.destroy();
         diagram = drawn;
@@ -80,7 +84,7 @@ export function DiagramDialog({
       cancelled = true;
       diagram?.destroy();
     };
-  }, [element, source]);
+  }, [element, written, turn]);
   useEffect(() => mounted?.refresh(), [mounted, theme]);
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onClose()}>

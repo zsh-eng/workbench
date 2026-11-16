@@ -956,6 +956,59 @@ test("a thread that arrives in batches still renders only the units near the vie
   expect(units().length).toBeLessThan(120);
 });
 
+test("a diagram turned at the end of a thread stays where the reader turned it", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(8);
+  store.applyAll([
+    {
+      at: 20_000,
+      update: {
+        sessionUpdate: "user_message_chunk" as const,
+        content: { type: "text" as const, text: "Draw it" },
+      },
+    },
+    {
+      at: 21_000,
+      update: {
+        sessionUpdate: "agent_message_chunk" as const,
+        messageId: "drawn",
+        content: {
+          type: "text" as const,
+          text: "The flow:\n\n```mermaid\nflowchart LR\n  A --> B --> C\n```\n\nThat is all.",
+        },
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  const diagram = page.getByRole("img", { name: "Mermaid diagram" });
+  await expect.element(diagram).toBeVisible();
+  const scroller = threadScroller();
+  // The view follows the end, where the diagram is.
+  await expect
+    .poll(() => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight)
+    .toBeLessThan(32);
+  // Once the reply has settled: it glides up into view as it lands.
+  let last = Number.NaN;
+  await expect
+    .poll(async () => {
+      await afterFrames(3);
+      const top = diagram.element().getBoundingClientRect().top;
+      const still = top === last;
+      last = top;
+      return still;
+    })
+    .toBe(true);
+  const before = diagram.element().getBoundingClientRect();
+  await userEvent.click(page.getByRole("button", { name: "Turn the diagram" }));
+  // Taller now, it grows down from where it was, under the reader's pointer.
+  await expect
+    .poll(() => diagram.element().getBoundingClientRect().height)
+    .toBeGreaterThan(before.height * 1.5);
+  await afterFrames(2);
+  expect(Math.abs(diagram.element().getBoundingClientRect().top - before.top)).toBeLessThan(2);
+});
+
 test("a finished turn's work folds into one row that opens in place, and Show work opens every turn", async () => {
   await page.viewport(1280, 900);
   initializeTheme();

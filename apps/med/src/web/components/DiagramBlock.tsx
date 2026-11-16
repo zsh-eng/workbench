@@ -1,8 +1,22 @@
 import * as stylex from "@stylexjs/stylex";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { flushSync } from "react-dom";
 import type { Mounted } from "pele/lazy";
-import { mountDiagram } from "../markdown/diagrams";
+import {
+  mountDiagram,
+  redrawDiagram,
+  turnDiagram,
+  turnDrawn,
+  type Turn,
+} from "../markdown/diagrams";
 import type { MarkdownBlock } from "../markdown/model";
 import { tokens } from "../theme.stylex";
 import { useTheme } from "../themes";
@@ -15,8 +29,13 @@ import {
 } from "./DiagramCopy";
 import { Icon } from "./Icon";
 import { PointMenu, type PointMenuState } from "./PointMenu";
+import { HOLD_PLACE } from "./session/thread-follow";
 import { preloadable } from "./preloadable";
 import { tooltip } from "./ToolButton";
+
+/** The diagrams the reader turned, by their source, so one stays turned when
+ * its thread or file shows again. */
+const turns = new Map<string, Turn>();
 
 // Loaded once a diagram draws, so Full screen opens in the click's frame:
 // React.lazy would suspend on the first open and hold the dialog back 300 ms.
@@ -26,9 +45,10 @@ const DiagramDialog = preloadable(async () => ({
 
 /** A Mermaid block from the Markdown worker. It draws when it nears the
  * viewport and shows its source until then, or when the diagram cannot draw.
- * Copy and Full screen, at its corner, show while the pointer or the focus is
- * on it; right-click offers the same copies. Previews and briefs share it; the
- * styles are in MarkdownPreview.css. */
+ * Copy, Turn and Full screen, at its corner, show while the pointer or the
+ * focus is on it; right-click offers the same copies. Turn draws it top to
+ * bottom for left to right, and back, where its kind has a direction.
+ * Previews and briefs share it; the styles are in MarkdownPreview.css. */
 export function DiagramBlock({ block }: { block: MarkdownBlock }) {
   const host = useRef<HTMLPreElement>(null);
   const target = useRef<HTMLDivElement>(null);
@@ -39,18 +59,30 @@ export function DiagramBlock({ block }: { block: MarkdownBlock }) {
   const [menu, setMenu] = useState<PointMenuState | null>(null);
   const [note, say] = useCopyNote();
   const theme = useTheme().active.id;
-  const source = block.diagram!;
+  const [turn, setTurn] = useState<Turn | undefined>(() => turns.get(block.diagram!));
+  // For the effects below, which draw again only for an edit.
+  const turnNow = useRef(turn);
+  useLayoutEffect(() => {
+    turnNow.current = turn;
+  }, [turn]);
+  const written = block.diagram!;
+  const turnable = useMemo(() => turnDiagram(written) !== undefined, [written]);
+  // What the copies give: the diagram as it shows.
+  const source = (turn === "turned" && turnDiagram(written)) || written;
   const figure = useCallback(() => target.current, []);
   useEffect(() => {
-    // An edit draws again in place. After a mistake Pele keeps the last
-    // drawing, dimmed, above a line that names it, so the text does not jump.
-    if (mounted.current) return mounted.current.update(block.diagram!);
+    // An edit draws again in place, turned as the reader left it. After a
+    // mistake Pele keeps the last drawing, dimmed, above a line that names
+    // it, so the text does not jump.
+    if (turnNow.current) turns.set(block.diagram!, turnNow.current);
+    if (mounted.current)
+      return redrawDiagram(mounted.current, block.diagram!, { turn: turnNow.current });
     let cancelled = false;
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
         observer.disconnect();
-        mountDiagram(target.current!, block.diagram!).then(
+        mountDiagram(target.current!, block.diagram!, { turn: turnNow.current }).then(
           (diagram) => {
             if (cancelled) return diagram.destroy();
             mounted.current = diagram;
@@ -129,6 +161,24 @@ export function DiagramBlock({ block }: { block: MarkdownBlock }) {
               copied={!!note && !note.failed}
               trigger={styles.tool}
             />
+            {turnable && (
+              <button
+                type="button"
+                aria-label="Turn the diagram"
+                {...tooltip("Turn: top to bottom or left to right")}
+                {...stylex.props(styles.tool)}
+                onClick={() => {
+                  if (!mounted.current) return;
+                  // In a thread, the diagram stays where the reader turned it.
+                  host.current?.dispatchEvent(new Event(HOLD_PLACE, { bubbles: true }));
+                  const next = turnDrawn(mounted.current, written, { turn });
+                  turns.set(written, next);
+                  setTurn(next);
+                }}
+              >
+                <Icon name="turn" size={14} />
+              </button>
+            )}
             <button
               type="button"
               aria-label="Show the diagram full screen"
@@ -148,7 +198,12 @@ export function DiagramBlock({ block }: { block: MarkdownBlock }) {
       {menu && <PointMenu menu={menu} onClose={() => setMenu(null)} />}
       {large && (
         <Suspense fallback={null}>
-          <DiagramDialog source={source} natural={large.natural} onClose={() => setLarge(null)} />
+          <DiagramDialog
+            source={written}
+            turn={turn}
+            natural={large.natural}
+            onClose={() => setLarge(null)}
+          />
         </Suspense>
       )}
     </div>

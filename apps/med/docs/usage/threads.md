@@ -347,8 +347,9 @@ background shells and agents. It follows the session live.
   a line holds about as many characters as Claude Desktop's. Code and tables
   in either read at 0.867 of the text; diffs stay at 12 pixel monospace.
 - A table in a reply has **Copy** above its right end, and a diagram has
-  **Copy** and **Full screen** at its corner, as in a Markdown file
-  ([Copy](markdown.md#copy)).
+  **Copy**, **Turn**, and **Full screen** at its corner, as in a Markdown file
+  ([Copy](markdown.md#copy)). A diagram that turns at the end of the thread
+  stays where it was, and grows or shrinks below.
 - A code block in a reply or a comment has **Copy** at the right end of its
   first line, while the pointer or the focus is on the block. It copies the
   code as the block holds it, without the fence. While a reply still arrives,

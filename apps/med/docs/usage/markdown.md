@@ -51,9 +51,17 @@ for its fonts.
 - Right-click an image for **Copy image** (as PNG), its address or path, and
   **Open image in new tab**. A remote image that does not allow reading copies
   as its address.
-- **Copy** and **Full screen** sit at a diagram's corner while the pointer or
-  the focus is on it. **Full screen** shows the diagram over the page, up to
-  three times its size, with zoom and drag. Escape or × closes it.
+- **Copy**, **Turn**, and **Full screen** sit at a diagram's corner while the
+  pointer or the focus is on it. **Full screen** shows the diagram over the
+  page, up to three times its size, with zoom and drag. Escape or × closes it.
+- **Turn** draws a diagram top to bottom when it runs left to right, and back.
+  A diagram runs the way its source says (`flowchart LR` or `TD`), except that
+  a left-to-right one that a pane narrower than 640 pixels cannot fit runs
+  downward; Turn shows it the other way from how it shows now, and it stays
+  so at any width, in Full screen too, until you turn it back or reload Med.
+  Flowcharts, state, class, entity and requirement diagrams, and Git graphs
+  turn; a diagram with no direction, such as a sequence or a pie, has no
+  Turn. Its copies are of the diagram as it shows.
 - Right-click a diagram, or open its **Copy** menu, for **Copy as image**: a
   PNG at twice its size, on its background. **Copy as SVG** keeps its colors
   and fonts, so it draws the same elsewhere; **Copy text** copies its Mermaid
