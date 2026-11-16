@@ -23,7 +23,6 @@ import {
 import { useOwnedSession } from "../../data/owned-session";
 import { useThreadUsage } from "../../data/thread-usage";
 import { useOutbox, type Outgoing } from "../../data/outbox";
-import type { SessionItem } from "../../data/session-store";
 import {
   followSession,
   keptPages,
@@ -56,25 +55,12 @@ import { FileRefsContext, type FileRefs } from "../FileRefs";
 import type { TurnRecapProps } from "./TurnRecap";
 import { useViewSetting, viewSettings } from "../../data/view-settings";
 import { column } from "./session-styles";
+import { useStreamedReplies, withStreamedReplies } from "./streamed-replies";
 
 /** Agents that Med can start in the review's repository. */
 export interface SessionStarter {
   agents: AgentPreset[] | null;
   start(preset: string): Promise<void>;
-}
-
-/** The reply that streams now, until the transcript has the same text. */
-function withStreaming(items: SessionItem[], streaming?: { id: string; text: string }) {
-  const text = streaming?.text.trim();
-  if (!text) return items;
-  const head = text.slice(0, 200);
-  const recent = items.slice(-6);
-  if (recent.some((item) => item.kind === "agent" && item.text.trim().startsWith(head)))
-    return items;
-  return [
-    ...items,
-    { kind: "agent" as const, id: `streaming-${streaming!.id}`, at: Date.now(), text },
-  ];
 }
 
 const turnTime = (at: number) =>
@@ -482,7 +468,7 @@ export function SessionPanel({
   }, [onFork, session.id, session.agent]);
   const agent = agentName(session);
   const messages = inbox?.state?.messages;
-  const streaming = ownedState?.streaming;
+  const streamed = useStreamedReplies(snapshot.items, ownedState?.streaming);
   // Messages on their way to the host show at once, as in a chat app. The
   // host keeps the browser's ID, so the row stays when its answer comes. The
   // outbox keeps them across a reload, until the host has them.
@@ -602,9 +588,9 @@ export function SessionPanel({
         };
       }),
     ];
-    const items = withStreaming(
+    const items = withStreamedReplies(
       sent.length ? withSentMessages(snapshot.items, sent) : snapshot.items,
-      streaming,
+      streamed,
     );
     return items === snapshot.items && snapshot.running === running
       ? snapshot
@@ -617,7 +603,7 @@ export function SessionPanel({
     outgoing,
     session.id,
     session.agent,
-    streaming,
+    streamed,
     running,
     presence,
     takesMidTurn,

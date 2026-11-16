@@ -48,6 +48,8 @@ export type SessionItem =
       text: string;
       /** The message ended the agent's turn; later work came without a prompt. */
       endsTurn?: boolean;
+      /** A reply that streamed and whose text is whole, before the transcript has it. */
+      settled?: boolean;
     }
   | { kind: "thought"; id: string; at: number; text: string; durationMs?: number }
   | {

@@ -1242,6 +1242,10 @@ test("Claude Code that Med runs streams its reply after it thinks; a turn that a
     expect(state.status).toBe("working");
     expect(reply.startsWith(state.streaming!.text)).toBe(true);
   }
+  // The text block's end marks the reply whole at once, before the
+  // transcript has it, so the thread can show its last paragraph.
+  expect(streamed.at(-1)!.streaming).toEqual({ id: expect.any(String), text: reply, ended: true });
+  expect(streamed.slice(0, -1).some((state) => state.streaming!.ended)).toBe(false);
 
   // Another process, such as Claude Code in a terminal, runs a turn on the
   // session while Med's runner waits. The transcript tells the turn's state.

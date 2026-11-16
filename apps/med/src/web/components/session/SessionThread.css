@@ -13,6 +13,23 @@
 .med-session-prose p {
   margin: 0 0 0.75em;
 }
+/* A reply that streams arrives a block at a time, and each block settles in
+   once (SessionMarkdown's useReveal): a short fade with a small rise, quick
+   enough that a fast agent's blocks do not queue up. */
+@keyframes med-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.med-session-prose > .med-reveal {
+  animation: med-reveal 280ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .med-session-prose > .med-reveal {
+    animation: none;
+  }
+}
 .med-session-prose > .med-md-block:last-child > :last-child,
 .med-session-prose > .med-md-block:last-child > :last-child > li:last-child,
 .med-session-prose > .med-md-block:last-child > .med-md-table:last-child > table,

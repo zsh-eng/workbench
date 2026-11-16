@@ -792,8 +792,20 @@ export function startClaude(
           streaming &&
           !message.parent_tool_use_id
         ) {
-          streaming = { ...streaming, text: streaming.text + String(event.delta.text ?? "") };
+          streaming = { id: streaming.id, text: streaming.text + String(event.delta.text ?? "") };
           streamTimer ??= setTimeout(flushStreaming, STREAM_MS);
+        }
+        // The text is whole until another text block starts: the thread shows
+        // its last paragraph now, not when the transcript has it.
+        else if (
+          event.type === "content_block_stop" &&
+          streaming?.text &&
+          !streaming.ended &&
+          !message.parent_tool_use_id
+        ) {
+          streaming = { ...streaming, ended: true };
+          clearTimeout(streamTimer);
+          flushStreaming();
         }
         return;
       }

@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { page, userEvent } from "vitest/browser";
+import { useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { SessionSection } from "../../src/web/components/elements/SessionSection";
@@ -12,7 +13,12 @@ import {
 import { estimateUnit, readMetrics } from "../../src/web/components/session/thread-heights";
 import { finalReplies, units as unitsOf } from "../../src/web/components/session/thread-model";
 import { withSentMessages, type SentMessage } from "../../src/web/data/agent-inbox";
-import { createSessionStore } from "../../src/web/data/session-store";
+import { createSessionStore, type SessionStore } from "../../src/web/data/session-store";
+import {
+  type Streaming,
+  useStreamedReplies,
+  withStreamedReplies,
+} from "../../src/web/components/session/streamed-replies";
 import "../../src/web/pierre-theme";
 import { initializeTheme, THEME_STORAGE_KEY } from "../../src/web/themes";
 
@@ -1486,6 +1492,93 @@ test("while a reply streams in, the reader's move up holds the view until the re
   } finally {
     await reply.stop();
   }
+});
+
+/** The thread as the Session panel shows it: the transcript's items, then
+ * the replies that the host streams. */
+function Streamed({ store, streaming }: { store: SessionStore; streaming?: Streaming }) {
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const replies = useStreamedReplies(snapshot.items, streaming);
+  return (
+    <SessionThread
+      snapshot={{
+        ...snapshot,
+        running: true,
+        items: withStreamedReplies(snapshot.items, replies),
+      }}
+    />
+  );
+}
+
+test("a streaming reply shows whole blocks, and all of its text once it ends", async () => {
+  const store = longThread(3);
+  const show = (streaming: Streaming) =>
+    root!.render(<Streamed store={store} streaming={streaming} />);
+  show({ id: "m1", text: "I traced the slow search.\n\n```ts\nconst eligible = catalog.fil" });
+  const thread = page.getByRole("log");
+  await expect.element(thread.getByText("I traced the slow search.")).toBeVisible();
+  // The code block waits for its closing fence, so no line shows cut.
+  expect(thread.getByText(/catalog\.fil/).elements()).toHaveLength(0);
+  show({
+    id: "m1",
+    text: "I traced the slow search.\n\n```ts\nconst eligible = catalog.filter(matches);\n```\n\nThe filters ru",
+  });
+  await expect.element(thread.getByText("const eligible = catalog.filter(matches);")).toBeVisible();
+  expect(thread.getByText(/The filters ru/).elements()).toHaveLength(0);
+  // The text ended, as when a tool call comes next: the last paragraph shows.
+  show({
+    id: "m1",
+    text: "I traced the slow search.\n\n```ts\nconst eligible = catalog.filter(matches);\n```\n\nThe filters run first.",
+    ended: true,
+  });
+  await expect.element(thread.getByText("The filters run first.")).toBeVisible();
+});
+
+test("a reply that stops streaming stays until the transcript has it, so the reader's place holds", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(40);
+  const text = Array.from(
+    { length: 24 },
+    (_, index) => `Paragraph ${index}. ${"The filters run before ranking. ".repeat(4)}`,
+  ).join("\n\n");
+  const show = (streaming?: Streaming) =>
+    root!.render(<Streamed store={store} streaming={streaming} />);
+  show({ id: "m1", text: `${text}\n\nThe last one is still arr` });
+  await expect.element(page.getByText(/^Paragraph 23\./)).toBeInTheDocument();
+  const scroller = threadScroller();
+  await expect.poll(() => gapOf(scroller)).toBeLessThan(32);
+  // The reader moves up a little, less than the reply's height.
+  for (let step = 0; step < 3; step++) await userEvent.wheel(scroller, { delta: { y: -80 } });
+  await expect.element(page.getByRole("button", { name: "Latest" })).toBeVisible();
+  await afterFrames(10);
+  const top = scroller.scrollTop;
+  const height = scroller.scrollHeight;
+
+  // The turn ends before the transcript has the reply: it stays, with its
+  // last paragraph.
+  show(undefined);
+  await afterFrames(10);
+  expect(page.getByText(/^Paragraph 0\./).elements()).toHaveLength(1);
+  await expect.element(page.getByText("The last one is still arr")).toBeInTheDocument();
+  expect(scroller.scrollHeight).toBeGreaterThanOrEqual(height);
+  expect(Math.abs(scroller.scrollTop - top)).toBeLessThan(1);
+
+  // The transcript's copy takes its place, once.
+  store.applyAll([
+    {
+      at: 90_000,
+      update: {
+        sessionUpdate: "agent_message_chunk" as const,
+        messageId: "m1",
+        content: { type: "text" as const, text: `${text}\n\nThe last one is still arr` },
+      },
+    },
+  ]);
+  await afterFrames(10);
+  expect(page.getByText(/^Paragraph 0\./).elements()).toHaveLength(1);
+  expect(Math.abs(scroller.scrollTop - top)).toBeLessThan(1);
+  await expect.element(page.getByRole("button", { name: "Latest" })).toBeVisible();
 });
 
 test("a subagent's view lets go at the reader's move up while its reply streams, and follows again at the end", async () => {

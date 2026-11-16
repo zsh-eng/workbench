@@ -241,8 +241,11 @@ export const ownedStateSchema = z.object({
   settings: z.array(ownedSettingSchema),
   commands: z.array(ownedCommandSchema),
   permission: ownedPermissionSchema.optional(),
-  /** The reply that streams now, before the transcript has it. */
-  streaming: z.object({ id: z.string(), text: z.string() }).optional(),
+  /** The reply that streams now, before the transcript has it. `ended`: its
+   * text is whole, as when a tool call comes next. */
+  streaming: z
+    .object({ id: z.string(), text: z.string(), ended: z.boolean().optional() })
+    .optional(),
   /** Tokens in the context window, after the last turn, and what fills it. */
   context: z
     .object({ used: z.number(), total: z.number(), breakdown: contextBreakdownSchema.optional() })

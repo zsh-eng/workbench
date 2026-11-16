@@ -1,4 +1,13 @@
-import { memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  type RefObject,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { renderBrief, renderedBrief } from "../../markdown/brief-render";
 import { useKeptFolds } from "../../markdown/folds";
 import { loadMarkdownImages, markdownImageUrl } from "../../markdown/images";
@@ -21,11 +30,16 @@ import "../MarkdownPreview.css";
 export const SessionMarkdown = memo(function SessionMarkdown({
   text,
   streaming,
+  settled = false,
   imageRepo,
   onOpenLink,
 }: {
   text: string;
+  /** The thread's latest reply while the agent works: its text can grow. */
   streaming: boolean;
+  /** A streamed reply's text is whole: its render is kept for the
+   * transcript's copy, which then shows at once. */
+  settled?: boolean;
   /** The checkout that an image's relative path starts from. A thread loads no images. */
   imageRepo?: string;
   /** A link to a file in the repository, such as src/summary.ts:5. */
@@ -37,7 +51,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   const result = renderedBrief(theme.pierreTheme, text, "session") ?? rendered;
   const host = useRef<HTMLDivElement>(null);
   // The newest request; a render that finishes starts the next one from here.
-  const latest = useRef({ text, theme: theme.pierreTheme, streaming });
+  const latest = useRef({ text, theme: theme.pierreTheme, streaming, settled });
   const pump = useRef({ running: false, mounted: true });
   const open = useRef(onOpenLink);
   // Paths that name a file of the thread's checkout are links to it.
@@ -53,9 +67,10 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   // A code block copies as its fence holds it, once the reply has closed it.
   useCodeCopy(host, streaming);
   useKeptFolds(host);
+  useReveal(host, blocks, streaming);
 
   useLayoutEffect(() => {
-    latest.current = { text, theme: theme.pierreTheme, streaming };
+    latest.current = { text, theme: theme.pierreTheme, streaming, settled };
     open.current = onOpenLink;
     fileRefs.current = refs;
     reviews.current = handoff;
@@ -76,7 +91,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({
       state.running = true;
       renderBrief(request.theme, request.text, true, {
         cache: "session",
-        keep: !request.streaming,
+        keep: !request.streaming || request.settled,
       })
         .then((next) => {
           if (state.mounted) setRendered(next);
@@ -86,11 +101,12 @@ export const SessionMarkdown = memo(function SessionMarkdown({
           state.running = false;
           const next = latest.current;
           const changed = next.text !== request.text || next.theme !== request.theme;
-          if (state.mounted && (changed || (request.streaming && !next.streaming))) run(next);
+          const kept = (request.streaming && !next.streaming) || (!request.settled && next.settled);
+          if (state.mounted && (changed || kept)) run(next);
         });
     };
     run(latest.current);
-  }, [text, streaming, theme.pierreTheme]);
+  }, [text, streaming, settled, theme.pierreTheme]);
 
   // Links to files open in Med; web links open in a new tab from the worker's HTML.
   useEffect(() => {
@@ -148,12 +164,39 @@ export const SessionMarkdown = memo(function SessionMarkdown({
             />
           ),
         )
-      ) : (
+      ) : streaming ? null : (
+        // A reply that streams shows each block rendered, as it fades in.
         <p className="med-session-plain">{text}</p>
       )}
     </div>
   );
 });
+
+/** Blocks that a streaming reply showed, by their HTML: the same block
+ * shows again without its fade, as when the transcript's copy replaces the
+ * reply that streamed. */
+const revealed = new Set<string>();
+/**
+ * Fades in each block that a streaming reply adds, once. A reply that
+ * streams arrives in whole blocks (streamed-replies.ts), so a block's HTML
+ * does not change after it shows.
+ */
+function useReveal(
+  host: RefObject<HTMLDivElement | null>,
+  blocks: readonly { html: string }[] | undefined,
+  streaming: boolean,
+) {
+  useLayoutEffect(() => {
+    const node = host.current;
+    if (!node || !blocks || !streaming) return;
+    blocks.forEach((block, index) => {
+      if (revealed.has(block.html)) return;
+      if (revealed.size > 500) revealed.clear();
+      revealed.add(block.html);
+      node.children[index]?.classList.add("med-reveal");
+    });
+  }, [host, blocks, streaming]);
+}
 
 const reviewLinks = new Map<string, { id: string; href: string; text: string } | null>();
 /** A paragraph that is only a link to a review of Med's, which shows as the

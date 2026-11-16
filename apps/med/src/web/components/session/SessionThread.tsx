@@ -286,7 +286,12 @@ const Item = memo(function Item({
     case "agent":
       return (
         <>
-          <SessionMarkdown text={item.text} streaming={last} onOpenLink={onOpenLink} />
+          <SessionMarkdown
+            text={item.text}
+            streaming={last}
+            settled={item.settled}
+            onOpenLink={onOpenLink}
+          />
           <ReplyBar item={item} final={final && !last} />
         </>
       );
