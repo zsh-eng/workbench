@@ -105,7 +105,7 @@ test("scrolling up stops following, and Latest returns to the newest item", asyn
   const replay = await setup();
   // The thread shows once its replies have their Markdown.
   await expect.element(replay.getByRole("log")).toBeVisible();
-  const scroller = replay.getByRole("log").element().parentElement!;
+  const scroller = scrollerOf(replay.getByRole("log").element());
   await expect
     .poll(() => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight)
     .toBeLessThan(32);
@@ -153,7 +153,9 @@ function turnEvents(first: number, count: number) {
   }).flat();
 }
 const units = () => [...document.querySelectorAll<HTMLElement>("[data-unit]")];
-const threadScroller = () => document.querySelector('[aria-label="Session"]')!.parentElement!;
+/** A thread's scroller: its log sits in a track that clips the glide. */
+const scrollerOf = (log: Element) => log.parentElement!.parentElement!;
+const threadScroller = () => scrollerOf(document.querySelector('[aria-label="Session"]')!);
 /** The first unit whose bottom is in view, and its top in the frame. */
 function firstInView() {
   const frame = threadScroller().getBoundingClientRect();
@@ -1619,9 +1621,9 @@ test("a subagent's view lets go at the reader's move up while its reply streams,
     root!.render(<SessionThread snapshot={{ ...store.getSnapshot(), running: true }} />);
   render();
   await userEvent.click(page.getByRole("tab", { name: "Find every place that fetches" }));
-  const scroller = page
-    .getByRole("log", { name: "Find every place that fetches" })
-    .element().parentElement!;
+  const scroller = scrollerOf(
+    page.getByRole("log", { name: "Find every place that fetches" }).element(),
+  );
   await expect.poll(() => gapOf(scroller)).toBeLessThan(32);
   const reply = streamReply((count) => {
     store.applyAll([chunk(2000 + count, word(count))]);

@@ -13,17 +13,19 @@
 .med-session-prose p {
   margin: 0 0 0.75em;
 }
-/* A reply that streams arrives a block at a time, and each block settles in
-   once (SessionMarkdown's useReveal): a short fade with a small rise, quick
-   enough that a fast agent's blocks do not queue up. */
+/* A reply that streams arrives a block at a time, and each block fades in
+   once (SessionMarkdown's useReveal). Opacity only: while the view follows
+   the end, the thread glides up to make room (thread-glide.ts), and the
+   block rises with it. Both run on the compositor. */
 @keyframes med-reveal {
   from {
     opacity: 0;
-    transform: translateY(4px);
   }
 }
+/* No fill: a fade that ends leaves the block, so finished fades do not
+   stay in effect and keep their layers. */
 .med-session-prose > .med-reveal {
-  animation: med-reveal 280ms cubic-bezier(0.2, 0, 0, 1) both;
+  animation: med-reveal 320ms cubic-bezier(0.2, 0, 0, 1);
 }
 @media (prefers-reduced-motion: reduce) {
   .med-session-prose > .med-reveal {

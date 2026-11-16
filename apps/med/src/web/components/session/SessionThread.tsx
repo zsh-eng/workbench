@@ -58,6 +58,7 @@ import {
   type ThreadMetrics,
 } from "./thread-heights";
 import { atEnd, followEnd } from "./thread-follow";
+import { glideContent } from "./thread-glide";
 import { whenIdle } from "../../data/idle";
 import "./SessionThread.css";
 
@@ -1013,6 +1014,11 @@ function AgentView({
   const content = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
   const live = agent.call.status === "pending" || agent.call.status === "in_progress";
+  // Whether the subagent works, for its view's glide.
+  const working = useRef(live);
+  useLayoutEffect(() => {
+    working.current = live;
+  });
   const list = useMemo(() => units(agent.items), [agent.items]);
   const renderThread = useCallback(
     (nested: SessionItem[]) => <Thread items={nested} live={live} onOpenLink={onOpenLink} />,
@@ -1041,16 +1047,25 @@ function AgentView({
     if (!node || !inner) return;
     stuck.current = true;
     node.scrollTop = node.scrollHeight;
-    // As the session's thread does (thread-follow.ts).
+    // As the session's thread does (thread-follow.ts, thread-glide.ts).
     const reader = followEnd(node, stuck);
+    const glide = glideContent(inner, OVERSCAN);
+    let height = node.clientHeight;
     const observer = new ResizeObserver(() => {
       reader.check();
-      if (stuck.current) node.scrollTop = node.scrollHeight;
+      if (stuck.current) {
+        const from = node.scrollTop;
+        node.scrollTop = node.scrollHeight;
+        if (working.current && node.clientHeight === height) glide.moved(node.scrollTop - from);
+        else glide.stop();
+      }
+      height = node.clientHeight;
       reader.wrote();
     });
     observer.observe(inner);
     node.addEventListener("scroll", reader.check, { passive: true });
     return () => {
+      glide.stop();
       observer.disconnect();
       node.removeEventListener("scroll", reader.check);
       reader.dispose();
@@ -1075,29 +1090,31 @@ function AgentView({
         tabIndex={0}
         {...slim(stylex.props(styles.scroller))}
       >
-        <div
-          ref={content}
-          role="log"
-          aria-label={agent.call.title}
-          {...stylex.props(styles.content, column.thread)}
-        >
-          {list.map((unit, at) => (
-            <div key={unit.key} {...stylex.props(styles.unit)}>
-              <UnitBody
-                unit={unit}
-                last={live && at === list.length - 1}
-                final={false}
-                renderThread={renderThread}
-                onOpenLink={onOpenLink}
-              />
-            </div>
-          ))}
-          {list.length === 0 && (
-            <p {...stylex.props(styles.agentEmpty)}>
-              {live ? "The subagent is starting." : "The subagent left no steps."}
-            </p>
-          )}
-          {room > 0 && <div aria-hidden="true" style={{ height: room }} />}
+        <div {...stylex.props(styles.track)}>
+          <div
+            ref={content}
+            role="log"
+            aria-label={agent.call.title}
+            {...stylex.props(styles.content, column.thread)}
+          >
+            {list.map((unit, at) => (
+              <div key={unit.key} {...stylex.props(styles.unit)}>
+                <UnitBody
+                  unit={unit}
+                  last={live && at === list.length - 1}
+                  final={false}
+                  renderThread={renderThread}
+                  onOpenLink={onOpenLink}
+                />
+              </div>
+            ))}
+            {list.length === 0 && (
+              <p {...stylex.props(styles.agentEmpty)}>
+                {live ? "The subagent is starting." : "The subagent left no steps."}
+              </p>
+            )}
+            {room > 0 && <div aria-hidden="true" style={{ height: room }} />}
+          </div>
         </div>
       </div>
     </section>
@@ -1351,9 +1368,10 @@ export function SessionThread({
   const [sized, setSized] = useState(false);
 
   // The latest values for the scroll and resize handlers.
-  const latest = useRef({ model, metrics, range: { start, end }, earlier, shift });
+  const running = snapshot.running;
+  const latest = useRef({ model, metrics, range: { start, end }, earlier, shift, running });
   useLayoutEffect(() => {
-    latest.current = { model, metrics, range: { start, end }, earlier, shift };
+    latest.current = { model, metrics, range: { start, end }, earlier, shift, running };
   });
 
   // The first unit that starts in view, and how far the view is below its
@@ -1487,6 +1505,20 @@ export function SessionThread({
       if (!stuck.current) record();
       setAtBottom(stuck.current);
     });
+    // Work that lands at the end while the agent works glides up into view
+    // (thread-glide.ts). The view jumps when the thread opens or settles its
+    // heights, and when it changes size, as when the message box grows.
+    const glide = glideContent(inner, OVERSCAN);
+    let height = node.clientHeight;
+    const followed = () => {
+      const from = node.scrollTop;
+      node.scrollTop = node.scrollHeight;
+      reader.wrote();
+      if (latest.current.running && node.clientHeight === height)
+        glide.moved(node.scrollTop - from);
+      else glide.stop();
+      height = node.clientHeight;
+    };
     // Browser scroll anchoring is off: it would count the spacers. The view
     // keeps its first unit in place itself, or the end while it follows.
     const restore = () => {
@@ -1501,8 +1533,7 @@ export function SessionThread({
         }
       }
       if (stuck.current) {
-        node.scrollTop = node.scrollHeight;
-        reader.wrote();
+        followed();
         recorded = node.scrollTop;
         return;
       }
@@ -1576,6 +1607,7 @@ export function SessionThread({
         reader.wrote();
         recorded = node.scrollTop;
       }
+      glide.stop();
       place(true);
     };
     // The view goes to the end and follows it again: Latest, or a message
@@ -1583,6 +1615,7 @@ export function SessionThread({
     const toEnd = (sync: boolean) => {
       stuck.current = true;
       setAtBottom(true);
+      glide.stop();
       node.scrollTop = node.scrollHeight;
       reader.wrote();
       record();
@@ -1601,7 +1634,8 @@ export function SessionThread({
     list.current = { record, restore, place, loadEarlier, go, hold, toEnd };
     const follow = () => {
       reader.check();
-      if (stuck.current) node.scrollTop = node.scrollHeight;
+      if (stuck.current) followed();
+      else height = node.clientHeight;
       reader.wrote();
       if (stuck.current) recorded = node.scrollTop;
       setAtBottom(stuck.current);
@@ -1621,6 +1655,7 @@ export function SessionThread({
     follow();
     return () => {
       list.current = null;
+      glide.stop();
       resize.disconnect();
       node.removeEventListener("scroll", onScroll);
       reader.dispose();
@@ -1890,103 +1925,110 @@ export function SessionThread({
                 data-message-keys=""
                 {...slim(scrollerProps, "med-thread-scroller")}
               >
-                <div
-                  ref={content}
-                  {...stylex.props(styles.content, column.thread, !settled && styles.unsettled)}
-                  role="log"
-                  aria-label="Session"
-                  aria-live="polite"
-                  aria-busy={snapshot.running}
-                >
-                  <ThreadProbe probe={probe} />
-                  {earlier ? (
-                    <div {...stylex.props(styles.edge)}>
-                      <button
-                        type="button"
-                        disabled={earlier.loading}
-                        onClick={() => void earlier.load()}
-                        {...stylex.props(styles.earlier)}
-                      >
-                        {earlier.loading
-                          ? "Loading earlier work…"
-                          : earlier.failed
-                            ? "Earlier work did not load. Try again"
-                            : "Load earlier work"}
-                      </button>
-                    </div>
-                  ) : (
-                    before
-                  )}
-                  <div ref={head} {...stylex.props(styles.space(above))} />
-                  <RowOpen value={rows}>
-                    <LatestReplyContext.Provider value={latestReply}>
-                      {all.slice(start, end).map((unit, offset) => {
-                        const at = start + offset;
-                        return (
-                          <div
-                            key={unit.key}
-                            ref={unitRef}
-                            data-unit={unit.key}
-                            data-rise={appended.has(unit.key) ? "" : undefined}
-                            data-message={isMessage(unit) ? unit.item.kind : undefined}
-                            data-current={unit.key === current ? "" : undefined}
-                            {...stylex.props(styles.unit)}
-                          >
-                            <UnitBody
-                              unit={unit}
-                              last={snapshot.running && at === count - 1}
-                              final={"item" in unit && finals.has(unit.item.id)}
-                              renderThread={renderThread}
-                              onOpenLink={onOpenLink}
-                              onWork={toggleWork}
-                              onHold={holdUnit}
-                            />
-                          </div>
-                        );
-                      })}
-                    </LatestReplyContext.Provider>
-                  </RowOpen>
-                  <div {...stylex.props(styles.space(below))} />
-                  {snapshot.running ? (
-                    <div {...stylex.props(rowStyles.row, styles.status)}>
-                      <span {...stylex.props(rowStyles.icon)}>
-                        <span {...stylex.props(motion.spinner)} />
-                      </span>
-                      <span {...stylex.props(motion.shimmer)}>
-                        {thinking ? "Thinking" : "Working"}
-                      </span>
-                      {/* The view's one clock; a running call only spins. */}
-                      <span {...stylex.props(styles.elapsed)}>
-                        {turn.startedAt !== undefined && (
-                          <Elapsed from={turn.startedAt} now={now} />
-                        )}
-                      </span>
-                    </div>
-                  ) : endMark ? (
-                    <div {...stylex.props(styles.endMark)}>{endMark}</div>
-                  ) : (
-                    snapshot.items.length > 0 &&
-                    // The last turn's own row says so when its work folds.
-                    !folded &&
-                    !waitingMessage && (
-                      <div {...stylex.props(styles.done)}>
-                        <span {...stylex.props(styles.rule)} />
-                        {worked(took, turn.toolCalls)}
-                        <span {...stylex.props(styles.rule)} />
+                <div {...stylex.props(styles.track)}>
+                  <div
+                    ref={content}
+                    {...stylex.props(
+                      styles.content,
+                      column.thread,
+                      snapshot.running && styles.gliding,
+                      !settled && styles.unsettled,
+                    )}
+                    role="log"
+                    aria-label="Session"
+                    aria-live="polite"
+                    aria-busy={snapshot.running}
+                  >
+                    <ThreadProbe probe={probe} />
+                    {earlier ? (
+                      <div {...stylex.props(styles.edge)}>
+                        <button
+                          type="button"
+                          disabled={earlier.loading}
+                          onClick={() => void earlier.load()}
+                          {...stylex.props(styles.earlier)}
+                        >
+                          {earlier.loading
+                            ? "Loading earlier work…"
+                            : earlier.failed
+                              ? "Earlier work did not load. Try again"
+                              : "Load earlier work"}
+                        </button>
                       </div>
-                    )
-                  )}
-                  {recap && !snapshot.running && (
-                    <TurnRecap
-                      {...recap}
-                      onDismiss={() => {
-                        recap.onDismiss();
-                        // The recap leaves sight; the thread keeps the focus.
-                        scroller.current?.focus({ preventScroll: true });
-                      }}
-                    />
-                  )}
-                  {footer !== undefined && <div aria-hidden="true" style={{ height: room }} />}
+                    ) : (
+                      before
+                    )}
+                    <div ref={head} {...stylex.props(styles.space(above))} />
+                    <RowOpen value={rows}>
+                      <LatestReplyContext.Provider value={latestReply}>
+                        {all.slice(start, end).map((unit, offset) => {
+                          const at = start + offset;
+                          return (
+                            <div
+                              key={unit.key}
+                              ref={unitRef}
+                              data-unit={unit.key}
+                              data-rise={appended.has(unit.key) ? "" : undefined}
+                              data-message={isMessage(unit) ? unit.item.kind : undefined}
+                              data-current={unit.key === current ? "" : undefined}
+                              {...stylex.props(styles.unit)}
+                            >
+                              <UnitBody
+                                unit={unit}
+                                last={snapshot.running && at === count - 1}
+                                final={"item" in unit && finals.has(unit.item.id)}
+                                renderThread={renderThread}
+                                onOpenLink={onOpenLink}
+                                onWork={toggleWork}
+                                onHold={holdUnit}
+                              />
+                            </div>
+                          );
+                        })}
+                      </LatestReplyContext.Provider>
+                    </RowOpen>
+                    <div {...stylex.props(styles.space(below))} />
+                    {snapshot.running ? (
+                      <div {...stylex.props(rowStyles.row, styles.status)}>
+                        <span {...stylex.props(rowStyles.icon)}>
+                          <span {...stylex.props(motion.spinner)} />
+                        </span>
+                        <span {...stylex.props(motion.shimmer)}>
+                          {thinking ? "Thinking" : "Working"}
+                        </span>
+                        {/* The view's one clock; a running call only spins. */}
+                        <span {...stylex.props(styles.elapsed)}>
+                          {turn.startedAt !== undefined && (
+                            <Elapsed from={turn.startedAt} now={now} />
+                          )}
+                        </span>
+                      </div>
+                    ) : endMark ? (
+                      <div {...stylex.props(styles.endMark)}>{endMark}</div>
+                    ) : (
+                      snapshot.items.length > 0 &&
+                      // The last turn's own row says so when its work folds.
+                      !folded &&
+                      !waitingMessage && (
+                        <div {...stylex.props(styles.done)}>
+                          <span {...stylex.props(styles.rule)} />
+                          {worked(took, turn.toolCalls)}
+                          <span {...stylex.props(styles.rule)} />
+                        </div>
+                      )
+                    )}
+                    {recap && !snapshot.running && (
+                      <TurnRecap
+                        {...recap}
+                        onDismiss={() => {
+                          recap.onDismiss();
+                          // The recap leaves sight; the thread keeps the focus.
+                          scroller.current?.focus({ preventScroll: true });
+                        }}
+                      />
+                    )}
+                    {footer !== undefined && <div aria-hidden="true" style={{ height: room }} />}
+                  </div>
                 </div>
               </div>
               {!atBottom && (
@@ -2312,6 +2354,13 @@ const styles = stylex.create({
     paddingBlock: 20,
     paddingInline: 22,
   },
+  // The content's glide moves it with a transform, which would also make the
+  // scroller's scroll area taller and feed the next follow. The track clips
+  // it vertically; unlike hidden, clip does not make a scroll container.
+  track: { overflowY: "clip" },
+  // While the agent works, the content keeps its own compositor layer, so
+  // each glide (thread-glide.ts) starts without painting the thread again.
+  gliding: { willChange: "transform" },
   unsettled: { visibility: "hidden" },
   edge: { display: "flex", justifyContent: "center", paddingBottom: 6 },
   space: (height: number) => ({ height }),
