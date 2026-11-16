@@ -25,6 +25,7 @@ import { useTheme } from "../../themes";
 import { Icon } from "../Icon";
 import { tooltip } from "../ToolButton";
 import { LinkedText } from "../FileRefs";
+import { Shimmer } from "../Shimmer";
 import { column, motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
 import { SidePanelCard, slim } from "./SessionSidePanel";
@@ -642,10 +643,10 @@ function Explore({
         <span {...stylex.props(rowStyles.icon)}>
           <Icon name="search" size={14} />
         </span>
-        <span {...stylex.props(running && motion.shimmer)}>
+        <Shimmer on={running}>
           <span {...stylex.props(styles.verb)}>{running ? "Exploring" : "Explored"} </span>
           {parts.join(", ")}
-        </span>
+        </Shimmer>
         {failed > 0 && <span {...stylex.props(styles.groupFailed)}>{failed} failed</span>}
         <span {...stylex.props(styles.chevron, open && styles.chevronOpen)}>
           <Icon name="chevron" size={12} />
@@ -754,9 +755,7 @@ export function PlanDock({ entries }: { entries: PlanEntry[] }) {
               <span aria-hidden="true" {...stylex.props(styles.planMark)}>
                 {PLAN_MARKS[entry.status]}
               </span>
-              <span {...stylex.props(entry.status === "in_progress" && motion.shimmer)}>
-                {entry.content}
-              </span>
+              <Shimmer on={entry.status === "in_progress"}>{entry.content}</Shimmer>
             </li>
           ))}
         </ol>
@@ -2038,9 +2037,7 @@ export function SessionThread({
                         <span {...stylex.props(rowStyles.icon)}>
                           <span {...stylex.props(motion.spinner)} />
                         </span>
-                        <span {...stylex.props(motion.shimmer)}>
-                          {thinking ? "Thinking" : "Working"}
-                        </span>
+                        <Shimmer on>{thinking ? "Thinking" : "Working"}</Shimmer>
                         {/* The view's one clock; a running call only spins. */}
                         <span {...stylex.props(styles.elapsed)}>
                           {turn.startedAt !== undefined && (

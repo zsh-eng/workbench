@@ -1129,8 +1129,8 @@ if (parent === window) {
     { capture: true, passive: false },
   );
   // While its window is out of view, the demo's motion stops. A browser does
-  // not slow a frame of the same origin, and the work-in-progress shimmer
-  // paints on each frame.
+  // not slow a frame of the same origin, and the work-in-progress motion
+  // runs on each frame.
   const still = document.createElement("style");
   still.textContent = "*, ::before, ::after { animation-play-state: paused !important }";
   addEventListener(

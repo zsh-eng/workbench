@@ -16,6 +16,7 @@ import type { ReadState } from "../../data/tabs";
 import { needsYou, tabOrder } from "../../data/threads";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon } from "../Icon";
+import { Shimmer } from "../Shimmer";
 import { RenameField } from "./RenameField";
 import { newThreadKeys } from "../../data/title-bar";
 import { ToolButton, tooltip } from "../ToolButton";
@@ -492,7 +493,9 @@ function SuperagentRow({
       <span {...stylex.props(styles.mark, styles.spark)}>
         <Icon name="superagent" size={14} />
       </span>
-      <span {...stylex.props(styles.name, working && styles.working)}>Superagent</span>
+      <Shimmer on={working} quiet style={styles.name}>
+        Superagent
+      </Shimmer>
       {thread && <RowDot dot={dotOf(thread, current, unread)} />}
     </button>
   );
@@ -580,7 +583,9 @@ const SessionRow = memo(function SessionRow({
           }}
           {...stylex.props(styles.row, current && styles.current, menuOpen && styles.held)}
         >
-          <span {...stylex.props(styles.name, working && styles.working)}>{thread.title}</span>
+          <Shimmer on={working} quiet style={styles.name}>
+            {thread.title}
+          </Shimmer>
           <RowDot dot={dot} />
         </button>
       )}
@@ -699,11 +704,6 @@ function SessionMenu({
   );
 }
 
-const shimmer = stylex.keyframes({
-  from: { backgroundPosition: "120% 0" },
-  to: { backgroundPosition: "-120% 0" },
-});
-
 const styles = stylex.create({
   list: {
     display: "flex",
@@ -821,16 +821,6 @@ const styles = stylex.create({
     overflow: "hidden",
     whiteSpace: "nowrap",
     textOverflow: "ellipsis",
-  },
-  working: {
-    color: "transparent",
-    backgroundImage: `linear-gradient(90deg, ${tokens.faint} 0%, ${tokens.faint} 38%, ${tokens.text} 50%, ${tokens.faint} 62%, ${tokens.faint} 100%)`,
-    backgroundSize: "240% 100%",
-    backgroundClip: "text",
-    animationName: { default: shimmer, "@media (prefers-reduced-motion: reduce)": "none" },
-    animationDuration: "2.6s",
-    animationTimingFunction: "linear",
-    animationIterationCount: "infinite",
   },
   dot: { flex: "none", width: 7, height: 7, marginInlineEnd: 3, borderRadius: "50%" },
   fresh: { backgroundColor: tokens.accent },

@@ -116,9 +116,11 @@ function ReviewCard({
   );
 }
 
-const shimmer = stylex.keyframes({
-  "0%": { backgroundPosition: "100% 0" },
-  "100%": { backgroundPosition: "-100% 0" },
+// A light that sweeps across the card while it is written: a layer twice the
+// card's width that moves by a card, a transform, so it costs no paint.
+const sweep = stylex.keyframes({
+  from: { transform: "translateX(-50%)" },
+  to: { transform: "translateX(50%)" },
 });
 
 const styles = stylex.create({
@@ -149,14 +151,27 @@ const styles = stylex.create({
     },
   },
   writing: {
+    position: "relative",
+    overflow: "hidden",
+    isolation: "isolate",
     borderStyle: "dashed",
     backgroundColor: tokens.canvas,
-    backgroundImage: `linear-gradient(90deg, transparent, ${tokens.fill}, transparent)`,
-    backgroundSize: "200% 100%",
-    animationName: shimmer,
-    animationDuration: "1.6s",
-    animationIterationCount: "infinite",
-    animationTimingFunction: "linear",
+    "::before": {
+      content: '""',
+      display: { default: "block", "@media (prefers-reduced-motion: reduce)": "none" },
+      position: "absolute",
+      top: 0,
+      bottom: 0,
+      left: 0,
+      width: "200%",
+      zIndex: -1,
+      pointerEvents: "none",
+      backgroundImage: `linear-gradient(90deg, transparent, ${tokens.fill}, transparent)`,
+      animationName: sweep,
+      animationDuration: "1.6s",
+      animationIterationCount: "infinite",
+      animationTimingFunction: "linear",
+    },
   },
   text: {
     display: "flex",

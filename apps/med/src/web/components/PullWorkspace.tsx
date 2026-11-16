@@ -4,7 +4,7 @@ import { parsePullUrl, type PullJob, type PullStep } from "../../shared/pull-wor
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
 import { Elapsed, formatDuration } from "./session/Elapsed";
-import { motion } from "./session/session-styles";
+import { Shimmer } from "./Shimmer";
 import { ToolButton } from "./ToolButton";
 
 /** What a pull request's workspace knows about its job. */
@@ -42,9 +42,9 @@ export function SettlingText({ text, shimmer }: { text: string; shimmer?: boolea
       );
   }, [text]);
   return (
-    <span ref={ref} {...stylex.props(styles.settling, shimmer && motion.shimmer)}>
+    <Shimmer ref={ref} on={!!shimmer} style={styles.settling}>
       {text}
-    </span>
+    </Shimmer>
   );
 }
 
@@ -134,15 +134,15 @@ export function PullProgress({
                 >
                   {MARKS[step.state]}
                 </span>
-                <span
-                  {...stylex.props(
+                <Shimmer
+                  on={step.state === "running"}
+                  style={[
                     styles.label,
-                    step.state === "running" && motion.shimmer,
                     (step.state === "done" || step.state === "skipped") && styles.struck,
-                  )}
+                  ]}
                 >
                   {step.label}
-                </span>
+                </Shimmer>
                 {step.detail && (
                   <span title={step.detail} {...stylex.props(styles.detail)}>
                     {step.detail}

@@ -8,6 +8,7 @@ import { useTheme } from "../../themes";
 import { diffSurfaceStyle } from "../diff-surface";
 import { Icon, type IconName } from "../Icon";
 import { formatDuration } from "./Elapsed";
+import { Shimmer } from "../Shimmer";
 import { motion, rowStyles } from "./session-styles";
 import { ScheduleCard } from "./ScheduleCard";
 import { HandoffCard } from "./HandoffCard";
@@ -183,10 +184,10 @@ function ToolRow({
       <span {...stylex.props(rowStyles.icon, call.status === "failed" && styles.failedIcon)}>
         <Icon name={subagent ? "agent" : ICONS[call.kind]} size={14} />
       </span>
-      <span {...stylex.props(styles.label, running && motion.shimmer)}>
+      <Shimmer on={running} style={styles.label}>
         {verb && <span {...stylex.props(styles.verb)}>{verb} </span>}
         <span {...stylex.props(verb ? styles.target : styles.plain)}>{target}</span>
-      </span>
+      </Shimmer>
       <span {...stylex.props(styles.meta)}>
         {(stat.added > 0 || stat.removed > 0) && (
           <span {...stylex.props(styles.stat)}>

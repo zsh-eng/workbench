@@ -3,29 +3,15 @@ import { tokens } from "../../theme.stylex";
 
 const reduced = "@media (prefers-reduced-motion: reduce)";
 
-const shine = stylex.keyframes({
-  from: { backgroundPosition: "100% 0" },
-  to: { backgroundPosition: "-100% 0" },
-});
 const spin = stylex.keyframes({ to: { transform: "rotate(360deg)" } });
 const enter = stylex.keyframes({
   from: { opacity: 0, transform: "translateY(4px)" },
   to: { opacity: 1, transform: "none" },
 });
 
-/** Motion for work in progress: a light that passes over a label, and a spinner. */
+/** Motion for work in progress: a spinner (and Shimmer, the light that
+ * passes over a label). */
 export const motion = stylex.create({
-  shimmer: {
-    backgroundImage: `linear-gradient(90deg, ${tokens.muted} 0%, ${tokens.muted} 40%, ${tokens.text} 50%, ${tokens.muted} 60%, ${tokens.muted} 100%)`,
-    backgroundSize: "200% 100%",
-    backgroundClip: "text",
-    WebkitBackgroundClip: "text",
-    color: "transparent",
-    animationName: { default: shine, [reduced]: "none" },
-    animationDuration: "1.8s",
-    animationTimingFunction: "linear",
-    animationIterationCount: "infinite",
-  },
   spinner: {
     display: "inline-block",
     boxSizing: "border-box",

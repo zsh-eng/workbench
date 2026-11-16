@@ -11,6 +11,7 @@ import {
 import type { SessionItem, ToolCallState } from "../../data/session-store";
 import { tokens } from "../../theme.stylex";
 import { Icon } from "../Icon";
+import { Shimmer } from "../Shimmer";
 import { motion, rowStyles } from "./session-styles";
 
 type ToolItem = Extract<SessionItem, { kind: "tool" }>;
@@ -108,7 +109,7 @@ function CancelRow({ item, id }: { item: ToolItem; id: string }) {
       <span {...stylex.props(rowStyles.icon)}>
         <Icon name="clock" size={13} />
       </span>
-      <span {...stylex.props(styles.cancelLabel, running && motion.shimmer)}>
+      <Shimmer on={running} style={styles.cancelLabel}>
         <span {...stylex.props(styles.cancelVerb)}>
           {running
             ? "Cancelling"
@@ -117,7 +118,7 @@ function CancelRow({ item, id }: { item: ToolItem; id: string }) {
               : "Cancelled"}{" "}
         </span>
         {job ? describeCron(job.cron) : `job ${id}`}
-      </span>
+      </Shimmer>
       {running && <span aria-label="Running" {...stylex.props(motion.spinner)} />}
     </div>
   );
