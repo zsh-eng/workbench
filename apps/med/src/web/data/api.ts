@@ -31,6 +31,7 @@ export const registeredRepositorySchema = z.object({
   name: z.string(),
   branches: branchesSchema,
   worktrees: z.array(worktreeSchema),
+  defaultBranch: z.string().optional(),
   error: z.string().optional(),
 });
 export const repositoriesSchema = z.object({

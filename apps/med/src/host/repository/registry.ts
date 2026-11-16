@@ -139,6 +139,7 @@ export class RepositoryRegistry {
       }
     }
     const branches = await listBranches(path, signal, availableWorktrees);
+    const defaultBranch = await landingBranchName(path, branches, signal);
     if (path !== entry.catalogue.path) {
       await entry.search?.close();
       entry.search = undefined;
@@ -146,6 +147,8 @@ export class RepositoryRegistry {
     entry.paths = paths;
     for (const path of paths) entry.retainedPaths.add(path);
     entry.catalogue = { ...entry.catalogue, path, branches, worktrees: availableWorktrees };
+    if (defaultBranch) entry.catalogue.defaultBranch = defaultBranch;
+    else delete entry.catalogue.defaultBranch;
     delete entry.catalogue.error;
     entry.signature = signature;
   }
@@ -362,4 +365,28 @@ export class RepositoryRegistry {
     await Promise.allSettled([...this.entries.values()].map((entry) => entry.search?.close()));
     this.entries.clear();
   }
+}
+
+/** Names that a repository's default branch usually has. */
+const USUAL_DEFAULTS = ["main", "master", "develop", "trunk"];
+
+/** The branch that work lands on, as a branch the repository has: origin's
+ * default branch, else main, master, develop, or trunk. */
+async function landingBranchName(
+  path: string,
+  branches: readonly { name: string }[],
+  signal?: AbortSignal,
+) {
+  const remote = (
+    await git(path, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], {
+      signal,
+      acceptedExitCodes: [0, 1, 128],
+      maxBytes: 4096,
+    })
+  )
+    .toString("utf8")
+    .trim()
+    .replace(/^origin\//, "");
+  const names = new Set(branches.map((branch) => branch.name));
+  return [remote, ...USUAL_DEFAULTS].find((name) => name && names.has(name));
 }

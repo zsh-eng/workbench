@@ -102,25 +102,38 @@ export interface RegisteredRepository {
   name: string;
   branches: Branch[];
   worktrees: Worktree[];
+  /** The branch that work lands on: origin's default branch, else main,
+   * master, develop, or trunk, whichever the repository has. */
+  defaultBranch?: string;
   error?: string;
 }
 
-/** The branch of the repository's main checkout, which threads land on. */
+/** The branch of the repository's main checkout, which New thread's
+ * Checkout works on. */
 export function baseOf(repository: Pick<RegisteredRepository, "path" | "worktrees"> | undefined) {
   return repository?.worktrees.find((tree) => tree.path === repository.path && !tree.linked)
     ?.branch;
 }
 
+/** The branch that work lands on, such as main: the repository's default
+ * branch, else the branch of its main checkout. */
+export function landingBranch(
+  repository: Pick<RegisteredRepository, "path" | "worktrees" | "defaultBranch"> | undefined,
+) {
+  return repository?.defaultBranch ?? baseOf(repository);
+}
+
 /** Where a checkout's Changes start: the base branch, when the checkout is on
  * another branch or none (Branch); otherwise HEAD (Working, undefined). The
  * base is the one that the reader chose for the thread, else the
- * repository's. */
+ * repository's default branch, such as main, whatever branch its main
+ * checkout is on. */
 export function changesBase(
-  repository: Pick<RegisteredRepository, "path" | "worktrees"> | undefined,
+  repository: Pick<RegisteredRepository, "path" | "worktrees" | "defaultBranch"> | undefined,
   branch: string | null | undefined,
   chosen?: string,
 ) {
-  const base = chosen ?? baseOf(repository);
+  const base = chosen ?? landingBranch(repository);
   return base && base !== "Detached HEAD" && branch !== base ? base : undefined;
 }
 export interface Commit {

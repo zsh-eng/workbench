@@ -491,3 +491,19 @@ test.each(["refresh", "register"])(
     expect(registered.repositories[0].id).toBe(original.id);
   },
 );
+
+test("a repository's default branch is origin's, else main or master, whatever branch its main checkout is on", async () => {
+  const { repo, clone } = await fixture();
+  // The main checkout moves to an agent's branch; work still lands on main.
+  git(repo, "switch", "-c", "agent/fix");
+  // A clone whose origin names develop as its default branch.
+  git(clone, "branch", "develop");
+  git(clone, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+  git(clone, "update-ref", "refs/remotes/origin/develop", "HEAD");
+  git(clone, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop");
+  const { catalogue } = await launch(repo, [clone]);
+  const repositories = await catalogue();
+  const named = (path: string) => repositories.find((entry) => entry.path === path);
+  expect(named(repo)?.defaultBranch).toBe("main");
+  expect(named(clone)?.defaultBranch).toBe("develop");
+});

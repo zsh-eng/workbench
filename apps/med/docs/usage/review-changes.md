@@ -2,7 +2,9 @@
 
 1. Choose branch, working, staged, or unstaged changes in the comparison menu
    above the diff. Branch changes are the commits since the base branch and
-   the uncommitted changes; a branch other than the base opens on them.
+   the uncommitted changes; a branch other than the base opens on them. The
+   base is the repository's default branch, such as `main`, even while its
+   main checkout is on another branch.
    **Base branch…** chooses another base for them, and **Compare
    revisions…** in the review's menu chooses a range. A range compares
    snapshots; it does not add patches across merged branches.

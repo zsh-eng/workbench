@@ -252,7 +252,9 @@ scheduling when you ask for a check later.
   comparison menu's button names the branch and its base, such as
   "station-search since main". The base is the one that you chose, else the
   base branch that the review names for its checkout (the `main` of a review
-  of `main..station-search`), else the repository's. **Base branch…** chooses
+  of `main..station-search`), else the repository's default branch: the one
+  that `origin` names, else `main`, `master`, `develop`, or `trunk`, whatever
+  branch the main checkout is on. **Base branch…** chooses
   what the branch's changes start from: the commits since that branch, and
   the uncommitted changes. The thread keeps the base that you choose in the
   checkout where its session works, and its row counts the changes since it.

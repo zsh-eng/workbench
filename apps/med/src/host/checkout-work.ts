@@ -1,4 +1,4 @@
-import { baseOf, changesBase, type RegisteredRepository } from "../shared/protocol";
+import { baseOf, changesBase, landingBranch, type RegisteredRepository } from "../shared/protocol";
 import type { Thread } from "../shared/threads";
 import { git } from "./runtime/process";
 
@@ -82,7 +82,9 @@ export function createCheckoutWork(
       const annotated = threads.map((thread) => {
         if (!thread.checkout || !thread.repository || time - thread.updatedAt > RECENT_MS)
           return thread;
-        const base = baseOf(repositories.find((entry) => entry.id === thread.repository!.id));
+        const base = landingBranch(
+          repositories.find((entry) => entry.id === thread.repository!.id),
+        );
         if (!base) return thread;
         const onWorking = working(thread);
         const key = `${thread.checkout}\0${base}\0${onWorking}`;
