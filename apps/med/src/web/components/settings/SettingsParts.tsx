@@ -5,7 +5,14 @@ import { tokens } from "../../theme.stylex";
 // The parts of a Settings page: a section, its rows, and a switch.
 
 /** A part of the page that ⌘K and Display's All code settings can open. */
-export type SettingsSection = "appearance" | "code" | "open-in" | "files" | "sources" | "file";
+export type SettingsSection =
+  | "appearance"
+  | "code"
+  | "open-in"
+  | "files"
+  | "sources"
+  | "grafana"
+  | "file";
 
 export function Section({
   id,

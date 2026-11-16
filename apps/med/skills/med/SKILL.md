@@ -92,7 +92,8 @@ generated files and formatting last; put every changed file in exactly one
 segment; summaries say why in 1–3 sentences; comment only where it saves the
 reader time (`kind`: note, suggestion, risk, question). Summaries are
 Markdown: where a picture explains a flow, a state change, or a screen faster
-than words, consider a `mermaid` fence or an image from the checkout.
+than words, consider a `mermaid` fence, a `chart` fence for numbers (`med
+docs reference`, Show a chart), or an image from the checkout.
 `med docs agents` has the guide's format and manifests.
 
 ## When a command fails

@@ -370,3 +370,88 @@ test("an image's right-click copies it as a PNG", async () => {
   const bitmap = await createImageBitmap(png);
   expect([bitmap.width, bitmap.height]).toEqual([40, 30]);
 });
+
+test("a chart fence draws its rows as a chart, with prose spacing kept out, and a broken one says why", async () => {
+  const text = [
+    "# Checkout",
+    "",
+    "```chart",
+    "title: p99 went past 2 s after the deploy",
+    "unit: ms",
+    "mark: 2026-11-16 09:02 Deploy v412",
+    "threshold: 500 SLO",
+    "",
+    "time,p50,p99",
+    "2026-11-16T09:00:00,38,240",
+    "2026-11-16T09:01:00,40,260",
+    "2026-11-16T09:02:00,41,2100",
+    "2026-11-16T09:03:00,39,1900",
+    "```",
+    "",
+    "```chart",
+    "title: Nothing to draw",
+    "```",
+  ].join("\n");
+  const reading = await show(text, 900, "Checkout");
+  const chart = reading.getByRole("heading", { name: "p99 went past 2 s after the deploy" });
+  await expect.element(chart).toBeVisible();
+  // The chart's title keeps its own spacing inside the prose.
+  expect(getComputedStyle(chart.element()).marginTop).toBe("0px");
+  await expect.element(reading.getByRole("button", { name: "p50", exact: true })).toBeVisible();
+  await expect.element(reading.getByText("SLO 500 ms")).toBeVisible();
+  await expect.element(reading.getByText("Deploy v412")).toBeVisible();
+  await expect
+    .element(
+      reading.getByText("This chart has no data: add a grafana link, a file, or rows of CSV."),
+    )
+    .toBeVisible();
+  // The options wait in one menu: a log axis, and back.
+  const options = reading.getByRole("button", { name: "Chart options" }).first();
+  await options.click();
+  await page.getByRole("menuitemcheckbox", { name: "Log scale" }).click();
+  await options.click();
+  await expect
+    .element(page.getByRole("menuitemcheckbox", { name: "Log scale" }))
+    .toHaveAttribute("aria-checked", "true");
+  await userEvent.keyboard("{Escape}");
+});
+
+test("a Grafana chart without a Grafana in Settings says so, and its button opens Settings → Grafana", async () => {
+  const start = location.pathname;
+  const asked: string[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = new URL(String(input instanceof Request ? input.url : input), location.href);
+    asked.push(url.pathname);
+    if (url.pathname === "/api/charts/grafana")
+      return Response.json(
+        {
+          error: {
+            code: "grafana-not-set",
+            message:
+              "Add https://grafana.acme.build in Settings → Grafana, with a token, to draw this chart.",
+          },
+        },
+        { status: 404 },
+      );
+    return Response.json({ error: { message: "Not in this test." } }, { status: 404 });
+  });
+  const text = [
+    "# Checkout",
+    "",
+    "```chart",
+    "grafana: https://grafana.acme.build/d/abc/checkout?viewPanel=4&from=now-3h&to=now",
+    "title: p99 tripled after the deploy",
+    "```",
+  ].join("\n");
+  const reading = await show(text, 900, "Checkout");
+  await expect.element(reading.getByRole("alert")).toBeVisible();
+  expect(reading.getByRole("alert").element().textContent).toContain(
+    "Add https://grafana.acme.build in Settings → Grafana, with a token",
+  );
+  expect(asked).toContain("/api/charts/grafana");
+  // The fix replaces Try again, which would only fail the same way.
+  await expect.element(reading.getByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+  await reading.getByRole("button", { name: "Connect Grafana" }).click();
+  expect(location.pathname).toBe("/settings/grafana");
+  history.replaceState(null, "", start);
+});

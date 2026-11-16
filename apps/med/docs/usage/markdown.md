@@ -17,7 +17,8 @@ vault notes, and review notes share one type scale, which a theme can scale
 for its fonts.
 
 - GFM tables, task lists, strikethrough, autolinks, and footnotes; LaTeX with
-  KaTeX; Mermaid diagrams; colored code; and images. A single newline stays in
+  KaTeX; Mermaid diagrams; [charts](#charts); colored code; and images. A
+  single newline stays in
   the paragraph, and a blank line starts a new one. Raw HTML is left out.
 - `<details>` and `<summary>` fold Markdown, as on GitHub: the summary shows,
   and a click opens the fold. `<details open>` starts open. Put a blank line
@@ -63,6 +64,51 @@ for its fonts.
 - Text keeps the browser's own right-click menu.
 
 Try [the reading queue design note](../examples/reading-queue.md).
+
+## Charts
+
+A `chart` fence draws a chart in Med's colors: a line chart over time, or a
+bar a row. Its first lines are keys, `key: value`; its data comes from one of
+three places.
+
+- `grafana:` a Grafana panel's link, as Grafana's **View** gives it. Med's
+  server reads the panel with the token in [Settings → Grafana](settings.md#grafana),
+  once the chart nears the view; the chart shows a waiting line until then.
+  Med runs the panel's queries with the link's variables, or the dashboard's
+  own, and takes the panel's unit, log axis, threshold line, and the
+  dashboard's annotations as marks. It does not apply the panel's
+  transformations, and says so under the chart.
+- `file:` a CSV or JSON file in the checkout, such as one a script wrote. In
+  a reply the path starts where the agent worked; in a Markdown file, at the
+  file's folder.
+- CSV rows after the keys and a blank line. A first column of times (dates,
+  date-times, or seconds or milliseconds since 1970) draws a line for each
+  other column; a label and a number in each row draw bars.
+
+```chart
+grafana: https://grafana.example.com/d/abc/checkout?viewPanel=4&from=now-3h&to=now
+title: p99 went past 2 s after the deploy, and recovered after the rollback
+mark: 10:42 Deploy v412
+threshold: 500 SLO
+```
+
+Other keys: `title` (the finding, in a sentence) and `subtitle`; `unit`
+(`ms`, `s`, `%`, `B`, or a word such as `req/s`); `scale: log`; `type: bars`
+or `line`; `mark:` a time, as `10:42` or `2026-11-16 10:42`, and a label,
+once for each mark; `threshold:` a value and a label; `highlight:` the bar
+the chart is about. A Grafana link's range relative to now, such as
+`now-3h`, counts from when the reply was written, so the chart keeps showing
+what the agent looked at; `live: yes` keeps it moving, and reads Grafana
+again each minute while it shows. `from:` and `to:` replace the link's range.
+
+Med keeps what it read from Grafana, so a chart draws the same each time.
+At rest a chart shows its data and where it came from. Hover it to read each
+line at a time; the time sits on the axis. Drag across to zoom, and
+double-click or **Reset zoom** to zoom out. The key hides and shows a line.
+The rest is in **Chart options** (`⋯`), which shows while the pointer or the
+focus is on the chart: **Log scale**, **Full screen**, **Refresh**, **Open
+in Grafana**, and **Copy as image** (with its title, key, and source), **as
+CSV**, or the **link**. The menu also says when Med read the data.
 
 ## Images and videos
 

@@ -9,6 +9,7 @@ import {
   linePath,
   logDomain,
   nearestIndex,
+  placeLabels,
   seriesCsv,
   timeTicks,
   type Point,
@@ -129,4 +130,40 @@ test("CSV has a column for each series, on every time either has", () => {
   expect(csv).toBe(
     'time,p50,"p99, ""tail"""\n1970-01-01T00:00:00.000Z,1,9\n1970-01-01T00:01:00.000Z,,8',
   );
+});
+
+test("mark labels step aside for each other, and drop when nothing fits", () => {
+  // Apart: each right of its line.
+  expect(
+    placeLabels(
+      [
+        { x: 10, width: 60 },
+        { x: 200, width: 60 },
+      ],
+      600,
+    ),
+  ).toEqual(["start", "start"]);
+  // Close: the first steps left of its line.
+  expect(
+    placeLabels(
+      [
+        { x: 300, width: 70 },
+        { x: 330, width: 90 },
+      ],
+      600,
+    ),
+  ).toEqual(["end", "start"]);
+  // At the edge: left of its line.
+  expect(placeLabels([{ x: 580, width: 60 }], 600)).toEqual(["end"]);
+  // Three crowded together: the middle one keeps its line only.
+  expect(
+    placeLabels(
+      [
+        { x: 300, width: 70 },
+        { x: 320, width: 70 },
+        { x: 330, width: 70 },
+      ],
+      600,
+    ),
+  ).toEqual(["end", "start", null]);
 });

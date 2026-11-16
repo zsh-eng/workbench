@@ -220,6 +220,11 @@ async function drain() {
               node.properties.dataMermaid = true;
               return;
             }
+            // A chart that Med draws (ChartBlock), from its keys and rows.
+            if (language === "chart") {
+              node.properties.dataChart = true;
+              return;
+            }
             if (language !== "text" && source.length < 100_000 && language !== "markdown") {
               const key = `${theme.name}:${language}:${source}`;
               let children = codeCache.get(key);
@@ -275,6 +280,9 @@ async function drain() {
             end,
             ...(node.type === "element" && node.properties.dataMermaid
               ? { diagram: textOf(node) }
+              : {}),
+            ...(node.type === "element" && node.properties.dataChart
+              ? { chart: textOf(node) }
               : {}),
           };
         });

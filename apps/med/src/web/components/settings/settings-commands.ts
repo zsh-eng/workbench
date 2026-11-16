@@ -8,6 +8,7 @@ const SECTIONS: { section: SettingsSection; label: string }[] = [
   { section: "open-in", label: "Open in" },
   { section: "files", label: "Files and sessions" },
   { section: "sources", label: "Sources" },
+  { section: "grafana", label: "Grafana" },
   { section: "file", label: "Settings file" },
 ];
 

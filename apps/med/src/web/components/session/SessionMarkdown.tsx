@@ -16,6 +16,7 @@ import { useTheme } from "../../themes";
 import { branchRefOf, fileRefOf } from "../../data/file-refs";
 import { useCodeCopy } from "../CodeCopy";
 import { DiagramBlock } from "../DiagramBlock";
+import { ChartBlock } from "../chart/ChartBlock";
 import { useFileRefBlocks, useFileRefs } from "../FileRefs";
 import { useTableCopy } from "../TableCopy";
 import { HandoffContext, medReviewId, openMedReview, ReviewLinkCard } from "./HandoffCard";
@@ -33,6 +34,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   settled = false,
   imageRepo,
   onOpenLink,
+  at,
 }: {
   text: string;
   /** The thread's latest reply while the agent works: its text can grow. */
@@ -44,6 +46,8 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   imageRepo?: string;
   /** A link to a file in the repository, such as src/summary.ts:5. */
   onOpenLink?(href: string): void;
+  /** When the agent wrote it: a chart's range relative to now counts from here. */
+  at?: number;
 }) {
   const { active: theme } = useTheme();
   const [rendered, setRendered] = useState<MarkdownResult>();
@@ -154,6 +158,8 @@ export const SessionMarkdown = memo(function SessionMarkdown({
         blocks.map((block, index) =>
           block.diagram !== undefined ? (
             <DiagramBlock key={index} block={block} />
+          ) : block.chart !== undefined ? (
+            <ChartBlock key={`${index}:${block.chart}`} text={block.chart} at={at} />
           ) : reviewLinks?.[index] ? (
             <ReviewLinkCard key={index} {...reviewLinks[index]} />
           ) : (

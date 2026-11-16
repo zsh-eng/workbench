@@ -62,6 +62,14 @@
   line-height: var(--med-md-leading, 1.6);
   overflow-wrap: anywhere;
 }
+/* A chart lays out its own headings, lists, and links (chart/Chart.tsx):
+   the prose's rules give way to its styles. */
+.med-md-prose [data-chart-block] :is(h1, h2, h3, h4, h5, h6, p, ul, ol, li, a, strong, code, img) {
+  all: revert-layer;
+}
+.med-md-prose [data-chart-block] {
+  margin-block: 20px;
+}
 .med-md-prose p {
   margin: 0 0 var(--med-md-space, 1.07em);
 }

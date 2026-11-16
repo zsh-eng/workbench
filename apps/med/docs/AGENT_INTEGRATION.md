@@ -630,12 +630,44 @@ no path on disk, so it cannot have a link. See
 [standalone files](usage/edit-files.md#standalone-files-and-dropped-previews).
 
 Markdown files open rendered, and the rendered view shows drafts before they
-are saved. Med renders GFM, `mermaid` fences, `$…$` and `$$` math,
-and colored code. A blank line starts a paragraph. Relative images resolve
+are saved. Med renders GFM, `mermaid` fences, `chart` fences, `$…$` and `$$`
+math, and colored code. A blank line starts a paragraph. Relative images resolve
 from the document, within its folder or repository; keep secrets and unrelated
 paths out of image references. See
 [Read and edit Markdown](usage/markdown.md) and the
 [sample note](examples/reading-queue.md).
+
+## Show a chart
+
+A `chart` fence in a reply, a guide, or a Markdown file draws a chart that
+the user can hover, zoom, switch to a log axis, and copy. Prefer it to an
+image of a graph or a page of HTML. Write a title that states the finding,
+then give one source:
+
+```chart
+grafana: https://grafana.example.com/d/abc/checkout?orgId=1&viewPanel=4&from=now-3h&to=now
+title: p99 went past 2 s after the 10:42 deploy, and recovered after the rollback
+mark: 10:42 Deploy v412
+```
+
+- `grafana:` a panel's link from Grafana's **View panel**, with its
+  `var-` values. Med's server reads it with the token in the user's Settings;
+  you need no access to Grafana, and you never see the token. A range
+  relative to now counts from your reply's time, so the chart keeps showing
+  what you looked at. Add `live: yes` for a chart that should keep moving.
+- `file:` a CSV or JSON file in the checkout that your script wrote, from
+  the folder you work in. Med never runs the script.
+- CSV rows after the keys and a blank line: a time first (an ISO date-time,
+  or seconds or milliseconds since 1970), then a column for each line. Rows
+  of a label and a number draw bars; `highlight:` names the bar that the
+  chart is about.
+
+Other keys: `subtitle`, `unit` (`ms`, `s`, `%`, `B`, or a word such as
+`req/s`), `scale: log` for values across orders of magnitude, `type: bars`
+or `line`, `threshold: 500 SLO`, and `mark: 10:42 Deploy v412` once for each
+event. A Grafana that is not in Settings, or a token it turns down, shows its
+reason in the chart; ask the user to connect it in **Settings → Grafana**.
+See [Charts](usage/markdown.md#charts).
 
 ## Checks
 

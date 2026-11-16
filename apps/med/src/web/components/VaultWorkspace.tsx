@@ -47,7 +47,15 @@ interface VaultTab {
 /** Open notes, and their bytes, that the vault's row holds. */
 const TAB_LIMIT = 24;
 const TAB_BYTES = 32 * 1024 * 1024;
-const SECTIONS: SettingsSection[] = ["appearance", "code", "open-in", "files", "sources", "file"];
+const SECTIONS: SettingsSection[] = [
+  "appearance",
+  "code",
+  "open-in",
+  "files",
+  "sources",
+  "grafana",
+  "file",
+];
 /** The part of Settings that the address opens: /settings, or /settings/open-in. */
 const settingsSection = (): SettingsSection | null => {
   if (location.pathname === "/settings") return "appearance";

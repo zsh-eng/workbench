@@ -293,6 +293,7 @@ const Item = memo(function Item({
             streaming={last}
             settled={item.settled}
             onOpenLink={onOpenLink}
+            at={item.at}
           />
           <ReplyBar item={item} final={final && !last} />
         </>

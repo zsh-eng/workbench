@@ -250,6 +250,8 @@ export class HttpError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** The host's code for the error, such as "grafana-not-set". */
+    readonly code?: string,
   ) {
     super(message);
   }
@@ -259,6 +261,12 @@ export class HttpError extends Error {
  * closed, as in a restart, before its answer ended. */
 export const unanswered = (error: unknown) =>
   error instanceof TypeError || error instanceof SyntaxError;
+
+/** The code in the host's error answer, `{ error: { code, message } }`. */
+function errorCode(body: unknown) {
+  const code = (body as { error?: { code?: unknown } } | null)?.error?.code;
+  return typeof code === "string" ? code : undefined;
+}
 
 export function createApi(fetcher: typeof fetch, token: string) {
   const headers = (input?: HeadersInit) => {
@@ -273,6 +281,7 @@ export function createApi(fetcher: typeof fetch, token: string) {
       throw new HttpError(
         apiErrorMessage(body) ?? `Request failed (${response.status}).`,
         response.status,
+        errorCode(body),
       );
     }
     const result = schema.safeParse(await response.json());

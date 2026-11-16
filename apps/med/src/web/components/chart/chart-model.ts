@@ -350,3 +350,52 @@ export function seriesCsv(series: readonly Series[]) {
     ),
   ].join("\n");
 }
+
+/**
+ * Where each mark's label goes: right of its line, left of it when the
+ * next label needs the room or the edge is near, or nowhere when neither
+ * fits (its line keeps the label as a tooltip). `width` is each label's
+ * width; labels sit `gap` from their line and from each other.
+ */
+export function placeLabels(
+  marks: readonly { x: number; width: number }[],
+  right: number,
+  gap = 5,
+): ("start" | "end" | null)[] {
+  const placed: ("start" | "end" | null)[] = marks.map(() => null);
+  // The extent of each placed label, by index.
+  const spans: ([number, number] | null)[] = marks.map(() => null);
+  const span = (index: number, side: "start" | "end"): [number, number] => {
+    const { x, width } = marks[index]!;
+    return side === "start" ? [x + gap, x + gap + width] : [x - gap - width, x - gap];
+  };
+  let last = -1;
+  const clear = (extent: [number, number], before: number) =>
+    extent[0] >= 0 && (before < 0 || extent[0] >= spans[before]![1] + gap * 2);
+  marks.forEach((_, index) => {
+    for (const side of ["start", "end"] as const) {
+      const extent = span(index, side);
+      if (extent[1] > right) continue;
+      if (clear(extent, last)) {
+        placed[index] = side;
+        spans[index] = extent;
+        last = index;
+        return;
+      }
+    }
+    // The label before steps to the left of its line, if that leaves room.
+    if (last >= 0 && placed[last] === "start") {
+      const before = spans.slice(0, last).findLastIndex((entry) => entry !== null);
+      const moved = span(last, "end");
+      const mine = span(index, "start");
+      if (clear(moved, before) && mine[1] <= right && mine[0] >= moved[1] + gap * 2) {
+        placed[last] = "end";
+        spans[last] = moved;
+        placed[index] = "start";
+        spans[index] = mine;
+        last = index;
+      }
+    }
+  });
+  return placed;
+}

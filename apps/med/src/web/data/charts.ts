@@ -1,0 +1,36 @@
+import type { z } from "zod";
+import { chartRoutes, type GrafanaPanel } from "../../shared/charts";
+import { createApi } from "./api";
+import { readBrowserToken } from "./auth";
+import { browserFetch } from "./live";
+
+// Grafana panels for charts, through Med's server, which holds the tokens.
+
+const api = () => createApi(browserFetch, readBrowserToken());
+
+// Panels this page read, so a chart that scrolls back into view, or a
+// thread opened again, draws at once.
+const panels = new Map<string, GrafanaPanel>();
+
+type PanelInput = z.input<(typeof chartRoutes)["grafana"]["input"]>;
+
+/** A panel read before, without asking the server. */
+export function keptPanel(input: Omit<PanelInput, "refresh">) {
+  return panels.get(JSON.stringify(input));
+}
+
+export async function grafanaPanel(input: PanelInput, signal?: AbortSignal) {
+  const panel = await api().call(chartRoutes.grafana, input, signal);
+  const key = JSON.stringify({ ...input, refresh: undefined });
+  panels.delete(key);
+  panels.set(key, panel);
+  if (panels.size > 60) panels.delete(panels.keys().next().value!);
+  return panel;
+}
+
+export const grafanaSites = (signal?: AbortSignal) => api().call(chartRoutes.sites, {}, signal);
+
+export const connectGrafana = (address: string, token?: string) =>
+  api().call(chartRoutes.connect, { address, ...(token ? { token } : {}) });
+
+export const removeGrafana = (address: string) => api().call(chartRoutes.remove, { address });

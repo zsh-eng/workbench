@@ -20,7 +20,6 @@ import { tokens, ui } from "../../theme.stylex";
 import { ActionMenu } from "../Controls";
 import { CopyNoteText, copyFailure, useCopyNote } from "../DiagramCopy";
 import { Icon } from "../Icon";
-import { tooltip } from "../ToolButton";
 import { copyChart } from "./chart-copy";
 import {
   areaPath,
@@ -34,6 +33,7 @@ import {
   linePath,
   logDomain,
   nearestIndex,
+  placeLabels,
   seriesCsv,
   timeTicks,
   type LineChartSpec,
@@ -46,7 +46,8 @@ export interface ChartSource {
   /** Grafana's host and panel, a file's name, or what the agent ran. */
   label: string;
   url?: string;
-  range: readonly [number, number];
+  /** None while a file loads. */
+  range?: readonly [number, number];
   /** The range ends now: the newest point breathes. */
   live?: boolean;
   /** When Med last fetched it. */
@@ -145,6 +146,8 @@ export function LineChart({
   height = 200,
   large,
   onClose,
+  notice,
+  fix,
 }: {
   spec: LineChartSpec;
   series?: readonly Series[];
@@ -157,11 +160,21 @@ export function LineChart({
   /** In the full-screen dialog: a Close button in place of Full screen. */
   large?: boolean;
   onClose?(): void;
+  /** What the chart leaves out of its source, such as a panel's transformations. */
+  notice?: string;
+  /** In place of Try again, for an error that a step elsewhere fixes. */
+  fix?: { label: string; run(): void };
 }) {
   const frame = useRef<HTMLDivElement>(null);
   const clip = `chart-${useId().replace(/[^a-zA-Z0-9-]/g, "")}`;
   const [measure, width] = useWidth();
   const [scale, setScale] = useState<"linear" | "log">(spec.scale ?? "linear");
+  // A scale that arrives with the data, as a Grafana panel's, takes over.
+  const [specScale, setSpecScale] = useState(spec.scale);
+  if (spec.scale !== specScale) {
+    setSpecScale(spec.scale);
+    setScale(spec.scale ?? "linear");
+  }
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
   const [focus, setFocus] = useState<string | null>(null);
   const [zoom, setZoom] = useState<readonly [number, number] | null>(null);
@@ -176,7 +189,7 @@ export function LineChart({
   const lit = focus !== null && !hidden.has(focus) ? focus : null;
 
   const full = useMemo<readonly [number, number]>(() => {
-    if (source) return source.range;
+    if (source?.range) return source.range;
     const times = data.flatMap(({ points }) => [points[0]?.[0], points.at(-1)?.[0]]);
     const known = times.filter((time): time is number => time !== undefined);
     return known.length ? [Math.min(...known), Math.max(...known)] : [0, 1];
@@ -236,6 +249,17 @@ export function LineChart({
     [data, x, y, width, drawn, bottom],
   );
 
+  // The marks in view, each label where it fits (11 px type, about 6 px a letter).
+  const shownMarks = (spec.marks ?? [])
+    .map((mark) => ({ mark, mx: x(mark.at) }))
+    .filter(({ mx }) => mx >= 0 && mx <= right)
+    .sort((a, b) => a.mx - b.mx);
+  const sides = placeLabels(
+    shownMarks.map(({ mark, mx }) => ({ x: mx, width: mark.label.length * 6 })),
+    // The plot clips at its right edge.
+    right,
+  );
+  const marks = shownMarks.map((entry, index) => ({ ...entry, side: sides[index] ?? null }));
   const ticks = width > 0 ? timeTicks(view.from, view.to, right) : { ticks: [], step: 1 };
   const spacing = data[0]?.points[1] ? data[0].points[1][0] - data[0].points[0]![0] : 60_000;
   // The point under the pointer, on the first line that shows.
@@ -302,6 +326,7 @@ export function LineChart({
     {
       label: "Copy as image",
       letter: "i",
+      disabled: !drawn,
       onClick: () =>
         void copyChart(frame.current!).then(
           () => say("Chart copied"),
@@ -311,6 +336,7 @@ export function LineChart({
     {
       label: "Copy as CSV",
       letter: "c",
+      disabled: !drawn,
       onClick: () =>
         void navigator.clipboard.writeText(seriesCsv(visible)).then(
           () => say("CSV copied"),
@@ -320,8 +346,9 @@ export function LineChart({
     ...(source?.url
       ? [
           {
-            label: "Copy Grafana link",
-            letter: "l",
+            label: "Copy link",
+            letter: "k",
+            disabled: !drawn,
             onClick: () =>
               void navigator.clipboard.writeText(source.url!).then(
                 () => say("Link copied"),
@@ -331,6 +358,38 @@ export function LineChart({
         ]
       : []),
   ];
+  // Everything but the data waits in one menu.
+  const options = [
+    [
+      {
+        label: "Log scale",
+        letter: "l",
+        checked: scale === "log",
+        disabled: !drawn,
+        onClick: () => setScale((last) => (last === "log" ? "linear" : "log")),
+      },
+      ...(large ? [] : [{ label: "Full screen", letter: "f", onClick: () => setFullScreen(true) }]),
+    ],
+    [
+      ...(onRefresh
+        ? [{ label: "Refresh", letter: "r", disabled: state === "loading", onClick: onRefresh }]
+        : []),
+      ...(source?.url && source.kind === "grafana"
+        ? [
+            {
+              label: "Open in Grafana",
+              letter: "o",
+              onClick: () => void window.open(source.url, "_blank", "noreferrer"),
+            },
+          ]
+        : []),
+    ],
+    copies,
+  ];
+  const read =
+    source?.fetched !== undefined && state === "ready"
+      ? `Read ${source.kind === "grafana" ? "from Grafana " : ""}at ${formatMoment(source.fetched, 60_000)}`
+      : undefined;
 
   // What a screen reader says as the arrows move along the chart.
   const spoken =
@@ -354,7 +413,11 @@ export function LineChart({
   const linearOpacity = 1 - view.blend;
 
   return (
-    <div ref={frame} data-chart="" {...stylex.props(styles.frame, large && styles.frameLarge)}>
+    <div
+      ref={frame}
+      data-chart=""
+      {...stylex.props(styles.frame, large && styles.frameLarge, stylex.defaultMarker())}
+    >
       <header {...stylex.props(styles.header)}>
         <div {...stylex.props(styles.heading)}>
           <h3 data-chart-title="" {...stylex.props(styles.title)}>
@@ -529,18 +592,23 @@ export function LineChart({
                   </text>
                 </g>
               )}
-              {spec.marks?.map((mark) => {
-                const mx = x(mark.at);
-                if (mx < 0 || mx > right) return null;
-                return (
-                  <g key={mark.at}>
-                    <line x1={mx} x2={mx} y1={TOP - 6} y2={bottom} {...stylex.props(styles.mark)} />
-                    <text x={mx + 5} y={TOP - 8} {...stylex.props(styles.markLabel)}>
+              {marks.map(({ mark, mx, side }) => (
+                <g key={mark.at}>
+                  <line x1={mx} x2={mx} y1={TOP - 6} y2={bottom} {...stylex.props(styles.mark)}>
+                    {!side && <title>{mark.label}</title>}
+                  </line>
+                  {side && (
+                    <text
+                      x={side === "start" ? mx + 5 : mx - 5}
+                      y={TOP - 8}
+                      textAnchor={side}
+                      {...stylex.props(styles.markLabel)}
+                    >
                       {mark.label}
                     </text>
-                  </g>
-                );
-              })}
+                  )}
+                </g>
+              ))}
 
               {state === "loading" && (
                 <path d={breath(right, flat)} {...stylex.props(styles.breath)} />
@@ -655,19 +723,24 @@ export function LineChart({
               <Icon name="alert" size={14} />
               {error ?? "The data could not load."}
             </span>
-            {onRefresh && (
+            {(fix ?? onRefresh) && (
               <button
                 type="button"
-                onClick={onRefresh}
+                onClick={fix ? fix.run : onRefresh}
                 {...stylex.props(ui.button, ui.outlined, styles.retry)}
               >
-                Try again
+                {fix ? fix.label : "Try again"}
               </button>
             )}
           </div>
         )}
       </div>
 
+      {notice && state === "ready" && (
+        <p role="note" {...stylex.props(styles.notice)}>
+          {notice}
+        </p>
+      )}
       <footer {...stylex.props(styles.footer)}>
         <span data-chart-source="" {...stylex.props(styles.source)}>
           {icon && (
@@ -687,18 +760,17 @@ export function LineChart({
               ) : (
                 <span {...stylex.props(styles.sourceName)}>{source.label}</span>
               )}
-              <span aria-hidden="true">·</span>
-              <span {...stylex.props(styles.range)}>
-                {source.live && !zoom
-                  ? formatSpan(source.range[1] - source.range[0])
-                  : formatRange(...(zoom ?? source.range))}
-              </span>
-              {state === "loading" ? (
-                <span {...stylex.props(styles.fetching)}>· Fetching…</span>
-              ) : (
-                source.fetched !== undefined &&
-                state === "ready" && <span>· as of {formatMoment(source.fetched, 60_000)}</span>
+              {source.range && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span {...stylex.props(styles.range)}>
+                    {source.live && !zoom
+                      ? formatSpan(source.range[1] - source.range[0])
+                      : formatRange(...(zoom ?? source.range))}
+                  </span>
+                </>
               )}
+              {state === "loading" && <span {...stylex.props(styles.fetching)}>· Fetching…</span>}
             </>
           ) : (
             <span>From the agent</span>
@@ -718,41 +790,16 @@ export function LineChart({
               Reset zoom
             </button>
           )}
-          <div role="group" aria-label="Value axis" {...stylex.props(styles.scale)}>
-            {(["linear", "log"] as const).map((option) => (
-              <button
-                key={option}
-                type="button"
-                aria-pressed={scale === option}
-                disabled={!drawn}
-                onClick={() => setScale(option)}
-                {...stylex.props(styles.scaleOption, scale === option && styles.scaleOn)}
-              >
-                {option === "linear" ? "Linear" : "Log"}
-              </button>
-            ))}
-          </div>
-          {onRefresh && (
-            <button
-              type="button"
-              aria-label="Fetch again"
-              disabled={state === "loading"}
-              onClick={onRefresh}
-              {...tooltip("Fetch again")}
-              {...stylex.props(ui.button, ui.iconButton, styles.tool)}
-            >
-              <Icon name="refresh" size={14} />
-            </button>
-          )}
           <ActionMenu
-            label="Copy chart"
-            sections={[copies]}
-            trigger={[ui.button, ui.iconButton, styles.tool]}
+            label="Chart options"
+            sections={options}
+            {...(read ? { note: read } : {})}
+            trigger={[ui.button, ui.iconButton, styles.tool, styles.more]}
             layer={large ? "dialog" : undefined}
           >
-            <Icon name={note && !note.failed ? "check" : "copy"} size={14} />
+            <Icon name="more" size={15} />
           </ActionMenu>
-          {large ? (
+          {large && (
             <button
               type="button"
               aria-label="Close"
@@ -760,16 +807,6 @@ export function LineChart({
               {...stylex.props(ui.button, ui.iconButton, styles.tool)}
             >
               <Icon name="close" size={14} />
-            </button>
-          ) : (
-            <button
-              type="button"
-              aria-label="Show the chart full screen"
-              onClick={() => setFullScreen(true)}
-              {...tooltip("Full screen")}
-              {...stylex.props(ui.button, ui.iconButton, styles.tool)}
-            >
-              <Icon name="focus" size={14} />
             </button>
           )}
         </div>
@@ -782,6 +819,7 @@ export function LineChart({
           error={error}
           source={source}
           onRefresh={onRefresh}
+          notice={notice}
           onClose={() => setFullScreen(false)}
         />
       )}
@@ -845,6 +883,7 @@ function ChartDialog({
   error?: string;
   source?: ChartSource;
   onRefresh?(): void;
+  notice?: string;
   onClose(): void;
 }) {
   const [room, setRoom] = useState(0);
@@ -892,6 +931,10 @@ const styles = stylex.create({
     backgroundColor: surface,
     color: tokens.text,
     fontFamily: tokens.ui,
+    // Its own type, also inside a Markdown page's prose.
+    fontSize: 13,
+    lineHeight: "normal",
+    overflowWrap: "normal",
   },
   frameLarge: {
     height: "100%",
@@ -1066,6 +1109,7 @@ const styles = stylex.create({
     lineHeight: 1.45,
   },
   retry: { minHeight: 26, height: 26, fontSize: 12 },
+  notice: { margin: 0, marginTop: 6, color: tokens.faint, fontSize: 11.5 },
   footer: {
     display: "flex",
     alignItems: "center",
@@ -1092,7 +1136,21 @@ const styles = stylex.create({
   },
   sourceName: { color: tokens.muted },
   fetching: { color: tokens.muted },
-  tools: { position: "relative", display: "flex", alignItems: "center", gap: 2 },
+  // The options show while the pointer or the focus is on the chart, and
+  // while their menu is open; on a touch screen, always.
+  more: {
+    opacity: {
+      default: 0,
+      [stylex.when.ancestor(":hover")]: 1,
+      [stylex.when.ancestor(":focus-within")]: 1,
+      ":is([data-popup-open])": 1,
+      "@media (hover: none)": 1,
+    },
+    transitionProperty: "opacity",
+    transitionDuration: "120ms",
+  },
+  // The tools keep their size; the source's range gives way first.
+  tools: { position: "relative", display: "flex", alignItems: "center", gap: 2, flexShrink: 0 },
   noteSpot: {
     position: "absolute",
     right: "100%",
@@ -1103,37 +1161,9 @@ const styles = stylex.create({
   },
   tool: { minHeight: 26, height: 26, color: tokens.faint },
   textTool: { paddingInline: 8, fontSize: 11.5 },
-  scale: {
-    display: "flex",
-    gap: 1,
-    padding: 2,
-    marginInline: 4,
-    borderRadius: `calc(7px * ${tokens.round})`,
-    backgroundColor: tokens.fill,
-  },
-  scaleOption: {
-    height: 22,
-    paddingInline: 8,
-    borderWidth: 0,
-    borderRadius: `calc(5px * ${tokens.round})`,
-    backgroundColor: "transparent",
-    color: { default: tokens.faint, ":hover:not(:disabled)": tokens.text },
-    fontFamily: tokens.ui,
-    fontSize: 11.5,
-    fontWeight: 500,
-    cursor: { default: "pointer", ":disabled": "default" },
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
-    transitionProperty: "background-color, color",
-    transitionDuration: "120ms",
-  },
   paint: (color: string) => ({ "--series": color }),
   fade: (opacity: number) => ({ opacity }),
   height: (height: number) => ({ height }),
-  scaleOn: {
-    backgroundColor: tokens.segment,
-    color: tokens.text,
-    boxShadow: `0 0 0 1px ${tokens.line}`,
-  },
   backdrop: { zIndex: 110 },
   popup: {
     position: "fixed",

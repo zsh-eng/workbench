@@ -23,6 +23,7 @@ import RenderWorker from "../markdown/render.worker?worker";
 import type { Mounted } from "pele/lazy";
 import { mountDiagram } from "../markdown/diagrams";
 import { DiagramBlock } from "./DiagramBlock";
+import { ChartBlock } from "./chart/ChartBlock";
 import "katex/dist/katex.min.css";
 import "./MarkdownPreview.css";
 import { relativeFileLink } from "../markdown/file-link";
@@ -49,7 +50,7 @@ const Block = memo(
     const mounted = useRef<Mounted[]>([]);
     const theme = useTheme().active.id;
     useEffect(() => {
-      if (block.diagram !== undefined) return;
+      if (block.diagram !== undefined || block.chart !== undefined) return;
       const host = element.current!;
       let cancelled = false;
       for (const image of host.querySelectorAll<HTMLImageElement>("img[data-image-source]")) {
@@ -111,12 +112,22 @@ const Block = memo(
         for (const diagram of diagrams) diagram.destroy();
         mounted.current = [];
       };
-    }, [block.html, block.diagram, source, path, vault]);
+    }, [block.html, block.diagram, block.chart, source, path, vault]);
     // A theme can change the font, which sizes the labels; colors follow by CSS.
     useEffect(() => {
       for (const diagram of mounted.current) diagram.refresh();
     }, [theme]);
     if (block.diagram !== undefined) return <DiagramBlock block={block} />;
+    if (block.chart !== undefined)
+      return (
+        <ChartBlock
+          key={block.chart}
+          text={block.chart}
+          {...(source.kind === "worktree"
+            ? { files: { repo: source.repo, folder: path.split("/").slice(0, -1).join("/") } }
+            : {})}
+        />
+      );
     return (
       <div
         ref={element}

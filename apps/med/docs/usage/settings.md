@@ -68,6 +68,22 @@ other).
 to date with its remote, every 15 minutes, where nothing of yours would
 change (see [Run Med](run-med.md#base-branches-stay-up-to-date)).
 
+## Grafana
+
+Charts in replies can draw a Grafana panel (see
+[Charts](markdown.md#charts)). **Connect a Grafana** takes its address, such
+as `https://grafana.example.com` or one under a path, and a token. A service
+account token with the Viewer role is enough: in Grafana, **Administration →
+Users and access → Service accounts**, add one, then add a token to it. Med
+checks both with Grafana, then shows the organization the token reads.
+
+The address goes in the settings file (`grafana.sites`). The token does not:
+Med keeps it in `grafana-tokens.json` beside the settings file, which only
+your user can read, and sends it only to that Grafana. A page never gets it
+back, and an agent never sees it. **Remove** forgets both. A Grafana whose
+certificate comes from your company's own authority needs Med started with
+`NODE_EXTRA_CA_CERTS` set to that authority's file.
+
 ## The settings file
 
 Every setting lives in `~/.config/med/settings.json` (or
@@ -105,6 +121,7 @@ the file.
 | `openIn.sourcegraph`    | your Sourcegraph's address, or `""` for none               | `""`             |
 | `openIn.editors`        | the editors to list, in order, such as `["vscode", "zed"]` | each one found   |
 | `openIn.links`          | other links by name, each a template                       | `{}`             |
+| `grafana.sites`         | the Grafanas that charts read, by address                  | `[]`             |
 
 A key that Med does not know, or a value that its key does not take, changes
 nothing.

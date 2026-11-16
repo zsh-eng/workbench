@@ -17,6 +17,7 @@ import {
 import { ChoiceSelect } from "../Controls";
 import { diffSurfaceStyle } from "../diff-surface";
 import { OpenInSettings } from "./OpenInSettings";
+import { GrafanaSettings } from "./GrafanaSettings";
 import { Icon } from "../Icon";
 import { Row, Section, settingStyles, Switch, type SettingsSection } from "./SettingsParts";
 
@@ -45,12 +46,15 @@ export function SettingsPage({
   // Above a vault's or a file's title, which the page covers.
   useDocumentTitle("Settings", 3);
   const scroller = useRef<HTMLDivElement>(null);
+  const file = useSettingsFile();
+  // The sections that read the settings file show once it loads; the page
+  // scrolls to its section again then.
+  const loaded = file !== null;
   useEffect(() => {
     const box = scroller.current;
     const target = section && box?.querySelector<HTMLElement>(`[data-section="${section}"]`);
     if (box) box.scrollTop = target ? target.offsetTop - 24 : 0;
-  }, [section]);
-  const file = useSettingsFile();
+  }, [section, loaded]);
   return (
     <div {...stylex.props(styles.page)}>
       <div ref={scroller} {...stylex.props(styles.card)}>
@@ -72,6 +76,7 @@ export function SettingsPage({
           <OpenInSettings />
           <Files />
           <Sources onSources={onSources} />
+          {file && <GrafanaSettings />}
           {file && <FileSection file={file} />}
         </div>
       </div>

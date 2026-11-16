@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { tokens, ui } from "../../theme.stylex";
 import { CopyNoteText, copyFailure, useCopyNote } from "../DiagramCopy";
 import { Icon } from "../Icon";
-import { tooltip } from "../ToolButton";
+import { ActionMenu } from "../Controls";
 import { formatValue, type Bar } from "./chart-model";
 
 export function BarList({
@@ -42,7 +42,7 @@ export function BarList({
   }, []);
   const csv = ["label,value", ...bars.map(({ label, value }) => `${label},${value}`)].join("\n");
   return (
-    <div {...stylex.props(styles.frame)}>
+    <div {...stylex.props(styles.frame, stylex.defaultMarker())}>
       <h3 {...stylex.props(styles.title)}>{title}</h3>
       {subtitle && <p {...stylex.props(styles.subtitle)}>{subtitle}</p>}
       <ol ref={list} {...stylex.props(styles.list)} onPointerLeave={() => setHover(null)}>
@@ -87,20 +87,25 @@ export function BarList({
         <span {...stylex.props(styles.noteSpot)}>
           <CopyNoteText note={note} />
         </span>
-        <button
-          type="button"
-          aria-label="Copy as CSV"
-          {...tooltip("Copy as CSV")}
-          onClick={() =>
-            void navigator.clipboard.writeText(csv).then(
-              () => say("CSV copied"),
-              (cause: unknown) => say(copyFailure(cause), true),
-            )
-          }
-          {...stylex.props(ui.button, ui.iconButton, styles.tool)}
+        <ActionMenu
+          label="Chart options"
+          sections={[
+            [
+              {
+                label: "Copy as CSV",
+                letter: "c",
+                onClick: () =>
+                  void navigator.clipboard.writeText(csv).then(
+                    () => say("CSV copied"),
+                    (cause: unknown) => say(copyFailure(cause), true),
+                  ),
+              },
+            ],
+          ]}
+          trigger={[ui.button, ui.iconButton, styles.tool, styles.more]}
         >
-          <Icon name={note && !note.failed ? "check" : "copy"} size={14} />
-        </button>
+          <Icon name="more" size={15} />
+        </ActionMenu>
       </footer>
     </div>
   );
@@ -109,6 +114,18 @@ export function BarList({
 const surface = `var(--med-md-surface, color-mix(in srgb, ${tokens.text} 4%, ${tokens.canvas}))`;
 
 const styles = stylex.create({
+  // Its options show while the pointer or the focus is on the chart.
+  more: {
+    opacity: {
+      default: 0,
+      [stylex.when.ancestor(":hover")]: 1,
+      [stylex.when.ancestor(":focus-within")]: 1,
+      ":is([data-popup-open])": 1,
+      "@media (hover: none)": 1,
+    },
+    transitionProperty: "opacity",
+    transitionDuration: "120ms",
+  },
   frame: {
     display: "flex",
     flexDirection: "column",
@@ -119,6 +136,10 @@ const styles = stylex.create({
     backgroundColor: surface,
     color: tokens.text,
     fontFamily: tokens.ui,
+    // Its own type, also inside a Markdown page's prose.
+    fontSize: 13,
+    lineHeight: "normal",
+    overflowWrap: "normal",
   },
   title: {
     margin: 0,
