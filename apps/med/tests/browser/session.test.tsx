@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { page, userEvent } from "vitest/browser";
-import { useSyncExternalStore } from "react";
+import { Activity, useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { SessionSection } from "../../src/web/components/elements/SessionSection";
@@ -1700,6 +1700,69 @@ test("a change above the view moves nothing, and a glide under way runs on as th
   expect(gapOf(scroller)).toBeLessThan(32);
 });
 
+test("a thread that shows again is still at its end, and the message box moves the end with it at once", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  // A thread a little taller than its frame, so its end is less than the
+  // overscan below its top: a glide could take the move.
+  const store = longThread(6);
+  let box = 40;
+  const show = (mode: "visible" | "hidden") =>
+    root!.render(
+      <Activity mode={mode}>
+        <SessionThread snapshot={store.getSnapshot()} footer={<div style={{ height: box }} />} />
+      </Activity>,
+    );
+  show("visible");
+  await expect.element(page.getByText(/^Reply 5\./)).toBeInTheDocument();
+  const scroller = threadScroller();
+  const log = document.querySelector<HTMLElement>('[aria-label="Session"]')!;
+  await expect.poll(() => gapOf(scroller)).toBeLessThan(32);
+  await afterFrames(30);
+  const range = scroller.scrollHeight - scroller.clientHeight;
+  expect(range).toBeGreaterThan(40);
+  expect(range).toBeLessThan(1200);
+  const glides = () => log.getAnimations().filter((animation) => animation.playState === "running");
+  const last = () => units().at(-1)!.getBoundingClientRect().top;
+
+  // Hidden, as a thread in another workspace, then shown again: it is at its
+  // end from the first frame, and nothing glides.
+  for (let round = 0; round < 2; round++) {
+    show("hidden");
+    await afterFrames(3);
+    show("visible");
+    await nextFrame();
+    const top = last();
+    expect(gapOf(scroller)).toBeLessThan(32);
+    for (let frame = 0; frame < 12; frame++) {
+      await nextFrame();
+      expect(glides()).toHaveLength(0);
+      expect(Math.abs(last() - top)).toBeLessThan(0.5);
+    }
+  }
+
+  // The message box grows: the end moves up with it at once, without a glide.
+  box = 100;
+  show("visible");
+  for (let frame = 0; frame < 12; frame++) {
+    await nextFrame();
+    expect(glides()).toHaveLength(0);
+  }
+  expect(gapOf(scroller)).toBeLessThan(32);
+
+  // Out of sight, as a thread that prepares to show, new work lands without
+  // a glide that would end on screen.
+  mount!.style.visibility = "hidden";
+  store.applyAll(turnEvents(6, 1));
+  show("visible");
+  await expect.element(page.getByText(/^Reply 6\./)).toBeInTheDocument();
+  for (let frame = 0; frame < 12; frame++) {
+    await nextFrame();
+    expect(glides()).toHaveLength(0);
+  }
+  expect(gapOf(scroller)).toBeLessThan(32);
+});
+
 test("a reply that stops streaming stays until the transcript has it, so the reader's place holds", async () => {
   await page.viewport(1280, 900);
   initializeTheme();
@@ -1950,6 +2013,56 @@ test("a long prompt shows its first lines until Show more, and Show less folds i
   await expect.element(toggle).toHaveTextContent("Show more");
   expect(body.clientHeight).toBeLessThan(body.scrollHeight);
   expect(body.textContent).not.toContain("Line 40");
+});
+
+test("a long prompt stays folded, though the first lines it shows measure under the fold", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const text = (value: string) => ({ type: "text" as const, text: value });
+  const store = longThread(0);
+  // A blank line after the first sixteen, as in pasted code: the fold's text
+  // ends there, so it shows sixteen lines and measures just under the fold.
+  const lines = Array.from({ length: 40 }, (_, index) => (index === 16 ? "" : `Line ${index + 1}`));
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "user_message_chunk" as const,
+        content: text(lines.join("\n")),
+      },
+    },
+    {
+      at: 1000,
+      update: {
+        sessionUpdate: "agent_message_chunk" as const,
+        messageId: "read",
+        content: text("I read it."),
+        _meta: { med: { endsTurn: true } },
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  const thread = page.getByRole("log", { name: "Session" });
+  const toggle = thread.getByRole("button", { name: /^Show (more|less)$/ });
+  await expect.element(toggle).toHaveTextContent("Show more");
+  const body = thread.getByText(/^Line 1\b/).element().parentElement!;
+  await afterFrames(5);
+  // It does not open and fold again, frame after frame.
+  let changes = 0;
+  const watch = new MutationObserver((records) => (changes += records.length));
+  watch.observe(thread.element(), {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    characterData: true,
+  });
+  for (let frame = 0; frame < 20; frame++) {
+    await nextFrame();
+    expect(body.textContent).not.toContain("Line 40");
+    expect(toggle.element().textContent).toBe("Show more");
+  }
+  watch.disconnect();
+  expect(changes).toBe(0);
 });
 
 test("a running turn's time ticks in whole seconds from 1 s and in minutes from 10 minutes; its calls spin", async () => {

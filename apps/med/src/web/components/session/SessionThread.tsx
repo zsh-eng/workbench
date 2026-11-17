@@ -186,20 +186,23 @@ function PromptText({
   // measuring it, so a thread lays out its first view once. A folded one
   // renders only its first lines.
   const cut = useMemo(() => folds(parts), [parts]);
-  const [long, setLong] = useState(cut);
+  const [measured, setMeasured] = useState(false);
   useLayoutEffect(() => {
     const node = body.current;
     if (!node) return;
     // The text's own height, which the fold does not change; a new width
     // can. It is read after layout, when the observer reports the size.
     const resize = new ResizeObserver(() =>
-      setLong(
+      setMeasured(
         node.scrollHeight > PROMPT_FOLD * Number.parseFloat(getComputedStyle(node).lineHeight),
       ),
     );
     resize.observe(node);
     return () => resize.disconnect();
   }, []);
+  // A cut prompt is long whatever it measures: folded, it renders only its
+  // first lines, which can measure under the fold and would open it again.
+  const long = cut || measured;
   const folded = long && !open;
   const shown = folded && cut ? foldedParts(parts) : parts;
   return (
@@ -1049,7 +1052,9 @@ function AgentView({
     node.scrollTop = node.scrollHeight;
     // As the session's thread does (thread-follow.ts, thread-glide.ts).
     const glide = glideContent(inner, OVERSCAN);
-    let height = node.clientHeight;
+    // Unknown at first, so the first follow jumps: the view opens, or shows
+    // again with its thread.
+    let height = Number.NaN;
     const letGo = () => {
       if (stuck.current) return;
       const rest = glide.settle();
@@ -1198,6 +1203,8 @@ export function SessionThread({
     return () => resize.disconnect();
   }, []);
   const content = useRef<HTMLDivElement>(null);
+  // The room under the end, kept clear for the message box.
+  const spacer = useRef<HTMLDivElement>(null);
   const probe = useRef<HTMLDivElement>(null);
   const head = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
@@ -1514,19 +1521,27 @@ export function SessionThread({
     // when it changes size, as when the message box grows; a glide under way
     // runs on.
     const glide = glideContent(inner, OVERSCAN);
-    let height = node.clientHeight;
+    // Unknown at first, so the first follow jumps: the thread opens, or shows
+    // again. A hidden thread runs this effect anew when it shows, with the
+    // scroll position that hiding it reset.
+    let height = Number.NaN;
     // The last unit as the view last showed it. The content glides by the
     // view's move, less the part that a change above that unit made: as when
     // a unit out of sight measures its text, the view moves with the change,
     // and nothing on screen moves. New work below the unit, or its own
     // growth, glides in whole. A change that the view does not move for, as
-    // in a thread that fits, does not glide.
-    let seen: { unit: HTMLElement; top: number; scroll: number } | undefined;
+    // in a thread that fits, does not glide. Nor does the room that the
+    // message box takes under the end, as the box grows or measures: the
+    // view moves with it at once.
+    let seen: { unit: HTMLElement; top: number; scroll: number; room: number } | undefined;
+    const roomHeight = () => spacer.current?.offsetHeight ?? 0;
     const see = () => {
       let unit = inner.lastElementChild as HTMLElement | null;
       while (unit && unit.dataset.unit === undefined)
         unit = unit.previousElementSibling as HTMLElement | null;
-      seen = unit ? { unit, top: unit.offsetTop, scroll: node.scrollTop } : undefined;
+      seen = unit
+        ? { unit, top: unit.offsetTop, scroll: node.scrollTop, room: roomHeight() }
+        : undefined;
     };
     // The reader's input lets go, and the view keeps its place from here; or
     // it follows again.
@@ -1552,9 +1567,16 @@ export function SessionThread({
       node.scrollTop = node.scrollHeight;
       reader.wrote();
       const move = node.scrollTop - (last?.scroll ?? from);
-      const above = last ? last.unit.offsetTop - last.top : 0;
-      const rose = move - Math.min(Math.max(above, Math.min(0, move)), Math.max(0, move));
-      if (latest.current.settled && node.clientHeight === height) glide.moved(rose);
+      const still = last ? last.unit.offsetTop - last.top + roomHeight() - last.room : 0;
+      const rose = move - Math.min(Math.max(still, Math.min(0, move)), Math.max(0, move));
+      // A thread out of sight, as one that prepares to show, has no one to
+      // glide for; a glide it started would end on screen.
+      if (
+        latest.current.settled &&
+        node.clientHeight === height &&
+        node.checkVisibility({ visibilityProperty: true })
+      )
+        glide.moved(rose);
       height = node.clientHeight;
       see();
     };
@@ -2076,7 +2098,9 @@ export function SessionThread({
                         }}
                       />
                     )}
-                    {footer !== undefined && <div aria-hidden="true" style={{ height: room }} />}
+                    {footer !== undefined && (
+                      <div ref={spacer} aria-hidden="true" style={{ height: room }} />
+                    )}
                   </div>
                 </div>
               </div>
