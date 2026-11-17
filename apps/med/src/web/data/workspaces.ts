@@ -265,6 +265,8 @@ const vaultPath = (pathname: string) => /^\/vault\/([^/]+)/.exec(pathname)?.[1];
 export const overlayAddress = (pathname: string) =>
   pathname === "/sources" ||
   pathname === "/pulls" ||
+  pathname === "/dashboards" ||
+  pathname.startsWith("/dashboards/") ||
   pathname === "/archived" ||
   pathname === "/history" ||
   pathname === "/settings" ||

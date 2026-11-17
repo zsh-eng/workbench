@@ -163,6 +163,7 @@ export function LineChart({
   onClose,
   notice,
   fix,
+  onInspect,
 }: {
   spec: LineChartSpec;
   series?: readonly Series[];
@@ -170,6 +171,8 @@ export function LineChart({
   error?: string;
   source?: ChartSource;
   onRefresh?(): void;
+  /** Shows where the data came from: the link, the command, what it printed. */
+  onInspect?(): void;
   /** The plot's height. */
   height?: number;
   /** In the full-screen dialog: a Close button in place of Full screen. */
@@ -398,6 +401,7 @@ export function LineChart({
       ...(onRefresh
         ? [{ label: "Refresh", letter: "r", disabled: state === "loading", onClick: onRefresh }]
         : []),
+      ...(onInspect ? [{ label: "Inspect data", letter: "i", onClick: onInspect }] : []),
       ...(source?.url && (source.kind === "grafana" || source.kind === "link")
         ? [
             {

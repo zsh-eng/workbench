@@ -3,6 +3,7 @@ import { DiffImages } from "./components/MediaView";
 import { mediaType } from "../shared/media";
 import { ToolButton } from "./components/ToolButton";
 import { settingsCommands } from "./components/settings/settings-commands";
+import { openDashboards } from "./data/dashboards";
 import * as stylex from "@stylexjs/stylex";
 import {
   CodeView,
@@ -4302,6 +4303,15 @@ export function App({
       label: "Pull requests",
       disabled: !workspace,
       run: () => workspace?.openPullRequests(),
+    },
+    {
+      id: "dashboards",
+      icon: "display" as const,
+      group: "Go to" as const,
+      managesFocus: true,
+      label: "Dashboards",
+      keywords: "charts grafana metrics",
+      run: () => openDashboards(),
     },
     // A session's thread takes a pull request as one more of its reviews.
     ...(addPull.add

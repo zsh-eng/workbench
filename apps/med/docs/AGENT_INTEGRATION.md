@@ -690,12 +690,45 @@ range and anything else it needs from it, takes `MED_CHART_AT` (in
 milliseconds) as now for a relative range, reads any of the chart's other
 keys it wants from `MED_CHART_<KEY>`, fetches the data with the user's own
 sign-in, and prints CSV rows or a JSON chart (with `range` for the axis);
-then
-add it under `charts.sources` in `~/.config/med/settings.json`, as
+then add it under `charts.sources` in `~/.config/med/settings.json`, as
 `"https://grafana.acme.com": "~/bin/grafana-chart"`. Run the script with
-`MED_CHART_LINK` and `MED_CHART_AT` set to check it before you write a chart. Keep tokens out
-of the script and the settings: read them from the Keychain or the
-service's own command. See [Chart sources](usage/settings.md#chart-sources).
+`MED_CHART_LINK` and `MED_CHART_AT` set to check it before you write a
+chart. Keep tokens out of the script and the settings: read them from the
+Keychain or the service's own command. See
+[Chart sources](usage/settings.md#chart-sources).
+
+## Build a dashboard
+
+A Med dashboard is like an Obsidian Base: a YAML file that opens as its own
+page, with views. Its rows come from chart sources instead of notes, and
+each panel takes a chart block's keys. Write it as `<name>.dashboard.yaml`
+in a repository Med knows, or in `~/.config/med/dashboards/` when it belongs
+to no repository; **Dashboards** in Med's sidebar lists it.
+
+```yaml
+title: Checkout health
+range: now-6h
+inputs:
+  env: [prod, staging]
+panels:
+  - link: https://status.acme.dev/checkout?env=${env}&from=${from}&to=${to}
+    metric: requests
+    type: stat
+    title: Requests
+  - link: https://status.acme.dev/checkout?env=${env}&from=${from}&to=${to}
+    metric: latency
+    title: p99 latency
+    threshold: 500 SLO
+    width: three-quarters
+```
+
+`inputs` are text fields or choices, `range` is the time picker
+(`${from}`, `${to}`), `views` are tabs, and `type` is `line`, `bars`,
+`stat`, or `table`; a `text:` panel is Markdown. You can't see the page, so
+run `med dashboard check <file> [--set env=staging]` after each edit: it
+reads every panel through the same sources and says what each drew, or the
+line of the file that is wrong, and exits 1 until it passes. End with the
+link it prints. See [Dashboards](usage/dashboards.md).
 
 ## Checks
 

@@ -132,7 +132,8 @@ import {
   type RunnableAgent,
 } from "./owned-sessions";
 import { loadShellEnvironment, shellEnvironment, withoutClaudeSession } from "./shell-environment";
-import { createChartSources } from "./chart-sources";
+import { createChartSources, sourcesOf } from "./chart-sources";
+import { createDashboards } from "./dashboards";
 import { createAgentStatus } from "./agent-status";
 import { createSessionIndex } from "./session-index";
 import { createThreadStore } from "./thread-store";
@@ -159,6 +160,7 @@ import { createSessionEdits } from "./session-edits";
 import { createSessionUsage } from "./session-usage";
 import { usageRoutes } from "../shared/model-usage";
 import { chartRoutes } from "../shared/charts";
+import { dashboardRoutes } from "../shared/dashboards";
 import { createGrafana, createGrafanaSettings, createGrafanaTokens } from "./grafana";
 import {
   foundUpdateSchema,
@@ -688,6 +690,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     settings: settingsFile,
     cacheDir: join(options.stateDir ?? temporaryState!, "chart-sources"),
     env: () => ({ ...withoutClaudeSession(process.env), ...shellEnvironment() }),
+  });
+  // Dashboards: files in the repositories Med knows and in a folder beside
+  // the settings, whose panels read through the chart sources above.
+  const dashboards = createDashboards({
+    folder: join(dirname(settingsFile.path), "dashboards"),
+    repositories: () => visibleRepositories(),
+    sources: async () => sourcesOf((await settingsFile.snapshot()).settings),
+    readLink: (input, signal) => chartSources.read(input, signal),
+    readGrafana: (input, signal) => grafana.panel(input, signal),
   });
   const pullRequestLinks = createPullRequestLinks({
     gh: options.gh ?? { command: "gh", args: [] },
@@ -1276,6 +1287,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // A Grafana panel for a chart in a reply (grafana.ts).
     route(chartRoutes.grafana, (input, { signal }) => grafana.panel(input, signal)),
     route(chartRoutes.link, (input, { signal }) => chartSources.read(input, signal)),
+    route(dashboardRoutes.list, () => dashboards.list()),
+    route(dashboardRoutes.read, (input) => dashboards.read(input.id)),
+    route(dashboardRoutes.check, (input, { signal }) => dashboards.check(input, signal)),
     route(chartRoutes.sites, async () => ({ sites: await grafanaSettings.list() })),
     route(chartRoutes.connect, (input, { signal }) =>
       grafanaSettings.connect(input, (address, token) => grafana.check(address, token, signal)),
@@ -2165,10 +2179,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         const stream = request.headers["x-med-latest"];
         const latest = typeof stream === "string" && /^[\w:-]{1,100}$/.test(stream) ? stream : "";
         if (latest) latestRequests.get(latest)?.();
-        if (expensiveRequests >= 8)
+        // A chart's read waits in its own queue (a chart source runs four
+        // commands at a time) or on the network, so a dashboard of many
+        // charts is never turned away.
+        const chartRead =
+          url.pathname === chartRoutes.link.path || url.pathname === chartRoutes.grafana.path;
+        if (!chartRead && expensiveRequests >= 8)
           throw new HostError("busy", "The host is processing other requests. Retry shortly.", 503);
-        expensiveRequests++;
-        let held = true;
+        if (!chartRead) expensiveRequests++;
+        let held = !chartRead;
         const release = () => {
           if (held) expensiveRequests--;
           held = false;
@@ -3800,6 +3819,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         path === "/files" ||
         path === "/search" ||
         path === "/pulls" ||
+        path === "/dashboards" ||
+        path.startsWith("/dashboards/") ||
         path === "/archived" ||
         path === "/history" ||
         path === "/" ||

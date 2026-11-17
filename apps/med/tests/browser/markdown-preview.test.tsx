@@ -635,8 +635,17 @@ test("a link chart draws what its source printed, rows or a chart; a Grafana lin
     await expect.element(reading.getByRole("heading", { name: "Checkout p99" })).toBeVisible();
     await expect.element(reading.getByText("SLO 500 ms")).toBeVisible();
     // A chart reads once it nears the screen.
+    // The charts above it grow as they draw, so keep it in view until it reads.
     const unread = reading.getByRole("heading", { name: "Nobody reads this" });
-    unread.element().scrollIntoView();
+    await expect
+      .poll(
+        () => {
+          unread.element().scrollIntoView();
+          return reading.getByRole("alert").query();
+        },
+        { timeout: 5_000 },
+      )
+      .toBeTruthy();
     await expect.element(reading.getByRole("alert")).toBeVisible();
     expect(reading.getByRole("alert").element().textContent).toContain(
       "No chart source covers elsewhere.acme.build",

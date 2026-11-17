@@ -67,6 +67,10 @@ export function chartSourceFor(sources: Record<string, string>, link: string) {
   return found;
 }
 
+/** A block's key as the variable that a source's command reads it from:
+ * `panel-id` is MED_CHART_PANEL_ID. */
+export const metaVariable = (key: string) => `MED_CHART_${key.toUpperCase().replace(/-/g, "_")}`;
+
 /** A chart that a source's command printed as JSON: lines or bars, and what
  * the chart says about them. Times are milliseconds or seconds since 1970. */
 export const sourceChartSchema = z

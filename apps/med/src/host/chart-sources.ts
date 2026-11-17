@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   chartSourceFor,
+  metaVariable,
   sourceChartSchema,
   type LinkChart,
   type SourceChart,
@@ -47,6 +48,8 @@ const MOST_OUTPUT = 8 * 1024 * 1024;
 const TIMEOUT_MS = 60_000;
 const KEPT = 400;
 const LIVE_MS = 15_000;
+/** Commands that run at once: a dashboard's dozen charts take turns. */
+const AT_ONCE = 4;
 
 /** The sources in Settings, by base. */
 export function sourcesOf(settings: Settings): Record<string, string> {
@@ -71,10 +74,6 @@ function inMillis(chart: SourceChart): SourceChart {
     ...(chart.marks && { marks: chart.marks.map((mark) => ({ ...mark, at: millis(mark.at) })) }),
   };
 }
-
-/** A block's key as the variable that the command reads it from:
- * `panel-id` is MED_CHART_PANEL_ID. */
-export const metaVariable = (key: string) => `MED_CHART_${key.toUpperCase().replace(/-/g, "_")}`;
 
 /** The last line that a failing command said, for the chart to show. */
 function lastWords(text: string) {
@@ -161,6 +160,19 @@ function runCommand(
 
 export function createChartSources(options: ChartSourcesOptions) {
   const now = options.now ?? Date.now;
+  let busy = 0;
+  const waiting: (() => void)[] = [];
+  /** Runs `work` when fewer than AT_ONCE commands run. */
+  async function inTurn<T>(work: () => Promise<T>) {
+    if (busy >= AT_ONCE) await new Promise<void>((go) => waiting.push(go));
+    busy++;
+    try {
+      return await work();
+    } finally {
+      busy--;
+      waiting.shift()?.();
+    }
+  }
   const live = new Map<string, { at: number; chart: LinkChart }>();
   const running = new Map<string, Promise<LinkChart>>();
 
@@ -276,12 +288,14 @@ export function createChartSources(options: ChartSourcesOptions) {
         MED_CHART_AT: String(isLive ? now() : Math.min(input.at ?? now(), now())),
         MED_CHART_LIVE: isLive ? "1" : "",
       });
-      const work = runCommand(
-        source.command,
-        env,
-        options.cwd ?? homedir(),
-        options.timeoutMs ?? TIMEOUT_MS,
-        signal,
+      const work = inTurn(() =>
+        runCommand(
+          source.command,
+          env,
+          options.cwd ?? homedir(),
+          options.timeoutMs ?? TIMEOUT_MS,
+          signal,
+        ),
       ).then(async (text) => {
         const chart: LinkChart = {
           source: source.base,

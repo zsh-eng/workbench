@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { chartSourceFor, type GrafanaPanel, type LinkChart } from "../../../shared/charts";
+import {
+  chartSourceFor,
+  metaVariable,
+  type GrafanaPanel,
+  type LinkChart,
+} from "../../../shared/charts";
 import { grafanaTime } from "../../../shared/grafana-time";
 import { createDefaultBrowseApi } from "../../data/browse";
 import { HttpError } from "../../data/api";
@@ -18,6 +23,14 @@ import {
   type ChartData,
 } from "./chart-block";
 import { LineChart, type ChartSource } from "./Chart";
+import { statOf, tableFromData, tableOf } from "./chart-summary";
+import {
+  InspectDialog,
+  StatPanel,
+  TablePanel,
+  type Inspection,
+  type PanelFooter,
+} from "./StatTable";
 import { formatValue, type Series } from "./chart-model";
 
 // A `chart` block in a reply, a brief, or a Markdown file (chart-block.ts
@@ -29,7 +42,16 @@ import { formatValue, type Series } from "./chart-model";
 type Loaded =
   | { state: "loading" }
   | { state: "error"; error: string; code?: string }
-  | { state: "ready"; data: ChartData; panel?: GrafanaPanel; at: number };
+  | {
+      state: "ready";
+      data: ChartData;
+      panel?: GrafanaPanel;
+      at: number;
+      /** The rows as they came, for a table. */
+      rows?: string;
+      /** What a chart source printed, for Inspect. */
+      read?: LinkChart;
+    };
 
 const LIVE_EVERY = 60_000;
 
@@ -166,7 +188,14 @@ function linkLoaded(read: LinkChart, block: Block, link: string): Loaded {
     link: chart?.link ?? link,
     notes: chart?.notes ?? [],
   };
-  return { state: "ready", data, panel, at: read.fetched };
+  return {
+    state: "ready",
+    data,
+    panel,
+    at: read.fetched,
+    ...(read.rows !== undefined ? { rows: read.rows } : {}),
+    read,
+  };
 }
 
 /** A path inside `folder`, with its `..` and `.` steps taken. */
@@ -220,7 +249,12 @@ export function ChartBlock({
   const [loaded, setLoaded] = useState<Loaded>(() => {
     if ("error" in block) return { state: "error", error: block.error };
     if (block.source.kind === "rows")
-      return { state: "ready", data: rowsData(block.source.text, block), at: Date.now() };
+      return {
+        state: "ready",
+        data: rowsData(block.source.text, block),
+        at: Date.now(),
+        rows: block.source.text,
+      };
     const read = viaSource && input && keptLink(input);
     if (read) return linkLoaded(read, block, input.link);
     const kept = !viaSource && input && keptPanel(input);
@@ -269,7 +303,12 @@ export function ChartBlock({
                   .read({ kind: "worktree", repo }, filePath(source.path), abort.signal)
                   .then((file) =>
                     file.kind === "text" && file.text !== undefined
-                      ? { state: "ready", data: rowsData(file.text, block), at: Date.now() }
+                      ? {
+                          state: "ready",
+                          data: rowsData(file.text, block),
+                          at: Date.now(),
+                          rows: file.text,
+                        }
                       : {
                           state: "error",
                           error:
@@ -307,11 +346,124 @@ export function ChartBlock({
   }, [live, shown]);
 
   const refresh = () => setRound((last) => ({ count: last.count + 1, quiet: false }));
+  const [inspecting, setInspecting] = useState(false);
+  /** Where the data came from, and what its source printed. */
+  const inspection = (): Inspection | undefined => {
+    if ("error" in block) return undefined;
+    const ready = loaded.state === "ready" ? loaded : undefined;
+    const title = `Inspect: ${block.title ?? (ready?.panel?.title || "Chart")}`;
+    const source = block.source;
+    if (source.kind === "rows")
+      return { title, from: "Rows written in the chart", env: [], output: source.text };
+    if (source.kind === "file")
+      return {
+        title,
+        from: `The file ${source.path}`,
+        env: [],
+        ...(ready?.rows !== undefined ? { output: ready.rows } : {}),
+      };
+    if (viaSource && input) {
+      const covered = chartSourceFor(sources, source.link);
+      const meta = "meta" in input && input.meta ? input.meta : {};
+      const read = ready?.read;
+      return {
+        title,
+        link: source.link,
+        from: covered
+          ? `The chart source for ${covered.base}, in Settings`
+          : "No chart source covers this link yet",
+        ...(covered ? { command: covered.command } : {}),
+        env: [
+          ["MED_CHART_LINK", source.link],
+          [
+            "MED_CHART_AT",
+            String(source.live ? (read?.fetched ?? Date.now()) : (at ?? read?.fetched ?? "")),
+          ],
+          ["MED_CHART_LIVE", source.live ? "1" : ""],
+          ...Object.entries(meta).map(([key, value]): [string, string] => [
+            metaVariable(key),
+            value,
+          ]),
+        ],
+        ...(read ? { fetched: read.fetched } : {}),
+        ...(read ? { output: read.rows ?? JSON.stringify(read.chart, null, 2) } : {}),
+      };
+    }
+    const panel = ready?.panel;
+    return {
+      title,
+      link: source.link,
+      from: "Grafana, with the token in Settings",
+      env: [],
+      ...(panel ? { fetched: panel.fetched, output: JSON.stringify(panel.series, null, 2) } : {}),
+    };
+  };
   const content = () => {
     if ("error" in block)
       return <LineChart spec={{ title: "Chart" }} state="error" error={block.error} />;
     const panel = loaded.state === "ready" ? loaded.panel : undefined;
     const data = loaded.state === "ready" ? loaded.data : undefined;
+    if (block.type === "stat" || block.type === "table") {
+      const linkedSource = block.source.kind === "grafana" || block.source.kind === "link";
+      const footer: PanelFooter = {
+        ...(linkedSource
+          ? {
+              label: hostOf((block.source as { link: string }).link),
+              url: panel?.link ?? (block.source as { link: string }).link,
+            }
+          : block.source.kind === "file"
+            ? { label: block.source.path }
+            : {}),
+        ...(loaded.state === "ready" && block.source.kind !== "rows"
+          ? { fetched: panel?.fetched ?? loaded.at }
+          : {}),
+        ...(panel?.live ? { live: true } : {}),
+      };
+      const title = block.title ?? (panel?.title || (block.type === "stat" ? "Value" : "Rows"));
+      const refreshes =
+        block.source.kind !== "rows" &&
+        !(loaded.state === "error" && loaded.code === "chart-source-missing");
+      const shared = {
+        title,
+        footer,
+        onInspect: () => setInspecting(true),
+        ...(refreshes ? { onRefresh: refresh } : {}),
+      };
+      if (block.type === "stat") {
+        const failed =
+          loaded.state === "error" ? loaded.error : data?.kind === "error" ? data.error : undefined;
+        const unit = block.unit ?? panel?.unit;
+        return (
+          <StatPanel
+            {...shared}
+            {...(unit ? { unit } : {})}
+            {...(data && !failed ? { stat: statOf(data, block.reduce ?? "last") } : {})}
+            state={failed ? "error" : loaded.state === "loading" ? "loading" : "ready"}
+            {...(failed ? { error: failed } : {})}
+          />
+        );
+      }
+      const table =
+        loaded.state === "ready"
+          ? loaded.rows !== undefined
+            ? tableOf(loaded.rows)
+            : tableFromData(loaded.data)
+          : undefined;
+      const failed =
+        loaded.state === "error"
+          ? loaded.error
+          : table && "error" in table
+            ? table.error
+            : undefined;
+      return (
+        <TablePanel
+          {...shared}
+          {...(table && !("error" in table) ? { table } : {})}
+          state={failed ? "error" : loaded.state === "loading" ? "loading" : "ready"}
+          {...(failed ? { error: failed } : {})}
+        />
+      );
+    }
     if (data?.kind === "bars")
       return (
         <BarList
@@ -338,20 +490,20 @@ export function ChartBlock({
           ? dataRange(series)
           : undefined);
     const host = linked ? hostOf((block.source as { link: string }).link) : "";
-    const source: ChartSource | undefined =
-      linked && range
-        ? {
-            kind: grafana ? "grafana" : "link",
-            label:
-              panel && grafana ? [panel.dashboard, panel.title].filter(Boolean).join(" › ") : host,
-            url: panel?.link ?? (block.source as { link: string }).link,
-            range,
-            ...(panel?.live ? { live: true } : {}),
-            ...(panel ? { fetched: panel.fetched } : {}),
-          }
-        : block.source.kind === "file" && range
-          ? { kind: "file", label: block.source.path, range }
-          : undefined;
+    // A linked chart names its host even before it has read, or when it fails.
+    const source: ChartSource | undefined = linked
+      ? {
+          kind: grafana ? "grafana" : "link",
+          label:
+            panel && grafana ? [panel.dashboard, panel.title].filter(Boolean).join(" › ") : host,
+          url: panel?.link ?? (block.source as { link: string }).link,
+          ...(range ? { range } : {}),
+          ...(panel?.live ? { live: true } : {}),
+          ...(panel ? { fetched: panel.fetched } : {}),
+        }
+      : block.source.kind === "file" && range
+        ? { kind: "file", label: block.source.path, range }
+        : undefined;
     const marks = [...markTimes(block.marks, range ?? [0, 1]), ...(panel?.marks ?? [])];
     const threshold =
       thresholdOf(block, unit) ??
@@ -390,6 +542,7 @@ export function ChartBlock({
         {...(source ? { source } : {})}
         {...(panel?.notes.length ? { notice: panel.notes.join(" ") } : {})}
         {...(refreshes ? { onRefresh: refresh } : {})}
+        onInspect={() => setInspecting(true)}
         {...(loaded.state === "error" && loaded.code === "grafana-not-set"
           ? { fix: { label: "Connect Grafana", run: () => openSettings("grafana") } }
           : {})}
@@ -399,6 +552,9 @@ export function ChartBlock({
   return (
     <div ref={frame} className="med-md-block" data-chart-block="">
       {content()}
+      {inspecting && inspection() && (
+        <InspectDialog inspection={inspection()!} onClose={() => setInspecting(false)} />
+      )}
     </div>
   );
 }

@@ -52,7 +52,7 @@ const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
  * reader, as ⌘0 ranks it: an accent dot in a ring when it needs them, a plain
  * accent dot when its work finished since they looked, amber when the work
  * stopped. A session at work dims its name under a passing light. Archived,
- * Pull requests, and Settings are at the foot.
+ * Pull requests, Dashboards, and Settings are at the foot.
  *
  * A row drags into Pinned, to a place among the pins, and out of it again.
  * While it drags, the list shows where it would land: the other rows slide
@@ -73,6 +73,7 @@ export function SessionSidebar({
   onSettings,
   onHistory,
   onPullRequests,
+  onDashboards,
   onSuperagent,
   onArchive,
   onDelete,
@@ -101,6 +102,8 @@ export function SessionSidebar({
   onHistory?(): void;
   /** Shows the open pull requests that wait on you, and yours. */
   onPullRequests?(): void;
+  /** Shows the dashboards: YAML files whose panels chart sources feed. */
+  onDashboards?(): void;
   /** Opens the Superagent's thread, and makes it the first time. */
   onSuperagent?(): void;
   onArchive(thread: Thread): void;
@@ -431,6 +434,12 @@ export function SessionSidebar({
         >
           <Icon name="pullRequest" size={15} />
           <span {...stylex.props(styles.name)}>Pull requests</span>
+        </button>
+      )}
+      {onDashboards && (
+        <button type="button" onClick={onDashboards} {...stylex.props(styles.row, styles.settings)}>
+          <Icon name="display" size={15} />
+          <span {...stylex.props(styles.name)}>Dashboards</span>
         </button>
       )}
       <button type="button" onClick={onSettings} {...stylex.props(styles.row, styles.settings)}>

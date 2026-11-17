@@ -26,6 +26,8 @@ import { SourcesPage, type Source } from "./SourcesPage";
 import { SettingsPage, type SettingsSection } from "./settings/SettingsPage";
 import { settingsCommands } from "./settings/settings-commands";
 import { OPEN_PULL_EVENT, PULLS_PATH, PullRequestsPage, type OpenPull } from "./PullRequestsPage";
+import { DashboardsPage } from "./dashboards/DashboardsPage";
+import { isDashboardsAddress } from "../data/dashboards";
 import { readPullInbox } from "../data/pull-inbox";
 import { useAgentPresets } from "../data/owned-session";
 import { ui } from "../theme.stylex";
@@ -66,10 +68,12 @@ const route = () => ({
   visible:
     location.pathname === "/sources" ||
     location.pathname === PULLS_PATH ||
+    isDashboardsAddress(location.pathname) ||
     location.pathname.startsWith("/vault/") ||
     settingsSection() !== null,
   settings: settingsSection(),
   pulls: location.pathname === PULLS_PATH,
+  dashboards: isDashboardsAddress(location.pathname),
   id: location.pathname.startsWith("/vault/") ? decodeURIComponent(location.pathname.slice(7)) : "",
   file: new URLSearchParams(location.search).get("file") ?? "",
 });
@@ -564,7 +568,9 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       {review}
       <div className="med-vault" data-standalone-files>
         {error && locationState.id && notice}
-        {locationState.pulls ? (
+        {locationState.dashboards ? (
+          <DashboardsPage />
+        ) : locationState.pulls ? (
           <PullRequestsPage
             load={readPullInbox}
             agents={pullAgents?.filter((agent) => agent.available)}

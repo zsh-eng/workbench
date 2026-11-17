@@ -15,10 +15,11 @@ import {
 //   file: bench/results.csv
 //   (or CSV rows after the keys)
 //
-// Other keys: title, subtitle, unit, scale (linear or log), type (line or
-// bars), live, from and to (a grafana link's range), mark (repeatable:
-// "10:42 Deploy v412"), threshold ("500 SLO"), highlight (the bar the chart
-// is about). A link chart has no rows, so any other key in it is for its
+// Other keys: title, subtitle, unit, scale (linear or log), type (line,
+// bars, or, on a dashboard, stat or table), reduce (a stat's number: last,
+// first, sum, mean, max, or min), live, from and to (a grafana link's range),
+// mark (repeatable: "10:42 Deploy v412"), threshold ("500 SLO"), highlight
+// (the bar the chart is about). A link chart has no rows, so any other key in it is for its
 // source's command, which reads it as it likes: `panel: 4`.
 
 const KEYS = new Set([
@@ -36,6 +37,7 @@ const KEYS = new Set([
   "mark",
   "threshold",
   "highlight",
+  "reduce",
 ]);
 
 export interface ChartBlock {
@@ -50,7 +52,10 @@ export interface ChartBlock {
   subtitle?: string;
   unit?: string;
   scale?: "linear" | "log";
-  type?: "line" | "bars";
+  /** A stat is one number with its trend, and a table the rows as they came. */
+  type?: "line" | "bars" | "stat" | "table";
+  /** How a stat comes to one number. */
+  reduce?: "last" | "first" | "sum" | "mean" | "max" | "min";
   /** As written: a time, resolved against the data's range (`markTimes`). */
   marks: { at: string; label: string }[];
   threshold?: { value: number; label?: string };
@@ -99,6 +104,9 @@ export function parseChartBlock(text: string): ChartBlock | { error: string } {
   const type = keys.get("type")?.toLowerCase();
   const threshold = /^(-?[\d.]+)\s*(.*)$/.exec(keys.get("threshold") ?? "");
   const unit = keys.get("unit");
+  const reduce = ["last", "first", "sum", "mean", "max", "min"].find(
+    (how) => how === keys.get("reduce")?.toLowerCase(),
+  ) as ChartBlock["reduce"];
   return {
     source: grafana
       ? {
@@ -117,7 +125,8 @@ export function parseChartBlock(text: string): ChartBlock | { error: string } {
     ...(keys.get("subtitle") ? { subtitle: keys.get("subtitle") } : {}),
     ...(unit ? { unit } : {}),
     ...(scale === "log" || scale === "linear" ? { scale } : {}),
-    ...(type === "bars" || type === "line" ? { type } : {}),
+    ...(type === "bars" || type === "line" || type === "stat" || type === "table" ? { type } : {}),
+    ...(reduce ? { reduce } : {}),
     marks,
     ...(threshold && Number.isFinite(Number(threshold[1]))
       ? {

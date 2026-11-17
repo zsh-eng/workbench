@@ -10,6 +10,7 @@ import pullRequests from "../../docs/usage/pull-requests.md" with { type: "text"
 import find from "../../docs/usage/find.md" with { type: "text" };
 import editFiles from "../../docs/usage/edit-files.md" with { type: "text" };
 import markdown from "../../docs/usage/markdown.md" with { type: "text" };
+import dashboards from "../../docs/usage/dashboards.md" with { type: "text" };
 import layout from "../../docs/usage/layout.md" with { type: "text" };
 import settings from "../../docs/usage/settings.md" with { type: "text" };
 import keyboard from "../../docs/usage/keyboard.md" with { type: "text" };
@@ -31,6 +32,7 @@ export function runDocsCommand(args: string[], print: (text: string) => void = c
     find,
     editFiles,
     markdown,
+    dashboards,
     layout,
     settings,
     keyboard,
@@ -38,18 +40,21 @@ export function runDocsCommand(args: string[], print: (text: string) => void = c
   ]
     .map((page) => page.trimEnd())
     .join("\n\n");
-  const topics: Record<string, string> = { vaults, agents, usage, reference };
+  const topics: Record<string, string> = { vaults, agents, usage, reference, dashboards };
   if (!args.length || args[0] === "--help") {
-    print(`Usage: med docs <usage|agents|vaults|reference>
+    print(`Usage: med docs <usage|agents|vaults|dashboards|reference>
 
 Prints a guide of this version of Med as Markdown. It works offline.
   usage      How to use Med
   agents     The guide for agents that hand off changes
   vaults     Vaults: folders of Markdown notes
+  dashboards Dashboards: YAML files of charts that open as pages
   reference  The full reference for agent integration`);
     return;
   }
   if (args.length !== 1 || !Object.hasOwn(topics, args[0]!))
-    throw new Error("Choose docs agents, docs usage, docs vaults, or docs reference.");
+    throw new Error(
+      "Choose docs agents, docs usage, docs vaults, docs dashboards, or docs reference.",
+    );
   print(topics[args[0]!]!.trimEnd());
 }

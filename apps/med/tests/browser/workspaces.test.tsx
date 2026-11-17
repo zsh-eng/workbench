@@ -2014,7 +2014,9 @@ test("⌘⇧F opens the workspace's Search tab; a match opens in a file tab, and
   await expect
     .element(panel.getByRole("status"))
     .toHaveTextContent("1 result in 1 file in fixture");
-  expect(host.searches).toEqual(["/test/repo AFTER"]);
+  // A slow typist sends a search for what they have typed so far, too.
+  expect(host.searches.at(-1)).toBe("/test/repo AFTER");
+  expect(host.searches.every((search) => search.startsWith("/test/repo "))).toBe(true);
   await expect.element(tab("Search: AFTER")).toHaveAttribute("aria-selected", "true");
   await expect
     .element(panel.getByRole("option", { selected: true }))

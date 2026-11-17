@@ -54,6 +54,7 @@ import { parsePullUrl, samePull } from "../../shared/pull-workspace";
 import { startPull, usePullJob } from "../data/pull-jobs";
 import { HistoryPage, isArchivedAddress, openHistoryPage } from "./HistoryPage";
 import { OPEN_PULL_EVENT, openPullRequests, type OpenPull } from "./PullRequestsPage";
+import { openDashboards } from "../data/dashboards";
 import { PullWorkspaceView, pullTitle, type PullState } from "./PullWorkspace";
 import {
   matches,
@@ -1929,6 +1930,11 @@ export function WorkspaceHost({
                               onPullRequests={() => {
                                 setOverlay(false);
                                 openPullRequests();
+                              }}
+                              onDashboards={() => {
+                                setOverlay(false);
+                                setNewThread(false);
+                                openDashboards();
                               }}
                               onSuperagent={() => {
                                 setOverlay(false);

@@ -43,6 +43,7 @@ const COMMANDS = [
   "service",
   "agents",
   "grafana",
+  "dashboard",
   "docs",
   "serve",
   "help",
@@ -77,6 +78,7 @@ Set up:
   service   Start Med when you log in (macOS)
   agents    List or stop the agents that Med started
   grafana   Connect a Grafana for charts, with its token in your Keychain
+  dashboard List dashboards, check one's panels, or print its link
   docs      Print a guide: usage, agents, vaults, or reference
 
 Options:
@@ -169,6 +171,11 @@ async function main(args: string[]) {
   if (command === "agents") {
     const { runAgentsCommand } = await import("./agents");
     await runAgentsCommand(rest);
+    return;
+  }
+  if (command === "dashboard" || command === "dashboards") {
+    const { runDashboardCommand } = await import("./dashboard");
+    await runDashboardCommand(rest);
     return;
   }
   if (command === "grafana") {

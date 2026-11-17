@@ -211,6 +211,7 @@ for `⌘F` in a diff, `⌘F` in a file, and Vim's `/` and `?`, now in both.
 - [Find files and code](usage/find.md): find files, search their contents, and go to symbols.
 - [Edit working files](usage/edit-files.md): edit, commit, and push.
 - [Read and edit Markdown](usage/markdown.md): rendered Markdown, diagrams, images, and videos.
+- [Dashboards](usage/dashboards.md): YAML files of charts and inputs that open as pages, as Obsidian Bases do.
 - [Layout](usage/layout.md): panes, Expand and Hide, and the review's header.
 - [Settings](usage/settings.md): every setting, and the settings file.
 - [Keyboard shortcuts](usage/keyboard.md): every shortcut, by place.
