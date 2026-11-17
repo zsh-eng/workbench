@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import MarkdownPreview from "../../src/web/components/MarkdownPreview";
+import { writeSetting } from "../../src/web/data/settings-file";
 import { createMarkdownModel } from "../../src/web/markdown/model";
 import type { FileRead } from "../../src/shared/local-file";
 import "../../src/web/pierre-theme";
@@ -488,7 +489,9 @@ test("a chart fence draws its rows as a chart, with prose spacing kept out, and 
   await expect.element(reading.getByText("Deploy v412")).toBeVisible();
   await expect
     .element(
-      reading.getByText("This chart has no data: add a grafana link, a file, or rows of CSV."),
+      reading.getByText(
+        "This chart has no data: add a grafana link, a link, a file, or rows of CSV.",
+      ),
     )
     .toBeVisible();
   // The options wait in one menu: a log axis, and back.
@@ -550,4 +553,105 @@ test("a Grafana chart without a Grafana in Settings says so, and its button open
   await reading.getByRole("button", { name: "Connect Grafana" }).click();
   expect(location.pathname).toBe("/settings/grafana");
   history.replaceState(null, "", start);
+});
+
+test("a link chart draws what its source printed, rows or a chart; a Grafana link that a source covers reads through it", async () => {
+  const sources = {
+    "https://metrics.acme.build": "metrics-chart",
+    "https://grafana.acme.build": "grafana-with-sign-in",
+  };
+  const settingsFile = (settings: Record<string, Record<string, string>>) => async () =>
+    Response.json({ path: "/test/settings.json", settings, error: null });
+  await writeSetting("charts.sources", sources, settingsFile({ "charts.sources": sources }));
+  const asked: { path: string; link?: string }[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = new URL(String(input instanceof Request ? input.url : input), location.href);
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) : {};
+    asked.push({ path: url.pathname, link: body.link });
+    if (url.pathname !== "/api/charts/link")
+      return Response.json({ error: { message: "Not in this test." } }, { status: 404 });
+    const fetched = Date.parse("2026-11-16T09:05:00");
+    if (body.link.startsWith("https://metrics.acme.build"))
+      return Response.json({
+        source: "https://metrics.acme.build",
+        rows: "time,p99\n2026-11-16T09:00:00,120\n2026-11-16T09:01:00,180\n2026-11-16T09:02:00,240",
+        live: false,
+        fetched,
+      });
+    if (body.link.startsWith("https://grafana.acme.build"))
+      return Response.json({
+        source: "https://grafana.acme.build",
+        chart: {
+          title: "Checkout p99",
+          unit: "ms",
+          threshold: { value: 500, label: "SLO" },
+          series: [
+            {
+              name: "p99",
+              points: [
+                [Date.parse("2026-11-16T09:00:00"), 240],
+                [Date.parse("2026-11-16T09:01:00"), 2100],
+              ],
+            },
+          ],
+        },
+        range: [Date.parse("2026-11-16T06:00:00"), Date.parse("2026-11-16T09:00:00")],
+        live: false,
+        fetched,
+      });
+    return Response.json(
+      {
+        error: {
+          code: "chart-source-missing",
+          message:
+            "No chart source covers elsewhere.acme.build. Add one in Med's settings, charts.sources.",
+        },
+      },
+      { status: 404 },
+    );
+  });
+  const text = [
+    "# Checkout",
+    "",
+    "```chart",
+    "link: https://metrics.acme.build/q?metric=latency",
+    "title: Latency by minute",
+    "```",
+    "",
+    "```chart",
+    "grafana: https://grafana.acme.build/d/abc/checkout?viewPanel=4&from=now-3h&to=now",
+    "```",
+    "",
+    "```chart",
+    "link: https://elsewhere.acme.build/q",
+    "title: Nobody reads this",
+    "```",
+  ].join("\n");
+  try {
+    const reading = await show(text, 900, "Checkout");
+    await expect.element(reading.getByRole("heading", { name: "Latency by minute" })).toBeVisible();
+    await expect.element(reading.getByRole("heading", { name: "Checkout p99" })).toBeVisible();
+    await expect.element(reading.getByText("SLO 500 ms")).toBeVisible();
+    // A chart reads once it nears the screen.
+    const unread = reading.getByRole("heading", { name: "Nobody reads this" });
+    unread.element().scrollIntoView();
+    await expect.element(reading.getByRole("alert")).toBeVisible();
+    expect(reading.getByRole("alert").element().textContent).toContain(
+      "No chart source covers elsewhere.acme.build",
+    );
+    // Each chart reads through its source; none asks Med's Grafana reader.
+    expect(
+      asked
+        .filter((entry) => entry.path.startsWith("/api/charts/"))
+        .map((entry) => entry.link)
+        .sort(),
+    ).toEqual([
+      "https://elsewhere.acme.build/q",
+      "https://grafana.acme.build/d/abc/checkout?viewPanel=4&from=now-3h&to=now",
+      "https://metrics.acme.build/q?metric=latency",
+    ]);
+    expect(asked.some((entry) => entry.path === "/api/charts/grafana")).toBe(false);
+  } finally {
+    await writeSetting("charts.sources", {}, settingsFile({}));
+  }
 });

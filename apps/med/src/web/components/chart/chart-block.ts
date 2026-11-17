@@ -8,9 +8,10 @@ import {
 } from "./chart-model";
 
 // A `chart` block in a reply: lines of `key: value`, then, for data the
-// agent has, rows of CSV. The data comes from one of three places:
+// agent has, rows of CSV. The data comes from one of four places:
 //
 //   grafana: https://grafana.acme.dev/d/abc/checkout?viewPanel=4&from=…&to=…
+//   link: https://metrics.acme.dev/q?metric=latency (a chart source's link)
 //   file: bench/results.csv
 //   (or CSV rows after the keys)
 //
@@ -20,6 +21,7 @@ import {
 
 const KEYS = new Set([
   "grafana",
+  "link",
   "file",
   "title",
   "subtitle",
@@ -37,6 +39,8 @@ const KEYS = new Set([
 export interface ChartBlock {
   source:
     | { kind: "grafana"; link: string; from?: string; to?: string; live: boolean }
+    /** A link whose data a chart source in Settings reads. */
+    | { kind: "link"; link: string; from?: string; to?: string; live: boolean }
     | { kind: "file"; path: string }
     | { kind: "rows"; text: string };
   title?: string;
@@ -68,27 +72,32 @@ export function parseChartBlock(text: string): ChartBlock | { error: string } {
   }
   const rows = lines.slice(index).join("\n").trim();
   const grafana = keys.get("grafana");
+  const link = keys.get("link");
   const file = keys.get("file");
-  const sources = [grafana, file, rows || undefined].filter(Boolean).length;
+  const sources = [grafana, link, file, rows || undefined].filter(Boolean).length;
   if (sources === 0)
-    return { error: "This chart has no data: add a grafana link, a file, or rows of CSV." };
-  if (sources > 1) return { error: "A chart takes one of a grafana link, a file, or rows of CSV." };
+    return { error: "This chart has no data: add a grafana link, a link, a file, or rows of CSV." };
+  if (sources > 1)
+    return { error: "A chart takes one of a grafana link, a link, a file, or rows of CSV." };
+  const ranged = (kind: "grafana" | "link", url: string) => ({
+    kind,
+    link: url,
+    ...(keys.get("from") ? { from: keys.get("from") } : {}),
+    ...(keys.get("to") ? { to: keys.get("to") } : {}),
+    live: /^(?:yes|true|on)$/i.test(keys.get("live") ?? ""),
+  });
   const scale = keys.get("scale")?.toLowerCase();
   const type = keys.get("type")?.toLowerCase();
   const threshold = /^(-?[\d.]+)\s*(.*)$/.exec(keys.get("threshold") ?? "");
   const unit = keys.get("unit");
   return {
     source: grafana
-      ? {
-          kind: "grafana",
-          link: grafana,
-          ...(keys.get("from") ? { from: keys.get("from") } : {}),
-          ...(keys.get("to") ? { to: keys.get("to") } : {}),
-          live: /^(?:yes|true|on)$/i.test(keys.get("live") ?? ""),
-        }
-      : file
-        ? { kind: "file", path: file }
-        : { kind: "rows", text: rows },
+      ? ranged("grafana", grafana)
+      : link
+        ? ranged("link", link)
+        : file
+          ? { kind: "file", path: file }
+          : { kind: "rows", text: rows },
     ...(keys.get("title") ? { title: keys.get("title") } : {}),
     ...(keys.get("subtitle") ? { subtitle: keys.get("subtitle") } : {}),
     ...(unit ? { unit } : {}),

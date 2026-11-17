@@ -50,7 +50,74 @@ export type GrafanaSite = z.infer<typeof grafanaSiteSchema>;
 
 const address = z.string().min(1).max(2048);
 
+/**
+ * A chart source: links under a base address whose data a command prints.
+ * Settings hold them by base (`charts.sources`). The link that a chart
+ * names belongs to the longest base that it starts with, up to a `/`, `?`,
+ * or `#`. A base is compared without its trailing `/`.
+ */
+export function chartSourceFor(sources: Record<string, string>, link: string) {
+  let found: { base: string; command: string } | undefined;
+  for (const [base, command] of Object.entries(sources)) {
+    const stem = base.replace(/\/+$/, "");
+    if (!stem || !command.trim() || !link.startsWith(stem)) continue;
+    if (!/^(?:$|[/?#])/.test(link.slice(stem.length))) continue;
+    if (!found || stem.length > found.base.replace(/\/+$/, "").length) found = { base, command };
+  }
+  return found;
+}
+
+/** A chart that a source's command printed as JSON: lines or bars, and what
+ * the chart says about them. Times are milliseconds or seconds since 1970. */
+export const sourceChartSchema = z
+  .object({
+    title: z.string().optional(),
+    unit: z.string().optional(),
+    scale: z.enum(["linear", "log"]).optional(),
+    threshold: z.object({ value: z.number(), label: z.string().optional() }).optional(),
+    marks: z.array(z.object({ at: z.number(), label: z.string() })).optional(),
+    series: z.array(z.object({ name: z.string(), points: z.array(point) })).optional(),
+    bars: z.array(z.object({ label: z.string(), value: z.number() })).optional(),
+    /** Where the data can be seen, if not the chart's link. */
+    link: z.string().optional(),
+    /** What the chart leaves out, said under it. */
+    notes: z.array(z.string()).optional(),
+  })
+  .refine((chart) => !!chart.series || !!chart.bars, "A chart has series or bars.");
+export type SourceChart = z.infer<typeof sourceChartSchema>;
+
+/** What a chart source read for a link. */
+export const linkChartSchema = z.object({
+  /** The source's base, which the link starts with. */
+  source: z.string(),
+  /** The command's output as rows of CSV or JSON, as a file chart's. */
+  rows: z.string().optional(),
+  chart: sourceChartSchema.optional(),
+  /** The range that Med asked for, when the block or the link names one. */
+  range: z.tuple([z.number(), z.number()]).optional(),
+  live: z.boolean(),
+  /** When the command ran. */
+  fetched: z.number(),
+});
+export type LinkChart = z.infer<typeof linkChartSchema>;
+
 export const chartRoutes = {
+  /** A link's data from the chart source that covers it: Med runs the
+   * source's command. Med keeps what it read, as for a Grafana panel;
+   * `refresh` runs the command again. */
+  link: {
+    method: "POST",
+    path: "/api/charts/link",
+    input: z.object({
+      link: z.string().min(1).max(8192),
+      at: z.number().optional(),
+      from: z.string().max(64).optional(),
+      to: z.string().max(64).optional(),
+      live: z.boolean().optional(),
+      refresh: z.boolean().optional(),
+    }),
+    output: linkChartSchema,
+  },
   /** A panel's data, over the link's range. A range relative to now, such as
    * `now-6h`, counts from `at`, the reply's time, unless `live`. Med keeps
    * what it read, so the chart shows the same data later; `refresh` reads

@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import { chartRoutes, type GrafanaPanel } from "../../shared/charts";
+import { chartRoutes, type GrafanaPanel, type LinkChart } from "../../shared/charts";
 import { createApi } from "./api";
 import { readBrowserToken } from "./auth";
 import { browserFetch } from "./live";
@@ -26,6 +26,25 @@ export async function grafanaPanel(input: PanelInput, signal?: AbortSignal) {
   panels.set(key, panel);
   if (panels.size > 60) panels.delete(panels.keys().next().value!);
   return panel;
+}
+
+// What chart sources read, as panels are kept.
+const links = new Map<string, LinkChart>();
+type LinkInput = z.input<(typeof chartRoutes)["link"]["input"]>;
+
+/** A link's chart read before, without asking the server. */
+export function keptLink(input: Omit<LinkInput, "refresh">) {
+  return links.get(JSON.stringify(input));
+}
+
+/** A link's data from the chart source that covers it. */
+export async function linkChart(input: LinkInput, signal?: AbortSignal) {
+  const chart = await api().call(chartRoutes.link, input, signal);
+  const key = JSON.stringify({ ...input, refresh: undefined });
+  links.delete(key);
+  links.set(key, chart);
+  if (links.size > 60) links.delete(links.keys().next().value!);
+  return chart;
 }
 
 export const grafanaSites = (signal?: AbortSignal) => api().call(chartRoutes.sites, {}, signal);

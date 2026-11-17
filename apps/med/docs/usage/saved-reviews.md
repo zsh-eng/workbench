@@ -77,7 +77,8 @@ title: p99 tripled after the 10:42 deploy
 mark: 10:42 Deploy v412
 ```
 
-Or `file: <a CSV your script wrote>`, or CSV rows after a blank line: a time,
+Or `link: <a link that a chart source in Med's settings reads>`, or
+`file: <a CSV your script wrote>`, or CSV rows after a blank line: a time,
 then a column a line; or a label and a number a bar. Other keys: `subtitle`,
 `unit` (ms, s, %, B, or a word), `scale: log`, `threshold: 500 SLO`,
 `highlight: <bar>`, `live: yes`. `med docs reference` has the rest.

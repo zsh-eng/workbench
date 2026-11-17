@@ -655,6 +655,10 @@ mark: 10:42 Deploy v412
   you need no access to Grafana, and you never see the token. A range
   relative to now counts from your reply's time, so the chart keeps showing
   what you looked at. Add `live: yes` for a chart that should keep moving.
+- `link:` a link whose data a chart source prints: a command in the user's
+  settings file (`charts.sources`, by the links' base) that Med runs with the
+  link in `MED_CHART_LINK`. A `grafana:` link that a source covers reads
+  through it too.
 - `file:` a CSV or JSON file in the checkout that your script wrote, from
   the folder you work in. Med never runs the script.
 - CSV rows after the keys and a blank line: a time first (an ISO date-time,
@@ -676,6 +680,17 @@ the token). Then connect it yourself:
 checks it with Grafana and keeps only the address and the item's name.
 `med grafana` lists what is connected. See
 [Settings → Grafana](usage/settings.md#grafana).
+
+A Grafana behind a sign-in that a service account token cannot pass, or a
+service that is not Grafana, needs a chart source. With the user's
+agreement, write a script that reads `MED_CHART_LINK` (and
+`MED_CHART_FROM` and `MED_CHART_TO`, in milliseconds, when set), fetches the
+data with the user's own sign-in, and prints CSV rows or a JSON chart; then
+add it under `charts.sources` in `~/.config/med/settings.json`, as
+`"https://grafana.acme.com": "~/bin/grafana-chart"`. Run the script with
+`MED_CHART_LINK` set to check it before you write a chart. Keep tokens out
+of the script and the settings: read them from the Keychain or the
+service's own command. See [Chart sources](usage/settings.md#chart-sources).
 
 ## Checks
 

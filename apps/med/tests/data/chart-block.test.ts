@@ -41,10 +41,31 @@ test("rows after the keys are the data; a block names one source", () => {
     source: { kind: "file", path: "bench/out.csv" },
   });
   expect(parseChartBlock("title: Nothing")).toEqual({
-    error: "This chart has no data: add a grafana link, a file, or rows of CSV.",
+    error: "This chart has no data: add a grafana link, a link, a file, or rows of CSV.",
   });
   expect(parseChartBlock("file: a.csv\n\ntime,x\n2026-01-01,1")).toEqual({
-    error: "A chart takes one of a grafana link, a file, or rows of CSV.",
+    error: "A chart takes one of a grafana link, a link, a file, or rows of CSV.",
+  });
+});
+
+test("a link is a chart source's: its range, and whether it is live", () => {
+  expect(
+    parseChartBlock("link: https://metrics.acme.dev/q?metric=latency\nfrom: now-1h\ntitle: p99"),
+  ).toEqual({
+    source: {
+      kind: "link",
+      link: "https://metrics.acme.dev/q?metric=latency",
+      from: "now-1h",
+      live: false,
+    },
+    title: "p99",
+    marks: [],
+  });
+  expect(parseChartBlock("link: https://metrics.acme.dev/q\nlive: yes")).toMatchObject({
+    source: { kind: "link", live: true },
+  });
+  expect(parseChartBlock("link: https://a.dev/q\ngrafana: https://g.acme.dev/d/abc")).toEqual({
+    error: "A chart takes one of a grafana link, a link, a file, or rows of CSV.",
   });
 });
 

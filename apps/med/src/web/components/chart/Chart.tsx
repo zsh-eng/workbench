@@ -43,8 +43,9 @@ import {
 
 /** Where the data came from, for the footer, Refresh, and Open in Grafana. */
 export interface ChartSource {
-  kind: "grafana" | "file" | "agent";
-  /** Grafana's host and panel, a file's name, or what the agent ran. */
+  kind: "grafana" | "link" | "file" | "agent";
+  /** Grafana's host and panel, a chart source's link's host, a file's name,
+   * or what the agent ran. */
   label: string;
   url?: string;
   /** None while a file loads. */
@@ -397,10 +398,10 @@ export function LineChart({
       ...(onRefresh
         ? [{ label: "Refresh", letter: "r", disabled: state === "loading", onClick: onRefresh }]
         : []),
-      ...(source?.url && source.kind === "grafana"
+      ...(source?.url && (source.kind === "grafana" || source.kind === "link")
         ? [
             {
-              label: "Open in Grafana",
+              label: source.kind === "grafana" ? "Open in Grafana" : "Open link",
               letter: "o",
               onClick: () => void window.open(source.url, "_blank", "noreferrer"),
             },
@@ -432,7 +433,12 @@ export function LineChart({
     ? data[0]!.points.find(([time, value]) => time >= from && value !== null)
     : undefined;
   const change = single0 !== null && first?.[1] ? (single0 - first[1]) / first[1] : null;
-  const icon = source?.kind === "grafana" ? siteIcon("https://grafana.com/") : undefined;
+  const icon =
+    source?.kind === "grafana"
+      ? siteIcon("https://grafana.com/")
+      : source?.kind === "link" && source.url
+        ? siteIcon(source.url)
+        : undefined;
   const linearOpacity = 1 - view.blend;
 
   return (

@@ -117,6 +117,58 @@ editing them, or with `med grafana`:
 A Grafana whose certificate comes from your company's own authority needs Med
 started with `NODE_EXTRA_CA_CERTS` set to that authority's file.
 
+## Chart sources
+
+A chart source reads a kind of link that Med cannot read itself: a Grafana
+behind your company's sign-in, a metrics service, or anything a script of
+yours can fetch. `charts.sources` in the settings file maps a base address
+to a command:
+
+```json
+"charts.sources": {
+  "https://grafana.acme.com": "~/bin/grafana-chart",
+  "https://metrics.acme.com/api": "acme-metrics chart"
+}
+```
+
+A chart's `link:` belongs to the longest base that it starts with, up to a
+`/`, `?`, or `#`. A `grafana:` link that a source covers reads through the
+source too, instead of with a token in Settings → Grafana. Med runs the
+command with `/bin/sh` as you, in your home folder, with your shell's
+environment, so it can use your own sign-in, such as a command that prints a
+signed token. The link reaches the command only in its environment, never
+in its text:
+
+| Variable         | What it holds                                                                   |
+| ---------------- | ------------------------------------------------------------------------------- |
+| `MED_CHART_LINK` | the chart's link                                                                |
+| `MED_CHART_FROM` | the range's start, in milliseconds since 1970, when the chart or link names one |
+| `MED_CHART_TO`   | the range's end, likewise                                                       |
+| `MED_CHART_AT`   | when the reply was written, or now for a live chart                             |
+| `MED_CHART_LIVE` | `1` for a chart with `live: yes`                                                |
+
+The command prints the chart's data in one of two ways:
+
+- rows of CSV or JSON, as a `file:` chart takes them: a time, then a column
+  a line; or a label and a number a bar.
+- a JSON chart: `series` (each a `name` and `points`, `[time, value]`
+  pairs) or `bars` (each a `label` and a `value`), and optionally `title`,
+  `unit`, `scale` (`"log"`), `threshold` (`value` and `label`), `marks`
+  (each `at` and `label`), `link` (where the data can be seen), and `notes`
+  (what the chart leaves out). Times are seconds or milliseconds since 1970.
+
+A command that exits with an error shows the last line it wrote to standard
+error in the chart, such as `token expired: sign in again`. A command has
+60 seconds and 8 MB. Med keeps what it read for each link, range, and
+command, so a chart draws the same each time; **Refresh** runs the command
+again, and a live chart runs it each minute while it shows.
+
+To try a source, run its command as Med would:
+
+```sh
+MED_CHART_LINK='https://grafana.acme.com/d/abc?viewPanel=4' ~/bin/grafana-chart
+```
+
 ## The settings file
 
 Every setting lives in `~/.config/med/settings.json` (or
@@ -156,6 +208,7 @@ the file.
 | `openIn.links`          | other links by name, each a template                       | `{}`             |
 | `grafana.sites`         | the Grafanas that charts read, by address                  | `[]`             |
 | `grafana.keychain`      | the Keychain item that holds a Grafana's token, by address | `{}`             |
+| `charts.sources`        | the command that prints a chart link's data, by base       | `{}`             |
 
 A key that Med does not know, or a value that its key does not take, changes
 nothing.

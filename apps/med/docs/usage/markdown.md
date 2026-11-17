@@ -77,7 +77,7 @@ Try [the reading queue design note](../examples/reading-queue.md).
 
 A `chart` fence draws a chart in Med's colors: a line chart over time, or a
 bar a row. Its first lines are keys, `key: value`; its data comes from one of
-three places.
+four places.
 
 - `grafana:` a Grafana panel's link, as Grafana's **View** gives it. Med's
   server reads the panel with the token in [Settings → Grafana](settings.md#grafana),
@@ -85,7 +85,11 @@ three places.
   Med runs the panel's queries with the link's variables, or the dashboard's
   own, and takes the panel's unit, log axis, threshold line, and the
   dashboard's annotations as marks. It does not apply the panel's
-  transformations, and says so under the chart.
+  transformations, and says so under the chart. A Grafana link that a
+  [chart source](settings.md#chart-sources) covers reads through the source.
+- `link:` a link whose data a [chart source](settings.md#chart-sources) in
+  the settings file prints: a command of yours that reads it, such as a
+  Grafana behind a sign-in or a metrics service.
 - `file:` a CSV or JSON file in the checkout, such as one a script wrote. In
   a reply the path starts where the agent worked; in a Markdown file, at the
   file's folder.
@@ -109,7 +113,8 @@ the chart is about. A Grafana link's range relative to now, such as
 what the agent looked at; `live: yes` keeps it moving, and reads Grafana
 again each minute while it shows. `from:` and `to:` replace the link's range.
 
-Med keeps what it read from Grafana, so a chart draws the same each time.
+Med keeps what it read from Grafana or a source, so a chart draws the same
+each time.
 At rest a chart shows its data and where it came from. Hover it to read each
 line at a time; the time sits on the axis. Drag across to zoom, and
 double-click or **Reset zoom** to zoom out. The key picks lines: click a

@@ -131,7 +131,8 @@ import {
   OwnedSessions,
   type RunnableAgent,
 } from "./owned-sessions";
-import { loadShellEnvironment } from "./shell-environment";
+import { loadShellEnvironment, shellEnvironment, withoutClaudeSession } from "./shell-environment";
+import { createChartSources } from "./chart-sources";
 import { createAgentStatus } from "./agent-status";
 import { createSessionIndex } from "./session-index";
 import { createThreadStore } from "./thread-store";
@@ -680,6 +681,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     sites: grafanaSettings.sites,
     token: grafanaSettings.token,
     cacheDir: join(options.stateDir ?? temporaryState!, "charts"),
+  });
+  // Charts whose links a command of the user's reads (charts.sources), in
+  // the user's shell environment, as the agents Med starts have it.
+  const chartSources = createChartSources({
+    settings: settingsFile,
+    cacheDir: join(options.stateDir ?? temporaryState!, "chart-sources"),
+    env: () => ({ ...withoutClaudeSession(process.env), ...shellEnvironment() }),
   });
   const pullRequestLinks = createPullRequestLinks({
     gh: options.gh ?? { command: "gh", args: [] },
@@ -1267,6 +1275,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     }),
     // A Grafana panel for a chart in a reply (grafana.ts).
     route(chartRoutes.grafana, (input, { signal }) => grafana.panel(input, signal)),
+    route(chartRoutes.link, (input, { signal }) => chartSources.read(input, signal)),
     route(chartRoutes.sites, async () => ({ sites: await grafanaSettings.list() })),
     route(chartRoutes.connect, (input, { signal }) =>
       grafanaSettings.connect(input, (address, token) => grafana.check(address, token, signal)),
