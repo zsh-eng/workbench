@@ -639,6 +639,13 @@ test("a link chart draws what its source printed, rows or a chart; a Grafana lin
     expect(reading.getByRole("alert").element().textContent).toContain(
       "No chart source covers elsewhere.acme.build",
     );
+    // Adding the source reads the chart again, so there is nothing to try.
+    await expect
+      .element(reading.getByRole("button", { name: "Try again" }))
+      .not.toBeInTheDocument();
+    // Rows bring no title of their own, so "Latency by minute" has no
+    // subtitle; the printed chart's title is its heading.
+    expect(document.querySelectorAll("[data-chart-subtitle]")).toHaveLength(0);
     // Each chart reads through its source; none asks Med's Grafana reader.
     expect(
       asked

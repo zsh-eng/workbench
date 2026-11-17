@@ -343,7 +343,12 @@ export function ChartBlock({
     const title = block.title ?? (panel?.title || (grafana ? "Grafana panel" : "Chart"));
     const subtitle =
       block.subtitle ??
-      (block.title && panel ? [panel.title, unit].filter(Boolean).join(", ") : undefined);
+      (block.title && panel?.title ? [panel.title, unit].filter(Boolean).join(", ") : undefined);
+    // A source added to Settings reads the chart again by itself, so a
+    // missing one offers no Try again.
+    const refreshes =
+      block.source.kind !== "rows" &&
+      !(loaded.state === "error" && loaded.code === "chart-source-missing");
     const state = loaded.state === "ready" && data?.kind === "error" ? "error" : loaded.state;
     const error =
       loaded.state === "error" ? loaded.error : data?.kind === "error" ? data.error : undefined;
@@ -363,7 +368,7 @@ export function ChartBlock({
         {...(error ? { error } : {})}
         {...(source ? { source } : {})}
         {...(panel?.notes.length ? { notice: panel.notes.join(" ") } : {})}
-        {...(block.source.kind !== "rows" ? { onRefresh: refresh } : {})}
+        {...(refreshes ? { onRefresh: refresh } : {})}
         {...(loaded.state === "error" && loaded.code === "grafana-not-set"
           ? { fix: { label: "Connect Grafana", run: () => openSettings("grafana") } }
           : {})}
