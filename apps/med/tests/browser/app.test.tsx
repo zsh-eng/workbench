@@ -1937,9 +1937,12 @@ describe("graphical review", () => {
     await openBranch("release");
     await expect.poll(() => name().element().getAnimations().length).toBeGreaterThan(0);
     await expect.poll(() => controller.getSnapshot().historyRef).toBe("refs/heads/release");
+    // A branch that no worktree has shows its commits since the base.
     expect(controller.getSnapshot().comparison).toEqual({
-      kind: "commit",
-      commit: secondCommit,
+      kind: "range",
+      base: "main",
+      head: secondCommit,
+      mergeBase: true,
     });
     await expect
       .element(page.getByRole("button", { name: "Working changes", exact: true }))

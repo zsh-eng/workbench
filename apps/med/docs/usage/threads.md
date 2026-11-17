@@ -232,10 +232,11 @@ scheduling when you ask for a check later.
   stays. A review on screen leads: Changes are the
   checkout of that review. A review of the session's worktree shows that
   worktree's changes; a pull request's review shows its own worktree's. A
-  branch, worktree, or repository that you pick (`⌘⇧G`, `⌘O`, or the session
-  rail's **Thread** rows) shows inside the thread: its Changes, files, and
-  search are that branch's. A branch that no worktree has shows from Git:
-  its newest commit and its files, with no working changes. Med reads the
+  branch, worktree, or repository that you pick (`⌘⇧G`, **Show another
+  branch or worktree…** in the comparison menu, `⌘O`, or the session rail's
+  **Thread** rows) shows inside the thread: its Changes, files, and search
+  are that branch's. A branch that no worktree has shows from Git: its
+  commits since its base and its files, with no working changes. Med reads the
   branch; it never switches the branch of a checkout. While Changes are a place that you picked, apart
   from the review's, the pane's row reads "Changes" in place of the
   review's name, and the rail marks no review. The pull request's page
@@ -255,10 +256,11 @@ scheduling when you ask for a check later.
   "station-search since main". The base is the one that you chose, else the
   base branch that the review names for its checkout (the `main` of a review
   of `main..station-search`), else the repository's default branch: the one
-  that `origin` names, else `main`, `master`, `develop`, or `trunk`, whatever
-  branch the main checkout is on. **Base branch…** chooses
-  what the branch's changes start from: the commits since that branch, and
-  the uncommitted changes. The thread keeps the base that you choose in the
+  that `origin` names (`origin/develop` when only origin has `develop`),
+  else `main`, `master`, `develop`, or `trunk`, whatever branch the main
+  checkout is on. **Base branch…** chooses what the branch's changes start
+  from: the commits since that branch, and the uncommitted changes. It
+  lists every branch but the one on screen. The thread keeps the base that you choose in the
   checkout where its session works, and its row counts the changes since it.
   Choose the usual base to go back to it.
 - **Review** is what the agent hands off with `med review create`: its

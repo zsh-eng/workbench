@@ -90,8 +90,14 @@ export function ComparisonActions({
   const commitHead = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(head) ? head : "";
   const destination = targets?.remotes.find((item) => item.name === remote);
   const existing = destination?.branches.includes(branch.trim());
+  // A branch is no base of its own: its changes since itself are only the
+  // uncommitted ones, and a clean checkout shows nothing.
   const refs =
-    targets?.refs.filter((ref) => ref.label.toLowerCase().includes(query.toLowerCase())) ?? [];
+    targets?.refs.filter(
+      (ref) =>
+        ref.label.toLowerCase().includes(query.toLowerCase()) &&
+        !(onBase && ref.label === sourceBranch),
+    ) ?? [];
   const publish = async () => {
     if (pushBusy.current) return;
     pushBusy.current = true;

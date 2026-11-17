@@ -1377,8 +1377,18 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         session.repository.branch,
         ownBase(session.repository.path, repositories),
       );
+      // A branch that Git shows with no checkout: its commits since the base
+      // that it left, as on its checkout; its newest commit when it is the base.
+      const snapshotBase =
+        branchSnapshot &&
+        changesBase(
+          repositories.find((entry) => entry.id === id),
+          branch.name,
+        );
       const initialComparison: Comparison = branchSnapshot
-        ? { kind: "commit" as const, commit: branch.head }
+        ? snapshotBase
+          ? { kind: "range" as const, base: snapshotBase, head: branch.head, mergeBase: true }
+          : { kind: "commit" as const, commit: branch.head }
         : ((!path && !branch ? session.initialComparison : undefined) ?? {
             kind: "working" as const,
             ...(base ? { base } : {}),

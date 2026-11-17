@@ -140,9 +140,15 @@ describe("multi-repository targets", () => {
     await controller.selectBranch("feature", "two");
     expect(reviews.at(-1)?.repo).toBe("/two-linked");
     await controller.selectBranch("topic", "two");
-    expect(reviews.at(-1)).toEqual({ repo: "/two", comparison: { kind: "commit", commit: B } });
+    expect(reviews.at(-1)).toEqual({
+      repo: "/two",
+      comparison: { kind: "range", base: "main", head: B, mergeBase: true },
+    });
     await controller.selectBranch("topic", "one");
-    expect(reviews.at(-1)).toEqual({ repo: "/one", comparison: { kind: "commit", commit: B } });
+    expect(reviews.at(-1)).toEqual({
+      repo: "/one",
+      comparison: { kind: "range", base: "main", head: B, mergeBase: true },
+    });
     expect(controller.getSnapshot().activeRepositoryId).toBe("one");
     controller.dispose();
   });

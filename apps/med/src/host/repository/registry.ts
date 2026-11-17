@@ -370,8 +370,9 @@ export class RepositoryRegistry {
 /** Names that a repository's default branch usually has. */
 const USUAL_DEFAULTS = ["main", "master", "develop", "trunk"];
 
-/** The branch that work lands on, as a branch the repository has: origin's
- * default branch, else main, master, develop, or trunk. */
+/** The branch that work lands on: origin's default branch, as a local branch
+ * or, when no local branch has it, as origin's (origin/develop, where develop
+ * lives only on origin); else main, master, develop, or trunk. */
 async function landingBranchName(
   path: string,
   branches: readonly { name: string }[],
@@ -388,5 +389,6 @@ async function landingBranchName(
     .trim()
     .replace(/^origin\//, "");
   const names = new Set(branches.map((branch) => branch.name));
-  return [remote, ...USUAL_DEFAULTS].find((name) => name && names.has(name));
+  if (remote) return names.has(remote) ? remote : `origin/${remote}`;
+  return USUAL_DEFAULTS.find((name) => names.has(name));
 }

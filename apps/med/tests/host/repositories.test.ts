@@ -507,3 +507,13 @@ test("a repository's default branch is origin's, else main or master, whatever b
   expect(named(repo)?.defaultBranch).toBe("main");
   expect(named(clone)?.defaultBranch).toBe("develop");
 });
+
+test("origin's default branch that only origin has is origin's: origin/develop, not a local main", async () => {
+  const { repo, clone } = await fixture();
+  // As at work: the clone has main, and develop only on origin.
+  git(clone, "update-ref", "refs/remotes/origin/develop", "HEAD");
+  git(clone, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop");
+  const { catalogue } = await launch(repo, [clone]);
+  const repositories = await catalogue();
+  expect(repositories.find((entry) => entry.path === clone)?.defaultBranch).toBe("origin/develop");
+});

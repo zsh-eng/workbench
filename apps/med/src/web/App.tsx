@@ -5833,6 +5833,17 @@ export function App({
           },
         ]
       : []),
+    // In a thread, Changes can show another branch: the picker that ⌘⇧G
+    // opens, which a browser can keep for its own Find.
+    ...(!reviewShown && threadId && gitAvailable
+      ? [
+          {
+            label: "Show another branch or worktree…",
+            hint: "⌘⇧G",
+            onSelect: () => openBranchPicker(false),
+          },
+        ]
+      : []),
     // The base of the thread's changes shows its value and opens its picker.
     ...(!reviewShown && comparisonActionsShown
       ? [

@@ -797,11 +797,17 @@ test("a branch picked in a thread shows in the thread, and the Agent row leads b
   await expect.element(pages().getByRole("radio", { name: "Changes" })).toBeChecked();
   await expect.element(page.getByRole("heading", { name: "Changes", level: 2 })).toBeVisible();
   await expect.element(agent).toMatchTextContent("main");
-  // A branch with no checkout shows from Git, in the agent's own folder.
-  // The Agent row still leads back to the agent's branch.
+  // A branch with no checkout shows from Git, in the agent's own folder: its
+  // commits since the base, not only its newest one. The Agent row still
+  // leads back to the agent's branch.
   await pick("release");
   await expect.element(place).toMatchTextContent("release");
-  expect(host.reviews.at(-1)?.repo).toBe("/test/repo");
+  await expect
+    .poll(() => host.reviews.at(-1))
+    .toEqual({
+      repo: "/test/repo",
+      comparison: { kind: "range", base: "main", head, mergeBase: true },
+    });
   expect(location.pathname).toBe(at);
   await back.click();
   await expect.element(place).toMatchTextContent("main");

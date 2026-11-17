@@ -485,10 +485,18 @@ test("a thread's Comparison menu keeps a base for its Changes, and the agent's m
     if (changes.element().getAttribute("aria-checked") !== "true") await changes.click();
     const select = page.getByRole("combobox", { name: "Comparison" });
     await expect.element(select).toHaveTextContent("glossary since main");
-    // A thread follows its session: the menu offers no checkout to move to.
+    // A thread follows its session: the menu offers no checkout to move to,
+    // but shows another branch here, as ⌘⇧G does.
     await select.click();
     expect(page.getByRole("option", { name: /^Thread checkout…/ }).query()).toBeNull();
+    await page.getByRole("option", { name: /^Show another branch or worktree…/ }).click();
+    await expect.element(page.getByRole("combobox", { name: "Search branches" })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await select.click();
     await page.getByRole("option", { name: /^Base branch…/ }).click();
+    // The branch on screen is no base of its own.
+    await expect.element(page.getByRole("menuitem", { name: "stable" })).toBeVisible();
+    expect(page.getByRole("menuitem", { name: "glossary" }).query()).toBeNull();
     await page.getByRole("menuitem", { name: "stable" }).click();
     // The thread keeps the base, and its Changes keep the uncommitted ones.
     await expect

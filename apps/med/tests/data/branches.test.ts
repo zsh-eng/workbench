@@ -88,8 +88,12 @@ describe("branch targets", () => {
       repo: "/linked",
       comparison: { kind: "working", base: "main" },
     });
+    // A branch that no worktree has: its commits since the base, from Git.
     await f.controller.selectBranch("topic");
-    expect(f.reviews.at(-1)).toEqual({ repo: "/repo", comparison: { kind: "commit", commit: C } });
+    expect(f.reviews.at(-1)).toEqual({
+      repo: "/repo",
+      comparison: { kind: "range", base: "main", head: C, mergeBase: true },
+    });
     expect(f.controller.getSnapshot().historyRef).toBe("refs/heads/topic");
     const count = f.reviews.length;
     await f.controller.selectComparison({ kind: "working" });
@@ -102,7 +106,12 @@ describe("branch targets", () => {
     await f.controller.initialize();
     f.setLinkedBranch("another");
     await f.controller.selectBranch("feature");
-    expect(f.reviews.at(-1)?.comparison).toEqual({ kind: "commit", commit: B });
+    expect(f.reviews.at(-1)?.comparison).toEqual({
+      kind: "range",
+      base: "main",
+      head: B,
+      mergeBase: true,
+    });
     expect(f.controller.getSnapshot().activeBranch).toBe("feature");
     expect(f.controller.getSnapshot().historyRef).toBe("refs/heads/feature");
     f.controller.dispose();
