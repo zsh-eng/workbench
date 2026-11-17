@@ -1378,13 +1378,16 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         ownBase(session.repository.path, repositories),
       );
       // A branch that Git shows with no checkout: its commits since the base
-      // that it left, as on its checkout; its newest commit when it is the base.
+      // that it left, as on its checkout; its newest commit when it is the
+      // base, or at the base's commit, where it has none of its own.
+      const repository = repositories.find((entry) => entry.id === id);
+      const baseBranch =
+        branch && branchSnapshot ? changesBase(repository, branch.name) : undefined;
       const snapshotBase =
-        branchSnapshot &&
-        changesBase(
-          repositories.find((entry) => entry.id === id),
-          branch.name,
-        );
+        baseBranch &&
+        repository?.branches.find((entry) => entry.name === baseBranch)?.head !== branch?.head
+          ? baseBranch
+          : undefined;
       const initialComparison: Comparison = branchSnapshot
         ? snapshotBase
           ? { kind: "range" as const, base: snapshotBase, head: branch.head, mergeBase: true }

@@ -123,6 +123,8 @@ try {
     );
     git(repo, "add", ".");
     git(repo, "commit", "-m", "baseline");
+    // A second branch, which Changes can compare against: never the one on screen.
+    git(repo, "branch", "release");
     await writeFile(
       join(repo, "same.ts"),
       `export const scope = "${name}";\nexport const ${name}After = 2;\nexport const adjacent = 3;\n`,
@@ -494,7 +496,8 @@ try {
     git(bareRemote, "rev-parse", "refs/heads/review/browser-validation"),
     git(repositories[0], "rev-parse", "HEAD"),
   );
-  // What the diff compares tops Changes' sidebar; its menu compares against a branch.
+  // What the diff compares tops Changes' sidebar; its menu compares against a
+  // branch, but not the one on screen, which is no base of its own.
   await page
     .getByRole("combobox", { name: "Comparison" })
     .filter({ visible: true })
@@ -504,7 +507,9 @@ try {
   await page.getByRole("textbox", { name: "Filter comparison branches" }).fill("no-such-branch");
   await page.getByText("No matching branches.", { exact: true }).waitFor();
   await page.getByRole("textbox", { name: "Filter comparison branches" }).fill("main");
-  await page.getByRole("menuitem", { name: "main", exact: true }).click();
+  await page.getByText("No matching branches.", { exact: true }).waitFor();
+  await page.getByRole("textbox", { name: "Filter comparison branches" }).fill("rel");
+  await page.getByRole("menuitem", { name: "release", exact: true }).click();
   // Changes since the base branch include the uncommitted edit to same.ts.
   await page.waitForFunction(
     () => window.shown('[data-review-status="ready"]')?.getAttribute("data-file-count") === "1",
