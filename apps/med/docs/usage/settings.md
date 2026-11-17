@@ -136,16 +136,28 @@ A chart's `link:` belongs to the longest base that it starts with, up to a
 source too, instead of with a token in Settings → Grafana. Med runs the
 command with `/bin/sh` as you, in your home folder, with your shell's
 environment, so it can use your own sign-in, such as a command that prints a
-signed token. The link reaches the command only in its environment, never
+signed token. Med reads neither the link nor the chart's keys itself: the
+command does, so it parses the link's own range, panel, or query as its
+service writes them. They reach the command only in its environment, never
 in its text:
 
-| Variable         | What it holds                                                                   |
-| ---------------- | ------------------------------------------------------------------------------- |
-| `MED_CHART_LINK` | the chart's link                                                                |
-| `MED_CHART_FROM` | the range's start, in milliseconds since 1970, when the chart or link names one |
-| `MED_CHART_TO`   | the range's end, likewise                                                       |
-| `MED_CHART_AT`   | when the reply was written, or now for a live chart                             |
-| `MED_CHART_LIVE` | `1` for a chart with `live: yes`                                                |
+| Variable          | What it holds                                         |
+| ----------------- | ----------------------------------------------------- |
+| `MED_CHART_LINK`  | the chart's link                                      |
+| `MED_CHART_AT`    | the time that `now` means, in milliseconds since 1970 |
+| `MED_CHART_LIVE`  | `1` for a chart with `live: yes`, else empty          |
+| `MED_CHART_<KEY>` | each other key of the chart, as written               |
+
+`MED_CHART_AT` is when the reply was written, so a range such as
+`from=now-6h` shows what the agent saw then; for a live chart it is the
+present. A key's name is upper case with `_` for `-`: `panel: 4` is
+`MED_CHART_PANEL`, `panel-id` is `MED_CHART_PANEL_ID`, and `from: now-1h`
+is `MED_CHART_FROM`.
+
+A `link:` chart has no rows, so any key that Med does not draw with
+(`title`, `subtitle`, `unit`, `scale`, `type`, `threshold`, `mark`,
+`highlight`, `live`) is the command's. A `grafana:` link read through a
+source passes its `from:` and `to:` this way.
 
 The command prints the chart's data in one of two ways:
 
@@ -153,20 +165,22 @@ The command prints the chart's data in one of two ways:
   a line; or a label and a number a bar.
 - a JSON chart: `series` (each a `name` and `points`, `[time, value]`
   pairs) or `bars` (each a `label` and a `value`), and optionally `title`,
-  `unit`, `scale` (`"log"`), `threshold` (`value` and `label`), `marks`
-  (each `at` and `label`), `link` (where the data can be seen), and `notes`
-  (what the chart leaves out). Times are seconds or milliseconds since 1970.
+  `unit`, `scale` (`"log"`), `range` (`[from, to]`, the span the axis
+  covers, where the data may not reach its ends), `threshold` (`value` and
+  `label`), `marks` (each `at` and `label`), `link` (where the data can be
+  seen), and `notes` (what the chart leaves out). Times are seconds or
+  milliseconds since 1970.
 
 A command that exits with an error shows the last line it wrote to standard
 error in the chart, such as `token expired: sign in again`. A command has
-60 seconds and 8 MB. Med keeps what it read for each link, range, and
-command, so a chart draws the same each time; **Refresh** runs the command
+60 seconds and 8 MB. Med keeps what it read for each chart (its link, keys,
+reply, and command), so a chart draws the same each time; **Refresh** runs the command
 again, and a live chart runs it each minute while it shows.
 
 To try a source, run its command as Med would:
 
 ```sh
-MED_CHART_LINK='https://grafana.acme.com/d/abc?viewPanel=4' ~/bin/grafana-chart
+MED_CHART_LINK='https://grafana.acme.com/d/abc?viewPanel=4&from=now-6h' MED_CHART_AT=$(date +%s000) ~/bin/grafana-chart
 ```
 
 ## The settings file

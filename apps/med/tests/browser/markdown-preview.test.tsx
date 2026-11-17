@@ -563,11 +563,11 @@ test("a link chart draws what its source printed, rows or a chart; a Grafana lin
   const settingsFile = (settings: Record<string, Record<string, string>>) => async () =>
     Response.json({ path: "/test/settings.json", settings, error: null });
   await writeSetting("charts.sources", sources, settingsFile({ "charts.sources": sources }));
-  const asked: { path: string; link?: string }[] = [];
+  const asked: { path: string; link?: string; meta?: Record<string, string> }[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = new URL(String(input instanceof Request ? input.url : input), location.href);
     const body = typeof init?.body === "string" ? JSON.parse(init.body) : {};
-    asked.push({ path: url.pathname, link: body.link });
+    asked.push({ path: url.pathname, link: body.link, meta: body.meta });
     if (url.pathname !== "/api/charts/link")
       return Response.json({ error: { message: "Not in this test." } }, { status: 404 });
     const fetched = Date.parse("2026-11-16T09:05:00");
@@ -594,8 +594,8 @@ test("a link chart draws what its source printed, rows or a chart; a Grafana lin
               ],
             },
           ],
+          range: [Date.parse("2026-11-16T06:00:00"), Date.parse("2026-11-16T09:00:00")],
         },
-        range: [Date.parse("2026-11-16T06:00:00"), Date.parse("2026-11-16T09:00:00")],
         live: false,
         fetched,
       });
@@ -616,10 +616,12 @@ test("a link chart draws what its source printed, rows or a chart; a Grafana lin
     "```chart",
     "link: https://metrics.acme.build/q?metric=latency",
     "title: Latency by minute",
+    "panel: 4",
     "```",
     "",
     "```chart",
     "grafana: https://grafana.acme.build/d/abc/checkout?viewPanel=4&from=now-3h&to=now",
+    "to: now-1h",
     "```",
     "",
     "```chart",
@@ -646,16 +648,20 @@ test("a link chart draws what its source printed, rows or a chart; a Grafana lin
     // Rows bring no title of their own, so "Latency by minute" has no
     // subtitle; the printed chart's title is its heading.
     expect(document.querySelectorAll("[data-chart-subtitle]")).toHaveLength(0);
-    // Each chart reads through its source; none asks Med's Grafana reader.
+    // Each chart reads through its source, with the keys that are the
+    // source's; none asks Med's Grafana reader.
     expect(
       asked
         .filter((entry) => entry.path.startsWith("/api/charts/"))
-        .map((entry) => entry.link)
-        .sort(),
+        .map(({ link, meta }) => ({ link, meta }))
+        .sort((a, b) => (a.link! < b.link! ? -1 : 1)),
     ).toEqual([
-      "https://elsewhere.acme.build/q",
-      "https://grafana.acme.build/d/abc/checkout?viewPanel=4&from=now-3h&to=now",
-      "https://metrics.acme.build/q?metric=latency",
+      { link: "https://elsewhere.acme.build/q", meta: undefined },
+      {
+        link: "https://grafana.acme.build/d/abc/checkout?viewPanel=4&from=now-3h&to=now",
+        meta: { to: "now-1h" },
+      },
+      { link: "https://metrics.acme.build/q?metric=latency", meta: { panel: "4" } },
     ]);
     expect(asked.some((entry) => entry.path === "/api/charts/grafana")).toBe(false);
   } finally {

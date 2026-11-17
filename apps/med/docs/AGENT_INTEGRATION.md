@@ -657,7 +657,9 @@ mark: 10:42 Deploy v412
   what you looked at. Add `live: yes` for a chart that should keep moving.
 - `link:` a link whose data a chart source prints: a command in the user's
   settings file (`charts.sources`, by the links' base) that Med runs with the
-  link in `MED_CHART_LINK`. A `grafana:` link that a source covers reads
+  link in `MED_CHART_LINK`. Med reads nothing in the link: put the range in
+  it as its service writes it. Any other key, such as `panel: 4`, reaches the
+  command as `MED_CHART_PANEL`. A `grafana:` link that a source covers reads
   through it too.
 - `file:` a CSV or JSON file in the checkout that your script wrote, from
   the folder you work in. Med never runs the script.
@@ -683,12 +685,15 @@ checks it with Grafana and keeps only the address and the item's name.
 
 A Grafana behind a sign-in that a service account token cannot pass, or a
 service that is not Grafana, needs a chart source. With the user's
-agreement, write a script that reads `MED_CHART_LINK` (and
-`MED_CHART_FROM` and `MED_CHART_TO`, in milliseconds, when set), fetches the
-data with the user's own sign-in, and prints CSV rows or a JSON chart; then
+agreement, write a script that reads `MED_CHART_LINK`, parses the link's
+range and anything else it needs from it, takes `MED_CHART_AT` (in
+milliseconds) as now for a relative range, reads any of the chart's other
+keys it wants from `MED_CHART_<KEY>`, fetches the data with the user's own
+sign-in, and prints CSV rows or a JSON chart (with `range` for the axis);
+then
 add it under `charts.sources` in `~/.config/med/settings.json`, as
 `"https://grafana.acme.com": "~/bin/grafana-chart"`. Run the script with
-`MED_CHART_LINK` set to check it before you write a chart. Keep tokens out
+`MED_CHART_LINK` and `MED_CHART_AT` set to check it before you write a chart. Keep tokens out
 of the script and the settings: read them from the Keychain or the
 service's own command. See [Chart sources](usage/settings.md#chart-sources).
 

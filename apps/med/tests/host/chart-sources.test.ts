@@ -46,34 +46,38 @@ test("a link belongs to the longest base that it starts with, up to a /, ?, or #
   expect(chartSourceFor({ "https://a.dev": "  " }, "https://a.dev/x")).toBeUndefined();
 });
 
-test("a source's command reads the link and its range from its environment, and prints rows", async () => {
+test("a source's command reads the link, the reply's time, and the block's other keys from its environment, and prints rows", async () => {
   const seen = join(folder, "seen.txt");
   const sources = sourcesWith({
-    "https://metrics.acme.dev": `printf '%s\\n%s\\n%s\\n' "$MED_CHART_LINK" "$MED_CHART_FROM" "$MED_CHART_TO" > ${seen}; printf 'time,p99\\n1763290800,120\\n1763294400,180\\n'`,
+    "https://metrics.acme.dev": `printf '%s|' "$MED_CHART_LINK" "$MED_CHART_AT" "$MED_CHART_LIVE" "$MED_CHART_FROM" "$MED_CHART_PANEL_ID" > ${seen}; printf 'time,p99\\n1763290800,120\\n1763294400,180\\n'`,
   });
+  const yesterday = NOON - 86_400_000;
+  // Med reads neither the link nor the keys: the command does.
   const read = await sources.read({
     link: "https://metrics.acme.dev/q?metric=latency&from=now-1h&to=now",
-    at: NOON,
+    at: yesterday,
+    meta: { from: "now-3h", "panel-id": "4", at: "a key cannot stand in for Med's" },
   });
-  expect(read).toMatchObject({
+  expect(read).toEqual({
     source: "https://metrics.acme.dev",
     rows: "time,p99\n1763290800,120\n1763294400,180",
-    range: [NOON - 3_600_000, NOON],
     live: false,
     fetched: NOON,
   });
-  expect((await readFile(seen, "utf8")).split("\n").slice(0, 3)).toEqual([
-    "https://metrics.acme.dev/q?metric=latency&from=now-1h&to=now",
-    String(NOON - 3_600_000),
-    String(NOON),
-  ]);
+  expect(await readFile(seen, "utf8")).toBe(
+    `https://metrics.acme.dev/q?metric=latency&from=now-1h&to=now|${yesterday}||now-3h|4|`,
+  );
+  // A live chart's now is the present.
+  await sources.read({ link: "https://metrics.acme.dev/q", at: yesterday, live: true });
+  expect(await readFile(seen, "utf8")).toBe(`https://metrics.acme.dev/q|${NOON}|1|||`);
 });
 
-test("a link's text never runs: it reaches the command only through the environment", async () => {
+test("a link's text, and its keys', never run: they reach the command only through the environment", async () => {
   const sources = sourcesWith({ "https://metrics.acme.dev": `echo '[{"a":"x","b":1}]'` });
   const planted = join(folder, "planted");
   await sources.read({
     link: `https://metrics.acme.dev/q?x=$(touch ${planted})';touch ${planted};'`,
+    meta: { query: `$(touch ${planted}); touch ${planted}` },
   });
   await expect(readFile(planted)).rejects.toThrow("ENOENT");
 });
@@ -81,6 +85,7 @@ test("a link's text never runs: it reaches the command only through the environm
 test("a printed chart keeps its unit, marks, and threshold, with times in seconds read as milliseconds", async () => {
   const chart = {
     title: "Checkout p99",
+    range: [1763287200, 1763294400],
     unit: "ms",
     threshold: { value: 500, label: "SLO" },
     marks: [{ at: 1763290800, label: "Deploy" }],
@@ -102,6 +107,7 @@ test("a printed chart keeps its unit, marks, and threshold, with times in second
   });
   expect(read.chart).toEqual({
     ...chart,
+    range: [1763287200000, 1763294400000],
     marks: [{ at: 1763290800000, label: "Deploy" }],
     series: [
       {
@@ -113,10 +119,9 @@ test("a printed chart keeps its unit, marks, and threshold, with times in second
       },
     ],
   });
-  expect(read.range).toBeUndefined();
 });
 
-test("Med keeps what a source read, so a chart draws the same; Refresh runs the command again", async () => {
+test("Med keeps what a source read, so a chart draws the same; another reply's chart, other keys, or Refresh run the command again", async () => {
   const count = join(folder, "count");
   const command = `echo run >> ${count}; echo 'label,value'; echo "runs,$(wc -l < ${count} | tr -d ' ')"`;
   const sources = sourcesWith({ "https://metrics.acme.dev": command });
@@ -131,7 +136,9 @@ test("Med keeps what a source read, so a chart draws the same; Refresh runs the 
   await expect(
     sourcesWith({ "https://metrics.acme.dev": "exit 1" }).read({ link }),
   ).rejects.toThrow("failed (1)");
-  expect((await sources.read({ link, refresh: true })).rows).toBe("label,value\nruns,2");
+  expect((await sources.read({ link, at: NOON - 60_000 })).rows).toBe("label,value\nruns,2");
+  expect((await sources.read({ link, meta: { panel: "4" } })).rows).toBe("label,value\nruns,3");
+  expect((await sources.read({ link, refresh: true })).rows).toBe("label,value\nruns,4");
 });
 
 test("a source that fails, prints nothing, or prints a chart without data says why; a link no source covers says what to add", async () => {

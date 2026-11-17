@@ -16,8 +16,10 @@ import {
 //   (or CSV rows after the keys)
 //
 // Other keys: title, subtitle, unit, scale (linear or log), type (line or
-// bars), live, from, to, mark (repeatable: "10:42 Deploy v412"), threshold
-// ("500 SLO"), highlight (the bar the chart is about).
+// bars), live, from and to (a grafana link's range), mark (repeatable:
+// "10:42 Deploy v412"), threshold ("500 SLO"), highlight (the bar the chart
+// is about). A link chart has no rows, so any other key in it is for its
+// source's command, which reads it as it likes: `panel: 4`.
 
 const KEYS = new Set([
   "grafana",
@@ -39,8 +41,9 @@ const KEYS = new Set([
 export interface ChartBlock {
   source:
     | { kind: "grafana"; link: string; from?: string; to?: string; live: boolean }
-    /** A link whose data a chart source in Settings reads. */
-    | { kind: "link"; link: string; from?: string; to?: string; live: boolean }
+    /** A link whose data a chart source in Settings reads, and the keys
+     * that Med passes to the source's command as they are written. */
+    | { kind: "link"; link: string; live: boolean; meta: Record<string, string> }
     | { kind: "file"; path: string }
     | { kind: "rows"; text: string };
   title?: string;
@@ -54,18 +57,30 @@ export interface ChartBlock {
   highlight?: string;
 }
 
+const KEY = /^\s*([a-z][\w-]*)\s*:\s*(.*?)\s*$/i;
+
 /** A block's text as a chart, or why it is not one. */
 export function parseChartBlock(text: string): ChartBlock | { error: string } {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   const keys = new Map<string, string>();
+  const meta: Record<string, string> = {};
   const marks: ChartBlock["marks"] = [];
+  // A link chart has no rows, so a key that Med does not know is its
+  // source's; elsewhere it starts the rows.
+  const end = lines.findIndex((line) => !KEY.test(line));
+  const linked = (end < 0 ? lines : lines.slice(0, end)).some(
+    (line) => KEY.exec(line)![1]!.toLowerCase() === "link",
+  );
   let index = 0;
   for (; index < lines.length; index++) {
-    const match = /^\s*([a-z]+)\s*:\s*(.*?)\s*$/i.exec(lines[index]!);
-    if (!match || !KEYS.has(match[1]!.toLowerCase())) break;
+    const match = KEY.exec(lines[index]!);
+    if (!match) break;
     const key = match[1]!.toLowerCase();
     const value = match[2]!;
-    if (key === "mark") {
+    if (!KEYS.has(key) || (linked && (key === "from" || key === "to"))) {
+      if (!linked) break;
+      meta[key] = value;
+    } else if (key === "mark") {
       const mark = /^(\S+(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?)\s+(.+)$/.exec(value);
       if (mark) marks.push({ at: mark[1]!, label: mark[2]! });
     } else keys.set(key, value);
@@ -79,22 +94,22 @@ export function parseChartBlock(text: string): ChartBlock | { error: string } {
     return { error: "This chart has no data: add a grafana link, a link, a file, or rows of CSV." };
   if (sources > 1)
     return { error: "A chart takes one of a grafana link, a link, a file, or rows of CSV." };
-  const ranged = (kind: "grafana" | "link", url: string) => ({
-    kind,
-    link: url,
-    ...(keys.get("from") ? { from: keys.get("from") } : {}),
-    ...(keys.get("to") ? { to: keys.get("to") } : {}),
-    live: /^(?:yes|true|on)$/i.test(keys.get("live") ?? ""),
-  });
+  const live = /^(?:yes|true|on)$/i.test(keys.get("live") ?? "");
   const scale = keys.get("scale")?.toLowerCase();
   const type = keys.get("type")?.toLowerCase();
   const threshold = /^(-?[\d.]+)\s*(.*)$/.exec(keys.get("threshold") ?? "");
   const unit = keys.get("unit");
   return {
     source: grafana
-      ? ranged("grafana", grafana)
+      ? {
+          kind: "grafana",
+          link: grafana,
+          ...(keys.get("from") ? { from: keys.get("from") } : {}),
+          ...(keys.get("to") ? { to: keys.get("to") } : {}),
+          live,
+        }
       : link
-        ? ranged("link", link)
+        ? { kind: "link", link, live, meta }
         : file
           ? { kind: "file", path: file }
           : { kind: "rows", text: rows },

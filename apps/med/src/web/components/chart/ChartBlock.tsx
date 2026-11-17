@@ -76,9 +76,10 @@ function hostOf(link: string) {
 const message = (reason: unknown) =>
   reason instanceof Error ? reason.message : "The data could not load.";
 
-/** The request for a block's link, in one key order, so the page's copy matches. */
+/** The request for a block's Grafana panel, in one key order, so the page's
+ * copy matches. */
 function panelInput(block: Block, at: number | undefined) {
-  if (block.source.kind !== "grafana" && block.source.kind !== "link") return undefined;
+  if (block.source.kind !== "grafana") return undefined;
   const { link, from, to, live } = block.source;
   return {
     link,
@@ -89,10 +90,29 @@ function panelInput(block: Block, at: number | undefined) {
   };
 }
 
-/** The range a link's block asks for, to lay out the axis before its data. */
-function askedRange(block: Block, at: number | undefined): readonly [number, number] | undefined {
+/** The request for a chart source's link: the link, the reply's time, and the
+ * block's keys that are the source's, which for a grafana link are its range. */
+function linkInput(block: Block, at: number | undefined) {
   if (block.source.kind !== "grafana" && block.source.kind !== "link") return undefined;
-  if (block.source.kind === "link" && !block.source.from && !block.source.to) return undefined;
+  const { link, live } = block.source;
+  const meta =
+    block.source.kind === "link"
+      ? block.source.meta
+      : {
+          ...(block.source.from ? { from: block.source.from } : {}),
+          ...(block.source.to ? { to: block.source.to } : {}),
+        };
+  return {
+    link,
+    ...(at !== undefined ? { at } : {}),
+    ...(live ? { live } : {}),
+    ...(Object.keys(meta).length ? { meta } : {}),
+  };
+}
+
+/** The range a Grafana link asks for, to lay out the axis before its data. */
+function askedRange(block: Block, at: number | undefined): readonly [number, number] | undefined {
+  if (block.source.kind !== "grafana") return undefined;
   let url: URL;
   try {
     url = new URL(block.source.link);
@@ -140,7 +160,7 @@ function linkLoaded(read: LinkChart, block: Block, link: string): Loaded {
       name,
       points: points.map(([time, value]): [number, number | null] => [time, value]),
     })),
-    range: read.range ?? [...dataRange(series)],
+    range: chart?.range ?? [...dataRange(series)],
     live: read.live,
     fetched: read.fetched,
     link: chart?.link ?? link,
@@ -180,7 +200,6 @@ export function ChartBlock({
   const repo = files?.repo ?? index?.root;
   const filePath = (path: string) =>
     files ? within(files.folder, path) : (index?.resolve({ path }, refs?.cwd)?.path ?? path);
-  const input = "error" in block ? undefined : panelInput(block, at);
   // A Grafana chart reads again when Settings' Grafanas or chart sources
   // change, so one that waited for its Grafana draws once the reader, or an
   // agent, connects it.
@@ -196,6 +215,8 @@ export function ChartBlock({
     !("error" in block) &&
     (block.source.kind === "link" ||
       (block.source.kind === "grafana" && !!chartSourceFor(sources, block.source.link)));
+  const input =
+    "error" in block ? undefined : viaSource ? linkInput(block, at) : panelInput(block, at);
   const [loaded, setLoaded] = useState<Loaded>(() => {
     if ("error" in block) return { state: "error", error: block.error };
     if (block.source.kind === "rows")

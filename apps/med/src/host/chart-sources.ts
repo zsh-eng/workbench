@@ -9,7 +9,6 @@ import {
   type LinkChart,
   type SourceChart,
 } from "../shared/charts";
-import { grafanaTime } from "../shared/grafana-time";
 import { HostError } from "./runtime/errors";
 import type { Settings } from "./settings-file";
 
@@ -17,15 +16,16 @@ import type { Settings } from "./settings-file";
 // Settings name each by the base address of its links (`charts.sources`), so
 // the user or an agent decides how Med reads a kind of link: a Grafana
 // behind a sign-in, a metrics service, a script. Med runs the command as the
-// user, with the link in its environment, never in the command's text.
+// user, with the link and the block's other keys in its environment, never
+// in the command's text, and reads neither: the command knows its links.
 
 export interface LinkRequest {
   link: string;
-  /** When the reply was written: a range relative to now counts from here. */
+  /** When the reply was written, which the command takes as now. */
   at?: number;
-  from?: string;
-  to?: string;
   live?: boolean;
+  /** The block's keys that Med does not draw with, as written. */
+  meta?: Record<string, string>;
   refresh?: boolean;
 }
 
@@ -61,6 +61,7 @@ const millis = (time: number) => (Math.abs(time) < 1e11 ? time * 1000 : time);
 function inMillis(chart: SourceChart): SourceChart {
   return {
     ...chart,
+    ...(chart.range && { range: [millis(chart.range[0]), millis(chart.range[1])] }),
     ...(chart.series && {
       series: chart.series.map((series) => ({
         ...series,
@@ -70,6 +71,10 @@ function inMillis(chart: SourceChart): SourceChart {
     ...(chart.marks && { marks: chart.marks.map((mark) => ({ ...mark, at: millis(mark.at) })) }),
   };
 }
+
+/** A block's key as the variable that the command reads it from:
+ * `panel-id` is MED_CHART_PANEL_ID. */
+export const metaVariable = (key: string) => `MED_CHART_${key.toUpperCase().replace(/-/g, "_")}`;
 
 /** The last line that a failing command said, for the chart to show. */
 function lastWords(text: string) {
@@ -235,25 +240,18 @@ export function createChartSources(options: ChartSourcesOptions) {
           `No chart source covers ${url.host}. Add one in Med's settings, charts.sources: the links' base and the command that prints their data.`,
           404,
         );
-      // A range that the block or the link names, such as Grafana's
-      // from=now-6h, counts from the reply unless the chart is live.
-      const fromText = input.from ?? url.searchParams.get("from") ?? undefined;
-      const toText = input.to ?? url.searchParams.get("to") ?? undefined;
       const isLive = !!input.live;
-      const base = isLive ? now() : Math.min(input.at ?? now(), now());
-      let range: [number, number] | undefined;
-      if (fromText || toText) {
-        const from = grafanaTime(fromText ?? "now-6h", base);
-        const to = grafanaTime(toText ?? "now", base, true);
-        if (from !== null && to !== null && to > from) range = [from, to];
-      }
+      const meta = input.meta ?? {};
+      // Each reply's chart is its own, read as of when it was written; a live
+      // one is read again after a while.
       const key = createHash("sha256")
         .update(
           JSON.stringify([
             source.base,
             source.command,
             input.link,
-            isLive ? [fromText, toText] : range,
+            Object.entries(meta).sort(([a], [b]) => (a < b ? -1 : 1)),
+            isLive ? "live" : (input.at ?? null),
           ]),
         )
         .digest("hex")
@@ -268,13 +266,16 @@ export function createChartSources(options: ChartSourcesOptions) {
       }
       const pending = running.get(key);
       if (pending) return pending;
-      const env = {
-        ...(options.env?.() ?? process.env),
+      const env: NodeJS.ProcessEnv = { ...(options.env?.() ?? process.env) };
+      for (const [name, value] of Object.entries(meta)) env[metaVariable(name)] = value;
+      // Med's own come last, so a key named `link` or `at` cannot stand in.
+      Object.assign(env, {
         MED_CHART_LINK: input.link,
-        MED_CHART_AT: String(base),
-        ...(range && { MED_CHART_FROM: String(range[0]), MED_CHART_TO: String(range[1]) }),
-        ...(isLive && { MED_CHART_LIVE: "1" }),
-      };
+        // The time that the command takes as now: a relative range in the link,
+        // such as from=now-6h, reads as of the reply, unless the chart is live.
+        MED_CHART_AT: String(isLive ? now() : Math.min(input.at ?? now(), now())),
+        MED_CHART_LIVE: isLive ? "1" : "",
+      });
       const work = runCommand(
         source.command,
         env,
@@ -285,7 +286,6 @@ export function createChartSources(options: ChartSourcesOptions) {
         const chart: LinkChart = {
           source: source.base,
           ...parse(text),
-          ...(range && { range }),
           live: isLive,
           fetched: now(),
         };

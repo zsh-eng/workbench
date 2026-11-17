@@ -72,6 +72,8 @@ export function chartSourceFor(sources: Record<string, string>, link: string) {
 export const sourceChartSchema = z
   .object({
     title: z.string().optional(),
+    /** The span the axis covers, where the data may not reach its ends. */
+    range: z.tuple([z.number(), z.number()]).optional(),
     unit: z.string().optional(),
     scale: z.enum(["linear", "log"]).optional(),
     threshold: z.object({ value: z.number(), label: z.string().optional() }).optional(),
@@ -93,8 +95,6 @@ export const linkChartSchema = z.object({
   /** The command's output as rows of CSV or JSON, as a file chart's. */
   rows: z.string().optional(),
   chart: sourceChartSchema.optional(),
-  /** The range that Med asked for, when the block or the link names one. */
-  range: z.tuple([z.number(), z.number()]).optional(),
   live: z.boolean(),
   /** When the command ran. */
   fetched: z.number(),
@@ -103,17 +103,20 @@ export type LinkChart = z.infer<typeof linkChartSchema>;
 
 export const chartRoutes = {
   /** A link's data from the chart source that covers it: Med runs the
-   * source's command. Med keeps what it read, as for a Grafana panel;
-   * `refresh` runs the command again. */
+   * source's command with the link, the reply's time, and the block's other
+   * keys (`meta`), and reads none of them itself. Med keeps what it read, as
+   * for a Grafana panel; `refresh` runs the command again. */
   link: {
     method: "POST",
     path: "/api/charts/link",
     input: z.object({
       link: z.string().min(1).max(8192),
       at: z.number().optional(),
-      from: z.string().max(64).optional(),
-      to: z.string().max(64).optional(),
       live: z.boolean().optional(),
+      meta: z
+        .record(z.string().regex(/^[a-z][\w-]{0,63}$/i), z.string().max(4096))
+        .refine((meta) => Object.keys(meta).length <= 32, "A chart passes at most 32 keys.")
+        .optional(),
       refresh: z.boolean().optional(),
     }),
     output: linkChartSchema,

@@ -89,7 +89,9 @@ four places.
   [chart source](settings.md#chart-sources) covers reads through the source.
 - `link:` a link whose data a [chart source](settings.md#chart-sources) in
   the settings file prints: a command of yours that reads it, such as a
-  Grafana behind a sign-in or a metrics service.
+  Grafana behind a sign-in or a metrics service. The command reads the
+  link's range itself, and any other key in the chart, such as `panel: 4`,
+  reaches it as it is written.
 - `file:` a CSV or JSON file in the checkout, such as one a script wrote. In
   a reply the path starts where the agent worked; in a Markdown file, at the
   file's folder.

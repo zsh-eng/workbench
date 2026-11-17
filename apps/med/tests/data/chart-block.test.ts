@@ -48,21 +48,37 @@ test("rows after the keys are the data; a block names one source", () => {
   });
 });
 
-test("a link is a chart source's: its range, and whether it is live", () => {
+test("a link is a chart source's: whether it is live, and its other keys for the source's command", () => {
   expect(
-    parseChartBlock("link: https://metrics.acme.dev/q?metric=latency\nfrom: now-1h\ntitle: p99"),
+    parseChartBlock(
+      [
+        "link: https://metrics.acme.dev/q?metric=latency",
+        "from: now-1h",
+        "title: p99",
+        "panel-id: 4",
+        "query: rate(http_requests_total[5m])",
+      ].join("\n"),
+    ),
   ).toEqual({
     source: {
       kind: "link",
       link: "https://metrics.acme.dev/q?metric=latency",
-      from: "now-1h",
       live: false,
+      meta: { from: "now-1h", "panel-id": "4", query: "rate(http_requests_total[5m])" },
     },
     title: "p99",
     marks: [],
   });
-  expect(parseChartBlock("link: https://metrics.acme.dev/q\nlive: yes")).toMatchObject({
-    source: { kind: "link", live: true },
+  // A key goes to the source wherever the link is among the keys.
+  expect(parseChartBlock("panel: 4\nlink: https://metrics.acme.dev/q\nlive: yes")).toMatchObject({
+    source: { kind: "link", live: true, meta: { panel: "4" } },
+  });
+  // A link chart has no rows, and elsewhere a key Med does not know starts them.
+  expect(parseChartBlock("link: https://a.dev/q\n\ntime,x\n2026-01-01,1")).toEqual({
+    error: "A chart takes one of a grafana link, a link, a file, or rows of CSV.",
+  });
+  expect(parseChartBlock("title: Hosts\nweb: 4\napi: 2")).toMatchObject({
+    source: { kind: "rows", text: "web: 4\napi: 2" },
   });
   expect(parseChartBlock("link: https://a.dev/q\ngrafana: https://g.acme.dev/d/abc")).toEqual({
     error: "A chart takes one of a grafana link, a link, a file, or rows of CSV.",
