@@ -115,6 +115,19 @@ function useTween<T extends Record<string, number>>(
   return value;
 }
 
+/** A key's value, its unit fainter than its number: a word repeated on
+ * every line reads as noise. */
+function Reading({ text }: { text: string }) {
+  const space = text.indexOf(" ");
+  if (space < 0) return text;
+  return (
+    <>
+      {text.slice(0, space)}
+      <span {...stylex.props(styles.keyUnit)}>{text.slice(space + 1)}</span>
+    </>
+  );
+}
+
 /** A series' color: one hue in steps for a ramp, else the theme's own colors. */
 function seriesColor(index: number, count: number, ramp?: boolean) {
   if (ramp) {
@@ -144,7 +157,7 @@ export function LineChart({
   error,
   source,
   onRefresh,
-  height = 200,
+  height = 240,
   large,
   onClose,
   notice,
@@ -490,13 +503,12 @@ export function LineChart({
                   data-key-value=""
                   {...stylex.props(styles.keyValue, !drawn && styles.pending)}
                 >
-                  {value === null ? "–" : formatValue(value, spec.unit)}
+                  {value === null ? "–" : <Reading text={formatValue(value, spec.unit)} />}
                 </span>
               )}
             </button>
           );
         })}
-        <span {...stylex.props(styles.grow)} />
         {drawn && hoverTime === null && (
           <span {...stylex.props(styles.moment)}>
             {source?.live && !zoom ? "Now" : formatMoment(Math.min(to, full[1]), 60_000)}
@@ -946,9 +958,9 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     gap: 0,
-    paddingTop: 16,
-    paddingInline: 18,
-    paddingBottom: 10,
+    paddingTop: 20,
+    paddingInline: 20,
+    paddingBottom: 12,
     borderRadius: `calc(12px * ${tokens.round})`,
     backgroundColor: surface,
     color: tokens.text,
@@ -994,8 +1006,9 @@ const styles = stylex.create({
     display: "flex",
     flexWrap: "wrap",
     alignItems: "center",
-    gap: 2,
-    marginTop: 10,
+    columnGap: 14,
+    rowGap: 2,
+    marginTop: 14,
     marginInline: -6,
     minHeight: 24,
   },
@@ -1034,8 +1047,11 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
     textAlign: "left",
   },
+  keyUnit: { marginLeft: 4, color: tokens.faint, fontFamily: tokens.ui, fontSize: 11.5 },
   pending: { color: tokens.faint },
+  // At the row's end; when the key wraps, at the end of its last row.
   moment: {
+    marginLeft: "auto",
     paddingInline: 6,
     color: tokens.faint,
     fontFamily: tokens.code,
@@ -1043,7 +1059,7 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
   },
   grow: { flex: "1" },
-  plot: { position: "relative", marginTop: 4, marginInline: -2 },
+  plot: { position: "relative", marginTop: 10, marginInline: -2 },
   svg: { display: "block", overflow: "visible", outline: "none", touchAction: "pan-y" },
   surface: { cursor: "crosshair" },
   grid: {
@@ -1137,7 +1153,7 @@ const styles = stylex.create({
     alignItems: "center",
     gap: 8,
     minHeight: 30,
-    marginTop: 6,
+    marginTop: 10,
     color: tokens.faint,
     fontSize: 11.5,
   },

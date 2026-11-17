@@ -129,9 +129,9 @@ const styles = stylex.create({
   frame: {
     display: "flex",
     flexDirection: "column",
-    paddingTop: 16,
-    paddingInline: 18,
-    paddingBottom: 10,
+    paddingTop: 20,
+    paddingInline: 20,
+    paddingBottom: 12,
     borderRadius: `calc(12px * ${tokens.round})`,
     backgroundColor: surface,
     color: tokens.text,
