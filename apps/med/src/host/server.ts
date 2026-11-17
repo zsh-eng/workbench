@@ -565,7 +565,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const reviewStatus = createAgentStatus({
     owned(sessionId) {
       const runner = ownedSessions.get(sessionId);
-      return runner && { state: runner.state(), updatedAt: ownedSessions.updatedAt(sessionId) };
+      return (
+        runner && {
+          state: runner.state(),
+          updatedAt: ownedSessions.updatedAt(sessionId),
+          changedAt: ownedSessions.changedAt(sessionId),
+        }
+      );
     },
     logPath: (sessionId) =>
       join(options.stateDir ?? temporaryState!, "sessions", `${sessionId}.jsonl`),

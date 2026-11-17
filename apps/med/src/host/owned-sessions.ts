@@ -196,6 +196,11 @@ export function agentEnvironment(extra: Record<string, string> = {}) {
   return { ...env, ...extra };
 }
 
+/** What of a session's state the reader sees as new: not its settings,
+ * commands, context, or a reply as it streams. */
+const shownState = (state: OwnedState) =>
+  [state.status, state.turns, state.permission?.id ?? "", state.halt?.kind ?? ""].join("|");
+
 /** Listeners and a state that changes in place, with the time of its last change. */
 export function createState(initial: OwnedState) {
   let state = { ...initial, updatedAt: Date.now() };
@@ -2007,6 +2012,8 @@ function chosenSettings(state: OwnedState): SessionRecord["choices"] {
 export class OwnedSessions {
   private runners = new Map<string, OwnedRunner>();
   private updated = new Map<string, number>();
+  /** When each session last showed the reader something new (`changedAt`). */
+  private changed = new Map<string, number>();
   /** Claude Code's models, asked once per host. */
   private claudeModels = new Map<string, Promise<ClaudeModel[]>>();
   /** Codex's and agy's models, asked once per host. */
@@ -2652,8 +2659,27 @@ export class OwnedSessions {
     this.updated.set(id, Date.now());
     this.records[id] = record;
     if (save) this.save();
+    // What is new to the reader: a session that starts, then a turn, a
+    // permission request, a halt, or an update in its log. A session that Med
+    // restores after a restart, and the log that it reads again as it
+    // attaches, are not: its transcript or log tells when it last changed.
+    let attaching = !save;
+    let shown = shownState(runner.state());
+    const change = () => {
+      if (!attaching) this.changed.set(id, Date.now());
+    };
+    if (save) change();
+    void Promise.resolve(runner.attached).then(() => {
+      attaching = false;
+      shown = shownState(runner.state());
+    });
     runner.subscribe(() => {
       this.updated.set(id, Date.now());
+      const now = shownState(runner.state());
+      if (now !== shown) {
+        shown = now;
+        change();
+      }
       if (this.closedTabs.has(id)) this.releaseIdle();
       const current = this.records[id];
       if (!current || this.closing) return;
@@ -2685,7 +2711,10 @@ export class OwnedSessions {
       };
       this.save();
     });
-    runner.log?.subscribe(() => this.updated.set(id, Date.now()));
+    runner.log?.subscribe(() => {
+      this.updated.set(id, Date.now());
+      change();
+    });
   }
   private save() {
     const file = this.options.recordsFile;
@@ -2767,6 +2796,11 @@ export class OwnedSessions {
   /** When the session's state or updates last changed. */
   updatedAt(sessionId: string) {
     return this.updated.get(sessionId);
+  }
+  /** When the session last showed the reader something new; undefined for
+   * one that has shown nothing since Med restored it. */
+  changedAt(sessionId: string) {
+    return this.changed.get(sessionId);
   }
   /** An ACP session's updates, from its runner or from its log file. */
   async events(sessionId: string): Promise<SessionEvent[]> {

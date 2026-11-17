@@ -62,7 +62,9 @@ does not load them or read their agents until you open one again.
 - A row's ringed dot shows while the agent waits for a permission answer, and
   after a turn that ended on a question, until you send a message from Med.
   Its plain blue dot shows when its work finished while you were elsewhere.
-  Med keeps what you saw of each tab, so every window and `med thread list`
+  Only what the thread shows counts: a restart of Med or the Mac does not,
+  nor the bookkeeping that the Claude app writes to a session's transcript
+  when it opens the session again. Med keeps what you saw of each tab, so every window and `med thread list`
   agree: open a tab in one window, and its dot goes in all of them. `⌘0`
   opens the next tab that needs you, else the next whose work finished since
   you looked, else the next whose agent works.

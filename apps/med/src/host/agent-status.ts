@@ -8,14 +8,16 @@ import { findTranscript, transcriptTurn } from "./agent-transcripts";
 const STALE_MS = 5 * 60_000;
 
 /** What one read of a transcript's tail says. */
-type TranscriptRead = { modifiedAt: number; idle: boolean; turn?: ThreadTurn };
+type TranscriptRead = { modifiedAt: number; changedAt?: number; idle: boolean; turn?: ThreadTurn };
 
 /**
  * The states of saved reviews' sessions, from what the host knows: the
  * sessions that it runs, and the transcripts of the others. A transcript is read again only when it changes.
  */
 export function createAgentStatus(sources: {
-  owned(sessionId: string): { state: OwnedState; updatedAt?: number } | undefined;
+  owned(
+    sessionId: string,
+  ): { state: OwnedState; updatedAt?: number; changedAt?: number } | undefined;
   /** Where Med keeps an ACP session's updates. */
   logPath?(sessionId: string): string;
 }) {
@@ -52,9 +54,12 @@ export function createAgentStatus(sources: {
     };
     const owned = sources.owned(session.id);
     const read = await transcript(session);
+    // When it last showed something new, for what is unread: not when an
+    // app wrote bookkeeping to its transcript, or when Med attached to it
+    // again after a restart.
     const updatedAt = Math.max(
-      read?.modifiedAt ?? 0,
-      owned?.updatedAt ?? 0,
+      read ? (read.changedAt ?? read.modifiedAt) : 0,
+      owned?.changedAt ?? 0,
       session.agent === "acp" ? await modifiedAt(sources.logPath?.(session.id)) : 0,
     );
     const turn = read?.turn;

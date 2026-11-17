@@ -1,11 +1,11 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, realpath, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SavedReview } from "../../src/shared/saved-review";
-import type { Thread, ThreadList } from "../../src/shared/threads";
+import { finishedUnseen, type Thread, type ThreadList } from "../../src/shared/threads";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { claudeProjectFolder } from "../../src/host/session-index";
 import { readServerEvents } from "../../src/web/data/sse";
@@ -391,4 +391,72 @@ test("each thread tells what its agent does now, what it said, and whether it as
     { timeout: 5000 },
   );
   expect(thread(rows.asked)!.replied!.at).toBeGreaterThan(thread(rows.asked)!.turn!.endedAt!);
+});
+
+test("bookkeeping that the Claude app writes to a transcript, as it does after the computer restarts, is no news", async () => {
+  const { api, trees, home } = await fixture();
+  const id = "77777777-7777-4777-8777-777777777777";
+  await claude(home, trees.done, id, "Make search forgiving.", [
+    { text: "Search ignores case now.", end: true },
+  ]);
+  const key = `claude-${id}`;
+  await vi.waitFor(
+    async () => expect((await api(`/api/threads/${key}/open`, {})).status).toBe(200),
+    {
+      timeout: 15_000,
+    },
+  );
+  const row = async () =>
+    (await api<ThreadList>("/api/threads")).data.threads.find((thread) => thread.id === key);
+  const before = await vi.waitFor(async () => {
+    const found = await row();
+    if (!found) throw new Error("Not yet");
+    return found;
+  });
+  // Its last reply, three minutes ago, is its newest change; the reader
+  // read it.
+  expect(before.updatedAt).toBeLessThan(Date.now() - 120_000);
+  await api(`/api/threads/${key}/seen`, { at: before.updatedAt });
+
+  // The Claude app opens the session again: it writes its cost, its watches,
+  // and its queue, and the file's time is now.
+  const path = join(home, ".claude", "projects", claudeProjectFolder(trees.done), `${id}.jsonl`);
+  await appendFile(
+    path,
+    lines([
+      { type: "bridge-session", bridgeSessionId: "bridge", lastSequenceNum: 4, sessionId: id },
+      { type: "cost-state", totalCostUSD: 0.4, sessionId: id },
+      { type: "artifact-comment-monitor", artifacts: [], sessionId: id, v: 1 },
+      { type: "last-prompt", lastPrompt: "Make search forgiving.", sessionId: id },
+      { type: "custom-title", customTitle: "Forgiving search", sessionId: id },
+      { type: "queue-operation", operation: "dequeue", timestamp: ago(0), sessionId: id },
+    ]),
+  );
+  const later = new Date(Date.now() + 2000);
+  await utimes(path, later, later);
+  await vi.waitFor(async () => expect((await row())?.title).toBe("Forgiving search"));
+  const after = (await row())!;
+  expect(after.updatedAt).toBe(before.updatedAt);
+  expect(finishedUnseen(after)).toBe(false);
+
+  // A new reply is news.
+  await appendFile(
+    path,
+    lines([
+      {
+        cwd: trees.done,
+        sessionId: id,
+        isSidechain: false,
+        type: "assistant",
+        timestamp: ago(0),
+        message: {
+          id: "msg-new",
+          role: "assistant",
+          stop_reason: "end_turn",
+          content: [{ type: "text", text: "Search ignores accents too." }],
+        },
+      },
+    ]),
+  );
+  await vi.waitFor(async () => expect(finishedUnseen((await row())!)).toBe(true));
 });

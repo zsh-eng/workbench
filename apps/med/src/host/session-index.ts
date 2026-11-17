@@ -27,7 +27,7 @@ import type { RegisteredRepository } from "../shared/protocol";
 import type { SessionEvent } from "../shared/agent-session";
 import type { ThreadTurn } from "../shared/agent-status";
 import { sessionKey, threadTitle } from "../shared/threads";
-import { findTranscript } from "./agent-transcripts";
+import { findTranscript, shownAt } from "./agent-transcripts";
 import { summarizeTurn } from "./thread-turns";
 import { userHome } from "./service/discover";
 
@@ -120,6 +120,10 @@ interface SessionFile {
   id: string;
   path: string;
   mtimeMs: number;
+  /** When it last showed something new (`shownAt`). The file's own time
+   * moves also when an app writes bookkeeping to it, as the Claude app does
+   * for each session it opens again after the computer restarts. */
+  changedAt?: number;
   size: number;
   /** The folder it works in now. */
   cwd?: string;
@@ -173,6 +177,7 @@ export function scanLines(
     source?: RolloutSource;
   } = {};
   const updates: SessionEvent[] = [];
+  let changedAt: number | undefined;
   for (const line of lines) {
     if (early && found.prompt && found.cwd && (agent === "claude" || found.id)) break;
     const entry = parse(line);
@@ -205,6 +210,7 @@ export function scanLines(
     // The reader sees every line, so it knows whether the turn has ended.
     const events = reader.line(line);
     if (turn) updates.push(...events);
+    changedAt = Math.max(changedAt ?? 0, shownAt(events) ?? 0) || undefined;
     if (found.prompt) continue;
     for (const event of events) {
       const update = event.update;
@@ -220,7 +226,13 @@ export function scanLines(
     }
   }
   const idle = reader.idle();
-  return { ...found, cwds, idle, ...(turn && { turn: summarizeTurn(updates, idle) }) };
+  return {
+    ...found,
+    cwds,
+    idle,
+    ...(changedAt && { changedAt }),
+    ...(turn && { turn: summarizeTurn(updates, idle) }),
+  };
 }
 
 async function readSession(
@@ -244,12 +256,15 @@ async function readSession(
     [],
   );
   const source = first?.source?.kind ?? known?.automatic;
+  // A tail of bookkeeping alone keeps the time of the last read.
+  const changedAt = tail.changedAt ?? known?.changedAt;
   return {
     agent,
     id,
     path,
     ...(source && source !== "session" ? { automatic: source } : {}),
     mtimeMs: info.mtimeMs,
+    ...(changedAt && { changedAt }),
     size: info.size,
     ...(cwd ? { cwd } : {}),
     cwds: cwds.slice(-MAX_FOLDERS),

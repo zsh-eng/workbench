@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentInboxState, AgentMessage } from "../../src/shared/agent-inbox";
 import type { SessionEvent } from "../../src/shared/agent-session";
-import type { Thread, ThreadList } from "../../src/shared/threads";
+import { finishedUnseen, type Thread, type ThreadList } from "../../src/shared/threads";
 import type { AgentOptions, OwnedState } from "../../src/shared/owned-session";
 import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
@@ -676,6 +676,40 @@ test("agents keep working through a host restart; after a reboot, Claude Code re
   expect(args).toEqual(expect.arrayContaining(["--resume", kept.id, "--effort", "high"]));
   const env = JSON.parse(await readFile(join(project, `${kept.id}.env.json`), "utf8"));
   expect(env.MED_PORT).toBe(String(host.port));
+});
+
+test("a host restart or a reboot is no news: a thread that the reader saw stays read", async () => {
+  const { api, start, threads, restart } = await fixture();
+  const session = await start("claude");
+  await session.until((state) => state.status === "idle" && state.settings.length > 0);
+  await session.act({ action: "prompt", text: "Format the durations." });
+  await session.until((state) => state.status === "idle" && state.turns > 0);
+  const row = async () => {
+    const latest = await threads();
+    return vi.waitFor(
+      () => {
+        const found = latest.value.find((entry) => entry.id === session.thread);
+        if (!found || found.state === "working") throw new Error("Not yet");
+        return found;
+      },
+      { timeout: 5000 },
+    );
+  };
+  const before = await row();
+  // The reader reads the thread.
+  await api(`/api/threads/${session.thread}/seen`, { at: before.updatedAt });
+  for (const reboot of [false, true]) {
+    await restart({ reboot });
+    const after = await row();
+    // Med attaching to its agent again, or restoring it without a process,
+    // changes nothing that the reader sees.
+    expect(after.updatedAt).toBe(before.updatedAt);
+    expect(finishedUnseen(after)).toBe(false);
+  }
+  // A new turn is news.
+  await session.act({ action: "prompt", text: "And the totals." });
+  await session.until((state) => state.status === "idle" && state.turns > 1);
+  await vi.waitFor(async () => expect(finishedUnseen(await row())).toBe(true), { timeout: 5000 });
 });
 
 test("a turn goes on through a host restart; one that a reboot cuts waits as Interrupted: Continue asks the agent to go on, and Dismiss clears it", async () => {

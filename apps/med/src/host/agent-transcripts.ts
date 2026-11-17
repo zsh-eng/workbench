@@ -171,6 +171,19 @@ async function readSpan(path: string, start: number, end: number) {
   }
 }
 
+/**
+ * When a session last showed something new: the time of the newest update
+ * that its thread shows. A title is not new work, and the bookkeeping lines
+ * that the Claude app writes when it opens a session again, after the
+ * computer restarts, show nothing. Undefined when no update has a time.
+ */
+export function shownAt(events: readonly SessionEvent[]): number | undefined {
+  let newest: number | undefined;
+  for (const { at, update } of events)
+    if (at > 0 && update.sessionUpdate !== "session_info_update" && at > (newest ?? 0)) newest = at;
+  return newest;
+}
+
 /** The tail that tells whether a turn is open, and what the turn does. */
 const STATUS_TAIL_BYTES = 256 * 1024;
 
@@ -186,7 +199,8 @@ async function readStatusTail(session: Pick<AgentSession, "agent" | "id">, path:
  * one read of its transcript's tail. */
 export async function transcriptTurn(session: Pick<AgentSession, "agent" | "id">, path: string) {
   const { events, idle } = await readStatusTail(session, path);
-  return { idle, turn: summarizeTurn(events, idle) };
+  const changedAt = shownAt(events);
+  return { idle, turn: summarizeTurn(events, idle), ...(changedAt && { changedAt }) };
 }
 
 /** The head of a transcript that holds its first prompt. */

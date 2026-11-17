@@ -274,7 +274,11 @@ export function createThreadService(options: ThreadServiceOptions) {
         entry?.createdAt ??
         reviews.at(-1)?.createdAt ??
         new Date(entry?.updatedAt ?? now()).toISOString(),
-      updatedAt: Math.max(entry?.updatedAt ?? 0, newest?.modifiedAt ?? 0, scanned?.mtimeMs ?? 0),
+      updatedAt: Math.max(
+        entry?.updatedAt ?? 0,
+        newest?.modifiedAt ?? 0,
+        scanned ? (scanned.changedAt ?? scanned.mtimeMs) : 0,
+      ),
       ...place,
       ...(entry?.base && { base: entry.base }),
       agent: session.agent,
@@ -313,7 +317,13 @@ export function createThreadService(options: ThreadServiceOptions) {
     const base = place.checkout ? changesBase(family, place.branch, entry?.base) : undefined;
     const live =
       place.checkout && base !== undefined
-        ? options.checkoutChanges?.get(place.checkout, base, status?.updatedAt)
+        ? // Any write to the transcript, as the agent edits, reads the checkout
+          // again; what is unread goes by what the thread shows.
+          options.checkoutChanges?.get(
+            place.checkout,
+            base,
+            Math.max(status?.updatedAt ?? 0, read?.mtimeMs ?? 0),
+          )
         : undefined;
     const pullRequestUrl = newest?.pullRequestUrl;
     // A branch other than the base can have a pull request that opened after
@@ -333,7 +343,7 @@ export function createThreadService(options: ThreadServiceOptions) {
         entry?.createdAt ??
         new Date(now()).toISOString(),
       updatedAt: Math.max(
-        read?.mtimeMs ?? 0,
+        read ? (read.changedAt ?? read.mtimeMs) : 0,
         status?.updatedAt ?? 0,
         newest?.modifiedAt ?? 0,
         entry?.updatedAt ?? 0,
@@ -821,7 +831,7 @@ export function createThreadService(options: ThreadServiceOptions) {
       kind: "session",
       title: session.title,
       createdAt: new Date(session.createdAt).toISOString(),
-      updatedAt: session.mtimeMs,
+      updatedAt: session.changedAt ?? session.mtimeMs,
       ...(session.checkout && placeOf(session.checkout)),
       agent: session.agent,
       state: session.working ? "working" : "idle",
