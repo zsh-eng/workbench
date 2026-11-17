@@ -3,7 +3,9 @@ import { chmod, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "no
 import { dirname, join } from "node:path";
 import type { GrafanaPanel, GrafanaSite } from "../shared/charts";
 import { grafanaTime } from "../shared/grafana-time";
+import { keychainItem, readKeychain } from "./keychain";
 import { HostError } from "./runtime/errors";
+import type { SettingValue, Settings } from "./settings-file";
 
 export { grafanaTime };
 
@@ -425,12 +427,148 @@ const hint = (token: string) => token.slice(-4);
 export function siteList(
   addresses: readonly string[],
   tokens: Record<string, string>,
+  keychain: Record<string, string> = {},
 ): GrafanaSite[] {
-  return addresses.map((address) => ({
-    address,
-    token: !!tokens[address],
-    ...(tokens[address] ? { hint: hint(tokens[address]) } : {}),
-  }));
+  return addresses.map((address) =>
+    keychain[address]
+      ? { address, token: true, keychain: keychain[address] }
+      : {
+          address,
+          token: !!tokens[address],
+          ...(tokens[address] ? { hint: hint(tokens[address]) } : {}),
+        },
+  );
+}
+
+/** How long Med uses a token that it read from the Keychain before it reads
+ * it again, as after the reader changes it there. */
+const KEYCHAIN_MS = 60_000;
+
+export interface GrafanaSettingsOptions {
+  /** Med's settings file: `grafana.sites` and `grafana.keychain`. */
+  settings: {
+    snapshot(): Promise<{ settings: Settings }>;
+    set(key: string, value: SettingValue): Promise<unknown>;
+  };
+  tokens: ReturnType<typeof createGrafanaTokens>;
+  /** Reads a Keychain item; tests replace it. */
+  keychain?: (item: string) => Promise<string>;
+  now?(): number;
+}
+
+/**
+ * The Grafanas in Settings and their tokens. A Grafana's token is either in
+ * Med's own file, pasted in Settings, or in a Keychain item that the
+ * settings name (`grafana.keychain`), which Med reads when a chart needs it.
+ * Settings → Grafana and `med grafana` both go through this.
+ */
+export function createGrafanaSettings(options: GrafanaSettingsOptions) {
+  const keychain = options.keychain ?? readKeychain;
+  const now = options.now ?? Date.now;
+  const read = async () => (await options.settings.snapshot()).settings;
+  async function sites() {
+    const value = (await read())["grafana.sites"];
+    return Array.isArray(value) ? value.flatMap((entry) => grafanaAddress(entry) ?? []) : [];
+  }
+  /** Each Grafana's Keychain item, by address. */
+  async function items() {
+    const value = (await read())["grafana.keychain"];
+    const found: Record<string, string> = {};
+    if (value && typeof value === "object" && !Array.isArray(value))
+      for (const [address, item] of Object.entries(value)) {
+        const site = grafanaAddress(address);
+        const name = typeof item === "string" ? keychainItem(item) : null;
+        if (site && name) found[site] = name;
+      }
+    return found;
+  }
+  const kept = new Map<string, { at: number; token: string }>();
+  async function fromKeychain(item: string, fresh = false) {
+    const last = kept.get(item);
+    if (!fresh && last && now() - last.at < KEYCHAIN_MS) return last.token;
+    const token = (await keychain(item)).trim();
+    kept.set(item, { at: now(), token });
+    return token;
+  }
+  /** The token for a Grafana, from the Keychain or Med's file. */
+  async function token(address: string) {
+    const item = (await items())[address];
+    if (item) return fromKeychain(item);
+    return (await options.tokens.read())[address];
+  }
+  async function list() {
+    return siteList(await sites(), await options.tokens.read(), await items());
+  }
+  async function setItem(address: string, item: string | null) {
+    const current = await items();
+    if ((current[address] ?? null) === item) return;
+    const next = { ...current };
+    if (item === null) delete next[address];
+    else next[address] = item;
+    await options.settings.set("grafana.keychain", next);
+  }
+  return {
+    sites,
+    token,
+    list,
+    /**
+     * Checks a Grafana with a token, and keeps it: a pasted token goes in
+     * Med's file; a Keychain item's name goes in the settings, and its token
+     * stays in the Keychain. Neither checks the token Med has.
+     */
+    async connect(
+      input: { address: string; token?: string; keychain?: string },
+      check: (
+        address: string,
+        token: string,
+      ) => Promise<{ version?: string; organization?: string }>,
+    ) {
+      const address = grafanaAddress(input.address);
+      if (!address)
+        throw new HostError(
+          "invalid-grafana",
+          "Enter Grafana's address, as https://grafana.example.com.",
+        );
+      const pasted = input.token?.trim() || undefined;
+      const item = input.keychain === undefined ? undefined : keychainItem(input.keychain);
+      if (item === null)
+        throw new HostError("invalid-grafana", "Name the Keychain item, as grafana-acme.");
+      if (pasted && item)
+        throw new HostError("invalid-grafana", "Give a token or a Keychain item, not both.");
+      const found = item ? await fromKeychain(item, true) : (pasted ?? (await token(address)));
+      if (!found)
+        throw new HostError(
+          "invalid-grafana",
+          "Paste a token for this Grafana, or name the Keychain item that holds it.",
+        );
+      const answer = await check(address, found);
+      if (item) {
+        await setItem(address, item);
+        await options.tokens.set(address, null);
+      } else if (pasted) {
+        await options.tokens.set(address, pasted);
+        await setItem(address, null);
+      }
+      const listed = await sites();
+      if (!listed.includes(address))
+        await options.settings.set("grafana.sites", [...listed, address]);
+      return { site: (await list()).find((site) => site.address === address)!, ...answer };
+    },
+    /** Forgets a Grafana: its address, its token in Med's file, and its
+     * Keychain item's name. The Keychain keeps the item. */
+    async remove(text: string) {
+      const address = grafanaAddress(text) ?? text;
+      await options.tokens.set(address, null);
+      await setItem(address, null);
+      const listed = await sites();
+      if (listed.includes(address))
+        await options.settings.set(
+          "grafana.sites",
+          listed.filter((entry) => entry !== address),
+        );
+      return { sites: await list() };
+    },
+  };
 }
 
 /** Why a request to Grafana failed, in words that say what to do. */
@@ -456,7 +594,8 @@ function reachFailure(address: string, reason: unknown) {
 export interface GrafanaOptions {
   /** The addresses in Settings. */
   sites(): Promise<string[]>;
-  tokens: ReturnType<typeof createGrafanaTokens>;
+  /** A Grafana's token, from the Keychain or Med's file. */
+  token(address: string): Promise<string | undefined>;
   /** Where Med keeps what it read; none keeps nothing. */
   cacheDir?: string;
   fetch?: typeof fetch;
@@ -594,7 +733,7 @@ export function createGrafana(options: GrafanaOptions) {
     isLive: boolean,
     signal?: AbortSignal,
   ) {
-    const token = (await options.tokens.read())[link.site];
+    const token = await options.token(link.site);
     if (!token)
       throw new HostError(
         "grafana-not-set",

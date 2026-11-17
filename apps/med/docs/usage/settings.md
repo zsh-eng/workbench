@@ -71,18 +71,51 @@ change (see [Run Med](run-med.md#base-branches-stay-up-to-date)).
 ## Grafana
 
 Charts in replies can draw a Grafana panel (see
-[Charts](markdown.md#charts)). **Connect a Grafana** takes its address, such
-as `https://grafana.example.com` or one under a path, and a token. A service
-account token with the Viewer role is enough: in Grafana, **Administration →
-Users and access → Service accounts**, add one, then add a token to it. Med
-checks both with Grafana, then shows the organization the token reads.
+[Charts](markdown.md#charts)). Med reads the panel with a token of yours,
+which stays on your Mac: it never goes into a transcript, to a page, or to an
+agent. To set one up:
 
-The address goes in the settings file (`grafana.sites`). The token does not:
-Med keeps it in `grafana-tokens.json` beside the settings file, which only
-your user can read, and sends it only to that Grafana. A page never gets it
-back, and an agent never sees it. **Remove** forgets both. A Grafana whose
-certificate comes from your company's own authority needs Med started with
-`NODE_EXTRA_CA_CERTS` set to that authority's file.
+1. **Make a token.** In Grafana, **Administration → Users and access →
+   Service accounts → Add service account**, with the **Viewer** role, then
+   **Add service account token**. Copy it.
+2. **Put it in your Keychain.** In Terminal, run this, and paste the token
+   when it asks. Asking keeps the token out of your shell's history.
+
+   ```sh
+   security add-generic-password -s grafana-acme -a "$USER" -w
+   ```
+
+3. **Connect.** In **Settings → Grafana**, choose **In my Keychain**, then
+   enter Grafana's address, such as `https://grafana.acme.com` (or one under
+   a path), and the item's name, `grafana-acme`. Or, in Terminal:
+
+   ```sh
+   med grafana connect https://grafana.acme.com --keychain grafana-acme
+   ```
+
+Med checks the token with Grafana and shows the organization that it reads.
+From then on Med reads the token from the Keychain when a chart needs it, at
+most once a minute. Change the token in the Keychain and Med uses the new one
+within a minute.
+
+**Paste it here** keeps a pasted token instead, in `grafana-tokens.json`
+beside the settings file, which only your user can read. Either way, Med
+sends the token only to that Grafana.
+
+The settings file holds the address (`grafana.sites`) and the item's name
+(`grafana.keychain`), never a token, so an agent can set up a Grafana by
+editing them, or with `med grafana`:
+
+- `med grafana` lists the Grafanas and where each one's token is.
+- `med grafana connect <address> --keychain <item>` checks and keeps one.
+- `med grafana connect <address> --token-stdin` takes a pasted token from
+  standard input, as `pbpaste | med grafana connect …`.
+- `med grafana connect <address>` checks the token Med has.
+- `med grafana remove <address>` forgets a Grafana, as **Remove** does. The
+  Keychain keeps its item.
+
+A Grafana whose certificate comes from your company's own authority needs Med
+started with `NODE_EXTRA_CA_CERTS` set to that authority's file.
 
 ## The settings file
 
@@ -122,6 +155,7 @@ the file.
 | `openIn.editors`        | the editors to list, in order, such as `["vscode", "zed"]` | each one found   |
 | `openIn.links`          | other links by name, each a template                       | `{}`             |
 | `grafana.sites`         | the Grafanas that charts read, by address                  | `[]`             |
+| `grafana.keychain`      | the Keychain item that holds a Grafana's token, by address | `{}`             |
 
 A key that Med does not know, or a value that its key does not take, changes
 nothing.

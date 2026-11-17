@@ -42,6 +42,7 @@ const COMMANDS = [
   "skills",
   "service",
   "agents",
+  "grafana",
   "docs",
   "serve",
   "help",
@@ -75,6 +76,7 @@ Set up:
   skills    Install the Med skill, so that agents hand off their work in Med
   service   Start Med when you log in (macOS)
   agents    List or stop the agents that Med started
+  grafana   Connect a Grafana for charts, with its token in your Keychain
   docs      Print a guide: usage, agents, vaults, or reference
 
 Options:
@@ -167,6 +169,11 @@ async function main(args: string[]) {
   if (command === "agents") {
     const { runAgentsCommand } = await import("./agents");
     await runAgentsCommand(rest);
+    return;
+  }
+  if (command === "grafana") {
+    const { runGrafanaCommand } = await import("./grafana");
+    await runGrafanaCommand(rest);
     return;
   }
   if (command === "thread") {

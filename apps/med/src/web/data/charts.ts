@@ -30,7 +30,9 @@ export async function grafanaPanel(input: PanelInput, signal?: AbortSignal) {
 
 export const grafanaSites = (signal?: AbortSignal) => api().call(chartRoutes.sites, {}, signal);
 
-export const connectGrafana = (address: string, token?: string) =>
-  api().call(chartRoutes.connect, { address, ...(token ? { token } : {}) });
+/** Connects a Grafana with a pasted token, or the Keychain item that holds
+ * it; with neither, checks the token Med has. */
+export const connectGrafana = (address: string, from?: { token: string } | { keychain: string }) =>
+  api().call(chartRoutes.connect, { address, ...from });
 
 export const removeGrafana = (address: string) => api().call(chartRoutes.remove, { address });

@@ -158,7 +158,7 @@ import { createSessionEdits } from "./session-edits";
 import { createSessionUsage } from "./session-usage";
 import { usageRoutes } from "../shared/model-usage";
 import { chartRoutes } from "../shared/charts";
-import { createGrafana, createGrafanaTokens, grafanaAddress, siteList } from "./grafana";
+import { createGrafana, createGrafanaSettings, createGrafanaTokens } from "./grafana";
 import {
   foundUpdateSchema,
   sessionAdoptSchema,
@@ -236,6 +236,8 @@ export interface StartHostOptions {
    * settings.json in that folder, so it never changes the reader's Med.
    */
   settingsPath?: string;
+  /** Reads a Keychain item, as a Grafana's token; tests replace it. */
+  keychain?: (item: string) => Promise<string>;
   /** Open in's editors, code hosts, and launches; tests replace them. */
   openIn?: {
     editors?(): Promise<Editor[]>;
@@ -661,18 +663,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   );
   const settingsStreams = new Set<ServerResponse>();
   // Grafanas for the charts in replies: their addresses are settings, and
-  // their tokens stay in a file of their own beside them, which only this
-  // user reads and Med never sends to a page.
-  const grafanaTokens = createGrafanaTokens(
-    join(dirname(settingsFile.path), "grafana-tokens.json"),
-  );
-  const grafanaSites = async () => {
-    const value = (await settingsFile.snapshot()).settings["grafana.sites"];
-    return Array.isArray(value) ? value.flatMap((entry) => grafanaAddress(entry) ?? []) : [];
-  };
+  // each token is in the Keychain, or in a file of its own beside the
+  // settings, which only this user reads. Med never sends one to a page.
+  const grafanaSettings = createGrafanaSettings({
+    settings: settingsFile,
+    tokens: createGrafanaTokens(join(dirname(settingsFile.path), "grafana-tokens.json")),
+    ...(options.keychain ? { keychain: options.keychain } : {}),
+  });
   const grafana = createGrafana({
-    sites: grafanaSites,
-    tokens: grafanaTokens,
+    sites: grafanaSettings.sites,
+    token: grafanaSettings.token,
     cacheDir: join(options.stateDir ?? temporaryState!, "charts"),
   });
   const pullRequestLinks = createPullRequestLinks({
@@ -1261,38 +1261,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     }),
     // A Grafana panel for a chart in a reply (grafana.ts).
     route(chartRoutes.grafana, (input, { signal }) => grafana.panel(input, signal)),
-    route(chartRoutes.sites, async () => ({
-      sites: siteList(await grafanaSites(), await grafanaTokens.read()),
-    })),
-    route(chartRoutes.connect, async (input, { signal }) => {
-      const address = grafanaAddress(input.address);
-      if (!address)
-        throw new HostError(
-          "invalid-grafana",
-          "Enter Grafana's address, as https://grafana.example.com.",
-        );
-      const token = input.token?.trim() || (await grafanaTokens.read())[address];
-      if (!token) throw new HostError("invalid-grafana", "Paste a token for this Grafana.");
-      const found = await grafana.check(address, token, signal);
-      await grafanaTokens.set(address, token);
-      const sites = await grafanaSites();
-      if (!sites.includes(address)) await settingsFile.set("grafana.sites", [...sites, address]);
-      return {
-        site: siteList([address], await grafanaTokens.read())[0]!,
-        ...found,
-      };
-    }),
-    route(chartRoutes.remove, async (input) => {
-      const address = grafanaAddress(input.address) ?? input.address;
-      await grafanaTokens.set(address, null);
-      const sites = await grafanaSites();
-      if (sites.includes(address))
-        await settingsFile.set(
-          "grafana.sites",
-          sites.filter((entry) => entry !== address),
-        );
-      return { sites: siteList(await grafanaSites(), await grafanaTokens.read()) };
-    }),
+    route(chartRoutes.sites, async () => ({ sites: await grafanaSettings.list() })),
+    route(chartRoutes.connect, (input, { signal }) =>
+      grafanaSettings.connect(input, (address, token) => grafana.check(address, token, signal)),
+    ),
+    route(chartRoutes.remove, (input) => grafanaSettings.remove(input.address)),
   ]);
   // The editors on this machine, looked for again after a minute.
   let editorsFound: { at: number; editors: Promise<Editor[]> } | null = null;

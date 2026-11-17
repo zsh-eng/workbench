@@ -176,7 +176,9 @@ export function LineChart({
     setSpecScale(spec.scale);
     setScale(spec.scale ?? "linear");
   }
-  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
+  // The lines picked in the key. With none picked, every line shows; a
+  // click picks one more line, or drops a picked one.
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   const [focus, setFocus] = useState<string | null>(null);
   const [zoom, setZoom] = useState<readonly [number, number] | null>(null);
   const [hover, setHover] = useState<number | null>(null);
@@ -186,6 +188,12 @@ export function LineChart({
   const data = useMemo(() => (state === "ready" ? (series ?? []) : []), [state, series]);
   const empty = state === "ready" && data.every(({ points }) => points.length === 0);
   const drawn = state === "ready" && !empty;
+  const hidden = useMemo(() => {
+    const names = data.map(({ name }) => name);
+    return new Set(
+      names.some((name) => picked.has(name)) ? names.filter((name) => !picked.has(name)) : [],
+    );
+  }, [data, picked]);
   // The key under the pointer dims the other lines, unless it is hidden itself.
   const lit = focus !== null && !hidden.has(focus) ? focus : null;
 
@@ -316,10 +324,12 @@ export function LineChart({
   };
 
   const toggle = (name: string) =>
-    setHidden((current) => {
-      const next = new Set(current);
-      if (next.has(name)) next.delete(name);
-      else if (data.length - next.size > 1) next.add(name);
+    setPicked((current) => {
+      // Only lines the chart still has: a refresh can drop one.
+      const next = new Set(
+        [...current].filter((line) => data.some((entry) => entry.name === line)),
+      );
+      if (!next.delete(name)) next.add(name);
       return next;
     });
 
@@ -458,7 +468,7 @@ export function LineChart({
               type="button"
               data-chart-key=""
               data-hidden={off ? "" : undefined}
-              aria-pressed={!off}
+              aria-pressed={picked.has(entry.name)}
               aria-label={`${entry.name}${off ? ", hidden" : ""}`}
               disabled={!drawn}
               onClick={() => toggle(entry.name)}

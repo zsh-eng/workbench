@@ -666,8 +666,16 @@ Other keys: `subtitle`, `unit` (`ms`, `s`, `%`, `B`, or a word such as
 `req/s`), `scale: log` for values across orders of magnitude, `type: bars`
 or `line`, `threshold: 500 SLO`, and `mark: 10:42 Deploy v412` once for each
 event. A Grafana that is not in Settings, or a token it turns down, shows its
-reason in the chart; ask the user to connect it in **Settings → Grafana**.
-See [Charts](usage/markdown.md#charts).
+reason in the chart. See [Charts](usage/markdown.md#charts).
+
+To connect a Grafana, never ask for its token. Ask the user to make a Viewer
+service account token and add it to their Keychain, as
+`security add-generic-password -s grafana-acme -a "$USER" -w` (it asks for
+the token). Then connect it yourself:
+`med grafana connect https://grafana.acme.com --keychain grafana-acme`. Med
+checks it with Grafana and keeps only the address and the item's name.
+`med grafana` lists what is connected. See
+[Settings → Grafana](usage/settings.md#grafana).
 
 ## Checks
 

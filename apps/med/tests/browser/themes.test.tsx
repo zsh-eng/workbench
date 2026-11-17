@@ -4,6 +4,7 @@ import { useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { ThemePicker } from "../../src/web/components/ThemePicker";
 import { SettingsPage } from "../../src/web/components/settings/SettingsPage";
+import { startSettingsFile } from "../../src/web/data/settings-file";
 import {
   findTheme,
   initializeTheme,
@@ -266,5 +267,69 @@ test("Settings › Open in lists the sources' code hosts and this Mac's editors,
 
   // Code's preview is a diff in the theme on screen.
   await expect.element(page.getByRole("img", { name: "A diff in your theme" })).toBeInTheDocument();
+  fetches.mockRestore();
+});
+
+test("Settings › Grafana connects with a Keychain item by default, or a pasted token", async () => {
+  const connects: Record<string, unknown>[] = [];
+  const sites: { address: string; token: boolean; keychain?: string; hint?: string }[] = [];
+  const fetches = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = new URL(String(input instanceof Request ? input.url : input), location.href);
+    // Settings › Grafana shows once the settings file is read.
+    if (url.pathname === "/api/settings/events") {
+      const state = { path: "/tmp/med/settings.json", settings: {}, error: null };
+      const text = `event: state\ndata: ${JSON.stringify(state)}\n\n`;
+      return new Response(
+        new ReadableStream({
+          start: (controller) => controller.enqueue(new TextEncoder().encode(text)),
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    }
+    if (url.pathname === "/api/grafana") return Response.json({ sites });
+    if (url.pathname === "/api/grafana/connect") {
+      const body = JSON.parse(String(init!.body)) as Record<string, string>;
+      connects.push(body);
+      const site = body.keychain
+        ? { address: body.address!, token: true, keychain: body.keychain }
+        : { address: body.address!, token: true, hint: body.token!.slice(-4) };
+      return Response.json({ site, organization: "Acme", version: "11.3.0" });
+    }
+    return Response.json({ error: { message: "Not in this test." } }, { status: 404 });
+  });
+  mount = document.createElement("div");
+  document.body.append(mount);
+  root = createRoot(mount);
+  const stop = startSettingsFile();
+  root.render(<SettingsPage onSources={() => {}} />);
+  const section = page.getByRole("region", { name: "Grafana", exact: true });
+  await expect
+    .element(section.getByRole("radio", { name: "In my Keychain" }))
+    .toHaveAttribute("aria-checked", "true");
+  // The command to add the item follows the name typed.
+  await section.getByRole("textbox", { name: "Grafana address" }).fill("https://grafana.acme.com");
+  await section.getByRole("textbox", { name: "Keychain item" }).fill("acme-grafana");
+  await expect
+    .element(section.getByText('security add-generic-password -s acme-grafana -a "$USER" -w'))
+    .toBeVisible();
+  await section.getByRole("button", { name: "Connect" }).click();
+  await expect.element(section.getByText("Connected to Acme · Grafana 11.3.0")).toBeVisible();
+  expect(connects.at(-1)).toEqual({
+    address: "https://grafana.acme.com",
+    keychain: "acme-grafana",
+  });
+
+  // Or the token, pasted.
+  await section.getByRole("radio", { name: "Paste it here" }).click();
+  await section.getByRole("textbox", { name: "Grafana address" }).fill("https://ops.acme.com");
+  await section.getByLabelText("Grafana token").fill("glsa_pasted_1234");
+  await section.getByRole("button", { name: "Connect" }).click();
+  await expect
+    .poll(() => connects.at(-1))
+    .toEqual({
+      address: "https://ops.acme.com",
+      token: "glsa_pasted_1234",
+    });
+  stop();
   fetches.mockRestore();
 });

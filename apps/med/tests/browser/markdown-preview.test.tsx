@@ -421,6 +421,42 @@ test("an image's right-click copies it as a PNG", async () => {
   expect([bitmap.width, bitmap.height]).toEqual([40, 30]);
 });
 
+test("a chart's key picks lines: one shows alone, more add theirs, and none picked shows all", async () => {
+  const text = [
+    "# Queues",
+    "",
+    "```chart",
+    "title: Four queues",
+    "",
+    "time,mail,jobs,push,sync",
+    "2026-11-16T09:00:00,1,2,3,4",
+    "2026-11-16T09:01:00,2,3,4,5",
+    "2026-11-16T09:02:00,3,4,5,6",
+    "```",
+  ].join("\n");
+  const reading = await show(text, 900, "Queues");
+  await expect.element(reading.getByRole("heading", { name: "Four queues" })).toBeVisible();
+  const names = ["mail", "jobs", "push", "sync"];
+  const key = (name: string) => reading.getByRole("button", { name: new RegExp(`^${name}`) });
+  await expect.element(key("mail")).toBeVisible();
+  const hidden = () =>
+    names.filter((name) => key(name).element().getAttribute("aria-label")!.endsWith(", hidden"));
+  expect(hidden()).toEqual([]);
+  // One line alone.
+  await key("jobs").click();
+  expect(hidden()).toEqual(["mail", "push", "sync"]);
+  await expect.element(key("jobs")).toHaveAttribute("aria-pressed", "true");
+  // Another joins it.
+  await key("sync").click();
+  expect(hidden()).toEqual(["mail", "push"]);
+  // A picked line drops out; the last one dropped shows every line again.
+  await key("jobs").click();
+  expect(hidden()).toEqual(["mail", "jobs", "push"]);
+  await key("sync").click();
+  expect(hidden()).toEqual([]);
+  await expect.element(key("sync")).toHaveAttribute("aria-pressed", "false");
+});
+
 test("a chart fence draws its rows as a chart, with prose spacing kept out, and a broken one says why", async () => {
   const text = [
     "# Checkout",

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import {
   createGrafana,
+  createGrafanaSettings,
   createGrafanaTokens,
   framesToSeries,
   grafanaAddress,
@@ -12,6 +13,7 @@ import {
   parsePanelLink,
   variableChoices,
 } from "../../src/host/grafana";
+import { createSettingsFile } from "../../src/host/settings-file";
 import { FAKE_TOKEN, startFakeGrafana, type FakeGrafana } from "../fixtures/fake-grafana";
 
 const NOON = new Date(2026, 10, 16, 12, 0).getTime();
@@ -32,7 +34,7 @@ async function setUp(token = FAKE_TOKEN) {
   await tokens.set(fake.address, token);
   const grafana = createGrafana({
     sites: async () => [fake.address],
-    tokens,
+    token: async (address) => (await tokens.read())[address],
     cacheDir: join(folder, "charts"),
     now: () => NOON,
   });
@@ -261,4 +263,89 @@ test("a token is checked with Grafana, and kept where only this user reads it", 
   await expect(grafana.check("http://127.0.0.1:9", FAKE_TOKEN)).rejects.toThrow(
     "Med could not reach 127.0.0.1:9",
   );
+});
+
+/** Settings → Grafana over a settings file in the test's folder, with a
+ * Keychain that holds `items`. */
+function settingsWith(items: Record<string, string>) {
+  const settings = createSettingsFile(join(folder, "settings.json"));
+  const tokens = createGrafanaTokens(join(folder, "grafana-tokens.json"));
+  const reads: string[] = [];
+  const sites = createGrafanaSettings({
+    settings,
+    tokens,
+    keychain: async (item) => {
+      reads.push(item);
+      if (items[item]) return `${items[item]}\n`;
+      throw new Error(`Your Keychain has no item named ${item}.`);
+    },
+  });
+  const grafana = createGrafana({
+    sites: sites.sites,
+    token: sites.token,
+    cacheDir: join(folder, "charts"),
+    now: () => NOON,
+  });
+  const check = (address: string, token: string) => grafana.check(address, token);
+  return { settings, tokens, sites, grafana, check, reads };
+}
+
+test("a Grafana's token can stay in the Keychain: Med keeps only the item's name", async () => {
+  const { settings, tokens, sites, grafana, check, reads } = settingsWith({
+    "grafana-acme": FAKE_TOKEN,
+  });
+  const answer = await sites.connect({ address: fake.address, keychain: "grafana-acme" }, check);
+  expect(answer).toMatchObject({
+    organization: "Acme",
+    site: { address: fake.address, token: true, keychain: "grafana-acme" },
+  });
+  const file = (await settings.snapshot()).settings;
+  expect(file["grafana.sites"]).toEqual([fake.address]);
+  expect(file["grafana.keychain"]).toEqual({ [fake.address]: "grafana-acme" });
+  expect(await tokens.read()).toEqual({});
+  // A chart reads the panel with the Keychain's token, read once a minute at most.
+  const panel = await grafana.panel({ link: `${fake.address}/d/checkout/c?viewPanel=4` });
+  expect(panel.series.length).toBeGreaterThan(0);
+  expect(reads).toEqual(["grafana-acme"]);
+
+  // A pasted token takes the Keychain's place, and Remove forgets both.
+  await sites.connect({ address: fake.address, token: FAKE_TOKEN }, check);
+  expect((await settings.snapshot()).settings["grafana.keychain"]).toEqual({});
+  expect((await sites.list())[0]).toEqual({ address: fake.address, token: true, hint: "cdef" });
+  expect((await sites.remove(fake.address)).sites).toEqual([]);
+  expect(await tokens.read()).toEqual({});
+});
+
+test("an agent can name the Keychain item in the settings file itself", async () => {
+  const { settings, sites, grafana, check } = settingsWith({ "grafana-acme": FAKE_TOKEN });
+  await settings.set("grafana.sites", [fake.address]);
+  await settings.set("grafana.keychain", { [`${fake.address}/`]: "grafana-acme" });
+  expect(await sites.list()).toEqual([
+    { address: fake.address, token: true, keychain: "grafana-acme" },
+  ]);
+  await expect(
+    grafana.panel({ link: `${fake.address}/d/checkout/c?viewPanel=4` }),
+  ).resolves.toBeTruthy();
+  // Connect with neither a token nor an item checks the one Med has.
+  await expect(sites.connect({ address: fake.address }, check)).resolves.toMatchObject({
+    organization: "Acme",
+  });
+});
+
+test("connecting says what is wrong: a missing item, a token turned down, or both given", async () => {
+  const { sites, check, settings } = settingsWith({ "grafana-wrong": "glsa_wrong" });
+  await expect(
+    sites.connect({ address: fake.address, keychain: "grafana-none" }, check),
+  ).rejects.toThrow("no item named grafana-none");
+  await expect(
+    sites.connect({ address: fake.address, keychain: "grafana-wrong" }, check),
+  ).rejects.toThrow("401");
+  await expect(
+    sites.connect({ address: fake.address, keychain: "a", token: "b" }, check),
+  ).rejects.toThrow("not both");
+  await expect(sites.connect({ address: fake.address }, check)).rejects.toThrow(
+    "name the Keychain item",
+  );
+  // Nothing was kept.
+  expect((await settings.snapshot()).settings["grafana.sites"]).toBeUndefined();
 });

@@ -31,12 +31,20 @@ export const grafanaPanelSchema = z.object({
 });
 export type GrafanaPanel = z.infer<typeof grafanaPanelSchema>;
 
-/** A Grafana in Settings: its address, and whether Med holds its token. */
+/** The Terminal command that adds a token to the Keychain as `item`. It asks
+ * for the token, so the token stays out of the shell's history. */
+export const keychainCommand = (item: string) =>
+  `security add-generic-password -s ${/^[\w.@-]+$/.test(item) ? item : `'${item.replaceAll("'", "'\\''")}'`} -a "$USER" -w`;
+
+/** A Grafana in Settings: its address, and whether Med has its token. */
 export const grafanaSiteSchema = z.object({
   address: z.string(),
   token: z.boolean(),
-  /** The token's last four characters, to tell two apart. */
+  /** A pasted token's last four characters, to tell two apart. */
   hint: z.string().optional(),
+  /** The Keychain item that holds its token, which Med reads when a chart
+   * needs it. */
+  keychain: z.string().optional(),
 });
 export type GrafanaSite = z.infer<typeof grafanaSiteSchema>;
 
@@ -67,12 +75,17 @@ export const chartRoutes = {
     input: z.object({}),
     output: z.object({ sites: z.array(grafanaSiteSchema) }),
   },
-  /** Checks an address and a token with Grafana, then keeps both. A token
-   * left out keeps the one Med holds. */
+  /** Checks an address and a token with Grafana, then keeps both: a pasted
+   * token, or the name of the Keychain item that holds it. Neither checks
+   * the token Med has. */
   connect: {
     method: "POST",
     path: "/api/grafana/connect",
-    input: z.object({ address, token: z.string().max(4096).optional() }),
+    input: z.object({
+      address,
+      token: z.string().max(4096).optional(),
+      keychain: z.string().max(255).optional(),
+    }),
     output: z.object({
       site: grafanaSiteSchema,
       /** Grafana's version, and the organization that the token reads. */
@@ -80,7 +93,8 @@ export const chartRoutes = {
       organization: z.string().optional(),
     }),
   },
-  /** Forgets a Grafana and its token. */
+  /** Forgets a Grafana, its token in Med's file, and its Keychain item's
+   * name; the Keychain keeps the item. */
   remove: {
     method: "POST",
     path: "/api/grafana/remove",
