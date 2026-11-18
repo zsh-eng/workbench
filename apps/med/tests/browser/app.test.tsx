@@ -4899,6 +4899,103 @@ describe("agent session", () => {
       .not.toBeInTheDocument();
   });
 
+  test("the session rail's toggle keeps the thread's place", async () => {
+    // A pane just wide enough for the rail, which narrows the thread's column.
+    await page.viewport(1800, 900);
+    // Replies of many paragraphs, taller than the view, so a new width
+    // rewraps the text above the reader's place.
+    const reply = (turn: number) =>
+      Array.from(
+        { length: 24 },
+        (_, at) =>
+          `Paragraph ${turn}.${at}. ${"The view keeps its place as the column narrows and widens again. ".repeat(1 + (at % 5))}`,
+      ).join("\n\n");
+    const events = Array.from({ length: 12 }, (_, turn) => [
+      {
+        at: turn * 1000,
+        update: {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: `Prompt ${turn}` },
+        },
+      },
+      {
+        at: turn * 1000 + 500,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          messageId: `r${turn}`,
+          content: {
+            type: "text",
+            text: reply(turn),
+          },
+        },
+      },
+    ]).flat();
+    await mountApp({
+      savedReview: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events, idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+    });
+    await page.getByRole("button", { name: "Show agent session" }).click();
+    const pane = page.getByRole("region", { name: "Agent session" });
+    await expect.element(pane.getByRole("complementary", { name: "Session rail" })).toBeVisible();
+    await expect
+      .poll(() => {
+        const node = pane.element().querySelector<HTMLElement>(".med-thread-scroller");
+        return !!node && node.scrollHeight > 4 * node.clientHeight;
+      })
+      .toBe(true);
+    const scroller = pane.element().querySelector<HTMLElement>(".med-thread-scroller")!;
+    const frames = async (count: number) => {
+      for (let at = 0; at < count; at++) await new Promise(requestAnimationFrame);
+    };
+    await frames(20);
+    scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
+    scroller.scrollTop = scroller.scrollHeight / 2;
+    await frames(10);
+    // The view goes 900 pixels into a reply, so the reply's text above it
+    // rewraps, and settles there: the replies in view show their Markdown.
+    const reply6 = scroller.querySelector<HTMLElement>('[data-unit="r6"]')!;
+    scroller.scrollTop +=
+      reply6.getBoundingClientRect().top - scroller.getBoundingClientRect().top + 900;
+    const settled = async () => {
+      await expect
+        .poll(() => scroller.querySelector("[data-unit] .med-session-plain"), { timeout: 5000 })
+        .toBeNull();
+      await frames(20);
+    };
+    await settled();
+    // The text on the view's top line: its paragraph, and where in it the
+    // line starts. A new width rewraps the line, so the place moves by less
+    // than a line.
+    const place = () => {
+      const box = scroller.getBoundingClientRect();
+      const paragraphs = [...scroller.querySelectorAll<HTMLElement>("[data-unit] p")];
+      const at = paragraphs.find(
+        (element) => element.getBoundingClientRect().bottom > box.top + 4,
+      )!;
+      const text = at.getBoundingClientRect();
+      const caret = document.caretRangeFromPoint(text.left + 2, Math.max(box.top, text.top) + 4)!;
+      const range = document.createRange();
+      range.setStart(at, 0);
+      range.setEnd(caret.startContainer, caret.startOffset);
+      return { text: at.textContent!.split(". ")[0], offset: range.toString().length };
+    };
+    const same = (now: ReturnType<typeof place>, then: ReturnType<typeof place>) => {
+      expect(now.text).toBe(then.text);
+      expect(Math.abs(now.offset - then.offset)).toBeLessThan(140);
+    };
+    const before = place();
+    const width = () => scroller.querySelector("[data-unit]")!.getBoundingClientRect().width;
+    const wide = width();
+    await pane.getByRole("button", { name: "Hide session rail" }).click();
+    await settled();
+    // The column widened, and the reader reads on where they were.
+    expect(width()).toBeGreaterThan(wide + 100);
+    same(place(), before);
+    await pane.getByRole("button", { name: "Show session rail" }).click();
+    await settled();
+    same(place(), before);
+  });
+
   test("@ names a file or a vault's note, and the agent gets its absolute path", async () => {
     const { agentMessages } = await mountApp({
       savedReview: true,

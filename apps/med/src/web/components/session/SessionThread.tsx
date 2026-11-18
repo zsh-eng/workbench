@@ -59,6 +59,7 @@ import {
   type ThreadMetrics,
 } from "./thread-heights";
 import { atEnd, followEnd, HOLD_PLACE } from "./thread-follow";
+import { partAt, partMove, type PartPlace } from "./thread-place";
 import { glideContent } from "./thread-glide";
 import { whenIdle } from "../../data/idle";
 import "./SessionThread.css";
@@ -1392,8 +1393,14 @@ export function SessionThread({
   });
 
   // The first unit that starts in view, and how far the view is below its
-  // top: negative when the view starts above it.
-  const anchor = useRef<{ key: string; delta: number } | null>(null);
+  // top: negative when the view starts above it. A unit cut at the view's top
+  // gives the part of it at the top too, which the view keeps first
+  // (thread-place.ts).
+  const anchor = useRef<{
+    key: string;
+    delta: number;
+    part?: { unit: HTMLElement; place: PartPlace };
+  } | null>(null);
   const list = useRef<{
     record(): void;
     restore(): void;
@@ -1499,20 +1506,77 @@ export function SessionThread({
     const listTop = () => head.current?.offsetTop ?? 0;
     // The view's place in the list's offsets.
     const viewTop = () => node.scrollTop - listTop() - latest.current.shift;
+    // The view's top on the page.
+    const viewEdge = () => node.getBoundingClientRect().top + node.clientTop;
     // Half a device pixel: the scroll position moves in device pixels.
     const moved = (from: number, to: number) =>
       Math.abs(from - to) >= 0.5 / globalThis.devicePixelRatio;
     // Where the view was when its anchor was recorded or kept.
     let recorded = node.scrollTop;
+    // A part can go without a change of size, as when a reply's Markdown
+    // takes the place of its plain text: the part at the top then is the
+    // anchor's, read at once, before a new width moves the text.
+    const parts = new MutationObserver(() => {
+      const part = anchor.current?.part;
+      if (part && !part.place.part.isConnected) record();
+    });
+    const keepPart = () => {
+      parts.disconnect();
+      const unit = anchor.current?.part?.unit;
+      if (unit?.isConnected) parts.observe(unit, { childList: true, subtree: true });
+    };
+    // As in the browser's own anchoring, the view keeps the first part that
+    // starts in view. In a unit cut at the view's top, as a long reply, that
+    // part is the text the reader reads: a new width rewraps the text above
+    // it, and the unit's top would land paragraphs away. The anchor's unit is
+    // the first that starts in view, for when the part goes: a unit cut at the
+    // top can still change, as when its Markdown arrives, and the reader's
+    // place would move with its end.
     const record = () => {
       recorded = node.scrollTop;
-      const { all, offsets } = latest.current.model;
+      parts.disconnect();
+      const { model, range } = latest.current;
+      const { all, offsets } = model;
       if (!all.length || !latest.current.metrics) return;
+      // The units on the page say where they are: the list's offsets lag the
+      // page within a resize, until the units measure again.
+      const edge = viewEdge();
+      const end = edge + node.clientHeight;
+      let cut: { key: string; unit: HTMLElement; top: number } | undefined;
+      for (let at = range.start; at < Math.min(range.end, all.length); at++) {
+        const key = all[at]!.key;
+        const unit = heights.elements.get(key);
+        if (!unit) continue;
+        const box = unit.getBoundingClientRect();
+        if (box.bottom <= edge) continue;
+        if (box.top >= end) break;
+        if (box.top < edge) {
+          cut = { key, unit, top: box.top };
+          continue;
+        }
+        // A part of the cut unit that starts in view, above this unit.
+        const place = cut && partAt(cut.unit, edge, box.top);
+        anchor.current = {
+          key,
+          delta: edge - box.top,
+          ...(place && place.delta <= 0 ? { part: { unit: cut!.unit, place } } : {}),
+        };
+        keepPart();
+        return;
+      }
+      if (cut) {
+        const place = partAt(cut.unit, edge, end);
+        anchor.current = {
+          key: cut.key,
+          delta: edge - cut.top,
+          ...(place ? { part: { unit: cut.unit, place } } : {}),
+        };
+        keepPart();
+        return;
+      }
+      // No unit on the page is in view yet: the offsets say which will be.
       const y = viewTop();
       let at = indexAt(offsets, y);
-      // As in the browser's own anchoring, the first unit that starts in
-      // view: a unit cut at the top can still change, as when its Markdown
-      // arrives, and the reader's place would move with its end.
       if (offsets[at]! < y && at + 1 < all.length && offsets[at + 1]! < y + node.clientHeight) at++;
       anchor.current = { key: all[at]!.key, delta: y - offsets[at]! };
     };
@@ -1603,12 +1667,26 @@ export function SessionThread({
       const { offsets, index } = latest.current.model;
       const at = index.get(saved.key) ?? index.get(`explore-${saved.key}`);
       if (at === undefined) return;
-      const target = listTop() + latest.current.shift + offsets[at]! + saved.delta;
+      // A unit on the page keeps its place by where it is, or its part is;
+      // one that is not, by the list's offsets.
+      const unit = heights.elements.get(saved.key);
+      const edge = viewEdge();
+      const kept = saved.part && partMove(saved.part.unit, saved.part.place, edge);
+      // The part went, as when its unit's Markdown rendered: the unit keeps
+      // the place, and the part now at the top keeps it from here.
+      const lost = !!saved.part && kept === undefined;
+      const move =
+        kept ?? (unit ? unit.getBoundingClientRect().top + saved.delta - edge : undefined);
+      const target =
+        move !== undefined
+          ? node.scrollTop + move
+          : listTop() + latest.current.shift + offsets[at]! + saved.delta;
       if (moved(node.scrollTop, target)) {
         node.scrollTop = target;
         reader.wrote();
       }
       recorded = node.scrollTop;
+      if (lost) record();
     };
     const place = (sync: boolean) => {
       const { model, metrics, range } = latest.current;
@@ -1727,13 +1805,14 @@ export function SessionThread({
     follow();
     return () => {
       list.current = null;
+      parts.disconnect();
       glide.stop();
       resize.disconnect();
       inner.removeEventListener(HOLD_PLACE, keep);
       node.removeEventListener("scroll", onScroll);
       reader.dispose();
     };
-  }, []);
+  }, [heights.elements]);
 
   // The prompts on pages that have not loaded, from the session's index:
   // { goes on to them from the first loaded prompt.

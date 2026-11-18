@@ -1351,6 +1351,85 @@ test("a new width keeps the units in view still as heights above them change", a
   expect([...positions]).toHaveLength(1);
 });
 
+/** More characters than a line of the thread holds at its widest. */
+const LINE_CHARACTERS = 140;
+/**
+ * The text on the view's top line: its paragraph, and where in it the line
+ * starts. A new width rewraps the line, so the place moves by less than a line.
+ */
+function topLine(scroller: HTMLElement) {
+  const box = scroller.getBoundingClientRect();
+  const paragraphs = [...scroller.querySelectorAll<HTMLElement>("[data-unit] p")];
+  const at = paragraphs.find((element) => element.getBoundingClientRect().bottom > box.top + 4)!;
+  const text = at.getBoundingClientRect();
+  const caret = document.caretRangeFromPoint(text.left + 2, Math.max(box.top, text.top) + 4)!;
+  const before = document.createRange();
+  before.setStart(at, 0);
+  before.setEnd(caret.startContainer, caret.startOffset);
+  return { text: at.textContent!.slice(0, 16), offset: before.toString().length };
+}
+
+test("a new width keeps the text at the view's top in a reply taller than the view", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  // Every reply runs many paragraphs, so the view sits inside one.
+  const paragraphs = (turn: number) =>
+    Array.from(
+      { length: 30 },
+      (_, at) =>
+        `Paragraph ${turn}.${at}. ${"The reader is in the middle of this reply and keeps reading it. ".repeat(2 + (at % 4))}`,
+    ).join("\n\n");
+  store.applyAll(
+    turnEvents(0, 12).map((event) =>
+      event.update.sessionUpdate === "agent_message_chunk"
+        ? {
+            ...event,
+            update: {
+              ...event.update,
+              content: { type: "text" as const, text: paragraphs(event.at / 1000 - 0.5) },
+            },
+          }
+        : event,
+    ),
+  );
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r11");
+  const scroller = threadScroller();
+  await expect
+    .poll(() => document.querySelector("[data-unit] .med-session-plain"), { timeout: 5000 })
+    .toBeNull();
+  // The view goes 900 pixels into a reply in the middle, and settles there:
+  // the replies in view show their Markdown.
+  scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
+  scroller.scrollTop = scroller.scrollHeight / 2;
+  await afterFrames(10);
+  const reply = units().find((element) => element.dataset.unit?.startsWith("r"))!;
+  scroller.scrollTop +=
+    reply.getBoundingClientRect().top - scroller.getBoundingClientRect().top + 900;
+  const paragraph = () => topLine(scroller);
+  const settled = async () => {
+    await expect
+      .poll(() => scroller.querySelector("[data-unit] .med-session-plain"), { timeout: 5000 })
+      .toBeNull();
+    await afterFrames(20);
+  };
+  await settled();
+  const before = paragraph();
+  // The view is well inside the reply, and inside a paragraph.
+  expect(reply.isConnected).toBe(true);
+  expect(reply.getBoundingClientRect().top).toBeLessThan(
+    scroller.getBoundingClientRect().top - 300,
+  );
+  for (const width of ["900px", "420px", "520px"]) {
+    mount!.style.width = width;
+    await settled();
+    const after = paragraph();
+    expect(after.text).toBe(before.text);
+    expect(Math.abs(after.offset - before.offset)).toBeLessThan(LINE_CHARACTERS);
+  }
+});
+
 test("an update that renders during the reader's scroll does not pull the view back", async () => {
   await page.viewport(1280, 900);
   initializeTheme();
