@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { isMap, LineCounter, parseDocument } from "yaml";
 import { chartSourceFor, type GrafanaPanel, type LinkChart } from "../shared/charts";
 import {
@@ -12,6 +12,7 @@ import {
   panelType,
   panelWidth,
   firstRange,
+  sourceName,
   substitute,
   WIDTH_WORDS,
   type Dashboard,
@@ -21,6 +22,7 @@ import {
   type DashboardInput,
   type DashboardPanel,
   type DashboardProblem,
+  type OptionsSource,
   type PanelCheck,
 } from "../shared/dashboards";
 import type { RegisteredRepository } from "../shared/protocol";
@@ -28,6 +30,7 @@ import {
   grafanaRequest,
   linkRequest,
   parseChartBlock,
+  parseCsv,
   rowsData,
   type ChartData,
 } from "../web/components/chart/chart-block";
@@ -56,6 +59,8 @@ const KEY = /^[a-z][\w-]*$/;
 const RESERVED = new Set(["from", "to", "range", "view"]);
 const CHART_TYPES = new Set(["line", "bars", "stat", "table"]);
 const DATA_KEYS = ["link", "grafana", "file", "rows"];
+/** A link, as `https://…`; else a path. */
+const LINK = /^[a-z][\w+.-]*:\/\//i;
 
 /** A dashboard file as Med reads it: what it says, and what is wrong in it. */
 export function parseDashboard(
@@ -137,24 +142,32 @@ export function parseDashboard(
         const options = Array.isArray(settings.options)
           ? settings.options.map((option) => String(option))
           : undefined;
-        if (settings.options !== undefined && !options)
-          problem(`${name}'s options are a list.`, [...path, "options"]);
+        const source =
+          options || settings.options === undefined
+            ? undefined
+            : optionsSource(settings.options, name, [...path, "options"], problem);
+        if (settings.options !== undefined && !options && source === undefined) continue;
         const type =
-          settings.type === undefined ? (options ? "choice" : "text") : String(settings.type);
+          settings.type === undefined
+            ? options || source
+              ? "choice"
+              : "text"
+            : String(settings.type);
         if (type !== "text" && type !== "choice") {
           problem(`${name} is a text or a choice input, not ${type}.`, [...path, "type"]);
           continue;
         }
-        if (type === "choice" && !options?.length) {
+        if (type === "choice" && !options?.length && !source) {
           problem(`${name} is a choice: give it options.`, path);
           continue;
         }
-        const fallback = type === "choice" ? options![0]! : "";
+        // Options read from a file are known only as Med reads it (readOptions).
+        const fallback = type === "choice" && options ? options[0]! : "";
         const given =
           settings.default === undefined || settings.default === null
             ? fallback
             : String(settings.default);
-        if (type === "choice" && !options!.includes(given))
+        if (type === "choice" && options && !options.includes(given))
           problem(`${name}'s default is not one of its options.`, [...path, "default"]);
         const pattern = settings.pattern === undefined ? undefined : String(settings.pattern);
         if (pattern !== undefined)
@@ -163,13 +176,16 @@ export function parseDashboard(
           } catch {
             problem(`${name}'s pattern is not a regular expression.`, [...path, "pattern"]);
           }
+        const line = lineOf(path);
         inputs.push({
           name,
           label: settings.label === undefined ? name : String(settings.label),
           type,
-          default: type === "choice" && !options!.includes(given) ? fallback : given,
+          default: type === "choice" && options && !options.includes(given) ? fallback : given,
           ...(options ? { options } : {}),
+          ...(source ? { source } : {}),
           ...(pattern !== undefined ? { pattern } : {}),
+          ...(line !== undefined ? { line } : {}),
         });
       }
   }
@@ -214,6 +230,59 @@ export function parseDashboard(
     },
     problems,
   };
+}
+
+/** Where an input's options come from: a file's path or a link, or a map of
+ * `file` or `link`, the `value` and `label` columns, and the link's keys. */
+function optionsSource(
+  raw: unknown,
+  name: string,
+  path: (string | number)[],
+  problem: (message: string, path: (string | number)[]) => void,
+): OptionsSource | undefined {
+  const usage = `${name}'s options are a list, a file or a link to read them from, or a map: file or link, and the value and label columns.`;
+  if (typeof raw === "string" && raw.trim())
+    return LINK.test(raw.trim()) ? { link: raw.trim() } : { file: raw.trim() };
+  if (!isPlainObject(raw)) {
+    problem(usage, path);
+    return undefined;
+  }
+  const source: OptionsSource = {};
+  const meta: Record<string, string> = {};
+  for (const [key, field] of Object.entries(raw)) {
+    const text = scalar(field);
+    if (text === undefined || !text.trim()) {
+      problem(`${name}'s options: ${key} is text.`, [...path, key]);
+      return undefined;
+    }
+    if (key === "file" || key === "link" || key === "value" || key === "label")
+      source[key] = text.trim();
+    else if (KEY.test(key)) meta[key] = text;
+    else {
+      problem(`A key is lower-case letters, digits, - and _: not ${key}.`, [...path, key]);
+      return undefined;
+    }
+  }
+  if (!source.file === !source.link) {
+    problem(
+      source.file
+        ? `${name}'s options come from a file or a link, not both.`
+        : `${name}'s options need a file or a link to read them from.`,
+      path,
+    );
+    return undefined;
+  }
+  if (Object.keys(meta).length) {
+    if (source.file) {
+      problem(
+        `${name}'s options from a file take value and label, not ${Object.keys(meta).join(", ")}.`,
+        path,
+      );
+      return undefined;
+    }
+    source.meta = meta;
+  }
+  return source;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -318,6 +387,99 @@ function readPanel(
   };
 }
 
+/** The most options an input takes from a file or a link. */
+const MAX_OPTIONS = 5000;
+/** The largest file that an input reads its options from. */
+const MAX_OPTIONS_BYTES = 4 << 20;
+/** How long a link's options last before its command runs again. */
+const LINK_OPTIONS_MS = 60_000;
+
+/** A cell as an option's text, or none for one that is empty or not text. */
+function cell(value: unknown) {
+  const text = scalar(value)?.trim();
+  return text ? text : undefined;
+}
+
+/**
+ * The options in a file's or a command's text: a JSON list of values, or of
+ * maps whose `value` field (the first, when none is named) is the value; a
+ * JSON map, whose keys are; CSV or TSV under a header, its `value` column or
+ * the first; or a value a line, without blank lines and # notes. The `label`
+ * field or column names each option on the page.
+ */
+export function optionsOf(
+  text: string,
+  source: Pick<OptionsSource, "value" | "label">,
+  kind?: "json" | "csv" | "lines",
+): { options: string[]; labels: Record<string, string>; cut: boolean } | { error: string } {
+  const trimmed = text.trim();
+  const as =
+    kind ?? (/^[[{]/.test(trimmed) ? "json" : /^[^\n]*[,\t]/.test(trimmed) ? "csv" : "lines");
+  const pairs: [string | undefined, string | undefined][] = [];
+  if (as === "json") {
+    let data: unknown;
+    try {
+      data = JSON.parse(trimmed);
+    } catch {
+      return { error: "Its JSON does not parse." };
+    }
+    if (Array.isArray(data)) {
+      for (const item of data)
+        if (isPlainObject(item)) {
+          const key = source.value ?? Object.keys(item)[0];
+          pairs.push([
+            key === undefined ? undefined : cell(item[key]),
+            source.label ? cell(item[source.label]) : undefined,
+          ]);
+        } else pairs.push([cell(item), undefined]);
+      if (source.value && data.length && pairs.every(([value]) => value === undefined))
+        return { error: `No item has a field ${source.value}.` };
+    } else if (isPlainObject(data))
+      for (const [key, item] of Object.entries(data))
+        pairs.push([
+          key,
+          source.label && isPlainObject(item) ? cell(item[source.label]) : undefined,
+        ]);
+    else return { error: "Its JSON is a list of options, or a map whose keys are the options." };
+  } else if (as === "csv") {
+    const [header = [], ...rows] = parseCsv(trimmed);
+    const column = (name: string | undefined, fallback: number) => {
+      if (name === undefined) return fallback;
+      const exact = header.indexOf(name);
+      return exact >= 0
+        ? exact
+        : header.findIndex((each) => each.toLowerCase() === name.toLowerCase());
+    };
+    const valueAt = column(source.value, 0);
+    const labelAt = column(source.label, -1);
+    for (const [name, at] of [
+      [source.value, valueAt],
+      [source.label, labelAt],
+    ] as const)
+      if (name !== undefined && at < 0)
+        return { error: `It has no column ${name}; its columns are ${header.join(", ")}.` };
+    for (const row of rows)
+      pairs.push([cell(row[valueAt]), labelAt >= 0 ? cell(row[labelAt]) : undefined]);
+  } else
+    for (const line of trimmed.split(/\r?\n/)) {
+      const value = line.trim();
+      if (value && !value.startsWith("#")) pairs.push([value, undefined]);
+    }
+  const options: string[] = [];
+  const labels: Record<string, string> = {};
+  const seen = new Set<string>();
+  for (const [value, label] of pairs) {
+    if (value === undefined || seen.has(value)) continue;
+    seen.add(value);
+    options.push(value);
+    if (label !== undefined && label !== value) labels[value] = label;
+  }
+  if (!options.length) return { error: "It holds no options." };
+  const cut = options.length > MAX_OPTIONS;
+  if (cut) for (const value of options.splice(MAX_OPTIONS)) delete labels[value];
+  return { options, labels, cut };
+}
+
 const git = (cwd: string, args: string[]) =>
   new Promise<string>((done, failed) =>
     execFile(
@@ -385,6 +547,136 @@ export function createDashboards(options: DashboardsOptions) {
     return entry;
   }
 
+  // A link's options, kept a while: the page reads the dashboard every few
+  // seconds, and the link's command need not run each time.
+  const linkOptions = new Map<string, { at: number; rows: Promise<string> }>();
+
+  /** The text an input's options are in, and what kind of text it is. */
+  async function optionsText(
+    source: OptionsSource,
+    folder: string,
+    refresh: boolean,
+    signal?: AbortSignal,
+  ): Promise<{ text: string; kind?: "json" | "csv" | "lines" }> {
+    if (source.file) {
+      const path = source.file.startsWith("~/")
+        ? join(homedir(), source.file.slice(2))
+        : resolve(folder, source.file);
+      const info = await stat(path).catch(() => undefined);
+      if (!info?.isFile()) throw new Error(`There is no file ${path}.`);
+      if (info.size > MAX_OPTIONS_BYTES)
+        throw new Error(`The file is over ${MAX_OPTIONS_BYTES >> 20} MB.`);
+      const extension = extname(path).toLowerCase();
+      return {
+        text: await readFile(path, "utf8"),
+        ...(extension === ".json"
+          ? { kind: "json" as const }
+          : extension === ".csv" || extension === ".tsv"
+            ? { kind: "csv" as const }
+            : extension === ".txt"
+              ? { kind: "lines" as const }
+              : {}),
+      };
+    }
+    const key = JSON.stringify([source.link, source.meta ?? {}]);
+    const kept = linkOptions.get(key);
+    let rows = !refresh && kept && now() - kept.at < LINK_OPTIONS_MS ? kept.rows : undefined;
+    if (!rows) {
+      rows = options
+        .readLink(
+          {
+            link: source.link!,
+            live: true,
+            ...(source.meta ? { meta: source.meta } : {}),
+            ...(refresh ? { refresh } : {}),
+          },
+          signal,
+        )
+        .then((chart) => {
+          if (chart.rows === undefined) throw new Error("Its command printed a chart, not rows.");
+          return chart.rows;
+        });
+      // One that failed waits its while too, so a broken command is not run
+      // each time the page reads.
+      rows.catch(() => {});
+      if (!refresh) linkOptions.set(key, { at: now(), rows });
+    }
+    const text = await rows;
+    return { text, kind: /^\s*[[{]/.test(text) ? "json" : "csv" };
+  }
+
+  /** An input with its options read from its file or link, what is wrong
+   * with them, and what it read. */
+  async function inputOptions(
+    input: DashboardInput,
+    folder: string,
+    refresh: boolean,
+    signal?: AbortSignal,
+  ): Promise<{
+    input: DashboardInput;
+    problems: DashboardProblem[];
+    read?: { name: string; from: string; options: string[] };
+  }> {
+    if (!input.source) return { input, problems: [] };
+    const from = sourceName(input.source);
+    const problem = (message: string) => ({
+      message,
+      ...(input.line !== undefined ? { line: input.line } : {}),
+    });
+    let found: ReturnType<typeof optionsOf>;
+    try {
+      const { text, kind } = await optionsText(input.source, folder, refresh, signal);
+      found = optionsOf(text, input.source, kind);
+    } catch (error) {
+      found = { error: error instanceof Error ? error.message : String(error) };
+    }
+    if ("error" in found)
+      return {
+        input: { ...input, options: [] },
+        problems: [problem(`${input.name}'s options from ${from}: ${found.error}`)],
+      };
+    const problems = found.cut
+      ? [problem(`${input.name} takes the first ${MAX_OPTIONS} options of ${from}.`)]
+      : [];
+    let first = input.default;
+    if (input.type === "choice" && !found.options.includes(first)) {
+      if (first)
+        problems.push(
+          problem(
+            `${input.name}'s default ${first} is not in ${from}, so it starts at ${found.options[0]}.`,
+          ),
+        );
+      first = found.options[0]!;
+    }
+    return {
+      input: {
+        ...input,
+        default: first,
+        options: found.options,
+        ...(Object.keys(found.labels).length ? { labels: found.labels } : {}),
+      },
+      problems,
+      read: { name: input.name, from, options: found.options },
+    };
+  }
+
+  /** The dashboard with each input's options read, in the inputs' order. */
+  async function withOptions(
+    dashboard: Dashboard,
+    folder: string,
+    refresh = false,
+    signal?: AbortSignal,
+  ) {
+    const found = await Promise.all(
+      dashboard.inputs.map((input) => inputOptions(input, folder, refresh, signal)),
+    );
+    return {
+      dashboard: { ...dashboard, inputs: found.map((each) => each.input) },
+      problems: found.flatMap((each) => each.problems),
+      read: found.flatMap((each) => each.read ?? []),
+    };
+  }
+
   async function list(): Promise<{ folder: string; dashboards: DashboardEntry[] }> {
     const places: { where: string; root: string; files: string[] }[] = [
       { where: "Personal", root: options.folder, files: await filesIn(options.folder) },
@@ -446,11 +738,14 @@ export function createDashboards(options: DashboardsOptions) {
   async function read(id: string): Promise<DashboardFile> {
     const entry = await find(id);
     const file = await readParsed(entry.path);
+    const sourced = file.read.dashboard
+      ? await withOptions(file.read.dashboard, dirname(entry.path))
+      : undefined;
     return {
       entry,
       text: file.text,
-      ...(file.read.dashboard ? { dashboard: file.read.dashboard } : {}),
-      problems: file.read.problems,
+      ...(sourced ? { dashboard: sourced.dashboard } : {}),
+      problems: [...file.read.problems, ...(sourced?.problems ?? [])],
     };
   }
 
@@ -579,9 +874,8 @@ export function createDashboards(options: DashboardsOptions) {
     const file = await readParsed(path).catch(() => {
       throw new HostError("dashboard-missing", `There is no dashboard at ${path}.`, 404);
     });
-    const dashboard = file.read.dashboard;
     const problems = [...file.read.problems];
-    if (!dashboard)
+    if (!file.read.dashboard)
       return {
         path,
         ...(id ? { id } : {}),
@@ -590,6 +884,10 @@ export function createDashboards(options: DashboardsOptions) {
         values: {},
         panels: [],
       };
+    // The options as the page would read them now, every link again.
+    const sourced = await withOptions(file.read.dashboard, dirname(path), true, signal);
+    const dashboard = sourced.dashboard;
+    problems.push(...sourced.problems);
     const given = input.values ?? {};
     const { values, problems: valueProblems } = inputValues(dashboard, given);
     problems.push(...valueProblems.map((message) => ({ message })));
@@ -617,7 +915,15 @@ export function createDashboards(options: DashboardsOptions) {
       const result = await checkPanel(panel, values, dashboard.live, dirname(path), at, signal);
       return { ...head, ...result, ms: Math.max(0, now() - started) };
     });
-    return { path, ...(id ? { id } : {}), title: dashboard.title, problems, values, panels };
+    return {
+      path,
+      ...(id ? { id } : {}),
+      title: dashboard.title,
+      problems,
+      values,
+      ...(sourced.read.length ? { options: sourced.read } : {}),
+      panels,
+    };
   }
 
   return { list, read, check, folder: options.folder };

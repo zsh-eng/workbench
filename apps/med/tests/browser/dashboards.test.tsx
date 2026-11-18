@@ -466,3 +466,76 @@ test("a dashboard keeps what it drew while it reads again, picks a range from wo
   render();
   await expect.element(page.getByText("Showing payments since 09:00.")).toBeVisible();
 }, 30_000);
+
+test("an input whose options come from a file shows them by their labels, and the options the file has now", async () => {
+  const sourced = (options: string[]): DashboardFile => ({
+    ...file,
+    problems: [{ line: 4, message: "region's options from regions.csv: There is no file." }],
+    dashboard: {
+      ...dashboard,
+      range: undefined,
+      inputs: [
+        {
+          name: "env",
+          label: "env",
+          type: "choice",
+          default: "prod",
+          options,
+          labels: { prod: "Production" },
+          source: { file: "environments.json" },
+        },
+        // One whose file could not be read still takes a value.
+        {
+          name: "region",
+          label: "region",
+          type: "choice",
+          default: "",
+          options: [],
+          source: { file: "regions.csv" },
+        },
+        // A text input's options are suggestions.
+        {
+          name: "team",
+          label: "team",
+          type: "text",
+          default: "",
+          options: ["payments", "checkout"],
+          source: { file: "teams.txt" },
+        },
+      ],
+      views: [
+        { name: "Overview", panels: [{ kind: "text", width: 12, text: "${env} in ${region}" }] },
+      ],
+    },
+  });
+  let current = sourced(["prod", "staging", "qa"]);
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = new URL(String(input instanceof Request ? input.url : input), location.href);
+    if (url.pathname === "/api/dashboards/read") return Response.json(current);
+    return Response.json({});
+  });
+  await show("/dashboards/personal/checkout?var-region=eu");
+  const env = page.getByRole("combobox", { name: "env" });
+  await expect.element(env).toHaveTextContent("Production");
+  await expect
+    .poll(() => document.querySelector("[data-dashboard-panel] p")?.textContent)
+    .toBe("prod in eu");
+  await expect.element(page.getByRole("textbox", { name: "region" })).toHaveValue("eu");
+  await expect
+    .poll(() => page.getByRole("alert", { name: "Problems in the file" }).element().textContent)
+    .toBe("Line 4: region's options from regions.csv: There is no file.");
+  // A field with suggestions is a combobox.
+  const team = page.getByRole("combobox", { name: "team" }).element() as HTMLInputElement;
+  expect([...(team.list?.options ?? [])].map((option) => option.value)).toEqual([
+    "payments",
+    "checkout",
+  ]);
+
+  // The script rewrote the file; the dashboard's own text is the same.
+  current = sourced(["prod", "staging", "qa", "dev"]);
+  await new Promise((done) => setTimeout(done, 2_100));
+  await env.click();
+  await expect.element(page.getByRole("option", { name: "dev" })).toBeVisible();
+  await page.getByRole("option", { name: "staging" }).click();
+  expect(new URLSearchParams(location.search).get("var-env")).toBe("staging");
+}, 15_000);

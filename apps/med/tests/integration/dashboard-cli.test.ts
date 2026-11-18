@@ -72,7 +72,7 @@ test("med dashboard lists the dashboards and checks one, panel by panel, exiting
     join(stateDir, "dashboards", "checkout.dashboard.yaml"),
     `title: Checkout
 inputs:
-  env: [prod, staging]
+  env: { options: environments.csv }
 panels:
   - link: https://status.acme.build/checkout?env=\${env}
     metric: requests
@@ -92,9 +92,12 @@ panels:
     );
     return output.join("\n");
   };
+  // The environments are a list that a script keeps, beside the dashboard.
+  await writeFile(join(stateDir, "dashboards", "environments.csv"), "name\nprod\nstaging\n");
   expect(await run()).toMatch(/^personal\/checkout {2}Checkout {2}3 panels\n {2}\//);
   const check = await run("check", "personal/checkout", "--set", "env=staging");
   expect(check).toContain("Inputs: env=staging");
+  expect(check).toContain("Options of env, from environments.csv: prod, staging (2)");
   expect(check).toContain("✓ 1. Requests (stat, line 5) from https://status.acme.build");
   expect(check).toContain("500 (req/s), +25.0% over the range");
   expect(check).toContain("✗ 2. Latency (chart, line 9) from https://status.acme.build");

@@ -3,6 +3,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -14,8 +15,10 @@ import {
   dashboardRoutes,
   inputValues,
   followsRange,
+  listed,
   panelChartText,
   panelTitle,
+  sourceName,
   substitute,
   valuesOfSearch,
   type Dashboard,
@@ -214,7 +217,11 @@ function pageContext(
     ...(view && dashboard.views.length > 1 ? [`view ${view}`] : []),
   ].join(", ");
   const inputs = dashboard.inputs
-    .map((input) => (input.options ? `${input.name} (${input.options.join(", ")})` : input.name))
+    .map((input) =>
+      input.options?.length
+        ? `${input.name} (${listed(input.options)}${input.source ? `, from ${sourceName(input.source)}` : ""})`
+        : input.name,
+    )
     .join(", ");
   return [
     `${dashboard.title} (${id}) is on the reader's screen in Med${shown ? `: ${shown}` : ""}.`,
@@ -246,8 +253,10 @@ function DashboardView({ id }: { id: string }) {
     const read = async () => {
       try {
         const next = await readDashboard(id, abort.signal);
-        if (next.text !== last) {
-          last = next.text;
+        // The file, or the options that its inputs read from elsewhere.
+        const seen = JSON.stringify([next.text, next.dashboard?.inputs, next.problems]);
+        if (seen !== last) {
+          last = seen;
           setFile(next);
         }
         setError("");
@@ -476,8 +485,15 @@ function InputField({
     setDraft(value);
   }
   const valid = !input.pattern || new RegExp(`^(?:${input.pattern})$`).test(draft);
-  if (input.type === "choice") {
-    const choices = (input.options ?? []).map((option) => ({ value: option, label: option }));
+  const options = input.options ?? [];
+  const suggestions = useId();
+  // A choice whose options could not be read is a field, so that it still
+  // takes a value; the page's problems say why.
+  if (input.type === "choice" && options.length) {
+    const choices = options.map((option) => ({
+      value: option,
+      label: input.labels?.[option] ?? option,
+    }));
     return (
       <div {...stylex.props(styles.field)}>
         <span aria-hidden="true" {...stylex.props(styles.fieldLabel)}>
@@ -515,6 +531,8 @@ function InputField({
         value={draft}
         spellCheck={false}
         aria-invalid={!valid || undefined}
+        // A text input's options are suggestions: any value it matches goes.
+        list={options.length ? suggestions : undefined}
         size={Math.max(8, Math.min(28, draft.length + 2))}
         {...stylex.props(ui.input, styles.text, !valid && styles.textInvalid)}
         onChange={(event) => setDraft(event.target.value)}
@@ -524,6 +542,15 @@ function InputField({
           if (event.key === "Escape") setDraft(value);
         }}
       />
+      {options.length > 0 && (
+        <datalist id={suggestions}>
+          {options.map((option) => (
+            <option key={option} value={option}>
+              {input.labels?.[option] ?? option}
+            </option>
+          ))}
+        </datalist>
+      )}
     </label>
   );
 }

@@ -6,6 +6,7 @@ import {
   dashboardPath,
   dashboardRoutes,
   inputValues,
+  listed,
   type DashboardCheck,
   type PanelCheck,
 } from "../shared/dashboards";
@@ -54,6 +55,10 @@ export function describeCheck(check: DashboardCheck, link?: string) {
   const lines: string[] = [`${check.title}  ${check.path}`];
   const values = valuesLine(check.values);
   if (values) lines.push(`Inputs: ${values}`);
+  for (const read of check.options ?? [])
+    lines.push(
+      `Options of ${read.name}, from ${read.from}: ${listed(read.options, 8)} (${read.options.length})`,
+    );
   for (const problem of check.problems)
     lines.push(`✗ ${problem.line !== undefined ? `Line ${problem.line}: ` : ""}${problem.message}`);
   let view = "";
@@ -221,7 +226,9 @@ export async function runDashboardCommand(
       (name) => !names.has(name) && !["from", "to", "view"].includes(name),
     );
     const inputs = dashboard.inputs
-      .map((input) => (input.options ? `${input.name} (${input.options.join(", ")})` : input.name))
+      .map((input) =>
+        input.options?.length ? `${input.name} (${listed(input.options)})` : input.name,
+      )
       .join(", ");
     if (unknown.length)
       throw new UsageError(

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vitest";
-import { createDashboards, parseDashboard } from "../../src/host/dashboards";
+import { createDashboards, optionsOf, parseDashboard } from "../../src/host/dashboards";
 import type { LinkRequest } from "../../src/host/chart-sources";
 import type { LinkChart } from "../../src/shared/charts";
 import type { RegisteredRepository } from "../../src/shared/protocol";
@@ -264,4 +264,152 @@ test("Med finds dashboards in its folder and in its repositories, and checks one
   await expect(dashboards.check({ id: "personal/nope" })).rejects.toMatchObject({
     code: "dashboard-missing",
   });
+});
+
+test("an input's options come from a file or a link, read again each time Med reads the dashboard", async () => {
+  const personal = join(folder, "dashboards");
+  await mkdir(personal, { recursive: true });
+  const teams = join(folder, "teams.txt");
+  await writeFile(
+    join(personal, "envs.dashboard.yaml"),
+    `title: Environments
+inputs:
+  env: { options: environments.json, default: staging }
+  region:
+    options: { file: regions.csv, value: code, label: name }
+  team: { type: text, options: ${teams} }
+  host:
+    options: { link: https://inventory.acme.dev/hosts, kind: web }
+panels:
+  - text: \${env} in \${region}
+`,
+  );
+  await writeFile(join(personal, "environments.json"), '["prod", "staging", "qa"]');
+  await writeFile(
+    join(personal, "regions.csv"),
+    "code,name\nsg,Singapore\nus,United States\nsg,Singapore again\n",
+  );
+  await writeFile(teams, "# The teams on call\npayments\n\ncheckout\n");
+  const asked: LinkRequest[] = [];
+  const dashboards = createDashboards({
+    folder: personal,
+    repositories: () => [],
+    sources: async () => ({ "https://inventory.acme.dev": "inventory" }),
+    async readLink(input): Promise<LinkChart> {
+      asked.push(input);
+      return {
+        source: "https://inventory.acme.dev",
+        rows: "name\nweb-1\nweb-2\n",
+        live: true,
+        fetched: 1,
+      };
+    },
+    readGrafana: async () => {
+      throw new Error("no Grafana here");
+    },
+  });
+
+  const first = await dashboards.read("personal/envs");
+  expect(first.problems).toEqual([]);
+  expect(
+    first.dashboard!.inputs.map(({ name, type, default: start, options, labels }) => ({
+      name,
+      type,
+      default: start,
+      options,
+      labels,
+    })),
+  ).toEqual([
+    { name: "env", type: "choice", default: "staging", options: ["prod", "staging", "qa"] },
+    {
+      name: "region",
+      type: "choice",
+      default: "sg",
+      options: ["sg", "us"],
+      labels: { sg: "Singapore", us: "United States" },
+    },
+    // A text input's options are its suggestions.
+    { name: "team", type: "text", default: "", options: ["payments", "checkout"] },
+    { name: "host", type: "choice", default: "web-1", options: ["web-1", "web-2"] },
+  ]);
+  // The link's command gets its keys, as a chart's does, and runs again only
+  // after a while, though the page reads the dashboard every few seconds.
+  expect(asked).toEqual([
+    { link: "https://inventory.acme.dev/hosts", live: true, meta: { kind: "web" } },
+  ]);
+
+  // The script that writes the file runs again: the page reads what it wrote.
+  await writeFile(join(personal, "environments.json"), '["prod", "qa"]');
+  await rm(join(personal, "regions.csv"));
+  const second = await dashboards.read("personal/envs");
+  expect(asked).toHaveLength(1);
+  expect(second.dashboard!.inputs[0]).toMatchObject({ options: ["prod", "qa"], default: "prod" });
+  expect(second.problems).toEqual([
+    {
+      line: 3,
+      message: "env's default staging is not in environments.json, so it starts at prod.",
+    },
+    {
+      line: 5,
+      message: `region's options from regions.csv: There is no file ${join(personal, "regions.csv")}.`,
+    },
+  ]);
+
+  // A check reads them as the page does, every link again, and says what
+  // each input read; a value that is not an option is a problem, and one for
+  // an input whose options could not be read goes.
+  const check = await dashboards.check({
+    id: "personal/envs",
+    values: { env: "staging", region: "eu" },
+  });
+  expect(asked.at(-1)).toMatchObject({ refresh: true });
+  expect(check.values).toMatchObject({ env: "prod", region: "eu" });
+  expect(check.problems.at(-1)).toEqual({
+    message: 'env takes one of prod, qa, not "staging".',
+  });
+  expect(check.options).toEqual([
+    { name: "env", from: "environments.json", options: ["prod", "qa"] },
+    { name: "team", from: teams, options: ["payments", "checkout"] },
+    { name: "host", from: "https://inventory.acme.dev/hosts", options: ["web-1", "web-2"] },
+  ]);
+});
+
+test("an input's options read as JSON lists and maps, CSV and TSV, or a value a line", () => {
+  expect(optionsOf('[{"id": "a", "title": "A"}, {"id": "b"}, "c"]', { label: "title" })).toEqual({
+    options: ["a", "b", "c"],
+    labels: { a: "A" },
+    cut: false,
+  });
+  expect(optionsOf('{"prod": {"title": "Production"}, "qa": {}}', { label: "title" })).toEqual({
+    options: ["prod", "qa"],
+    labels: { prod: "Production" },
+    cut: false,
+  });
+  expect(optionsOf("env\tregion\nprod\tsg\nqa\tus", { value: "Region" })).toMatchObject({
+    options: ["sg", "us"],
+  });
+  expect(optionsOf("env,region\nprod,sg", { value: "zone" })).toEqual({
+    error: "It has no column zone; its columns are env, region.",
+  });
+  expect(optionsOf('[{"id": "a"}]', { value: "name" })).toEqual({
+    error: "No item has a field name.",
+  });
+  expect(optionsOf("prod", {}, "json")).toEqual({ error: "Its JSON does not parse." });
+  expect(optionsOf("\n# none yet\n", {})).toEqual({ error: "It holds no options." });
+
+  const { dashboard, problems } = parseDashboard(`inputs:
+  a: { options: { file: a.csv, link: https://a.dev/q } }
+  b: { options: { value: name } }
+  c: { options: { file: c.json, kind: web } }
+  d: { options: 3 }
+panels:
+  - text: Inputs
+`);
+  expect(problems).toEqual([
+    { line: 2, message: "a's options come from a file or a link, not both." },
+    { line: 3, message: "b's options need a file or a link to read them from." },
+    { line: 4, message: "c's options from a file take value and label, not kind." },
+    { line: 5, message: expect.stringContaining("d's options are a list, a file or a link") },
+  ]);
+  expect(dashboard!.inputs).toEqual([]);
 });

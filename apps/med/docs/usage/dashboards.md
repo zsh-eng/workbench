@@ -20,6 +20,7 @@ live: true # every chart reads again each minute
 inputs:
   service: { type: text, default: checkout, pattern: "[a-z-]+" }
   env: [prod, staging] # a list is a choice; the first is the default
+  region: { options: regions.csv } # options a script keeps up to date
 views:
   - name: Overview
     panels:
@@ -64,6 +65,38 @@ A text input may have a `pattern` its values match. Short forms: a value
 of more than two options has a search field. The values live in the page's
 address (`?var-service=payments&from=now-24h&to=now&view=Endpoints`), so a
 link opens the same dashboard, and **Back** undoes a change.
+
+**Options from a file or a source.** Instead of a list, `options` can name
+where to read them, so a list that a script keeps up to date fills the menu:
+
+```yaml
+inputs:
+  env: { options: environments.json } # a file beside the dashboard
+  region:
+    options: { file: ~/ops/regions.csv, value: code, label: name }
+  host:
+    options: { link: https://inventory.acme.dev/hosts, kind: web }
+  team: { type: text, options: teams.txt } # suggestions; any value goes
+```
+
+- `file:` is a path from the dashboard's folder, from `~`, or from the root.
+  Med reads it again each time the page reads the dashboard, every few
+  seconds, so the menu shows what the file holds now. A file up to 4 MB, and
+  up to 5,000 options.
+- `link:` reads through a [chart source](settings.md#chart-sources), as a
+  panel's link does: the command prints the options as rows, and the map's
+  other keys reach it as `MED_CHART_<KEY>`. Med runs it again after a minute.
+  A string that starts with `https://` is a link, and any other string a file.
+- What the text holds: a JSON list of values, or of maps; a JSON map, whose
+  keys are the options; CSV or TSV under a header row; or a `.txt` file of a
+  value a line (blank lines and `#` notes skipped). `value` names the field
+  or column with each option's value (the first, when none is named), and
+  `label` the one the menu shows instead of the value.
+- A choice starts at its `default` when the file has it, and else at the
+  file's first option. A text input with options suggests them as you type.
+- When Med cannot read the options, the page says why among the file's
+  problems, and the input takes any value until it can.
+  `med dashboard check` says which options each input read.
 
 **Panels.** A panel is a chart block's keys as YAML, plus `width`:
 

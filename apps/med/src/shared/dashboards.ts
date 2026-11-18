@@ -20,6 +20,7 @@ import { isRelative, parseRange, resolveRange, timeValue, type TimeRange } from 
 //   inputs:
 //     service: { type: text, default: checkout }
 //     env: { type: choice, options: [prod, staging] }
+//     region: { options: regions.csv }   # read again as the page reads
 //   views:
 //     - name: Overview
 //       panels:
@@ -65,14 +66,38 @@ export function firstRange(text: string): TimeRange | null {
     : null;
 }
 
+/** Where an input's options come from, when the file does not list them: a
+ * file (CSV, JSON, or a value a line) or a chart source's link whose command
+ * prints rows. Med reads it again each time it reads the dashboard. */
+const optionsSourceSchema = z.object({
+  /** A path from the dashboard's folder, from ~, or from the root. */
+  file: z.string().optional(),
+  link: z.string().optional(),
+  /** The column or field that holds each option's value (the first one when
+   * none is named), and its label. */
+  value: z.string().optional(),
+  label: z.string().optional(),
+  /** The link's other keys, as a chart block's: MED_CHART_<KEY>. */
+  meta: z.record(z.string(), z.string()).optional(),
+});
+export type OptionsSource = z.infer<typeof optionsSourceSchema>;
+
 const inputSchema = z.object({
   name: z.string(),
   label: z.string(),
   type: z.enum(["text", "choice"]),
   default: z.string(),
+  /** A choice's options; a text input's suggestions. */
   options: z.array(z.string()).optional(),
+  /** An option's label, where it is not the value. */
+  labels: z.record(z.string(), z.string()).optional(),
+  /** Where the options come from, when the file does not list them. The host
+   * reads them into `options` as it reads the dashboard. */
+  source: optionsSourceSchema.optional(),
   /** A text input's values match this, as a whole. */
   pattern: z.string().optional(),
+  /** Its line in the file. */
+  line: z.number().optional(),
 });
 export type DashboardInput = z.infer<typeof inputSchema>;
 
@@ -174,6 +199,11 @@ export const dashboardCheckSchema = z.object({
   problems: z.array(dashboardProblemSchema),
   /** The values each input took. */
   values: z.record(z.string(), z.string()),
+  /** The inputs whose options Med read from a file or a link, and what it
+   * read. */
+  options: z
+    .array(z.object({ name: z.string(), from: z.string(), options: z.array(z.string()) }))
+    .optional(),
   panels: z.array(panelCheckSchema),
 });
 export type DashboardCheck = z.infer<typeof dashboardCheckSchema>;
@@ -287,8 +317,9 @@ export function inputValues(
   for (const input of dashboard.inputs) {
     const value = given[input.name];
     if (value === undefined) values[input.name] = input.default;
-    else if (input.type === "choice" && input.options && !input.options.includes(value)) {
-      problems.push(`${input.name} takes one of ${input.options.join(", ")}, not "${value}".`);
+    // A choice whose options could not be read takes what it is given.
+    else if (input.type === "choice" && input.options?.length && !input.options.includes(value)) {
+      problems.push(`${input.name} takes one of ${listed(input.options)}, not "${value}".`);
       values[input.name] = input.default;
     } else if (input.pattern && !new RegExp(`^(?:${input.pattern})$`).test(value)) {
       problems.push(`${input.name} must match ${input.pattern}, not "${value}".`);
@@ -314,6 +345,16 @@ export function inputValues(
   values.to = timeValue(range.to);
   return { values, problems, range };
 }
+
+/** Options in a line: the first few, and how many more. */
+export function listed(options: readonly string[], count = 12) {
+  return options.length > count
+    ? `${options.slice(0, count).join(", ")}, and ${options.length - count} more`
+    : options.join(", ");
+}
+
+/** Where an input's options come from, in words: its file or its link. */
+export const sourceName = (source: OptionsSource) => source.file ?? source.link ?? "";
 
 /** `text` with each `${name}` as its value, and the names that have none. */
 export function substitute(text: string, values: Record<string, string>) {
