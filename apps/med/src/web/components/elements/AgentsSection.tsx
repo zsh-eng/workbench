@@ -235,6 +235,7 @@ export function AgentsSection() {
             onRenaming={() => {}}
             onRename={() => {}}
             onPin={() => {}}
+            onLater={() => {}}
           />
         </div>
       </Specimen>

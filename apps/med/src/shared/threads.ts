@@ -168,6 +168,9 @@ export const threadSchema = z.object({
   /** Its place among the pins, from 1, when the reader pinned it: the
    * sidebar lists the pinned threads first, in the order they were pinned. */
   pinned: z.number().int().positive().optional(),
+  /** Its place in Later, from 1, when the reader put it off: a section of the
+   * sidebar under Recent that folds away. A thread is pinned or in Later. */
+  later: z.number().int().positive().optional(),
   /** The Superagent's thread (src/host/superagent.ts): the sidebar's row of
    * its own, at its top, not a row among the others. */
   superagent: z.literal(true).optional(),
@@ -352,6 +355,13 @@ export const threadNameSchema = z.object({ name: z.string().max(120) });
 export const threadPinSchema = z.object({
   pinned: z.boolean(),
   /** Its place among the pins, from 0; without it, under the others. */
+  at: z.number().int().min(0).optional(),
+});
+
+/** Puts a thread in Later, or takes it out. */
+export const threadLaterSchema = z.object({
+  later: z.boolean(),
+  /** Its place in Later, from 0; without it, under the others. */
   at: z.number().int().min(0).optional(),
 });
 

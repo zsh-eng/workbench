@@ -247,6 +247,7 @@ function Window({ children }: { children: ReactNode }) {
           onRenaming={() => {}}
           onRename={() => {}}
           onPin={() => {}}
+          onLater={() => {}}
         />
       </aside>
       {children}

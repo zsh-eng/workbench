@@ -71,15 +71,18 @@ export function useThreads(fetcher: typeof fetch): ThreadList | null {
 
 /** The threads in the sidebar's order, which ⌘1–⌘9 follow: the Superagent's,
  * then the pinned ones in the order they were pinned, then the others, newest
- * activity first. */
+ * activity first, then those in Later, in the reader's order. */
 export const tabOrder = (threads: readonly Thread[]): Thread[] => [
   ...threads.filter((thread) => thread.superagent),
   ...threads
     .filter((thread) => thread.pinned && !thread.superagent)
     .toSorted((a, b) => a.pinned! - b.pinned!),
   ...threads
-    .filter((thread) => !thread.pinned && !thread.superagent)
+    .filter((thread) => !thread.pinned && !thread.later && !thread.superagent)
     .toSorted((a, b) => b.updatedAt - a.updatedAt),
+  ...threads
+    .filter((thread) => thread.later && !thread.pinned && !thread.superagent)
+    .toSorted((a, b) => a.later! - b.later!),
 ];
 
 export { needsYou } from "../../shared/threads";

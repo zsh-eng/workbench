@@ -270,7 +270,9 @@ export function createHost() {
       for (const stream of threadStreams) stream.enqueue(threadFrame());
       return Response.json({ ok: true });
     }
-    const action = /^\/api\/threads\/([\w-]+)\/(open|close|delete|name|pin)$/.exec(url.pathname);
+    const action = /^\/api\/threads\/([\w-]+)\/(open|close|delete|name|pin|later)$/.exec(
+      url.pathname,
+    );
     if (action && init?.method === "POST") {
       const [, id, verb] = action;
       const body = JSON.parse(String(init.body ?? "{}")) as Record<string, unknown>;
@@ -290,18 +292,24 @@ export function createHost() {
         if (tab) setThreads(threads.filter((entry) => entry !== tab));
         return Response.json({ deleted: true });
       }
-      // As the host pins a thread: at its place among the pins, or under them.
-      if (verb === "pin") {
-        const pins = threads
-          .filter((entry) => entry.pinned && entry.id !== id)
-          .toSorted((a, b) => a.pinned! - b.pinned!)
+      // As the host pins a thread or puts it in Later: at its place there, or
+      // under the others. A thread is in one of the two.
+      if (verb === "pin" || verb === "later") {
+        const field = verb === "pin" ? "pinned" : "later";
+        const other = verb === "pin" ? "later" : "pinned";
+        const on = body[field] === true;
+        const list = threads
+          .filter((entry) => entry[field] && entry.id !== id)
+          .toSorted((a, b) => a[field]! - b[field]!)
           .map((entry) => entry.id);
-        if (body.pinned) pins.splice(typeof body.at === "number" ? body.at : pins.length, 0, id!);
+        if (on) list.splice(typeof body.at === "number" ? body.at : list.length, 0, id!);
         setThreads(
           threads.map((entry) => {
-            const { pinned: _, ...rest } = entry;
-            const place = pins.indexOf(entry.id);
-            return place < 0 ? rest : { ...rest, pinned: place + 1 };
+            const next: Thread = { ...entry };
+            delete next[field];
+            if (on && entry.id === id) delete next[other];
+            const place = list.indexOf(entry.id);
+            return place < 0 ? next : { ...next, [field]: place + 1 };
           }),
         );
         return Response.json({ ok: true });

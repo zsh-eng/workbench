@@ -83,6 +83,7 @@ import {
   reopenThread,
   renameThread,
   pinThread,
+  laterThread,
   useReadState,
 } from "../data/tabs";
 import type { ReviewCommand } from "./Controls";
@@ -1470,9 +1471,9 @@ export function WorkspaceHost({
           problem: true,
           text: `Kept “${failed[0]!.title}” open. ${reason(problem)}`.trim(),
         });
-        return;
       }
       // Archived: ⌘⌥T, ⌃Tab and history bring it back, so no notice.
+      return list.filter((thread) => !failed.includes(thread));
     },
     [closeView, fetcher, forget, openTab],
   );
@@ -1487,6 +1488,40 @@ export function WorkspaceHost({
       confirmClose(ids, title, () => void closeNow(list, details));
     },
     [closeNow, confirmClose, store],
+  );
+  /** Archives many tabs at once, as Recent's Archive all does, and offers to
+   * bring them back. */
+  const archiveAll = useCallback(
+    (list: readonly Thread[]) => {
+      if (!list.length) return;
+      const ids = list.flatMap((thread) => store.match(threadInput(thread)) ?? []);
+      const count = list.length === 1 ? `“${list[0]!.title}”` : `${list.length} sessions`;
+      confirmClose(ids, count, () => {
+        void closeNow(list, {}).then((archived) => {
+          if (!archived.length) return;
+          setNotice({
+            text: `Archived ${archived.length === 1 ? `“${archived[0]!.title}”` : `${archived.length} sessions`}.`,
+            actions: [
+              {
+                label: "Undo",
+                run: () => {
+                  setNotice(null);
+                  void Promise.allSettled(
+                    archived.map((thread) => {
+                      opening.current.add(thread.id);
+                      return openThread(thread.id, true, fetcher).finally(() =>
+                        opening.current.delete(thread.id),
+                      );
+                    }),
+                  ).then(() => forget(archived));
+                },
+              },
+            ],
+          });
+        });
+      });
+    },
+    [closeNow, confirmClose, store, fetcher, forget],
   );
   /** ⌘⌥T: the tab that closed last opens at its place. */
   const reopenLast = useCallback(async () => {
@@ -1561,6 +1596,19 @@ export function WorkspaceHost({
         setNotice({
           problem: true,
           text: `Could not ${pinned ? "pin" : "unpin"} “${thread.title}”. ${errorText(error, "")}`.trim(),
+        });
+      }
+    },
+    [fetcher],
+  );
+  const laterTo = useCallback(
+    async (thread: Thread, later: boolean, at?: number) => {
+      try {
+        await laterThread(thread.id, later, fetcher, at);
+      } catch (error) {
+        setNotice({
+          problem: true,
+          text: `Could not move “${thread.title}” ${later ? "to Later" : "out of Later"}. ${errorText(error, "")}`.trim(),
         });
       }
     },
@@ -1988,6 +2036,8 @@ export function WorkspaceHost({
                               onRenaming={(thread) => setRenaming(thread?.id ?? null)}
                               onRename={(thread, name) => void renameTo(thread, name)}
                               onPin={(thread, pinned, at) => void pinTo(thread, pinned, at)}
+                              onLater={(thread, later, at) => void laterTo(thread, later, at)}
+                              onArchiveAll={archiveAll}
                             />
                           </aside>
                           {!narrow && (

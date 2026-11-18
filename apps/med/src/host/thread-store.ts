@@ -58,6 +58,9 @@ const stateSchema = z.object({
   entries: z.record(z.string().max(200), entrySchema),
   /** The pinned threads, in the reader's order. */
   pins: z.array(z.string().max(200)).max(1000).optional(),
+  /** The threads that the reader put off for later, in their order: a
+   * section of the sidebar that folds away. A thread is in one of the two. */
+  later: z.array(z.string().max(200)).max(1000).optional(),
   /** The last pruning, in milliseconds. */
   prunedAt: z.number().optional(),
   /** The newest change of each thread that the reader has seen, by its
@@ -120,6 +123,28 @@ export function createThreadStore(options: { file: string; now?: () => number })
     for (const listener of listeners) listener();
   };
   const entry = (id: string) => (state.entries[id] ??= {});
+  /** Puts the thread on `shelf` at `at` (under the others without it), moves
+   * it there, or takes it off; it leaves `other`. False when nothing changed. */
+  const shelve = (
+    shelf: "pins" | "later",
+    other: "pins" | "later",
+    id: string,
+    on: boolean,
+    at?: number,
+  ) => {
+    const list = state[shelf] ?? [];
+    const rest = list.filter((each) => each !== id);
+    const next = on
+      ? rest.toSpliced(Math.min(Math.max(at ?? rest.length, 0), rest.length), 0, id)
+      : rest;
+    const left = on && !!state[other]?.includes(id);
+    if (left) state[other] = state[other]!.filter((each) => each !== id);
+    if (!left && next.length === list.length && next.every((each, index) => each === list[index]))
+      return false;
+    state[shelf] = next;
+    changed();
+    return true;
+  };
 
   const store = {
     /** Reads the file. False when there is none yet, as before the first
@@ -240,18 +265,18 @@ export function createThreadStore(options: { file: string; now?: () => number })
     /** The pinned threads, in the reader's order. */
     pins: (): readonly string[] => state.pins ?? [],
     /** Pins the thread at `at` among the pins (under the others without it),
-     * moves a pinned one there, or unpins it. False when nothing changed. */
+     * moves a pinned one there, or unpins it. A thread that it pins leaves
+     * Later. False when nothing changed. */
     setPinned(id: string, pinned: boolean, at?: number) {
-      const pins = state.pins ?? [];
-      const others = pins.filter((other) => other !== id);
-      const next = pinned
-        ? others.toSpliced(Math.min(Math.max(at ?? others.length, 0), others.length), 0, id)
-        : others;
-      if (next.length === pins.length && next.every((other, index) => other === pins[index]))
-        return false;
-      state.pins = next;
-      changed();
-      return true;
+      return shelve("pins", "later", id, pinned, at);
+    },
+    /** The threads put off for later, in the reader's order. */
+    later: (): readonly string[] => state.later ?? [],
+    /** Puts the thread in Later at `at` (under the others without it), moves
+     * it there, or takes it out. A thread that it puts there is no longer
+     * pinned. False when nothing changed. */
+    setLater(id: string, later: boolean, at?: number) {
+      return shelve("later", "pins", id, later, at);
     },
     /** Names the thread; without a name, it shows its agent's title again.
      * False when the name was the same. */
@@ -303,9 +328,11 @@ export function createThreadStore(options: { file: string; now?: () => number })
       if (old?.base && !item.base) item.base = old.base;
       Object.assign(item, facts);
       delete item.closedAt;
-      const pins = state.pins ?? [];
-      const at = pins.indexOf(from);
-      if (at >= 0) state.pins = pins.includes(to) ? pins.toSpliced(at, 1) : pins.with(at, to);
+      for (const shelf of ["pins", "later"] as const) {
+        const list = state[shelf] ?? [];
+        const at = list.indexOf(from);
+        if (at >= 0) state[shelf] = list.includes(to) ? list.toSpliced(at, 1) : list.with(at, to);
+      }
       const mark = state.seen?.[from];
       if (mark !== undefined) state.seen = { ...state.seen, [to]: mark };
       if (old && old.closedAt === undefined) old.closedAt = now();
@@ -315,6 +342,7 @@ export function createThreadStore(options: { file: string; now?: () => number })
     forget(id: string) {
       if (!(id in state.entries)) return false;
       if (state.pins?.includes(id)) state.pins = state.pins.filter((other) => other !== id);
+      if (state.later?.includes(id)) state.later = state.later.filter((other) => other !== id);
       if (state.seen) delete state.seen[id];
       delete state.entries[id];
       changed();

@@ -57,6 +57,15 @@ export const pinThread = (id: string, pinned: boolean, fetcher: typeof fetch, at
     post({ pinned, ...(at !== undefined && { at }) }),
   );
 
+/** Puts a thread in Later at `at` (from 0; under the others without it),
+ * moves it there, or takes it out. */
+export const laterThread = (id: string, later: boolean, fetcher: typeof fetch, at?: number) =>
+  api(fetcher).json(
+    `/api/threads/${id}/later`,
+    z.object({ ok: z.boolean() }),
+    post({ later, ...(at !== undefined && { at }) }),
+  );
+
 export const deleteThread = (id: string, fetcher: typeof fetch) =>
   api(fetcher).json(`/api/threads/${id}/delete`, z.object({ deleted: z.boolean() }), post());
 

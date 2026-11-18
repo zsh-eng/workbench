@@ -183,6 +183,7 @@ import {
   threadOpenSchema,
   threadNameSchema,
   threadPinSchema,
+  threadLaterSchema,
   threadSeenSchema,
   threadSlug,
   threadStartSchema,
@@ -3626,7 +3627,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const threadAction =
-            /^\/api\/threads\/([\w-]+)\/(open|close|delete|archive|name|pin|seen|base)$/.exec(
+            /^\/api\/threads\/([\w-]+)\/(open|close|delete|archive|name|pin|later|seen|base)$/.exec(
               url.pathname,
             );
           if (threadAction && request.method === "POST") {
@@ -3648,6 +3649,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             } else if (action === "pin") {
               const pin = threadPinSchema.parse(body ?? {});
               await threads.pin(id, pin.pinned, pin.at);
+              send({ ok: true });
+            } else if (action === "later") {
+              const input = threadLaterSchema.parse(body ?? {});
+              await threads.later(id, input.later, input.at);
               send({ ok: true });
             } else if (action === "seen") {
               await threads.see(id, threadSeenSchema.parse(body ?? {}).at);

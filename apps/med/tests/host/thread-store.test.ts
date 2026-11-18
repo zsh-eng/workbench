@@ -295,6 +295,52 @@ test("a pinned thread stays pinned across a restart and in history, and a delete
   expect((await api(`/api/threads/${first.id}/pin`, { pinned: "yes" })).status).toBe(400);
 });
 
+test("Later keeps the threads that the reader put off, in their order; a thread is pinned or in Later", async () => {
+  const { api, save, restart, stateDir } = await fixture();
+  const first = await save("Forgiving station search");
+  const second = await save("Offline tides");
+  const shelves = async () => {
+    const { threads } = (await api<ThreadList>("/api/threads")).data;
+    const on = (field: "pinned" | "later") =>
+      threads
+        .filter((thread) => thread[field])
+        .toSorted((a, b) => a[field]! - b[field]!)
+        .map((thread) => thread.title);
+    return { pinned: on("pinned"), later: on("later") };
+  };
+
+  expect((await api(`/api/threads/${first.id}/later`, { later: true })).status).toBe(200);
+  expect((await api(`/api/threads/${second.id}/later`, { later: true, at: 0 })).status).toBe(200);
+  expect(await shelves()).toEqual({
+    pinned: [],
+    later: ["Offline tides", "Forgiving station search"],
+  });
+  await restart();
+  expect((await shelves()).later).toEqual(["Offline tides", "Forgiving station search"]);
+
+  // Pinning a thread takes it out of Later, and putting it off unpins it.
+  expect((await api(`/api/threads/${second.id}/pin`, { pinned: true })).status).toBe(200);
+  expect(await shelves()).toEqual({
+    pinned: ["Offline tides"],
+    later: ["Forgiving station search"],
+  });
+  expect((await api(`/api/threads/${second.id}/later`, { later: true })).status).toBe(200);
+  expect(await shelves()).toEqual({
+    pinned: [],
+    later: ["Forgiving station search", "Offline tides"],
+  });
+  expect((await api(`/api/threads/${first.id}/later`, { later: false })).status).toBe(200);
+  expect((await shelves()).later).toEqual(["Offline tides"]);
+
+  // Deleting a thread takes it out of Later.
+  expect((await api(`/api/threads/${second.id}/delete`, {})).status).toBe(200);
+  const saved = JSON.parse(await readFile(join(stateDir, "threads.json"), "utf8")) as {
+    later?: string[];
+  };
+  expect(saved.later).toEqual([]);
+  expect((await api(`/api/threads/${first.id}/later`, { later: "yes" })).status).toBe(400);
+});
+
 test("a review that a session hands off joins the session's thread, which keeps its pin", async () => {
   const { api, save, repo, home } = await fixture();
   const session = "34343434-3434-4434-8434-343434343434";

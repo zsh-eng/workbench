@@ -232,10 +232,12 @@ export function createThreadService(options: ThreadServiceOptions) {
   const named = (thread: Thread): Thread => {
     const entry = store.entry(thread.id);
     const place = pins().indexOf(thread.id);
+    const later = store.later().indexOf(thread.id);
     return {
       ...thread,
       ...(entry?.name && { title: entry.name, agentTitle: thread.title }),
       ...(place >= 0 && { pinned: place + 1 }),
+      ...(later >= 0 && { later: later + 1 }),
       ...(entry?.superagent && { superagent: true }),
       ...(entry?.closedAt !== undefined && { closedAt: entry.closedAt }),
       ...(entry?.prompt && !thread.prompt && { prompt: entry.prompt }),
@@ -763,6 +765,14 @@ export function createThreadService(options: ThreadServiceOptions) {
       const superagent = store.pins().filter((other) => store.entry(other)?.superagent);
       const unpinned = superagent.filter((other) => store.setPinned(other, false)).length;
       if (store.setPinned(id, pinned, at) || unpinned) await store.save();
+    },
+
+    /** Puts a thread in Later at `at` (under the others without it), moves
+     * it there, or takes it out. A pinned thread that goes there is unpinned. */
+    async later(id: string, later: boolean, at?: number) {
+      await requireKnown(id);
+      if (store.entry(id)?.superagent) return;
+      if (store.setLater(id, later, at)) await store.save();
     },
 
     /**

@@ -182,6 +182,107 @@ test("a row drags into Pinned, to a place among the pins, and out again; its men
   expect(section("Pinned")).toEqual(["Third review"]);
 });
 
+test("Later folds away under Recent; rows go there by their menu or a drag; Archive all clears Recent but work and questions, and Undo brings it back", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  const now = Date.now();
+  host.setThreads([
+    thread("agent", { updatedAt: now - 1000 }),
+    thread("second", { updatedAt: now - 2000 }),
+    thread("third", { updatedAt: now - 3000, agent: "claude", state: "working" }),
+    thread("fourth", { updatedAt: now - 4000, agent: "claude", state: "waiting" }),
+  ]);
+  await expect
+    .poll(threadRows)
+    .toEqual([
+      "Agent review",
+      "Second review",
+      "Third review, working",
+      "Fourth review, needs you",
+    ]);
+  const section = (name: string) =>
+    [
+      ...document.querySelectorAll<HTMLElement>(`section[aria-label="${name}"] [data-session-row]`),
+    ].map((row) => row.querySelector("button")?.title);
+  const button = (title: string) =>
+    document.querySelector<HTMLElement>(`[data-session-row] button[title="${title}"]`)!;
+  const menu = async (title: string, item: string) => {
+    button(title).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+    // An item's name ends with its key.
+    await page.getByRole("menuitem", { name: new RegExp(`^${item}`) }).click();
+  };
+  const requests = (verb: string) =>
+    host.threadRequests.filter((request) => request.path.endsWith(`/${verb}`));
+
+  // The row's menu puts it in Later, under Recent.
+  await menu("Second review", "Move to Later");
+  await expect
+    .poll(() => requests("later").at(-1))
+    .toEqual({ path: "/api/threads/second/later", body: { later: true, at: 0 } });
+  await expect.poll(() => section("Later")).toEqual(["Second review"]);
+  expect(section("Recent")).toEqual(["Agent review", "Third review", "Fourth review"]);
+
+  // Later folds to one row that counts its sessions, and stays folded.
+  const later = page.getByRole("region", { name: "Later" });
+  await later.getByRole("button", { name: /Later/ }).click();
+  await expect.poll(() => section("Later")).toEqual([]);
+  await expect
+    .element(later.getByRole("button", { name: "Later, 1 session" }))
+    .toHaveAttribute("aria-expanded", "false");
+  await later.getByRole("button", { name: /Later/ }).click();
+  await expect.poll(() => section("Later")).toEqual(["Second review"]);
+
+  // A drag puts a row in Later too, above the first one's middle.
+  const start = button("Agent review").getBoundingClientRect();
+  const at = (y: number) => ({
+    clientX: start.left + 20,
+    clientY: y,
+    bubbles: true,
+    pointerId: 1,
+  });
+  const settle = () => new Promise((done) => setTimeout(done, 60));
+  const target = () => button("Second review").getBoundingClientRect().top + 4;
+  button("Agent review").dispatchEvent(
+    new PointerEvent("pointerdown", { ...at(start.top + 10), button: 0 }),
+  );
+  document.dispatchEvent(new PointerEvent("pointermove", at(start.top + 18)));
+  await settle();
+  document.dispatchEvent(new PointerEvent("pointermove", at(target())));
+  await settle();
+  document.dispatchEvent(new PointerEvent("pointermove", at(target())));
+  await settle();
+  document.dispatchEvent(new PointerEvent("pointerup", at(target())));
+  await expect
+    .poll(() => requests("later").at(-1))
+    .toEqual({ path: "/api/threads/agent/later", body: { later: true, at: 0 } });
+  await expect.poll(() => section("Later")).toEqual(["Agent review", "Second review"]);
+
+  // And back to Recent by the menu.
+  await menu("Agent review", "Move to Recent");
+  await expect
+    .poll(() => requests("later").at(-1))
+    .toEqual({ path: "/api/threads/agent/later", body: { later: false } });
+  await expect.poll(() => section("Later")).toEqual(["Second review"]);
+
+  // Archive all archives Recent's sessions but the one at work and the one
+  // that waits on the reader; Later keeps its own.
+  await page.getByRole("button", { name: "Archive all" }).click();
+  await expect
+    .poll(() => requests("close").map((request) => request.path))
+    .toEqual(["/api/threads/agent/close"]);
+  await expect.poll(() => section("Recent")).toEqual(["Third review", "Fourth review"]);
+  expect(section("Later")).toEqual(["Second review"]);
+  await expect.element(page.getByText("Archived “Agent review”.")).toBeVisible();
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect
+    .poll(() => requests("open").at(-1))
+    .toEqual({ path: "/api/threads/agent/open", body: { restore: true } });
+  await expect
+    .poll(() => section("Recent"))
+    .toEqual(["Agent review", "Third review", "Fourth review"]);
+});
+
 test("a quick drag moves each row once, the row in the hand stays under the pointer, and the drop settles it into its place", async () => {
   const host = createHost();
   render(host);
@@ -208,24 +309,29 @@ test("a quick drag moves each row once, the row in the hand stays under the poin
   const first = document.querySelector('[data-session-row="p1"]')!.getBoundingClientRect();
   const start = { x: first.left + first.width / 2, y: first.top + first.height / 2 };
   const at = (y: number) => ({ clientX: start.x, clientY: y, bubbles: true, pointerId: 1 });
-  const frame = () => new Promise((done) => requestAnimationFrame(done));
+  const frame = () => new Promise<number>((done) => requestAnimationFrame(done));
 
   // A flick: three moves a frame, down past four rows in four frames, to
   // between the fifth row and the sixth. Every frame notes where each row
-  // shows, and where the row in the hand does.
+  // shows, where the row in the hand does, and when.
   const end = first.top + 5 * first.height + 8;
   const flick = Array.from(
     { length: 12 },
     (_, step) => start.y + ((end - start.y) * (step + 1)) / 12,
   );
-  const frames: { rows: Record<string, number>; lifted?: number; pointer: number }[] = [];
+  const frames: {
+    rows: Record<string, number>;
+    lifted?: number;
+    pointer: number;
+    time: number;
+  }[] = [];
   let pointer = start.y;
   document
     .querySelector<HTMLElement>('[data-session-row="p1"] button')!
     .dispatchEvent(new PointerEvent("pointerdown", { ...at(start.y), button: 0 }));
   const RELEASE = 30;
   for (let index = 0; index < RELEASE + 30; index++) {
-    await frame();
+    const time = await frame();
     for (const y of flick.slice(index * 3, index * 3 + 3)) {
       pointer = y;
       document.dispatchEvent(new PointerEvent("pointermove", at(y)));
@@ -235,6 +341,7 @@ test("a quick drag moves each row once, the row in the hand stays under the poin
       rows: Object.fromEntries(names.map((id) => [id, top(id)])),
       lifted: lifted()?.getBoundingClientRect().top,
       pointer,
+      time,
     });
   }
 
@@ -253,12 +360,18 @@ test("a quick drag moves each row once, the row in the hand stays under the poin
   // The row in the hand is where the pointer holds it, in every frame.
   for (const entry of held)
     expect(entry.lifted).toBeCloseTo(entry.pointer - (start.y - first.top), 0);
-  // At the release, it glides into its place in steps, not one jump.
-  const dropped = frames.slice(RELEASE - 1).map((entry) => entry.lifted ?? entry.rows.p1!);
+  // At the release, it glides into its place in steps, not one jump: no
+  // faster than half the way in a frame's time. A frame the page drew late
+  // shows the glide further on, as the time it took.
+  const settling = frames.slice(RELEASE - 1);
+  const dropped = settling.map((entry) => entry.lifted ?? entry.rows.p1!);
   const place = first.top + 4 * first.height;
   expect(dropped[0]! - place).toBeGreaterThan(20);
-  const steps = dropped.slice(1).map((y, index) => Math.abs(y - dropped[index]!));
-  expect(Math.max(...steps)).toBeLessThan(12);
+  const speeds = dropped.slice(1).map((y, index) => {
+    const took = (settling[index + 1]!.time - settling[index]!.time) / (1000 / 60);
+    return Math.abs(y - dropped[index]!) / Math.max(1, Math.round(took));
+  });
+  expect(Math.max(...speeds)).toBeLessThan(12);
   expect(dropped.at(-1)).toBeCloseTo(place, 0);
   await expect
     .poll(() => host.threadRequests.filter((request) => request.path.endsWith("/pin")).at(-1))

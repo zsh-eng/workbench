@@ -15,6 +15,7 @@ import { resumeCommand } from "../../data/workspaces";
 import type { ReadState } from "../../data/tabs";
 import { needsYou, tabOrder } from "../../data/threads";
 import { tokens, ui } from "../../theme.stylex";
+import { useViewSetting, viewSettings } from "../../data/view-settings";
 import { Icon } from "../Icon";
 import { Shimmer } from "../Shimmer";
 import { RenameField } from "./RenameField";
@@ -22,8 +23,10 @@ import { newThreadKeys } from "../../data/title-bar";
 import { ToolButton, tooltip } from "../ToolButton";
 import { HistoryArrows } from "./HistoryArrows";
 
-/** Where a dragged row would land: a place among the pins, or Recent. */
-type DropTarget = { pinned: true; at: number } | { pinned: false };
+/** The lists that keep the reader's order: Pinned, and Later. */
+type Shelf = "pinned" | "later";
+/** Where a dragged row would land: a place among the pins or in Later, or Recent. */
+type DropTarget = { shelf: Shelf; at: number } | { shelf: null };
 
 /** A drag's row and where it would land. The pointer itself moves the row in
  * the hand without a render, so it is not here. */
@@ -36,7 +39,9 @@ interface Drag {
 }
 
 const sameTarget = (a: DropTarget, b: DropTarget) =>
-  a.pinned && b.pinned ? a.at === b.at : a.pinned === b.pinned;
+  a.shelf === b.shelf && (a.shelf === null || a.at === (b as { at: number }).at);
+const sameIds = (a: readonly string[], b: readonly string[]) =>
+  a.length === b.length && a.every((id, index) => id === b[index]);
 
 /** How far the pointer moves before a press on a row becomes a drag. */
 const DRAG_START = 4;
@@ -54,7 +59,11 @@ const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
  * stopped. A session at work dims its name under a passing light. Archived,
  * Pull requests, Dashboards, and Settings are at the foot.
  *
- * A row drags into Pinned, to a place among the pins, and out of it again.
+ * Later, under Recent, holds the sessions that the reader put off; it folds
+ * to one row. Recent's Archive all archives its sessions but those at work
+ * and those that need the reader.
+ *
+ * A row drags into Pinned or Later, to a place in it, and out of it again.
  * While it drags, the list shows where it would land: the other rows slide
  * aside to make room for it there, and it follows the pointer above them.
  * On release it settles into that place.
@@ -81,6 +90,8 @@ export function SessionSidebar({
   onRenaming,
   onRename,
   onPin,
+  onLater,
+  onArchiveAll,
 }: {
   /** The open sessions; their order here does not matter. */
   threads: readonly Thread[];
@@ -116,37 +127,51 @@ export function SessionSidebar({
   /** Pins the session at `at` among the pins (under the others without it),
    * moves a pinned one there, or unpins it. */
   onPin(thread: Thread, pinned: boolean, at?: number): void;
+  /** Puts the session in Later at `at` (under the others without it), moves
+   * it there, or takes it out. */
+  onLater(thread: Thread, later: boolean, at?: number): void;
+  /** Archives these sessions of Recent. */
+  onArchiveAll?(threads: readonly Thread[]): void;
 }) {
-  // A drop shows at once: the pins as dropped, until the host's list agrees.
-  const [placed, setPlaced] = useState<readonly string[] | null>(null);
+  // A move shows at once: Pinned and Later as the reader left them, until the
+  // host's list agrees.
+  const [placed, setPlaced] = useState<{
+    pinned: readonly string[];
+    later: readonly string[];
+  } | null>(null);
   // The Superagent's thread has its own row at the top, not one among these.
   const superagent = threads.find((thread) => thread.superagent);
   const ordered = tabOrder(threads).filter((thread) => !thread.superagent);
   const pinnedIds = ordered.filter((thread) => thread.pinned).map((thread) => thread.id);
+  const laterIds = ordered.filter((thread) => thread.later).map((thread) => thread.id);
   const settled =
-    placed !== null &&
-    placed.length === pinnedIds.length &&
-    placed.every((id, index) => id === pinnedIds[index]);
+    placed !== null && sameIds(placed.pinned, pinnedIds) && sameIds(placed.later, laterIds);
   if (placed && settled) setPlaced(null);
   useEffect(() => {
     if (!placed) return;
-    // A pin the host refused stops showing after a while.
+    // A move the host refused stops showing after a while.
     const timer = setTimeout(() => setPlaced(null), 4000);
     return () => clearTimeout(timer);
   }, [placed]);
   const byId = new Map(ordered.map((thread) => [thread.id, thread]));
-  const pins = placed && !settled ? placed : pinnedIds;
+  const pins = placed && !settled ? placed.pinned : pinnedIds;
+  const laters = placed && !settled ? placed.later : laterIds;
+  const place = (next: { pinned?: readonly string[]; later?: readonly string[] }) =>
+    setPlaced({ pinned: next.pinned ?? pins, later: next.later ?? laters });
   const pinned = pins.flatMap((id) => byId.get(id) ?? []);
-  // Newest first, also a row just dropped out of Pinned that the host still
-  // has pinned, so it does not show first until the host agrees.
+  const later = laters.flatMap((id) => byId.get(id) ?? []);
+  // Newest first, also a row just moved out of Pinned or Later that the
+  // host still has there, so it does not show first until the host agrees.
   const recent = ordered
-    .filter((thread) => !pins.includes(thread.id))
+    .filter((thread) => !pins.includes(thread.id) && !laters.includes(thread.id))
     .toSorted((a, b) => b.updatedAt - a.updatedAt);
+  const folded = useViewSetting(viewSettings.laterSection) === "folded";
 
   const [drag, setDrag] = useState<Drag | null>(null);
   // The drag as the last move left it, for the release.
   const dragRef = useRef<Drag | null>(null);
   const pinnedBox = useRef<HTMLElement>(null);
+  const laterBox = useRef<HTMLElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const nav = useRef<HTMLElement>(null);
   // The row in the hand. The pointer moves it, not a render.
@@ -165,23 +190,56 @@ export function SessionSidebar({
   };
 
   /** The landing place under the pointer: the pins' area, up to its foot,
-   * is a place among them, by the rows' middles; below it is Recent. The
-   * rows are where the list lays them out, the dragged row's place among
-   * them, so a row that made room is passed again only at its new middle:
-   * a pointer that wavers at a middle does not move it back. */
+   * is a place among them, by the rows' middles; Later's, from its name down,
+   * a place in Later; between them is Recent. The rows are where the list
+   * lays them out, the dragged row's place among them, so a row that made
+   * room is passed again only at its new middle: a pointer that wavers at a
+   * middle does not move it back. */
   const targetAt = (y: number, id: string): DropTarget => {
-    const box = pinnedBox.current?.getBoundingClientRect();
-    if (!box || y > box.bottom) return { pinned: false };
-    const rows = [
-      ...(pinnedBox.current?.querySelectorAll<HTMLElement>("[data-session-row]") ?? []),
-    ].filter((row) => row.dataset.sessionRow !== id);
-    const at = rows.filter((row) => {
-      const rect = row.getBoundingClientRect();
-      // Where the row is, not where its glide shows it.
-      const shift = new DOMMatrixReadOnly(getComputedStyle(row).transform).m42;
-      return rect.top - shift + rect.height / 2 < y;
-    }).length;
-    return { pinned: true, at };
+    const among = (box: HTMLElement, shelf: Shelf): DropTarget => {
+      const rows = [...box.querySelectorAll<HTMLElement>("[data-session-row]")].filter(
+        (row) => row.dataset.sessionRow !== id,
+      );
+      const at = rows.filter((row) => {
+        const rect = row.getBoundingClientRect();
+        // Where the row is, not where its glide shows it.
+        const shift = new DOMMatrixReadOnly(getComputedStyle(row).transform).m42;
+        return rect.top - shift + rect.height / 2 < y;
+      }).length;
+      return { shelf, at };
+    };
+    const pinnedArea = pinnedBox.current?.getBoundingClientRect();
+    if (pinnedArea && y <= pinnedArea.bottom) return among(pinnedBox.current!, "pinned");
+    // Later starts at its name, not at the space above it.
+    const laterHead = laterBox.current?.querySelector("[aria-expanded]")?.getBoundingClientRect();
+    if (laterHead && y >= laterHead.top) return among(laterBox.current!, "later");
+    return { shelf: null };
+  };
+  /** Where a session is now: its place in Pinned or Later, or Recent. */
+  const homeOf = (id: string): DropTarget => {
+    const pin = pins.indexOf(id);
+    if (pin >= 0) return { shelf: "pinned", at: pin };
+    const put = laters.indexOf(id);
+    return put >= 0 ? { shelf: "later", at: put } : { shelf: null };
+  };
+  /** Moves a session to `target`, as a drop or the row's menu does. */
+  const moveTo = (thread: Thread, target: DropTarget) => {
+    const from = homeOf(thread.id);
+    if (sameTarget(from, target)) return;
+    const others = (list: readonly string[]) => list.filter((id) => id !== thread.id);
+    if (target.shelf === "pinned") {
+      place({ pinned: others(pins).toSpliced(target.at, 0, thread.id), later: others(laters) });
+      onPin(thread, true, target.at);
+    } else if (target.shelf === "later") {
+      place({ pinned: others(pins), later: others(laters).toSpliced(target.at, 0, thread.id) });
+      onLater(thread, true, target.at);
+    } else if (from.shelf === "pinned") {
+      place({ pinned: others(pins) });
+      onPin(thread, false);
+    } else if (from.shelf === "later") {
+      place({ later: others(laters) });
+      onLater(thread, false);
+    }
   };
 
   const press = (thread: Thread, event: ReactPointerEvent<HTMLElement>) => {
@@ -192,9 +250,8 @@ export function SessionSidebar({
     const startX = event.clientX;
     const startY = event.clientY;
     const rect = row.getBoundingClientRect();
-    const from = pins.indexOf(thread.id);
     // Where the row is now, and where Esc puts it back.
-    const home: DropTarget = from >= 0 ? { pinned: true, at: from } : { pinned: false };
+    const home = homeOf(thread.id);
     let started = false;
     let y = startY;
     // The row in the hand is where the pointer holds it, in the same frame.
@@ -208,7 +265,7 @@ export function SessionSidebar({
         started = true;
         dragged.current = true;
         document.documentElement.dataset.sessionDrag = "";
-        // The row's place empties, and Pinned shows even with no pins.
+        // The row's place empties, and Pinned and Later show even empty.
         show({ id: thread.id, left: rect.left, width: rect.width, target: home });
       }
       moved.preventDefault();
@@ -235,16 +292,7 @@ export function SessionSidebar({
       const last = dragRef.current;
       if (!started || !last) return;
       if (!drop) show({ ...last, target: home });
-      else if (last.target.pinned) {
-        if (from !== last.target.at) {
-          const next = pins.filter((id) => id !== thread.id);
-          setPlaced(next.toSpliced(last.target.at, 0, thread.id));
-          onPin(thread, true, last.target.at);
-        }
-      } else if (from >= 0) {
-        setPlaced(pins.filter((id) => id !== thread.id));
-        onPin(thread, false);
-      }
+      else moveTo(thread, last.target);
       settle(thread.id);
     };
     const up = () => stop(true);
@@ -291,27 +339,29 @@ export function SessionSidebar({
     };
   };
 
-  /** Moves a pinned session one place up or down, as a drag would. */
+  /** Moves a session in Pinned or Later one place up or down, as a drag would. */
   const move = (thread: Thread, by: -1 | 1) => {
-    const from = pins.indexOf(thread.id);
-    const to = from + by;
-    if (from < 0 || to < 0 || to >= pins.length) return;
-    setPlaced(pins.filter((id) => id !== thread.id).toSpliced(to, 0, thread.id));
-    onPin(thread, true, to);
+    const from = homeOf(thread.id);
+    if (from.shelf === null) return;
+    const to = from.at + by;
+    if (to < 0 || to >= (from.shelf === "pinned" ? pins : laters).length) return;
+    moveTo(thread, { shelf: from.shelf, at: to });
   };
 
-  // The list as it would be after the drop: the dragged row's place shows
+  // The lists as they would be after the drop: the dragged row's place shows
   // where it would land, and the others make room for it.
-  const pinnedShown = (() => {
-    if (!drag || !dragging) return pinned;
-    const others = pinned.filter((thread) => thread.id !== drag.id);
-    return drag.target.pinned ? others.toSpliced(drag.target.at, 0, dragging) : others;
-  })();
+  const onShelf = (list: readonly Thread[], shelf: Shelf) => {
+    if (!drag || !dragging) return list;
+    const others = list.filter((thread) => thread.id !== drag.id);
+    return drag.target.shelf === shelf ? others.toSpliced(drag.target.at, 0, dragging) : others;
+  };
+  const pinnedShown = onShelf(pinned, "pinned");
+  const laterShown = onShelf(later, "later");
   const recentShown = (() => {
     if (!drag || !dragging) return recent;
     const others = recent.filter((thread) => thread.id !== drag.id);
-    if (drag.target.pinned) return others;
-    // Out of Pinned, it goes back to its place by activity.
+    if (drag.target.shelf !== null) return others;
+    // Out of Pinned or Later, it goes back to its place by activity.
     const at = others.findIndex((thread) => thread.updatedAt < dragging.updatedAt);
     return others.toSpliced(at < 0 ? others.length : at, 0, dragging);
   })();
@@ -333,12 +383,17 @@ export function SessionSidebar({
           if (name !== null) onRename(thread, name);
         },
         pin: () => onPin(thread, !thread.pinned),
+        later: () =>
+          moveTo(
+            thread,
+            laters.includes(thread.id) ? { shelf: null } : { shelf: "later", at: laters.length },
+          ),
         unread: (unread) => read.setUnread(thread, unread),
         archive: () => onArchive(thread),
         delete: () => onDelete(thread),
         press: (event) => press(thread, event),
         dragged: () => dragged.current,
-        ...(thread.pinned && list === pinnedShown
+        ...(list === pinnedShown || list === laterShown
           ? {
               ...(index > 0 && { up: () => move(thread, -1) }),
               ...(index < list.length - 1 && { down: () => move(thread, 1) }),
@@ -347,6 +402,9 @@ export function SessionSidebar({
       }}
     />
   );
+  // What Archive all takes: Recent, but the sessions at work and those that
+  // need the reader.
+  const archivable = recent.filter((thread) => thread.state !== "working" && !needsYou(thread));
   const top = stylex.props(styles.top);
   return (
     <nav ref={nav} aria-label="Sessions" {...stylex.props(styles.list)}>
@@ -398,16 +456,61 @@ export function SessionSidebar({
           </section>
         )}
         <section aria-label="Recent">
-          {(pinnedShown.length > 0 || recentShown.length > 0 || drag) && (
-            <h2 data-glide="" {...stylex.props(styles.label)}>
-              Recent
-            </h2>
+          {(pinnedShown.length > 0 || recentShown.length > 0 || laterShown.length > 0 || drag) && (
+            <div data-glide="" {...stylex.props(styles.head)}>
+              <h2 {...stylex.props(styles.label, styles.headLabel)}>Recent</h2>
+              {onArchiveAll && archivable.length > 0 && !drag && (
+                <button
+                  type="button"
+                  onClick={() => onArchiveAll(archivable)}
+                  {...tooltip(
+                    `Archive ${archivable.length === 1 ? "1 session" : `${archivable.length} sessions`}`,
+                    undefined,
+                    undefined,
+                    "Sessions at work, and those that need you, stay.",
+                  )}
+                  {...stylex.props(styles.headAction)}
+                >
+                  Archive all
+                </button>
+              )}
+            </div>
           )}
           {recentShown.map(row)}
           {loaded && threads.length === 0 && (
             <p {...stylex.props(styles.empty)}>Sessions you start or hand off show here.</p>
           )}
         </section>
+        {/* While a row drags, Later shows even empty, to drop into. */}
+        {(laterShown.length > 0 || drag) && (
+          <section ref={laterBox} aria-label="Later">
+            <div data-glide="" {...stylex.props(styles.head)}>
+              <button
+                type="button"
+                aria-expanded={!folded}
+                aria-label={
+                  folded
+                    ? `Later, ${laterShown.length} ${laterShown.length === 1 ? "session" : "sessions"}`
+                    : "Later"
+                }
+                onClick={() => viewSettings.laterSection.set(folded ? "open" : "folded")}
+                {...stylex.props(styles.label, styles.headLabel, styles.fold)}
+              >
+                <span {...stylex.props(styles.chevron, folded && styles.chevronFolded)}>
+                  <Icon name="chevron" size={12} />
+                </span>
+                Later
+                {folded && <span {...stylex.props(styles.count)}>{laterShown.length}</span>}
+              </button>
+            </div>
+            {!folded && laterShown.map(row)}
+            {drag && (folded || laterShown.length === 0) && (
+              <div aria-hidden="true" {...stylex.props(styles.dropHint)}>
+                Drop here for later
+              </div>
+            )}
+          </section>
+        )}
       </div>
       {drag && dragging && (
         // The row in the hand, over the list.
@@ -516,6 +619,8 @@ interface RowActions {
   rename(): void;
   renamed(name: string | null): void;
   pin(): void;
+  /** Into Later, or out of it to Recent. */
+  later(): void;
   unread(unread: boolean): void;
   archive(): void;
   delete(): void;
@@ -667,13 +772,14 @@ function SessionMenu({
         ]
       : []),
     { key: "P", label: thread.pinned ? "Unpin" : "Pin", run: actions.pin },
+    { key: "L", label: thread.later ? "Move to Recent" : "Move to Later", run: actions.later },
     {
       key: "U",
       label: unread ? "Mark as read" : "Mark as unread",
       run: () => actions.unread(!unread),
     },
     { key: "R", label: "Rename", run: actions.rename },
-    // A pin's place, as dragging it does.
+    // A place in Pinned or Later, as dragging it does.
     ...(actions.up ? [{ label: "Move up", run: actions.up, rule: true }] : []),
     ...(actions.down ? [{ label: "Move down", run: actions.down, rule: !actions.up }] : []),
     { key: "A", label: "Archive", run: actions.archive, rule: !!(actions.up || actions.down) },
@@ -761,6 +867,42 @@ const styles = stylex.create({
     backgroundColor: tokens.fill,
     boxShadow: `inset 0 0 0 1px ${tokens.line}`,
   },
+  // A section's head: its name, and its action at the end.
+  head: { display: "flex", alignItems: "center", gap: 6, marginInline: 10 },
+  headLabel: { marginInline: 0, flex: "1", minWidth: 0 },
+  headAction: {
+    marginTop: 14,
+    paddingBlock: 2,
+    paddingInline: 6,
+    marginInlineEnd: -6,
+    borderWidth: 0,
+    borderRadius: 6,
+    color: { default: tokens.faint, ":hover": tokens.muted },
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    cursor: "default",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
+  fold: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    paddingBlock: 0,
+    paddingInline: 0,
+    // Its chevron sits in the rows' margin, so its name lines up with theirs.
+    marginInlineStart: -16,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    fontFamily: tokens.ui,
+    textAlign: "start",
+    cursor: "default",
+    color: { default: tokens.muted, ":hover": tokens.text },
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
+  chevron: { display: "inline-flex", transition: "transform 120ms ease" },
+  chevronFolded: { transform: "rotate(-90deg)" },
+  count: { marginInlineStart: 2, color: tokens.faint, fontVariantNumeric: "tabular-nums" },
   dropHint: {
     display: "flex",
     alignItems: "center",
@@ -882,6 +1024,7 @@ const noActions: RowActions = {
   rename() {},
   renamed() {},
   pin() {},
+  later() {},
   unread() {},
   archive() {},
   delete() {},

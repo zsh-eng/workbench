@@ -119,6 +119,8 @@ export const viewSettings = {
   backgroundTasks: viewSetting("med:background", "open", ["open", "closed"]),
   /** Each window's sidebar, read when the window opens. */
   sidebar: viewSetting("med:sidebar", "shown", ["shown", "hidden"]),
+  /** The sidebar's Later section: its sessions, or one row that says how many. */
+  laterSection: viewSetting("med:later-section", "open", ["open", "folded"]),
 } as const;
 
 /** A setting's value, shared with the other workspaces and windows. */
