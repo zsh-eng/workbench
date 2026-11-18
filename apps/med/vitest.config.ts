@@ -51,6 +51,13 @@ export default defineConfig({
         test: {
           name: "browser",
           include: ["tests/browser/**/*.test.ts", "tests/browser/**/*.test.tsx"],
+          // The files of a worker share its page: the app's modules, workers,
+          // and highlighter load once. setup.ts gives each file a fresh start.
+          isolate: false,
+          setupFiles: ["tests/browser/setup.ts"],
+          // While every worker's page renders at once, a frame can take a
+          // while; a poll that passes returns as soon as it does.
+          expect: { poll: { timeout: 3000 } },
           browser: {
             enabled: true,
             provider: playwright(),

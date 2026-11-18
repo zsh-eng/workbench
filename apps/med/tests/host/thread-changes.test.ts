@@ -165,6 +165,7 @@ async function fixture() {
     repos: [repo],
     stateDir: join(directory, "state"),
     port: 0,
+    statusMs: 100,
   });
   hosts.push(host);
   const api = async <T>(path: string, body?: unknown) => {

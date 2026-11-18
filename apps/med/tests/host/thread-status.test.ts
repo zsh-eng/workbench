@@ -173,6 +173,7 @@ async function fixture() {
     repos: [repo],
     stateDir: join(directory, "state"),
     port: 0,
+    statusMs: 100,
     agents: async () => [
       {
         id: "claude",

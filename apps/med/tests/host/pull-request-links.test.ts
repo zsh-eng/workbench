@@ -82,6 +82,7 @@ async function fixture({ signedIn }: { signedIn: boolean }) {
     repos: [repo],
     stateDir: join(directory, "state"),
     port: 0,
+    statusMs: 100,
     gh: {
       command: process.execPath,
       args: [fileURLToPath(new URL("../fixtures/gh/fake-gh.mjs", import.meta.url))],
@@ -158,8 +159,8 @@ test("an open thread links the pull request that its branch opened later; histor
   expect(await asked()).toEqual(["durations"]);
   expect((await api<SavedReview>(`/api/reviews/${closed.id}`)).pullRequestUrl).toBeUndefined();
 
-  // A linked thread asks no more, through two more reads of the tabs.
-  await new Promise((resolve) => setTimeout(resolve, 3500));
+  // A linked thread asks no more, through three more reads of the tabs.
+  await new Promise((resolve) => setTimeout(resolve, 350));
   expect(await asked()).toEqual(["durations"]);
 });
 
@@ -167,8 +168,8 @@ test("without a gh sign-in, the host starts no gh process", async () => {
   const { thread, listen, asked } = await fixture({ signedIn: false });
   const open = await thread("durations");
   const lists = await listen();
-  // Three reads of the tabs, 1.5 seconds apart.
-  await new Promise((resolve) => setTimeout(resolve, 4000));
+  // Three reads of the tabs, 100 ms apart.
+  await new Promise((resolve) => setTimeout(resolve, 350));
   expect(await asked()).toEqual([]);
   expect(lists.at(-1)!.threads.find((entry) => entry.id === open.id)?.pullRequestUrl).toBe(
     undefined,

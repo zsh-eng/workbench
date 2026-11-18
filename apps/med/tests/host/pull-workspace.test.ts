@@ -75,6 +75,7 @@ test("a pasted pull request link opens in a worktree with its review and an agen
     repos: [repo],
     stateDir,
     port: 0,
+    statusMs: 100,
     gh: { command: process.execPath, args: [fixture("gh/fake-gh.mjs")] },
     agents: async () => [
       {
@@ -280,6 +281,7 @@ test("a pull request added to a session's thread is one more of its reviews, and
     repos: [repo],
     stateDir,
     port: 0,
+    statusMs: 100,
     gh: { command: process.execPath, args: [fixture("gh/fake-gh.mjs")] },
   });
   hosts.push(host);
@@ -523,6 +525,7 @@ test("the pull requests page searches GitHub in the registered repositories' rem
     repo,
     stateDir: join(directory, "state"),
     port: 0,
+    statusMs: 100,
     gh: { command: process.execPath, args: [fixture("gh/fake-gh.mjs")] },
   });
   hosts.push(host);
@@ -615,6 +618,7 @@ test("the pull requests page also searches the GitHub hosts that Settings names,
     repos: [trailhead, charts, notes],
     stateDir: join(directory, "state"),
     port: 0,
+    statusMs: 100,
     gh: { command: process.execPath, args: [fixture("gh/fake-gh.mjs")] },
     openIn: { isGitHub: async (name) => name === "git.acme.build" },
   });

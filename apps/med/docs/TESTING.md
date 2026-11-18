@@ -13,10 +13,27 @@ bun run --cwd apps/med test:e2e
 bun run check:med
 ```
 
-`test:med` runs host integrations, browser interactions, then the remaining
-focused unit regressions. `test:e2e` builds med and runs the real CLI and browser
-against temporary repositories. `check:med` also checks formatting, lint, and
-types. The push tests use temporary local bare remotes.
+`test:med` runs host integrations with the remaining focused unit regressions
+(`test:node`), then browser interactions. `test:e2e` builds med and runs the real
+CLI and browser against temporary repositories. `check:med` also checks
+formatting, lint, and types. The push tests use temporary local bare remotes.
+
+## Keeping the suite fast
+
+The suite is bound by this Mac's processors, not by waiting, so a test's cost
+is what it makes the host or the browser do.
+
+- Wait for a condition, not for a time. A host test that reads the thread
+  list's states starts its host with `statusMs: 100`, not the 1.5 s of a real
+  window; a rule that a module decides alone, such as where a process record
+  says a session is open, is tested on that module and not through a cache.
+- A file runs on one worker, so a long file holds the run. Large areas keep
+  their setup in a fixture module (`owned-fixture.ts`, `app-fixture.tsx`,
+  `session-fixture.tsx`, …) and their tests in files by topic.
+- The browser files of a worker share one page (`isolate: false`), so the app
+  loads once per worker. `tests/browser/setup.ts` gives each file the first
+  page's size and empty storage. A test sets the viewport it measures, and
+  restores what it replaces on `globalThis`, such as `fetch` or the timers.
 
 ## Test boundaries
 

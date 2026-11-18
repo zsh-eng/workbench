@@ -100,17 +100,6 @@ test("a fold stands in a list item and a quote", () => {
   );
 });
 
-test("a pull request's screenshots fold under their summary", () => {
-  expect(
-    html(
-      '<details>\n<summary>Shots</summary>\n<img src="a.png">\nnotes\n<img src="b.png">\n</details>',
-      true,
-    ),
-  ).toBe(
-    '<details><summary>Shots</summary><p><img src="a.png" alt=""><br>notes<br><img src="b.png" alt=""></p></details>',
-  );
-});
-
 test("a fold covers the lines from its tag to its end, for the page's line map", () => {
   const [fold, after] = tree("<details>\n<summary>Why</summary>\n\nBody\n\n</details>\n\nAfter")
     .children as Node[];

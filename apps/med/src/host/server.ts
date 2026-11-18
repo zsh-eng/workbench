@@ -265,6 +265,9 @@ export interface StartHostOptions {
    * Med's own service and review, off for tests and another state folder.
    * Tests give their own times. */
   basePull?: boolean | { delayMs?: number; intervalMs?: number };
+  /** How often the thread list's states update while a window listens
+   * (default 1.5 s); tests read them sooner. */
+  statusMs?: number;
   /** Repository watchers. Tests turn file events off, change the safety
    * check, and learn when a watcher that sees file edits is ready. */
   watch?: WatchOptions & { onReady?: (repo: string) => void };
@@ -909,10 +912,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   >();
   /** Session updates per server event; the browser reads events up to 4 MiB. */
   const SESSION_EVENT_BYTES = 1024 * 1024;
-  // The workspace list's states update this often.
-  const STATUS_MS = 1500;
-  // One thread list for all windows; a change to the tabs sends it at once.
-  const threadFeed = createThreadFeed({ list: () => threads.list(), intervalMs: STATUS_MS });
+  // One thread list for all windows; a change to the tabs sends it at once,
+  // and its states update every `statusMs`.
+  const threadFeed = createThreadFeed({
+    list: () => threads.list(),
+    intervalMs: options.statusMs ?? 1500,
+  });
   store.subscribe(() => threadFeed.changed());
   savedReviews.subscribe(() => threadFeed.changed());
   threadComments.subscribe((threadId) => inbox.touch(threadId));

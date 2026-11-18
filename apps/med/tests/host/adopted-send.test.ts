@@ -1,22 +1,17 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AgentInboxState, AgentMessage, SessionPlace } from "../../src/shared/agent-inbox";
+import type { AgentInboxState, AgentMessage } from "../../src/shared/agent-inbox";
 import type { OwnedState, SessionForked } from "../../src/shared/owned-session";
 import type { SessionEvent } from "../../src/shared/agent-session";
 import type { ThreadList } from "../../src/shared/threads";
 import { claudeProjectFolder } from "../../src/host/session-index";
 import { startHost, type RunningHost } from "../../src/host/server";
-import {
-  longProcess,
-  openSession,
-  processStart,
-  writeProcessRecord,
-} from "../fixtures/terminal-claude";
+import { openSession } from "../fixtures/terminal-claude";
 import { removeFolder } from "./remove-folder";
 
 // A message to an adopted Claude Code session, through the production host:
@@ -49,7 +44,6 @@ const git = (cwd: string, args: string[]) =>
       GIT_COMMITTER_EMAIL: "med@example.invalid",
     },
   });
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** The session that the user ran in a terminal: one prompt and its reply. */
 const ONE_TURN = [
@@ -111,6 +105,7 @@ async function fixture(history: object[] = ONE_TURN) {
     repos: [repo],
     stateDir,
     port: 0,
+    statusMs: 100,
     agents: async () => [
       {
         id: "claude",
@@ -191,14 +186,6 @@ async function fixture(history: object[] = ONE_TURN) {
     ends.push(opened.end);
     return opened;
   };
-  /** What the inbox says of the session: where it is open, or resumable. */
-  const where = async (): Promise<SessionPlace | "resumable" | object> => {
-    const { elsewhere, resumable } = await inbox();
-    const places = Object.keys(elsewhere);
-    if (!places.length && resumable.length === 1 && resumable[0] === session) return "resumable";
-    if (!resumable.length && places.length === 1 && elsewhere[session]) return elsewhere[session];
-    return { elsewhere, resumable };
-  };
   return {
     api,
     home,
@@ -212,76 +199,9 @@ async function fixture(history: object[] = ONE_TURN) {
     args,
     prompts,
     terminal,
-    where,
     restart,
   };
 }
-
-test("Med reads Claude Code's process records: a live process that started then runs the session; a dead or reused pid does not; a record that Med cannot read counts", async () => {
-  const { home, terminal, where } = await fixture();
-  const records = join(home, ".claude", "sessions");
-  await expect.poll(where, { timeout: 5000 }).toBe("resumable");
-
-  // Claude Code in a terminal: the process lives and started when its record says.
-  const open = await terminal();
-  await expect.poll(where, { timeout: 5000 }).toBe("terminal");
-  await open.end();
-  await rm(records, { recursive: true });
-  await expect.poll(where, { timeout: 5000 }).toBe("resumable");
-
-  // A record whose process ended.
-  const ended = await longProcess();
-  const startedAt = processStart(ended.pid);
-  await ended.end();
-  await writeProcessRecord(home, ended.pid, {
-    pid: ended.pid,
-    sessionId: session,
-    procStart: startedAt,
-  });
-  await pause(1200);
-  await expect.poll(where, { timeout: 5000 }).toBe("resumable");
-  await rm(records, { recursive: true });
-
-  // The system gave the record's pid to a newer process.
-  const reused = await longProcess();
-  ends.push(reused.end);
-  await writeProcessRecord(home, reused.pid, {
-    pid: reused.pid,
-    sessionId: session,
-    procStart: "Thu Jan  1 00:00:00 1970",
-  });
-  await pause(1200);
-  await expect.poll(where, { timeout: 5000 }).toBe("resumable");
-
-  // Med cannot read a live process's record: the session may run there.
-  await writeProcessRecord(home, reused.pid, "{");
-  await expect.poll(where, { timeout: 5000 }).toBe("other-app");
-});
-
-test("the record's entrypoint says where the session is open: a terminal, the Claude app, or another app", async () => {
-  const { home, terminal, where } = await fixture();
-  const records = join(home, ".claude", "sessions");
-  const kinds: [entrypoint: string | null, place: SessionPlace][] = [
-    ["cli", "terminal"],
-    ["claude-desktop", "claude-app"],
-    ["claude-desktop-3p", "claude-app"],
-    ["claude-vscode", "other-app"],
-    ["sdk-ts", "other-app"],
-    [null, "other-app"],
-  ];
-  for (const [entrypoint, place] of kinds) {
-    const open = await terminal(entrypoint);
-    await expect.poll(where, { timeout: 5000 }).toBe(place);
-    await open.end();
-    await rm(records, { recursive: true });
-    await expect.poll(where, { timeout: 5000 }).toBe("resumable");
-  }
-
-  // A process found only by the session ID in its arguments, without a record.
-  const named = await longProcess(["claude", "--resume", session]);
-  ends.push(named.end);
-  await expect.poll(where, { timeout: 5000 }).toBe("other-app");
-});
 
 test("Med does not send to a session that a terminal has open; once it closes, a message resumes the session in Med", async () => {
   const { api, id, send, refused, inbox, args, prompts, started, terminal, restart } =

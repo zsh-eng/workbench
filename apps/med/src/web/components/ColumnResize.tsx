@@ -22,6 +22,14 @@ const KEY_STEP = 24;
 const key = (kind: ColumnKind) => `med:column:v1:${kind}`;
 const widths = new Map<ColumnKind, number | null>();
 const listeners = new Set<() => void>();
+// Another window's change (a null key clears its storage) reads anew, also
+// while no column shows here to hear it.
+const changedElsewhere = (event: StorageEvent) =>
+  event.key === null || event.key.startsWith("med:column:v1:");
+if (typeof addEventListener === "function")
+  addEventListener("storage", (event: StorageEvent) => {
+    if (changedElsewhere(event)) widths.clear();
+  });
 
 function stored(kind: ColumnKind) {
   if (!widths.has(kind)) {
@@ -52,9 +60,7 @@ function store(kind: ColumnKind, width: number | null) {
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
   const other = (event: StorageEvent) => {
-    if (event.key !== null && !event.key.startsWith("med:column:v1:")) return;
-    widths.clear();
-    listener();
+    if (changedElsewhere(event)) listener();
   };
   addEventListener("storage", other);
   return () => {

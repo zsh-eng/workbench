@@ -163,6 +163,7 @@ async function fixture(agents?: Parameters<typeof startHost>[0]["agents"]) {
     repos: [repo],
     stateDir: join(directory, "state"),
     port: 0,
+    statusMs: 100,
     ...(agents && { agents }),
   });
   hosts.push(host);
@@ -401,7 +402,7 @@ test("the thread list finds Claude Code and Codex sessions in the registered che
     data: { closed: true },
   });
   await utimes(transcript, new Date(), new Date());
-  await new Promise((resolve) => setTimeout(resolve, 3500));
+  await new Promise((resolve) => setTimeout(resolve, 350));
   expect(latest.tabs!.threads.some((thread) => thread.id === id)).toBe(false);
   expect(latest.value!.threads.find((thread) => thread.id === id)).toMatchObject({
     state: "working",
@@ -448,16 +449,21 @@ test("found sessions hide one by one or all at once, and Keep in Med saves one a
   await api("/api/found", { hide: { id: `claude-${id}`, hidden: false } });
   await vi.waitFor(() => expect(foundIn(latest.value)).toHaveLength(2), { timeout: 5000 });
   await api("/api/found", { shown: false });
-  await vi.waitFor(() => expect(latest.value!.found).toMatchObject({ shown: false }), {
-    timeout: 5000,
-  });
-  expect(foundIn(latest.value)).toEqual([]);
+  // The tabs come as a stream and the history from a poll, in either order.
+  await vi.waitFor(
+    () => {
+      expect(latest.value!.found).toMatchObject({ shown: false });
+      expect(foundIn(latest.value)).toEqual([]);
+    },
+    { timeout: 5000 },
+  );
   await hosts.splice(0)[0]!.close();
   const again = await startHost({
     repo: join(directory, "tide"),
     repos: [join(directory, "tide")],
     stateDir: join(directory, "state"),
     port: 0,
+    statusMs: 100,
   });
   hosts.push(again);
   const call = async <T>(path: string, body?: unknown) => {
@@ -614,6 +620,7 @@ test("a Codex session that Med runs through ACP shows once, as its thread, also 
     repos: [repo],
     stateDir: join(directory, "state"),
     port: 0,
+    statusMs: 100,
     agents,
   });
   hosts.push(again);
@@ -764,7 +771,7 @@ test("Codex's guardian reviews and subagents do not list; a subagent's thread sh
     () => expect(foundIn(latest.value)).toContain("Ask a subagent for the word pong"),
     { timeout: 10_000 },
   );
-  await new Promise((resolve) => setTimeout(resolve, 3500));
+  await new Promise((resolve) => setTimeout(resolve, 350));
   expect(foundIn(latest.value)).toEqual(["Ask a subagent for the word pong"]);
   const searched = await api<{ sessions: { id: string }[] }>("/api/sessions/find", { text: "" });
   expect(searched.data.sessions.map((session) => session.id)).toEqual([parent]);

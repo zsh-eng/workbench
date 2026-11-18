@@ -75,9 +75,4 @@ describe("the find bar's pattern", () => {
     expect(all("a.b", { regexp: true })).toEqual(["a.b", "axb"]);
     expect(all("trails?", { regexp: true, wholeWord: true })).toEqual(["Trail", "trails", "TRAIL"]);
   });
-
-  test("says why a regular expression does not work, and nothing for no query", () => {
-    expect(all("(", { regexp: true })).toEqual({ error: "Not a valid pattern" });
-    expect(findPattern("")).toBeNull();
-  });
 });

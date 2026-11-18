@@ -167,10 +167,14 @@ test("stages and unstages files, all changes, and literal names, before and afte
 
 test("stages and unstages more paths than one command line holds", async () => {
   const { repo, stage, commit } = await fixture();
-  await mkdir(join(repo, "many"));
-  // 6,000 paths of 190 characters are more than the 1 MB that macOS allows
+  const folder = `many/${"f".repeat(200)}`;
+  await mkdir(join(repo, folder), { recursive: true });
+  // 3,000 paths of 410 characters are more than the 1 MB that macOS allows
   // for a command's arguments.
-  const paths = Array.from({ length: 6000 }, (_, index) => `many/${"n".repeat(180)}-${index}.ts`);
+  const paths = Array.from(
+    { length: 3000 },
+    (_, index) => `${folder}/${"n".repeat(200)}-${index}.ts`,
+  );
   await Promise.all(paths.map((path) => write(repo, path, "one\n")));
   const states = (state: WorkingStatus) => [
     ...new Set(state.files.map((file) => `${file.staged ?? "-"} / ${file.unstaged ?? "-"}`)),
@@ -179,7 +183,7 @@ test("stages and unstages more paths than one command line holds", async () => {
   // Before the first commit and after it.
   let result = await stage(true, paths);
   expect(result.status).toBe(200);
-  expect(result.body.files).toHaveLength(6000);
+  expect(result.body.files).toHaveLength(3000);
   expect(states(result.body)).toEqual(["added / -"]);
   result = await stage(false, paths);
   expect(states(result.body)).toEqual(["- / untracked"]);
@@ -189,7 +193,7 @@ test("stages and unstages more paths than one command line holds", async () => {
   result = await stage(true, paths);
   expect(states(result.body)).toEqual(["modified / -"]);
   result = await stage(false, paths);
-  expect(result.body.files).toHaveLength(6000);
+  expect(result.body.files).toHaveLength(3000);
   expect(states(result.body)).toEqual(["- / modified"]);
 });
 
