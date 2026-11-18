@@ -175,6 +175,10 @@ async function installHere() {
       `${join(app, "dist")}/`,
       `${join(mainApp, "dist")}/`,
     ]);
+    // The server bundle imports its dependencies from the checkout's
+    // node_modules: a release that adds one, as 0.15.5 did `yaml`, would not
+    // start without them.
+    await runAsync(process.execPath, ["install", "--frozen-lockfile"], main);
   }
   const port = process.env.MED_PORT ?? "6330";
   const listening = () => {
