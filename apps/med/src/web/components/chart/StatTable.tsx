@@ -26,13 +26,14 @@ export interface PanelFooter {
 
 function Footer({
   footer,
-  loading,
+  status,
   extra,
   onRefresh,
   onInspect,
 }: {
   footer?: PanelFooter;
-  loading: boolean;
+  /** What its read does now, in place of when it read: "Fetching · 4 s". */
+  status?: string;
   extra?: string;
   onRefresh?(): void;
   onInspect?(): void;
@@ -46,6 +47,13 @@ function Footer({
   return (
     <footer {...stylex.props(styles.footer)}>
       <span {...stylex.props(styles.source)}>
+        {/* While it reads, what it does comes first: a narrow panel cuts the host. */}
+        {status && (
+          <span data-panel-status="">
+            {status}
+            {(footer?.label || extra) && <span aria-hidden="true"> · </span>}
+          </span>
+        )}
         {footer?.label &&
           (footer.url ? (
             <a
@@ -59,7 +67,7 @@ function Footer({
           ) : (
             <span {...stylex.props(styles.sourceName)}>{footer.label}</span>
           ))}
-        {[extra, loading ? "Fetching…" : when].filter(Boolean).map((part, index) => (
+        {[extra, status ? undefined : when].filter(Boolean).map((part, index) => (
           <span key={part}>
             {(footer?.label || index > 0) && <span aria-hidden="true"> · </span>}
             {part}
@@ -150,6 +158,7 @@ export function StatPanel({
   footer,
   onRefresh,
   onInspect,
+  status,
 }: {
   title: string;
   unit?: string;
@@ -159,6 +168,7 @@ export function StatPanel({
   footer?: PanelFooter;
   onRefresh?(): void;
   onInspect?(): void;
+  status?: string;
 }) {
   return (
     <figure data-stat-panel="" {...stylex.props(styles.frame)}>
@@ -183,10 +193,17 @@ export function StatPanel({
           )}
         </div>
       )}
-      {stat && state === "ready" && <Sparkline points={stat.points} />}
+      {stat && state === "ready" ? (
+        <Sparkline points={stat.points} />
+      ) : (
+        // Its line's room, so the panel keeps its height when the data comes.
+        state === "loading" && (
+          <span aria-hidden="true" {...stylex.props(styles.spark, styles.sparkWaiting)} />
+        )
+      )}
       <Footer
         footer={footer}
-        loading={state === "loading"}
+        {...(status || state === "loading" ? { status: status ?? "Fetching…" } : {})}
         {...(stat?.label &&
         stat.label !== unit &&
         !title.toLowerCase().includes(stat.label.toLowerCase())
@@ -209,6 +226,7 @@ export function TablePanel({
   footer,
   onRefresh,
   onInspect,
+  status,
 }: {
   title: string;
   table?: Table;
@@ -217,6 +235,7 @@ export function TablePanel({
   footer?: PanelFooter;
   onRefresh?(): void;
   onInspect?(): void;
+  status?: string;
 }) {
   const [sort, setSort] = useState<{ column: number; down: boolean } | null>(null);
   const rows = useMemo(() => {
@@ -242,7 +261,22 @@ export function TablePanel({
           {error}
         </p>
       ) : !table ? (
-        <p {...stylex.props(styles.waitingNote)}>Fetching…</p>
+        // Rows to come, as tall as a short table's, so the page keeps its place.
+        <div aria-hidden="true" data-table-waiting="" {...stylex.props(styles.tableScroll)}>
+          {Array.from({ length: 7 }, (_, index) => (
+            <span
+              key={index}
+              {...stylex.props(styles.skeletonRow, index === 0 && styles.skeletonHead)}
+            >
+              <span
+                {...stylex.props(styles.skeletonCell(index === 0 ? 34 : 46 + ((index * 17) % 30)))}
+              />
+              <span
+                {...stylex.props(styles.skeletonCell(index === 0 ? 14 : 10 + ((index * 7) % 12)))}
+              />
+            </span>
+          ))}
+        </div>
       ) : (
         <div {...stylex.props(styles.tableScroll)}>
           <table {...stylex.props(styles.table)}>
@@ -301,7 +335,7 @@ export function TablePanel({
       )}
       <Footer
         footer={footer}
-        loading={state === "loading"}
+        {...(status || state === "loading" ? { status: status ?? "Fetching…" } : {})}
         {...(table
           ? { extra: `${table.rows.length} row${table.rows.length === 1 ? "" : "s"}` }
           : {})}
@@ -448,7 +482,30 @@ const styles = stylex.create({
     overflow: "visible",
   },
   error: { margin: 0, marginTop: 10, color: tokens.muted, lineHeight: 1.45 },
-  waitingNote: { margin: 0, marginTop: 10, color: tokens.faint },
+  sparkWaiting: {
+    borderBottomWidth: 1,
+    borderBottomStyle: "dashed",
+    borderBottomColor: tokens.line,
+    boxSizing: "border-box",
+  },
+  skeletonRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 16,
+    height: 30,
+    alignItems: "center",
+    paddingInline: 8,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: `color-mix(in srgb, ${tokens.text} 6%, transparent)`,
+  },
+  skeletonHead: { borderBottomColor: tokens.line },
+  skeletonCell: (percent: number) => ({
+    width: `${percent}%`,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: `color-mix(in srgb, ${tokens.text} 7%, transparent)`,
+  }),
   footer: {
     display: "flex",
     alignItems: "center",

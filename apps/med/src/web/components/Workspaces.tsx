@@ -55,6 +55,11 @@ import { startPull, usePullJob } from "../data/pull-jobs";
 import { HistoryPage, isArchivedAddress, openHistoryPage } from "./HistoryPage";
 import { OPEN_PULL_EVENT, openPullRequests, type OpenPull } from "./PullRequestsPage";
 import { openDashboards } from "../data/dashboards";
+import {
+  startSuperagent as makeSuperagent,
+  SuperagentContext,
+  type SuperagentLink,
+} from "../data/superagent";
 import { PullWorkspaceView, pullTitle, type PullState } from "./PullWorkspace";
 import {
   matches,
@@ -676,6 +681,9 @@ const reviewEvent = z.object({
 });
 
 type ReviewEvent = z.infer<typeof reviewEvent>;
+/** A page that an agent shows the reader, as `med dashboard open` does: a
+ * dashboard with the values it asked for. */
+const showEvent = z.object({ show: z.string().regex(/^\/dashboards\//) });
 
 /** Reads the host's window channel until `signal` aborts, and reconnects with
  * backoff. It returns early from a host without the channel. */
@@ -683,6 +691,7 @@ async function listenForReviews(
   fetcher: typeof fetch,
   signal: AbortSignal,
   onReview: (review: ReviewEvent) => void,
+  onShow: (path: string) => void,
 ) {
   const api = createApi(fetcher, readBrowserToken());
   let attempt = 0;
@@ -695,8 +704,13 @@ async function listenForReviews(
       await readServerEvents(
         response.body,
         (event) => {
-          if (event.event !== "review") return;
           try {
+            if (event.event === "show") {
+              const show = z.object({ path: z.string() }).safeParse(JSON.parse(event.data));
+              if (show.success) onShow(show.data.path);
+              return;
+            }
+            if (event.event !== "review") return;
             const review = reviewEvent.safeParse(JSON.parse(event.data));
             if (review.success) onReview(review.data);
           } catch {
@@ -1028,16 +1042,32 @@ export function WorkspaceHost({
       }
       if (here) show(workspace);
     };
+    // The window used last shows the page; Back returns to what it showed.
+    const showPage = (path: string) => {
+      if (!usedLast() || !showEvent.safeParse({ show: path }).success) return;
+      if (`${location.pathname}${location.search}` !== path) history.pushState(null, "", path);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    };
     const others = new BroadcastChannel(WINDOW_CHANNEL);
     others.onmessage = (event: MessageEvent) => {
+      const shown = showEvent.safeParse(event.data);
+      if (shown.success) return showPage(shown.data.show);
       const review = reviewEvent.safeParse(event.data);
       if (review.success) receive(review.data);
     };
     const listen = () =>
-      listenForReviews(fetcher, stop.signal, (review) => {
-        others.postMessage(review);
-        receive(review);
-      });
+      listenForReviews(
+        fetcher,
+        stop.signal,
+        (review) => {
+          others.postMessage(review);
+          receive(review);
+        },
+        (path) => {
+          others.postMessage({ show: path });
+          showPage(path);
+        },
+      );
     // One window holds the channel and passes reviews to the others, so each
     // window keeps one stream of the six that the browser allows an origin.
     if ("locks" in navigator)
@@ -1346,11 +1376,7 @@ export function WorkspaceHost({
   // then it opens as any thread does.
   const startSuperagent = useCallback(async () => {
     try {
-      const { thread } = await createApi(fetcher, readBrowserToken()).json(
-        "/api/superagent",
-        z.object({ thread: z.string() }),
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
-      );
+      const { thread } = await makeSuperagent(fetcher);
       actions.open({ kind: "thread", threadId: thread });
     } catch (reason) {
       setNotice({ problem: true, text: errorText(reason, "Med could not start the Superagent.") });
@@ -1870,6 +1896,16 @@ export function WorkspaceHost({
   const noticeBar = notice && (
     <NoticeBar notice={notice} onDismiss={() => setNotice(null)} floating={!showsSidebar} />
   );
+  // A page that talks to the Superagent in place, as a dashboard does.
+  const superagentThread = threadList?.threads.find((thread) => thread.superagent);
+  const superagent = useMemo<SuperagentLink>(
+    () => ({
+      thread: superagentThread,
+      start: () => makeSuperagent(fetcher),
+      open: () => void startSuperagent(),
+    }),
+    [superagentThread, fetcher, startSuperagent],
+  );
   return (
     <Drafts value={drafts}>
       <Actions value={actions}>
@@ -2030,7 +2066,9 @@ export function WorkspaceHost({
                             {...stylex.props(styles.shellLayer)}
                           >
                             <Band value={band.value}>
-                              <Warm value={warm}>{children}</Warm>
+                              <Warm value={warm}>
+                                <SuperagentContext value={superagent}>{children}</SuperagentContext>
+                              </Warm>
                             </Band>
                           </div>
                           {historyPage && (

@@ -102,7 +102,99 @@ panels:
   expect(check).toContain("· 3. Owner: payments (text, line 12)");
   expect(check).toContain("2 charts: 1 drew, 1 failed.");
   expect(check).toMatch(
-    /\[Open the dashboard in Med\]\(http:\/\/.+\/dashboards\/personal\/checkout\)$/,
+    /\[Open the dashboard in Med\]\(http:\/\/.+\/dashboards\/personal\/checkout\?var-env=staging\)$/,
   );
   expect(process.exitCode).toBe(1);
+});
+
+test("med dashboard open changes only what it names on the reader's screen, and opens the browser when no window listens", async () => {
+  const { stateDir } = await start();
+  await writeFile(
+    join(stateDir, "dashboards", "checkout.dashboard.yaml"),
+    `title: Checkout
+range: now-6h
+inputs:
+  env: [prod, staging]
+  service: checkout
+panels:
+  - link: https://status.acme.build/\${service}?env=\${env}&from=\${from}&to=\${to}
+    metric: requests
+    type: stat
+    title: Requests
+`,
+  );
+  const opened: string[] = [];
+  const run = async (...args: string[]) => {
+    const output: string[] = [];
+    await runDashboardCommand(
+      [...args, "--state-dir", stateDir, "--port", String(host!.port)],
+      (text) => output.push(text),
+      (url) => opened.push(url),
+    );
+    return output.join("\n");
+  };
+  const auth = { authorization: `Bearer ${host!.token}` };
+
+  // No window listens: the dashboard opens in the browser, with its values.
+  expect(await run("open", "personal/checkout", "--set", "env=staging")).toContain(
+    "No Med window was open, so Checkout opened in the browser: env=staging.",
+  );
+  expect(opened[0]).toMatch(/\/dashboards\/personal\/checkout\?var-env=staging#token=/);
+
+  // A window listens, and says what it shows.
+  const abort = new AbortController();
+  const stream = await fetch(new URL("/api/windows", host!.url), {
+    headers: auth,
+    signal: abort.signal,
+  });
+  const reader = stream.body!.getReader();
+  const shows: string[] = [];
+  const reading = (async () => {
+    let text = "";
+    for (;;) {
+      const { value, done } = await reader.read().catch(() => ({ value: undefined, done: true }));
+      if (done) return;
+      text += new TextDecoder().decode(value);
+      for (const match of text.matchAll(/event: show\ndata: (.+)\n/g))
+        if (!shows.includes(match[1]!)) shows.push(match[1]!);
+    }
+  })();
+  await fetch(new URL("/api/dashboards/report", host!.url), {
+    method: "POST",
+    headers: { ...auth, "content-type": "application/json" },
+    body: JSON.stringify({
+      id: "personal/checkout",
+      values: { env: "staging", service: "checkout", from: "now-6h", to: "now" },
+      showing: true,
+    }),
+  });
+  expect(await run()).toMatch(
+    /^On screen: personal\/checkout {2}env=staging {2}service=checkout {2}Last 6 hours\n/,
+  );
+
+  // Without a dashboard named, open takes the one on screen and keeps its other values.
+  const said = await run("open", "--range", "yesterday 14:00 to 16:30");
+  expect(said).toMatch(
+    /^Med shows Checkout: env=staging {2}service=checkout {2}\w{3} \d+, 14:00 – 16:30\./,
+  );
+  await expect.poll(() => shows.length).toBe(1);
+  const path = JSON.parse(shows[0]!).path as string;
+  expect(path).toMatch(
+    /^\/dashboards\/personal\/checkout\?var-env=staging&var-service=checkout&from=\d{13}&to=\d{13}$/,
+  );
+  // The host knows the new values before the window says them again.
+  expect(await run("check")).toContain("Inputs: env=staging  service=checkout  ");
+
+  // Only the dashboard's own inputs and values.
+  await expect(run("open", "--set", "region=eu")).rejects.toThrow(
+    "Checkout has no input region. Its inputs: env (prod, staging), service.",
+  );
+  await expect(run("open", "--set", "env=dev")).rejects.toThrow(
+    'env takes one of prod, staging, not "dev".',
+  );
+  await expect(run("open", "--range", "whenever")).rejects.toThrow(
+    'Med does not read "whenever" as a range.',
+  );
+  abort.abort();
+  await reading;
 });

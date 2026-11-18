@@ -3,6 +3,7 @@ import { focusPaletteInput } from "../data/palette-focus";
 import * as stylex from "@stylexjs/stylex";
 import { Menu } from "@base-ui/react/menu";
 import { Select } from "@base-ui/react/select";
+import { Combobox } from "@base-ui/react/combobox";
 import { Dialog } from "@base-ui/react/dialog";
 import {
   Fragment,
@@ -21,7 +22,7 @@ import {
 import { ShortcutKeys } from "./ShortcutKeys";
 export { ShortcutKeys } from "./ShortcutKeys";
 import { Icon, type IconName } from "./Icon";
-import { Matched, PaletteKeys, PaletteTitle, usePaletteFade } from "./Palette";
+import { Matched, matchRanges, PaletteKeys, PaletteTitle, usePaletteFade } from "./Palette";
 import { picked, tokens, ui } from "../theme.stylex";
 
 export interface Choice {
@@ -932,9 +933,146 @@ export function SegmentedControl<T extends string>({
   );
 }
 
+/**
+ * A choice among many, with a search field at the menu's top, as Grafana's
+ * variables have: type to narrow the list, ↑ ↓ to move, Enter to pick.
+ */
+export function SearchSelect({
+  value,
+  choices,
+  onChange,
+  label,
+  trigger,
+}: {
+  value: string;
+  choices: Choice[];
+  onChange(value: string): void;
+  label: string;
+  /** The trigger's look, in place of a toolbar button. */
+  trigger?: stylex.StyleXStyles;
+}) {
+  const labels = new Map(choices.map((choice) => [choice.value, choice.label]));
+  const [query, setQuery] = useState("");
+  return (
+    <Combobox.Root<string>
+      items={choices.map((choice) => choice.value)}
+      value={value}
+      onValueChange={(next) => {
+        if (next !== null && next !== value) onChange(next);
+      }}
+      inputValue={query}
+      onInputValueChange={setQuery}
+      onOpenChange={(open) => {
+        if (!open) setQuery("");
+      }}
+      itemToStringLabel={(item) => labels.get(item) ?? item}
+      autoHighlight
+    >
+      <Combobox.Trigger
+        aria-label={label}
+        {...stylex.props(ui.button, ui.strong, styles.trigger, trigger)}
+      >
+        <span data-choice-value="" {...stylex.props(styles.value)}>
+          {labels.get(value) ?? value}
+        </span>
+        <Combobox.Icon {...stylex.props(styles.chevron)}>
+          <Icon name="chevron" size={14} />
+        </Combobox.Icon>
+      </Combobox.Trigger>
+      <Combobox.Portal>
+        <Combobox.Positioner sideOffset={6} align="start" {...stylex.props(styles.positioner)}>
+          <Combobox.Popup
+            aria-label={label}
+            {...stylex.props(ui.popup, ui.pop, styles.searchPopup)}
+          >
+            <div {...stylex.props(styles.searchField)}>
+              <Icon name="search" size={13} />
+              <Combobox.Input
+                aria-label={`Search ${label}`}
+                placeholder="Search…"
+                {...stylex.props(styles.searchInput)}
+              />
+            </div>
+            <Combobox.Empty>
+              <p {...stylex.props(styles.searchEmpty)}>
+                No {label} matches “{query.trim()}”
+              </p>
+            </Combobox.Empty>
+            <Combobox.List {...stylex.props(styles.searchList)}>
+              {(item: string) => (
+                <Combobox.Item
+                  key={item}
+                  value={item}
+                  className={(state) =>
+                    stylex.props(
+                      ui.menuItem,
+                      styles.choice,
+                      state.highlighted && [ui.menuHighlighted, picked],
+                    ).className
+                  }
+                >
+                  <span {...stylex.props(styles.choiceText)}>
+                    <span>
+                      <Matched
+                        text={labels.get(item) ?? item}
+                        ranges={matchRanges(labels.get(item) ?? item, query)}
+                      />
+                    </span>
+                  </span>
+                  <span data-check="" {...stylex.props(styles.check)}>
+                    <Combobox.ItemIndicator {...stylex.props(styles.indicator)}>
+                      <Icon name="check" size={14} />
+                    </Combobox.ItemIndicator>
+                  </span>
+                </Combobox.Item>
+              )}
+            </Combobox.List>
+          </Combobox.Popup>
+        </Combobox.Positioner>
+      </Combobox.Portal>
+    </Combobox.Root>
+  );
+}
+
 const styles = stylex.create({
   disabled: { opacity: 0.45 },
   positioner: { zIndex: 100, outline: "none" },
+  searchPopup: { display: "flex", flexDirection: "column", minWidth: 240, overflowY: "hidden" },
+  searchField: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 0,
+    height: 34,
+    marginBottom: 6,
+    paddingInline: 10,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: tokens.line,
+    marginInline: -6,
+    marginTop: -6,
+    color: tokens.faint,
+  },
+  searchInput: {
+    flex: "1",
+    minWidth: 0,
+    height: "100%",
+    paddingInline: 0,
+    borderWidth: 0,
+    outline: "none",
+    backgroundColor: "transparent",
+    color: tokens.text,
+    font: "inherit",
+    fontSize: 13,
+  },
+  searchList: { overflowY: "auto", minHeight: 0, outline: "none" },
+  searchEmpty: {
+    margin: 0,
+    paddingBlock: 10,
+    paddingInline: 10,
+    color: tokens.faint,
+    fontSize: 12.5,
+  },
   // Above the dialogs' popups (111).
   overDialog: { zIndex: 120 },
   // A row's last column: its check, or a submenu's arrow.

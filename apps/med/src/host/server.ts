@@ -160,7 +160,7 @@ import { createSessionEdits } from "./session-edits";
 import { createSessionUsage } from "./session-usage";
 import { usageRoutes } from "../shared/model-usage";
 import { chartRoutes } from "../shared/charts";
-import { dashboardRoutes } from "../shared/dashboards";
+import { dashboardPath, dashboardRoutes, type ShownDashboard } from "../shared/dashboards";
 import { createGrafana, createGrafanaSettings, createGrafanaTokens } from "./grafana";
 import {
   foundUpdateSchema,
@@ -894,6 +894,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // One stream per open Med window, for news that is not about a repository,
   // such as a review an agent just created.
   const windows = new Set<ServerResponse>();
+  /** The dashboard that the reader's window shows, or showed last. */
+  let shownDashboard: ShownDashboard | undefined;
   const sessionStreams = new Set<ServerResponse>();
   // Streams of one transcript share its follower.
   const { follow: followTranscript, close: closeTranscripts } = createTranscriptFeeds();
@@ -1290,6 +1292,21 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     route(dashboardRoutes.list, () => dashboards.list()),
     route(dashboardRoutes.read, (input) => dashboards.read(input.id)),
     route(dashboardRoutes.check, (input, { signal }) => dashboards.check(input, signal)),
+    // What the reader's window shows on a dashboard, so an agent that the
+    // reader asks sees the same page, and changes it.
+    route(dashboardRoutes.report, async (input) => {
+      if (input.showing || shownDashboard?.id === input.id)
+        shownDashboard = { ...input, at: Date.now() };
+      return {};
+    }),
+    route(dashboardRoutes.shown, async () => (shownDashboard ? { shown: shownDashboard } : {})),
+    route(dashboardRoutes.show, async (input) => {
+      const path = dashboardPath(input.id, input.values);
+      shownDashboard = { ...input, showing: windows.size > 0, at: Date.now() };
+      const event = { type: "show", path };
+      for (const window of windows) window.write(`event: show\ndata: ${JSON.stringify(event)}\n\n`);
+      return { windows: windows.size, path };
+    }),
     route(chartRoutes.sites, async () => ({ sites: await grafanaSettings.list() })),
     route(chartRoutes.connect, (input, { signal }) =>
       grafanaSettings.connect(input, (address, token) => grafana.check(address, token, signal)),

@@ -96,7 +96,7 @@ test("a dashboard file reads as its title, inputs, and views of panels, each a c
 
 test("what is wrong in a file is said with its line, and what is right still draws", () => {
   const { dashboard, problems } = parseDashboard(`title: Broken
-range: yesterday
+range: Nov 14
 colour: blue
 inputs:
   from: x
@@ -111,7 +111,10 @@ panels:
 `);
   expect(problems).toEqual([
     { line: 3, message: expect.stringContaining("Med does not know the key colour") },
-    { line: 2, message: expect.stringContaining("range is the time picker's first value") },
+    {
+      line: 2,
+      message: expect.stringContaining("range is the time picker's first range, relative to now"),
+    },
     { line: 5, message: "from is Med's own name; call the input something else." },
     { line: 6, message: "env is a choice: give it options." },
     { line: 9, message: expect.stringContaining("width is full, three-quarters") },

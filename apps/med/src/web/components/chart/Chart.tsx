@@ -164,6 +164,8 @@ export function LineChart({
   notice,
   fix,
   onInspect,
+  busy,
+  onZoom,
 }: {
   spec: LineChartSpec;
   series?: readonly Series[];
@@ -182,6 +184,11 @@ export function LineChart({
   notice?: string;
   /** In place of Try again, for an error that a step elsewhere fixes. */
   fix?: { label: string; run(): void };
+  /** What its read does now, as "Waiting" or "Fetching · 4 s". */
+  busy?: string;
+  /** A drag across the time picks this range, as a dashboard's: in place of
+   * the chart's own zoom. */
+  onZoom?(from: number, to: number): void;
 }) {
   const frame = useRef<HTMLDivElement>(null);
   const clip = `chart-${useId().replace(/[^a-zA-Z0-9-]/g, "")}`;
@@ -320,7 +327,8 @@ export function LineChart({
   const onPointerUp = () => {
     if (brush && brush.to - brush.from > 8) {
       const span = Math.max(timeAt(brush.to) - timeAt(brush.from), spacing * 6);
-      setZoom([timeAt(brush.from), timeAt(brush.from) + span]);
+      if (onZoom) onZoom(timeAt(brush.from), timeAt(brush.from) + span);
+      else setZoom([timeAt(brush.from), timeAt(brush.from) + span]);
     }
     down.current = null;
     setBrush(null);
@@ -802,7 +810,11 @@ export function LineChart({
                   </span>
                 </>
               )}
-              {state === "loading" && <span {...stylex.props(styles.fetching)}>· Fetching…</span>}
+              {(busy ?? (state === "loading" ? "Fetching…" : undefined)) && (
+                <span data-chart-status="" {...stylex.props(styles.fetching)}>
+                  · {busy ?? "Fetching…"}
+                </span>
+              )}
             </>
           ) : (
             <span>From the agent</span>

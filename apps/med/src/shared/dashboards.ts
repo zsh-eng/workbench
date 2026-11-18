@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { RouteContract } from "./routes";
+import { isRelative, parseRange, resolveRange, timeValue, type TimeRange } from "./time-range";
 
 // A dashboard is a YAML file that opens as its own page, as an Obsidian Base
 // does: `<name>.dashboard.yaml` in a repository Med knows, or in the
@@ -10,7 +11,7 @@ import type { RouteContract } from "./routes";
 // key. Med reads what the file says and draws it; the chart sources fetch.
 //
 //   title: Checkout
-//   range: now-6h            # the time picker; ${from} and ${to}
+//   range: now-6h            # the time picker's first range; ${from} and ${to}
 //   live: true               # every chart reads again each minute
 //   inputs:
 //     service: { type: text, default: checkout }
@@ -51,20 +52,14 @@ export function panelWidth(value: unknown): number | null {
 }
 export const WIDTH_WORDS = ["full", "three-quarters", "two-thirds", "half", "third", "quarter"];
 
-/** The time picker's choices, as Grafana writes them. */
-export const RANGE_CHOICES: readonly { value: string; label: string }[] = [
-  { value: "now-15m", label: "Last 15 minutes" },
-  { value: "now-1h", label: "Last hour" },
-  { value: "now-6h", label: "Last 6 hours" },
-  { value: "now-24h", label: "Last 24 hours" },
-  { value: "now-7d", label: "Last 7 days" },
-  { value: "now-30d", label: "Last 30 days" },
-  { value: "now-90d", label: "Last 90 days" },
-  { value: "now-1y", label: "Last year" },
-];
-export const rangeLabel = (value: string) =>
-  RANGE_CHOICES.find((choice) => choice.value === value)?.label ??
-  `Since ${value.replace(/^now-/, "")} ago`;
+/** A dashboard's first range is relative, so it means the same whenever the
+ * page opens: now-6h, today, last 7 days, now-7d to now-1d. */
+export function firstRange(text: string): TimeRange | null {
+  const read = parseRange(text);
+  return "range" in read && isRelative(read.range.from) && isRelative(read.range.to)
+    ? read.range
+    : null;
+}
 
 const inputSchema = z.object({
   name: z.string(),
@@ -100,7 +95,8 @@ export type DashboardPanel = z.infer<typeof panelSchema>;
 export const dashboardSchema = z.object({
   title: z.string(),
   description: z.string().optional(),
-  /** The time picker's first value; none shows no picker. */
+  /** The time picker's first range, as written (firstRange reads it); none
+   * shows no picker. */
   range: z.string().optional(),
   live: z.boolean(),
   inputs: z.array(inputSchema),
@@ -178,6 +174,19 @@ export const dashboardCheckSchema = z.object({
 });
 export type DashboardCheck = z.infer<typeof dashboardCheckSchema>;
 
+/** What a Med window shows on a dashboard, or showed last: the window that
+ * the reader uses tells the host, so `med dashboard` names it, and an agent
+ * changes what the reader sees. */
+export const shownDashboardSchema = z.object({
+  id: z.string().min(1).max(2048),
+  /** As the address has them: the inputs, `from` and `to`, and `view`. */
+  values: z.record(z.string(), z.string().max(4096)),
+  /** On screen now; false once the window shows something else. */
+  showing: z.boolean(),
+  at: z.number(),
+});
+export type ShownDashboard = z.infer<typeof shownDashboardSchema>;
+
 export const dashboardRoutes = {
   /** The dashboards in the repositories Med knows and in the dashboards
    * folder beside its settings. */
@@ -202,18 +211,73 @@ export const dashboardRoutes = {
     input: z.object({
       id: z.string().max(2048).optional(),
       path: z.string().max(4096).optional(),
-      /** Input values, the range (`range`), and the view (`view`). */
+      /** Input values, the range as `from` and `to` (relative times or
+       * milliseconds) or as words in `range` (time-range.ts reads them),
+       * and the view (`view`). */
       values: z.record(z.string(), z.string().max(4096)).optional(),
     }),
     output: dashboardCheckSchema,
   },
+  /** A window says what it shows on a dashboard, or that it left one. */
+  report: {
+    method: "POST",
+    path: "/api/dashboards/report",
+    input: shownDashboardSchema.omit({ at: true }),
+    output: z.object({}),
+  },
+  /** The dashboard that a window shows, or showed last. */
+  shown: {
+    method: "GET",
+    path: "/api/dashboards/shown",
+    input: z.object({}),
+    output: z.object({ shown: shownDashboardSchema.optional() }),
+  },
+  /** Shows a dashboard, with these values, in the Med window used last. */
+  show: {
+    method: "POST",
+    path: "/api/dashboards/show",
+    input: z.object({
+      id: z.string().min(1).max(2048),
+      values: z.record(z.string(), z.string().max(4096)),
+    }),
+    /** The windows that heard it; with none, the CLI opens the browser. */
+    output: z.object({ windows: z.number(), path: z.string() }),
+  },
 } as const satisfies Record<string, RouteContract>;
 
-/** Each input's value: the one given when it is allowed, else its default. */
+/** The address's names that are not inputs. */
+const PAGE_KEYS = new Set(["from", "to", "view"]);
+
+/** A dashboard's address in Med, with its values: /dashboards/<id>?var-env=
+ * staging&from=now-6h&to=now&view=Errors, as Grafana writes its own. */
+export function dashboardPath(id: string, values: Record<string, string> = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(values))
+    params.set(PAGE_KEYS.has(key) ? key : `var-${key}`, value);
+  const search = params.toString();
+  return `/dashboards/${id.split("/").map(encodeURIComponent).join("/")}${search ? `?${search}` : ""}`;
+}
+
+/** The values an address gives: each var-<name>, from, to, and view. */
+export function valuesOfSearch(search: string) {
+  const values: Record<string, string> = {};
+  for (const [key, value] of new URLSearchParams(search))
+    if (key.startsWith("var-")) values[key.slice(4)] = value;
+    else if (PAGE_KEYS.has(key)) values[key] = value;
+  return values;
+}
+
+/**
+ * Each input's value: the one given when it is allowed, else its default. A
+ * dashboard with a time picker gives `from` and `to` too, from the range
+ * given (as `from` and `to`, or words in `range`) or its first one; a moment
+ * reaches the panels as an ISO time.
+ */
 export function inputValues(
   dashboard: Pick<Dashboard, "inputs" | "range">,
   given: Record<string, string | undefined>,
-): { values: Record<string, string>; problems: string[] } {
+  now = Date.now(),
+): { values: Record<string, string>; problems: string[]; range?: TimeRange } {
   const values: Record<string, string> = {};
   const problems: string[] = [];
   for (const input of dashboard.inputs) {
@@ -227,14 +291,24 @@ export function inputValues(
       values[input.name] = input.default;
     } else values[input.name] = value;
   }
-  if (dashboard.range) {
-    const range = given.range ?? dashboard.range;
-    const valid = /^now(?:-\d+[smhdwMy])?$/.test(range);
-    if (!valid) problems.push(`The range is a time such as now-6h, not "${range}".`);
-    values.from = valid ? range : dashboard.range;
-    values.to = "now";
+  const first = dashboard.range !== undefined ? firstRange(dashboard.range) : null;
+  if (!first) return { values, problems };
+  let range = first;
+  if (given.range !== undefined) {
+    const read = parseRange(given.range, now);
+    if ("range" in read) range = read.range;
+    else problems.push(read.error);
+  } else if (given.from !== undefined || given.to !== undefined) {
+    const asked = { from: given.from ?? first.from, to: given.to ?? "now" };
+    if (resolveRange(asked, now)) range = asked;
+    else
+      problems.push(
+        `The range runs from a time to a later one, as now-6h to now, not ${asked.from} to ${asked.to}.`,
+      );
   }
-  return { values, problems };
+  values.from = timeValue(range.from);
+  values.to = timeValue(range.to);
+  return { values, problems, range };
 }
 
 /** `text` with each `${name}` as its value, and the names that have none. */

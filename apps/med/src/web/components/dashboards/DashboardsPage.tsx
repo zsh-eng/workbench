@@ -4,22 +4,26 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
 import {
+  dashboardPath,
+  dashboardRoutes,
   inputValues,
   panelChartText,
   panelTitle,
-  RANGE_CHOICES,
-  rangeLabel,
   substitute,
+  valuesOfSearch,
+  type Dashboard,
   type DashboardEntry,
   type DashboardFile,
   type DashboardInput,
   type DashboardPanel,
 } from "../../../shared/dashboards";
+import { isRelative, momentRange, rangeLabel, type TimeRange } from "../../../shared/time-range";
 import { useDocumentTitle } from "../../data/document-title";
 import {
   dashboardIdOf,
@@ -31,8 +35,13 @@ import {
 } from "../../data/dashboards";
 import { relativeTime } from "../../data/relative-time";
 import { tokens, ui } from "../../theme.stylex";
-import { ChartBlock } from "../chart/ChartBlock";
-import { ChoiceSelect } from "../Controls";
+import { createApi } from "../../data/api";
+import { readBrowserToken } from "../../data/auth";
+import { browserFetch } from "../../data/live";
+import { ChartBlock, ChartZoom } from "../chart/ChartBlock";
+import { ChoiceSelect, SearchSelect } from "../Controls";
+import { AskSuperagent } from "./AskSuperagent";
+import { TimeRangePicker } from "./TimeRangePicker";
 import { Icon } from "../Icon";
 import { SessionMarkdown } from "../session/SessionMarkdown";
 import { settingStyles } from "../settings/SettingsParts";
@@ -42,9 +51,13 @@ import { ToolButton } from "../ToolButton";
 // (shared/dashboards.ts has the format). The list shows each file Med found;
 // a dashboard shows its inputs, its views as tabs, and its panels on a grid
 // of twelve columns. The inputs, the range and the view live in the address
-// (?var-service=checkout&range=now-6h&view=Errors), so a link opens the same
-// dashboard. The file is read again every few seconds while it shows, so an
-// agent's edit draws as it lands.
+// (?var-service=checkout&from=now-6h&to=now&view=Errors), so a link opens the
+// same dashboard, and Back undoes a change: an input, a range, a drag across
+// a chart that zooms the whole page to its time. The file is read again every
+// few seconds while it shows, so an agent's edit draws as it lands.
+//
+// The reader can ask the Superagent instead of clicking: the page tells the
+// host what it shows, and `med dashboard open` changes it in place.
 
 /** While a dashboard shows, its file is read again this often. */
 const FILE_EVERY = 2_000;
@@ -179,22 +192,39 @@ function DashboardList() {
   );
 }
 
-/** The address's inputs: ?var-name=value, the range, and the view. */
-function givenOf(search: string) {
-  const params = new URLSearchParams(search);
-  const given: Record<string, string> = {};
-  for (const [key, value] of params)
-    if (key.startsWith("var-")) given[key.slice(4)] = value;
-    else if (key === "range" || key === "view") given[key] = value;
-  return given;
+/** The page tells the host what it shows, so `med dashboard` can say it. */
+function report(id: string, values: Record<string, string>, showing: boolean) {
+  void createApi(browserFetch, readBrowserToken())
+    .call(dashboardRoutes.report, { id, values, showing })
+    .catch(() => {});
 }
 
-function addressOf(given: Record<string, string>) {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(given))
-    params.set(key === "range" || key === "view" ? key : `var-${key}`, value);
-  const search = params.toString();
-  return `${location.pathname}${search ? `?${search}` : ""}`;
+/** What the page shows, for the Superagent: the values, and how to change them. */
+function pageContext(
+  id: string,
+  dashboard: Dashboard,
+  values: Record<string, string>,
+  range: TimeRange | undefined,
+  view: string | undefined,
+) {
+  const shown = [
+    ...dashboard.inputs.map((input) => `${input.name}=${values[input.name] ?? input.default}`),
+    ...(range ? [`${rangeLabel(range)} (from ${range.from} to ${range.to})`] : []),
+    ...(view && dashboard.views.length > 1 ? [`view ${view}`] : []),
+  ].join(", ");
+  const inputs = dashboard.inputs
+    .map((input) => (input.options ? `${input.name} (${input.options.join(", ")})` : input.name))
+    .join(", ");
+  return [
+    `${dashboard.title} (${id}) is on the reader's screen in Med${shown ? `: ${shown}` : ""}.`,
+    inputs ? `Its inputs: ${inputs}.` : "",
+    dashboard.views.length > 1
+      ? `Its views: ${dashboard.views.map((entry) => entry.name).join(", ")}.`
+      : "",
+    `To change what it shows, run med dashboard open with only what changes: --set name=value, --range "<words>" (6h, yesterday, "yesterday 12:00 to 18:00", "since 9:00"), --view <name>. To answer what it shows, run med dashboard check with the same flags: it reads every panel as the page does. Say what you changed in a sentence.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 /** The minute that every panel reads as of, so the panels agree. */
@@ -203,7 +233,7 @@ const minute = () => Math.floor(Date.now() / 60_000) * 60_000;
 function DashboardView({ id }: { id: string }) {
   const [file, setFile] = useState<DashboardFile | undefined>(() => keptDashboard(id));
   const [error, setError] = useState("");
-  const [given, setGiven] = useState(() => givenOf(location.search));
+  const [given, setGiven] = useState(() => valuesOfSearch(location.search));
   const [at, setAt] = useState(minute);
   const [source, setSource] = useState(false);
   useDocumentTitle(file?.dashboard?.title ?? file?.entry.title ?? "Dashboard");
@@ -234,24 +264,65 @@ function DashboardView({ id }: { id: string }) {
       clearInterval(timer);
     };
   }, [id]);
-  // Back and forward move between the inputs' values.
+  // Back and forward move between the values, as an agent's change does.
   useEffect(() => {
-    const follow = () => setGiven(givenOf(location.search));
+    const follow = () => setGiven(valuesOfSearch(location.search));
     window.addEventListener("popstate", follow);
     return () => window.removeEventListener("popstate", follow);
   }, []);
-  const change = (key: string, value: string) => {
-    const next = { ...given, [key]: value };
-    setGiven(next);
-    history.replaceState(history.state, "", addressOf(next));
+  /** New values: an input or the range is a step that Back undoes; a view is not. */
+  const change = (next: Record<string, string>, step = true) => {
+    const merged = { ...given, ...next };
+    setGiven(merged);
+    const address = dashboardPath(id, merged);
+    if (step) history.pushState(null, "", address);
+    else history.replaceState(history.state, "", address);
   };
 
   const dashboard = file?.dashboard;
-  const { values, problems: valueProblems } = useMemo(
+  const {
+    values,
+    problems: valueProblems,
+    range,
+  } = useMemo(
     () => (dashboard ? inputValues(dashboard, given) : { values: {}, problems: [] }),
-    [dashboard, given],
+    // The range's words count from the minute the page reads as of.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dashboard, given, at],
   );
   const view = dashboard?.views.find((entry) => entry.name === given.view) ?? dashboard?.views[0];
+  // What it shows, as the address has it with each value filled in, for the
+  // host while the page shows, and once it has gone.
+  const shownValues = useMemo(() => {
+    if (!dashboard) return null;
+    const shown: Record<string, string> = {};
+    for (const input of dashboard.inputs) shown[input.name] = values[input.name] ?? input.default;
+    if (range) Object.assign(shown, range);
+    if (view && dashboard.views.length > 1) shown.view = view.name;
+    return shown;
+  }, [dashboard, values, range, view]);
+  const shownKey = JSON.stringify(shownValues);
+  useEffect(() => {
+    if (!shownValues) return;
+    const tell = () => {
+      if (document.visibilityState === "visible") report(id, shownValues, true);
+    };
+    tell();
+    window.addEventListener("focus", tell);
+    return () => window.removeEventListener("focus", tell);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, shownKey]);
+  const leftWith = useRef(shownValues);
+  leftWith.current = shownValues;
+  useEffect(
+    () => () => {
+      if (leftWith.current) report(id, leftWith.current, false);
+    },
+    [id],
+  );
+  // A live dashboard reads again each minute while it ends now; a range in
+  // the past does not change.
+  const live = !!dashboard?.live && (!range || isRelative(range.to));
   const problems = [
     ...(file?.problems.map((problem) =>
       problem.line !== undefined ? `Line ${problem.line}: ${problem.message}` : problem.message,
@@ -263,6 +334,8 @@ function DashboardView({ id }: { id: string }) {
       ? file.entry.path.slice(0, file.entry.path.length - file.entry.relative.length - 1)
       : undefined;
   const folder = file?.entry.relative.split("/").slice(0, -1).join("/") ?? "";
+  // A drag across a chart's time zooms the page to it; Back zooms out again.
+  const zoomTo = (from: number, to: number) => change({ ...momentRange(from, to) });
 
   return (
     <div {...stylex.props(styles.boardColumn)}>
@@ -275,7 +348,7 @@ function DashboardView({ id }: { id: string }) {
           {dashboard?.title ?? file?.entry.title ?? "Dashboard"}
         </h1>
         <span role="status" {...stylex.props(styles.readAt)}>
-          {dashboard?.live
+          {live
             ? "Live"
             : `Read at ${new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
         </span>
@@ -308,33 +381,22 @@ function DashboardView({ id }: { id: string }) {
           </ul>
         </div>
       )}
-      {dashboard && (dashboard.inputs.length > 0 || dashboard.range) && (
+      {dashboard && (dashboard.inputs.length > 0 || range) && (
         <div role="group" aria-label="Inputs" {...stylex.props(styles.inputs)}>
           {dashboard.inputs.map((input) => (
             <InputField
               key={input.name}
               input={input}
               value={values[input.name] ?? input.default}
-              onChange={(value) => change(input.name, value)}
+              onChange={(value) => change({ [input.name]: value })}
             />
           ))}
-          {dashboard.range && (
+          {range && (
             <div {...stylex.props(styles.field)}>
               <span aria-hidden="true" {...stylex.props(styles.fieldLabel)}>
                 Range
               </span>
-              <ChoiceSelect
-                trigger={settingStyles.select}
-                label="Range"
-                value={values.from ?? dashboard.range}
-                choices={[
-                  ...RANGE_CHOICES,
-                  ...(RANGE_CHOICES.some((choice) => choice.value === values.from)
-                    ? []
-                    : [{ value: values.from!, label: rangeLabel(values.from!) }]),
-                ].map((choice) => ({ value: choice.value, label: choice.label }))}
-                onChange={(value) => change("range", value)}
-              />
+              <TimeRangePicker range={range} onChange={(next) => change({ ...next })} />
             </div>
           )}
         </div>
@@ -348,7 +410,7 @@ function DashboardView({ id }: { id: string }) {
               role="tab"
               aria-selected={entry === view}
               {...stylex.props(styles.tab, entry === view && styles.tabOn)}
-              onClick={() => change("view", entry.name)}
+              onClick={() => change({ view: entry.name }, false)}
             >
               {entry.name}
             </button>
@@ -367,23 +429,30 @@ function DashboardView({ id }: { id: string }) {
         </pre>
       ) : (
         view && (
-          <Grid>
-            {view.panels.map((panel, index) => (
-              <PanelCell key={`${view.name}\0${index}`} panel={panel}>
-                <Panel
-                  panel={panel}
-                  values={values}
-                  live={dashboard!.live}
-                  at={at}
-                  files={repoRoot ? { repo: repoRoot, folder } : undefined}
-                />
-              </PanelCell>
-            ))}
-          </Grid>
+          <ChartZoom value={range ? zoomTo : null}>
+            <Grid>
+              {view.panels.map((panel, index) => (
+                <PanelCell key={`${view.name}\0${index}`} panel={panel}>
+                  <Panel
+                    panel={panel}
+                    values={values}
+                    live={live}
+                    at={at}
+                    files={repoRoot ? { repo: repoRoot, folder } : undefined}
+                  />
+                </PanelCell>
+              ))}
+            </Grid>
+          </ChartZoom>
         )
       )}
       {dashboard && view && !view.panels.length && (
         <p {...stylex.props(styles.emptyNote)}>This view has no panels yet.</p>
+      )}
+      {dashboard && (
+        <AskSuperagent
+          context={() => ({ text: pageContext(id, dashboard, values, range, view?.name) })}
+        />
       )}
     </div>
   );
@@ -406,21 +475,34 @@ function InputField({
     setDraft(value);
   }
   const valid = !input.pattern || new RegExp(`^(?:${input.pattern})$`).test(draft);
-  if (input.type === "choice")
+  if (input.type === "choice") {
+    const choices = (input.options ?? []).map((option) => ({ value: option, label: option }));
     return (
       <div {...stylex.props(styles.field)}>
         <span aria-hidden="true" {...stylex.props(styles.fieldLabel)}>
           {input.label}
         </span>
-        <ChoiceSelect
-          trigger={settingStyles.select}
-          label={input.label}
-          value={value}
-          choices={(input.options ?? []).map((option) => ({ value: option, label: option }))}
-          onChange={onChange}
-        />
+        {choices.length > 2 ? (
+          // More than two: a menu to search, as Grafana's variables have.
+          <SearchSelect
+            trigger={settingStyles.select}
+            label={input.label}
+            value={value}
+            choices={choices}
+            onChange={onChange}
+          />
+        ) : (
+          <ChoiceSelect
+            trigger={settingStyles.select}
+            label={input.label}
+            value={value}
+            choices={choices}
+            onChange={onChange}
+          />
+        )}
       </div>
     );
+  }
   const commit = () => {
     if (draft !== value && valid) onChange(draft);
   };
@@ -516,8 +598,15 @@ function Panel({
         {chart.unknown.length === 1 ? "is" : "are"} no input of this dashboard.
       </div>
     );
-  // A new text is a new chart, read afresh: the old one's data is another's.
-  return <ChartBlock key={chart.text} text={chart.text} at={at} {...(files ? { files } : {})} />;
+  // A new text is new data, read afresh; the chart shows the last data,
+  // dimmed, until it comes.
+  const block = <ChartBlock text={chart.text} at={at} {...(files ? { files } : {})} />;
+  // A chart that does not read the range zooms on its own.
+  return panel.keys.some(([, value]) => /\$\{\s*(?:from|to)\s*\}/.test(value)) ? (
+    block
+  ) : (
+    <ChartZoom value={null}>{block}</ChartZoom>
+  );
 }
 
 const styles = stylex.create({

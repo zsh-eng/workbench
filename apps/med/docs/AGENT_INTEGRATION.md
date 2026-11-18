@@ -730,6 +730,14 @@ reads every panel through the same sources and says what each drew, or the
 line of the file that is wrong, and exits 1 until it passes. End with the
 link it prints. See [Dashboards](usage/dashboards.md).
 
+When the user asks to look at a dashboard another way ("staging",
+"yesterday afternoon"), change it on their screen with only what changes:
+`med dashboard open --set env=staging`, or
+`med dashboard open --range "yesterday 12:00 to 18:00"`. Without an id it
+takes the dashboard their window shows, or showed last, and keeps its other
+values; Back in Med undoes it. To answer what a dashboard shows, run
+`med dashboard check` with the same flags, and say it in words.
+
 ## Checks
 
 `med review create` and `update` check the hand-off and print the next step.

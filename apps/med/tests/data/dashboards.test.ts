@@ -1,10 +1,12 @@
 import { expect, test } from "vitest";
 import {
+  dashboardPath,
   inputValues,
   panelChartText,
   panelTitle,
   panelWidth,
   substitute,
+  valuesOfSearch,
   type Dashboard,
 } from "../../src/shared/dashboards";
 import { statOf, tableOf } from "../../src/web/components/chart/chart-summary";
@@ -21,17 +23,57 @@ test("an input takes the value given when it is allowed, else its default; the r
   expect(inputValues(dashboard, {})).toEqual({
     values: { service: "checkout", env: "prod", from: "now-6h", to: "now" },
     problems: [],
+    range: { from: "now-6h", to: "now" },
   });
   expect(
-    inputValues(dashboard, { service: "payments", env: "staging", range: "now-24h" }).values,
+    inputValues(dashboard, { service: "payments", env: "staging", from: "now-24h", to: "now" })
+      .values,
   ).toEqual({ service: "payments", env: "staging", from: "now-24h", to: "now" });
-  const wrong = inputValues(dashboard, { service: "Pay Ments", env: "dev", range: "yesterday" });
+  // Words, as `med dashboard --range` and the Superagent give them.
+  expect(inputValues(dashboard, { range: "yesterday" }).range).toEqual({
+    from: "now-1d/d",
+    to: "now-1d/d",
+  });
+  // A moment reaches the panels as an ISO time; the page keeps it as Grafana does.
+  const moments = inputValues(dashboard, { from: "1763290800000", to: "1763294400000" });
+  expect(moments.range).toEqual({ from: "1763290800000", to: "1763294400000" });
+  expect(moments.values).toMatchObject({
+    from: "2025-11-16T11:00:00.000Z",
+    to: "2025-11-16T12:00:00.000Z",
+  });
+  const wrong = inputValues(dashboard, {
+    service: "Pay Ments",
+    env: "dev",
+    from: "now",
+    to: "now-1h",
+  });
   expect(wrong.values).toEqual({ service: "checkout", env: "prod", from: "now-6h", to: "now" });
   expect(wrong.problems).toEqual([
     'service must match [a-z-]+, not "Pay Ments".',
     'env takes one of prod, staging, not "dev".',
-    'The range is a time such as now-6h, not "yesterday".',
+    "The range runs from a time to a later one, as now-6h to now, not now to now-1h.",
   ]);
+  expect(inputValues(dashboard, { range: "whenever" }).problems).toEqual([
+    'Med does not read "whenever" as a range. Try 6h, yesterday, since 9:00, Nov 14 to Nov 16, or now-7d.',
+  ]);
+});
+
+test("an address holds the inputs as var-<name>, and the range and view as Grafana's do", () => {
+  const path = dashboardPath("personal/service health", {
+    service: "checkout",
+    from: "now-6h",
+    to: "now",
+    view: "Endpoints",
+  });
+  expect(path).toBe(
+    "/dashboards/personal/service%20health?var-service=checkout&from=now-6h&to=now&view=Endpoints",
+  );
+  expect(valuesOfSearch(path.slice(path.indexOf("?")))).toEqual({
+    service: "checkout",
+    from: "now-6h",
+    to: "now",
+    view: "Endpoints",
+  });
 });
 
 test("${name} becomes the input's value in a panel's keys and rows; a name that is no input stays and is named", () => {

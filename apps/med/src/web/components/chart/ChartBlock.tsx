@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import * as stylex from "@stylexjs/stylex";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   chartSourceFor,
   metaVariable,
@@ -12,6 +13,7 @@ import { grafanaPanel, keptLink, keptPanel, linkChart } from "../../data/charts"
 import { useSettingsFile } from "../../data/settings-file";
 import { openSettings } from "../settings/settings-commands";
 import { useFileRefs } from "../FileRefs";
+import { tokens } from "../../theme.stylex";
 import { BarList } from "./BarList";
 import {
   isRamp,
@@ -38,6 +40,23 @@ import { formatValue, type Series } from "./chart-model";
 // once the chart nears the view; a live one reads again each minute while
 // it shows. A Grafana link that a chart source in Settings covers is that
 // source's, as a sign-in that no token passes needs.
+//
+// A chart whose text changes, as a dashboard's panel does when an input
+// does, keeps what it drew, dimmed under a thin bar, until the new data
+// comes: the page does not go blank, and keeps its place. Until a chart has
+// drawn once, it holds its height and says whether it waits its turn (a page
+// reads four at a time) or fetches, and for how long.
+
+/** On a dashboard, a drag across a chart's time picks the dashboard's range. */
+export const ChartZoom = createContext<((from: number, to: number) => void) | null>(null);
+
+/** What a read gave, before the block draws it: the block's own keys (its
+ * columns, its highlight) shape it at each render. */
+type Read =
+  | { kind: "error"; error: string; code?: string }
+  | { kind: "link"; read: LinkChart; link: string }
+  | { kind: "grafana"; panel: GrafanaPanel }
+  | { kind: "file"; rows: string; at: number };
 
 type Loaded =
   | { state: "loading" }
@@ -246,7 +265,39 @@ export function ChartBlock({
       (block.source.kind === "grafana" && !!chartSourceFor(sources, block.source.link)));
   const input =
     "error" in block ? undefined : viaSource ? linkInput(block, at) : panelInput(block, at);
-  const [loaded, setLoaded] = useState<Loaded>(() => {
+  // What the chart reads: a new key is new data, read afresh; until it comes,
+  // the last read shows.
+  const readKey =
+    "error" in block || block.source.kind === "rows"
+      ? ""
+      : JSON.stringify(
+          input ??
+            (block.source.kind === "file" ? { file: filePath(block.source.path), repo } : {}),
+        );
+  /** A read that this page made before, without asking the server. */
+  const keptRead = (): Read | undefined => {
+    if ("error" in block || !input) return undefined;
+    if (viaSource) {
+      const read = keptLink(input);
+      return read && { kind: "link", read, link: input.link };
+    }
+    const panel = keptPanel(input);
+    return panel && { kind: "grafana", panel };
+  };
+  const [reads, setReads] = useState<{ key: string; read: Read } | null>(() => {
+    const kept = keptRead();
+    return kept ? { key: readKey, read: kept } : null;
+  });
+  // A key that this page read before draws at once.
+  if (reads?.key !== readKey && readKey) {
+    const kept = keptRead();
+    if (kept) setReads({ key: readKey, read: kept });
+  }
+  const current = reads?.key === readKey ? reads.read : undefined;
+  // The last chart's data, while the new one comes; never its error.
+  const previous =
+    reads && reads.key !== readKey && reads.read.kind !== "error" ? reads.read : undefined;
+  const loaded = useMemo<Loaded>(() => {
     if ("error" in block) return { state: "error", error: block.error };
     if (block.source.kind === "rows")
       return {
@@ -255,85 +306,115 @@ export function ChartBlock({
         at: Date.now(),
         rows: block.source.text,
       };
-    const read = viaSource && input && keptLink(input);
-    if (read) return linkLoaded(read, block, input.link);
-    const kept = !viaSource && input && keptPanel(input);
-    return kept
-      ? {
-          state: "ready",
-          data: { kind: "line", series: kept.series },
-          panel: kept,
-          at: kept.fetched,
-        }
-      : { state: "loading" };
-  });
+    const read = current ?? previous;
+    if (!read) return { state: "loading" };
+    if (read.kind === "error")
+      return { state: "error", error: read.error, ...(read.code ? { code: read.code } : {}) };
+    if (read.kind === "link") return linkLoaded(read.read, block, read.link);
+    if (read.kind === "grafana")
+      return {
+        state: "ready",
+        data: { kind: "line", series: read.panel.series },
+        panel: read.panel,
+        at: read.panel.fetched,
+      };
+    return { state: "ready", data: rowsData(read.rows, block), at: read.at, rows: read.rows };
+  }, [block, current, previous]);
   // Each Fetch again, and each minute of a live chart on screen.
   const [round, setRound] = useState<{ count: number; quiet: boolean }>({ count: 0, quiet: false });
+  // A read on its way: when it asked, and whether its turn has come.
+  const [busy, setBusy] = useState<{ since: number; started: boolean } | null>(null);
 
   useEffect(() => {
     if ("error" in block || block.source.kind === "rows" || !near) return;
-    if (round.count === 0 && loaded.state === "ready") return;
+    if (round.count === 0 && reads?.key === readKey && reads.read.kind !== "error") return;
     const abort = new AbortController();
-    if (!round.quiet) setLoaded({ state: "loading" });
+    const key = readKey;
+    if (!round.quiet) setBusy({ since: Date.now(), started: false });
+    const started = () => setBusy((last) => last && { ...last, started: true });
     const source = block.source;
     const refreshed = round.count ? { refresh: true } : {};
-    const work: Promise<Loaded> =
+    const work: Promise<Read> =
       viaSource && input
-        ? linkChart({ ...input, ...refreshed }, abort.signal).then((read) =>
-            linkLoaded(read, block, input.link),
-          )
+        ? linkChart({ ...input, ...refreshed }, abort.signal, started).then((read) => ({
+            kind: "link",
+            read,
+            link: input.link,
+          }))
         : source.kind === "grafana"
-          ? grafanaPanel(
-              { ...input!, ...(round.count ? { refresh: true } : {}) },
-              abort.signal,
-            ).then((panel) => ({
-              state: "ready",
-              data: { kind: "line", series: panel.series },
+          ? grafanaPanel({ ...input!, ...refreshed }, abort.signal, started).then((panel) => ({
+              kind: "grafana",
               panel,
-              at: panel.fetched,
             }))
           : !repo
             ? Promise.resolve({
-                state: "error",
+                kind: "error",
                 error: "Med reads a chart's file from a checkout, and this text has none.",
               })
             : source.kind !== "file"
-              ? Promise.resolve<Loaded>({ state: "error", error: "This chart has no data." })
-              : createDefaultBrowseApi()
+              ? Promise.resolve<Read>({ kind: "error", error: "This chart has no data." })
+              : (started(),
+                createDefaultBrowseApi()
                   .read({ kind: "worktree", repo }, filePath(source.path), abort.signal)
-                  .then((file) =>
+                  .then((file): Read =>
                     file.kind === "text" && file.text !== undefined
-                      ? {
-                          state: "ready",
-                          data: rowsData(file.text, block),
-                          at: Date.now(),
-                          rows: file.text,
-                        }
+                      ? { kind: "file", rows: file.text, at: Date.now() }
                       : {
-                          state: "error",
+                          kind: "error",
                           error:
                             file.kind === "missing"
                               ? `There is no ${source.path} in the checkout.`
                               : (file.reason ?? `Med cannot read ${source.path} as text.`),
                         },
-                  );
+                  ));
     work.then(
-      (next) => {
-        if (!abort.signal.aborted) setLoaded(next);
+      (read) => {
+        if (abort.signal.aborted) return;
+        setReads({ key, read });
+        setBusy(null);
       },
       (reason: unknown) => {
-        if (!abort.signal.aborted && !round.quiet)
-          setLoaded({
-            state: "error",
-            error: message(reason),
-            ...(reason instanceof HttpError && reason.code ? { code: reason.code } : {}),
+        if (abort.signal.aborted) return;
+        // A live chart's quiet read keeps what it drew.
+        if (!round.quiet)
+          setReads({
+            key,
+            read: {
+              kind: "error",
+              error: message(reason),
+              ...(reason instanceof HttpError && reason.code ? { code: reason.code } : {}),
+            },
           });
+        setBusy(null);
       },
     );
-    return () => abort.abort();
-    // `loaded` only decides whether a kept panel needs no first read.
+    return () => {
+      abort.abort();
+      setBusy(null);
+    };
+    // `reads` only decides whether a kept read needs no first read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [block, near, round, repo, JSON.stringify(input), input && sites, input && sourcesKey]);
+  }, [block, near, round, repo, readKey, input && sites, input && sourcesKey]);
+  // The seconds a read has taken, once it takes a while.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!busy) return;
+    const timer = setInterval(() => setTick((tick) => tick + 1), 1000);
+    return () => clearInterval(timer);
+  }, [busy]);
+  const status = !busy
+    ? near
+      ? undefined
+      : "Waiting"
+    : !busy.started
+      ? "Waiting"
+      : Date.now() - busy.since < 2000
+        ? "Fetching…"
+        : `Fetching · ${Math.round((Date.now() - busy.since) / 1000)} s`;
+  /** It shows data, and reads new data, or shows the last data while the new
+   * data waits for the chart to come into view. */
+  const refreshing = (!!busy || (!current && !!previous)) && loaded.state === "ready";
+  const zoom = useContext(ChartZoom);
 
   const live = loaded.state === "ready" && loaded.panel?.live;
   useEffect(() => {
@@ -428,6 +509,7 @@ export function ChartBlock({
         footer,
         onInspect: () => setInspecting(true),
         ...(refreshes ? { onRefresh: refresh } : {}),
+        ...(status ? { status } : {}),
       };
       if (block.type === "stat") {
         const failed =
@@ -543,6 +625,8 @@ export function ChartBlock({
         {...(panel?.notes.length ? { notice: panel.notes.join(" ") } : {})}
         {...(refreshes ? { onRefresh: refresh } : {})}
         onInspect={() => setInspecting(true)}
+        {...(status ? { busy: status } : {})}
+        {...(zoom && linked ? { onZoom: zoom } : {})}
         {...(loaded.state === "error" && loaded.code === "grafana-not-set"
           ? { fix: { label: "Connect Grafana", run: () => openSettings("grafana") } }
           : {})}
@@ -550,11 +634,54 @@ export function ChartBlock({
     );
   };
   return (
-    <div ref={frame} className="med-md-block" data-chart-block="">
-      {content()}
+    <div ref={frame} className="med-md-block" data-chart-block="" aria-busy={!!busy || undefined}>
+      <div {...stylex.props(styles.block)}>
+        <div {...stylex.props(styles.content, refreshing && styles.stale)}>{content()}</div>
+        {refreshing && <span aria-hidden="true" data-chart-busy="" {...stylex.props(styles.bar)} />}
+      </div>
       {inspecting && inspection() && (
         <InspectDialog inspection={inspection()!} onClose={() => setInspecting(false)} />
       )}
     </div>
   );
 }
+
+// The bar slides along the panel's top while it reads; it waits a moment
+// first, so a quick read does not flash.
+const slide = stylex.keyframes({
+  from: { transform: "translateX(-100%)" },
+  to: { transform: "translateX(260%)" },
+});
+const appear = stylex.keyframes({ from: { opacity: 0 }, to: { opacity: 1 } });
+
+const styles = stylex.create({
+  block: { position: "relative" },
+  content: { transitionProperty: "opacity", transitionDuration: "200ms" },
+  stale: { opacity: 0.55, transitionDelay: "250ms" },
+  bar: {
+    position: "absolute",
+    top: 0,
+    insetInline: 14,
+    height: 2,
+    overflow: "hidden",
+    borderRadius: 2,
+    pointerEvents: "none",
+    animationName: appear,
+    animationDuration: "200ms",
+    animationDelay: "250ms",
+    animationFillMode: "both",
+    "::after": {
+      content: '""',
+      position: "absolute",
+      insetBlock: 0,
+      left: 0,
+      width: "38%",
+      borderRadius: 2,
+      backgroundColor: tokens.accent,
+      animationName: slide,
+      animationDuration: "1.1s",
+      animationTimingFunction: "ease-in-out",
+      animationIterationCount: "infinite",
+    },
+  },
+});

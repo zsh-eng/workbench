@@ -11,7 +11,7 @@ import {
   panelTitle,
   panelType,
   panelWidth,
-  RANGE_CHOICES,
+  firstRange,
   substitute,
   WIDTH_WORDS,
   type Dashboard,
@@ -96,9 +96,9 @@ export function parseDashboard(
   const title = text_("title") ?? fallbackTitle;
   const description = text_("description");
   let range = text_("range");
-  if (range !== undefined && !/^now(?:-\d+[smhdwMy])?$/.test(range)) {
+  if (range !== undefined && !firstRange(range)) {
     problem(
-      `range is the time picker's first value, as ${RANGE_CHOICES.map((c) => c.value).join(", ")}.`,
+      "range is the time picker's first range, relative to now: now-6h, today, last 7 days, or now-7d to now-1d.",
       ["range"],
     );
     range = undefined;

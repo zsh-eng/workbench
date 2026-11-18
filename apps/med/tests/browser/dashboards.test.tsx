@@ -3,6 +3,8 @@ import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { DashboardsPage } from "../../src/web/components/dashboards/DashboardsPage";
 import type { Dashboard, DashboardFile } from "../../src/shared/dashboards";
+import type { Thread } from "../../src/shared/threads";
+import type { SuperagentLink } from "../../src/web/data/superagent";
 import "../../src/web/pierre-theme";
 import { initializeTheme } from "../../src/web/themes";
 
@@ -214,3 +216,250 @@ test("the list groups the dashboards Med found by where they are, and opens one"
   expect(location.pathname).toBe("/dashboards/personal/checkout");
   await expect.element(page.getByRole("heading", { name: "Checkout health" })).toBeVisible();
 });
+
+const timed: DashboardFile = {
+  ...file,
+  problems: [],
+  dashboard: {
+    ...dashboard,
+    inputs: [
+      {
+        name: "service",
+        label: "Service",
+        type: "choice",
+        default: "checkout",
+        options: ["checkout", "payments", "search", "inventory"],
+      },
+    ],
+    views: [
+      {
+        name: "Overview",
+        panels: [
+          {
+            kind: "chart",
+            width: 6,
+            keys: [
+              ["link", "https://status.acme.build/${service}?from=${from}&to=${to}"],
+              ["metric", "requests"],
+              ["type", "stat"],
+              ["title", "Requests"],
+            ],
+          },
+          {
+            kind: "chart",
+            width: 6,
+            keys: [
+              ["link", "https://status.acme.build/${service}?from=${from}&to=${to}"],
+              ["metric", "latency"],
+              ["title", "Latency"],
+            ],
+          },
+        ],
+      },
+    ],
+  },
+};
+
+function superagentThread(turn?: Thread["turn"]): Thread {
+  return {
+    id: "superagent-thread",
+    kind: "session",
+    title: "Superagent",
+    createdAt: "2026-11-16T09:00:00Z",
+    updatedAt: 1,
+    reviews: [],
+    superagent: true,
+    ...(turn ? { turn } : {}),
+  };
+}
+
+test("a dashboard keeps what it drew while it reads again, picks a range from words, searches its choices, zooms to a drag, and Back undoes each", async () => {
+  vi.spyOn(Element.prototype, "setPointerCapture").mockImplementation(() => {});
+  const asked: { link: string; meta?: Record<string, string> }[] = [];
+  const reports: { values: Record<string, string>; showing: boolean }[] = [];
+  const sent: { text: string; attachments: { label: string; text: string }[] }[] = [];
+  let hold: Promise<void> | undefined;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = new URL(String(input instanceof Request ? input.url : input), location.href);
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) : {};
+    if (url.pathname === "/api/dashboards/read") return Response.json(timed);
+    if (url.pathname === "/api/dashboards/report") {
+      reports.push(body);
+      return Response.json({});
+    }
+    if (url.pathname.endsWith("/agent/messages")) {
+      sent.push(body);
+      return Response.json({
+        message: {
+          id: "m1",
+          sessionId: "s1",
+          agent: "claude",
+          text: body.text,
+          noteIds: [],
+          attachmentCount: 1,
+          createdAt: new Date().toISOString(),
+          delivery: "delivered",
+        },
+      });
+    }
+    if (url.pathname !== "/api/charts/link")
+      return Response.json({ error: { message: "Not in this test." } }, { status: 404 });
+    asked.push(body);
+    await hold;
+    const service = new URL(body.link).pathname.slice(1);
+    const last = service === "payments" ? 90 : 500;
+    // A point a minute for an hour, ending at the last value.
+    const points = Array.from(
+      { length: 61 },
+      (_, minute) =>
+        `2026-11-16T09:${String(minute % 60).padStart(2, "0")}:00`.replace(
+          minute === 60 ? "09:00" : "\0",
+          "10:00",
+        ) + `,${minute === 60 ? last : 400 + minute}`,
+    );
+    return Response.json({
+      source: "https://status.acme.build",
+      rows: `time,${body.meta?.metric === "latency" ? "p99 ms" : "req/s"}\n${points.join("\n")}`,
+      live: false,
+      fetched: Date.parse("2026-11-16T10:05:00"),
+    });
+  });
+  const { SuperagentContext } = await import("../../src/web/data/superagent");
+  let link: SuperagentLink = {
+    thread: superagentThread(),
+    start: vi.fn<SuperagentLink["start"]>(),
+    open: vi.fn<SuperagentLink["open"]>(),
+  };
+  history.replaceState(null, "", "/dashboards/personal/checkout");
+  await page.viewport(1400, 900);
+  initializeTheme();
+  frame = document.createElement("div");
+  Object.assign(frame.style, { width: "1300px", height: "880px", display: "flex" });
+  document.body.append(frame);
+  root = createRoot(frame);
+  const render = () =>
+    root!.render(
+      <SuperagentContext value={link}>
+        <DashboardsPage />
+      </SuperagentContext>,
+    );
+  render();
+  const stat = page.getByRole("figure").filter({ hasText: "Requests" });
+  await expect.element(stat.getByText("500")).toBeVisible();
+  // The page tells the host what it shows, each value filled in.
+  await expect
+    .poll(() => reports.at(-1))
+    .toEqual({
+      id: "personal/checkout",
+      values: { service: "checkout", from: "now-6h", to: "now" },
+      showing: true,
+    });
+
+  // More than two choices: a menu with a search field.
+  let release!: () => void;
+  hold = new Promise((go) => (release = go));
+  await page.getByRole("combobox", { name: "Service" }).click();
+  await userEvent.keyboard("pay");
+  await expect.element(page.getByRole("option", { name: "payments" })).toBeVisible();
+  expect(page.getByRole("option", { name: "search" }).query()).toBeNull();
+  await userEvent.keyboard("{Enter}");
+  // While it reads, the last value stays, dimmed under a bar, and says it fetches.
+  await expect.poll(() => asked.at(-1)?.link).toMatch(/\/payments\?/);
+  await expect.element(stat.getByText("500")).toBeVisible();
+  await expect.poll(() => !!document.querySelector("[data-chart-busy]")).toBe(true);
+  expect(stat.element().textContent).toMatch(/Fetching/);
+  release();
+  await expect.element(stat.getByText("90")).toBeVisible();
+  await expect.poll(() => !!document.querySelector("[data-chart-busy]")).toBe(false);
+  hold = undefined;
+  expect(new URLSearchParams(location.search).get("var-service")).toBe("payments");
+
+  // The range from words: the preview says the moments before they apply.
+  await page.getByRole("button", { name: "Time range: Last 6 hours" }).click();
+  await userEvent.keyboard("yesterday 14:00 to 16:30");
+  await expect
+    .element(page.getByRole("status").filter({ hasText: "14:00 → 16:30 · 2 h 30 min" }))
+    .toBeVisible();
+  await userEvent.keyboard("{Enter}");
+  await expect
+    .element(page.getByRole("button", { name: /^Time range: \w{3} \d+, 14:00 – 16:30$/ }))
+    .toBeVisible();
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  yesterday.setHours(14, 0, 0, 0);
+  expect(new URLSearchParams(location.search).get("from")).toBe(String(yesterday.getTime()));
+  // A source reads a moment as an ISO time.
+  await expect.poll(() => asked.at(-1)?.link).toContain(`from=${yesterday.toISOString()}`);
+
+  // A drag across a chart's time zooms the whole page to it.
+  const surface = await vi.waitFor(() => {
+    const rect = document.querySelector<SVGRectElement>(
+      "[data-chart-plot] > rect[fill='transparent']",
+    );
+    if (!rect) throw new Error("No plot yet");
+    return rect;
+  });
+  const box = surface.getBoundingClientRect();
+  const drag = (type: string, x: number) =>
+    surface.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        button: 0,
+        pointerId: 1,
+        clientX: box.left + x,
+        clientY: box.top + box.height / 2,
+      }),
+    );
+  // A frame between moves, as a hand gives React.
+  for (const [type, at] of [
+    ["pointerdown", 0.25],
+    ["pointermove", 0.5],
+    ["pointermove", 0.75],
+    ["pointerup", 0.75],
+  ] as const) {
+    drag(type, box.width * at);
+    await new Promise(requestAnimationFrame);
+  }
+  await expect
+    .poll(() => {
+      const params = new URLSearchParams(location.search);
+      return Number(params.get("to")) - Number(params.get("from"));
+    })
+    .toBeLessThan(2 * 3_600_000);
+  // Back undoes the zoom, then the range, then the service.
+  history.back();
+  await expect
+    .element(page.getByRole("button", { name: /^Time range: \w{3} \d+, 14:00 – 16:30$/ }))
+    .toBeVisible();
+  history.back();
+  await expect
+    .element(page.getByRole("button", { name: "Time range: Last 6 hours" }))
+    .toBeVisible();
+  history.back();
+  await expect
+    .element(page.getByRole("combobox", { name: "Service" }))
+    .toHaveTextContent("checkout");
+
+  // Asking the Superagent sends the words with what the page shows, and its
+  // answer shows on the page.
+  await page
+    .getByRole("textbox", { name: "Ask the Superagent about this dashboard" })
+    .fill("payments, since 9:00");
+  await userEvent.keyboard("{Enter}");
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0]!.text).toBe("payments, since 9:00");
+  expect(sent[0]!.attachments[0]!.text).toContain(
+    "Checkout health (personal/checkout) is on the reader's screen in Med: service=checkout, Last 6 hours (from now-6h to now).",
+  );
+  expect(sent[0]!.attachments[0]!.text).toContain("run med dashboard open with only what changes");
+  await expect.element(page.getByText("Asking the Superagent…")).toBeVisible();
+  link = {
+    ...link,
+    thread: superagentThread({
+      endedAt: Date.now() + 1000,
+      said: "Showing payments since 09:00.",
+    }),
+  };
+  render();
+  await expect.element(page.getByText("Showing payments since 09:00.")).toBeVisible();
+}, 30_000);
