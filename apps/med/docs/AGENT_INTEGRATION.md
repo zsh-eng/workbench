@@ -711,20 +711,23 @@ range: now-6h
 inputs:
   env: [prod, staging]
 panels:
-  - link: https://status.acme.dev/checkout?env=${env}&from=${from}&to=${to}
+  - link: https://status.acme.dev/checkout
     metric: requests
     type: stat
     title: Requests
-  - link: https://status.acme.dev/checkout?env=${env}&from=${from}&to=${to}
-    metric: latency
+  - grafana: https://grafana.acme.dev/d/abc/checkout?viewPanel=4
     title: p99 latency
     threshold: 500 SLO
     width: three-quarters
 ```
 
-`inputs` are text fields or choices, `range` is the time picker
-(`${from}`, `${to}`), `views` are tabs, and `type` is `line`, `bars`,
-`stat`, or `table`; a `text:` panel is Markdown. You can't see the page, so
+`inputs` are text fields or choices, `range` is the time picker, `views` are
+tabs, and `type` is `line`, `bars`, `stat`, or `table`; a `text:` panel is
+Markdown. Write no range or input into a link: Med passes them to every
+`link:` and `grafana:` panel as keys. A chart source reads `MED_CHART_FROM`,
+`MED_CHART_TO`, and `MED_CHART_ENV`; a Grafana panel takes the range as its
+own and `env` as its dashboard's variable. A panel's own key, such as
+`from: now-30d`, wins. You can't see the page, so
 run `med dashboard check <file> [--set env=staging]` after each edit: it
 reads every panel through the same sources and says what each drew, or the
 line of the file that is wrong, and exits 1 until it passes. End with the

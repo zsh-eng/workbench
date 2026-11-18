@@ -67,6 +67,32 @@ export function chartSourceFor(sources: Record<string, string>, link: string) {
   return found;
 }
 
+/** The keys of a chart block that Med reads itself. In a link's or a grafana
+ * link's block, any other key is the source's: its command reads it, or it is
+ * a variable of the Grafana dashboard (chart-block.ts). */
+export const CHART_KEYS: ReadonlySet<string> = new Set([
+  "grafana",
+  "link",
+  "file",
+  "title",
+  "subtitle",
+  "unit",
+  "scale",
+  "type",
+  "live",
+  "from",
+  "to",
+  "mark",
+  "threshold",
+  "highlight",
+  "reduce",
+]);
+
+/** A chart's keys for its source: at most 32, as `name: value`. */
+const sourceKeys = z
+  .record(z.string().regex(/^[a-z][\w-]{0,63}$/i), z.string().max(4096))
+  .refine((keys) => Object.keys(keys).length <= 32, "A chart passes at most 32 keys.");
+
 /** A block's key as the variable that a source's command reads it from:
  * `panel-id` is MED_CHART_PANEL_ID. */
 export const metaVariable = (key: string) => `MED_CHART_${key.toUpperCase().replace(/-/g, "_")}`;
@@ -117,18 +143,16 @@ export const chartRoutes = {
       link: z.string().min(1).max(8192),
       at: z.number().optional(),
       live: z.boolean().optional(),
-      meta: z
-        .record(z.string().regex(/^[a-z][\w-]{0,63}$/i), z.string().max(4096))
-        .refine((meta) => Object.keys(meta).length <= 32, "A chart passes at most 32 keys.")
-        .optional(),
+      meta: sourceKeys.optional(),
       refresh: z.boolean().optional(),
     }),
     output: linkChartSchema,
   },
   /** A panel's data, over the link's range. A range relative to now, such as
-   * `now-6h`, counts from `at`, the reply's time, unless `live`. Med keeps
-   * what it read, so the chart shows the same data later; `refresh` reads
-   * Grafana again. */
+   * `now-6h`, counts from `at`, the reply's time, unless `live`. `vars` set
+   * the Grafana dashboard's variables, over the link's `var-` values. Med
+   * keeps what it read, so the chart shows the same data later; `refresh`
+   * reads Grafana again. */
   grafana: {
     method: "POST",
     path: "/api/charts/grafana",
@@ -137,6 +161,7 @@ export const chartRoutes = {
       at: z.number().optional(),
       from: z.string().max(64).optional(),
       to: z.string().max(64).optional(),
+      vars: sourceKeys.optional(),
       live: z.boolean().optional(),
       refresh: z.boolean().optional(),
     }),

@@ -1,3 +1,4 @@
+import { CHART_KEYS } from "../../../shared/charts";
 import {
   formatValue,
   type Bar,
@@ -20,29 +21,21 @@ import {
 // first, sum, mean, max, or min), live, from and to (a grafana link's range),
 // mark (repeatable: "10:42 Deploy v412"), threshold ("500 SLO"), highlight
 // (the bar the chart is about). A link chart has no rows, so any other key in it is for its
-// source's command, which reads it as it likes: `panel: 4`.
-
-const KEYS = new Set([
-  "grafana",
-  "link",
-  "file",
-  "title",
-  "subtitle",
-  "unit",
-  "scale",
-  "type",
-  "live",
-  "from",
-  "to",
-  "mark",
-  "threshold",
-  "highlight",
-  "reduce",
-]);
+// source's command, which reads it as it likes: `panel: 4`. In a grafana
+// chart, any other key sets a variable of the Grafana dashboard, over the
+// link's `var-` value: `env: staging`.
 
 export interface ChartBlock {
   source:
-    | { kind: "grafana"; link: string; from?: string; to?: string; live: boolean }
+    | {
+        kind: "grafana";
+        link: string;
+        from?: string;
+        to?: string;
+        live: boolean;
+        /** The Grafana dashboard's variables, as the block sets them. */
+        vars?: Record<string, string>;
+      }
     /** A link whose data a chart source in Settings reads, and the keys
      * that Med passes to the source's command as they are written. */
     | { kind: "link"; link: string; live: boolean; meta: Record<string, string> }
@@ -64,26 +57,65 @@ export interface ChartBlock {
 
 const KEY = /^\s*([a-z][\w-]*)\s*:\s*(.*?)\s*$/i;
 
+/** The request for a block's Grafana panel, in one key order, so the page's
+ * copy and the host's check match. */
+export function grafanaRequest(source: ChartBlock["source"], at: number | undefined) {
+  if (source.kind !== "grafana") return undefined;
+  const { link, from, to, vars, live } = source;
+  return {
+    link,
+    ...(at !== undefined ? { at } : {}),
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
+    ...(vars ? { vars } : {}),
+    ...(live ? { live } : {}),
+  };
+}
+
+/** The request for a chart source's link: the link, the reply's time, and the
+ * block's keys that are the source's, which for a grafana link are its range
+ * and variables. */
+export function linkRequest(source: ChartBlock["source"], at: number | undefined) {
+  if (source.kind !== "grafana" && source.kind !== "link") return undefined;
+  const { link, live } = source;
+  const meta =
+    source.kind === "link"
+      ? source.meta
+      : {
+          ...source.vars,
+          ...(source.from ? { from: source.from } : {}),
+          ...(source.to ? { to: source.to } : {}),
+        };
+  return {
+    link,
+    ...(at !== undefined ? { at } : {}),
+    ...(live ? { live } : {}),
+    ...(Object.keys(meta).length ? { meta } : {}),
+  };
+}
+
 /** A block's text as a chart, or why it is not one. */
 export function parseChartBlock(text: string): ChartBlock | { error: string } {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   const keys = new Map<string, string>();
   const meta: Record<string, string> = {};
   const marks: ChartBlock["marks"] = [];
-  // A link chart has no rows, so a key that Med does not know is its
-  // source's; elsewhere it starts the rows.
+  // A link or grafana chart has no rows, so a key that Med does not know is
+  // its source's; elsewhere it starts the rows.
   const end = lines.findIndex((line) => !KEY.test(line));
-  const linked = (end < 0 ? lines : lines.slice(0, end)).some(
-    (line) => KEY.exec(line)![1]!.toLowerCase() === "link",
+  const leading = (end < 0 ? lines : lines.slice(0, end)).map((line) =>
+    KEY.exec(line)![1]!.toLowerCase(),
   );
+  const linked = leading.includes("link");
+  const sourced = linked || leading.includes("grafana");
   let index = 0;
   for (; index < lines.length; index++) {
     const match = KEY.exec(lines[index]!);
     if (!match) break;
     const key = match[1]!.toLowerCase();
     const value = match[2]!;
-    if (!KEYS.has(key) || (linked && (key === "from" || key === "to"))) {
-      if (!linked) break;
+    if (!CHART_KEYS.has(key) || (linked && (key === "from" || key === "to"))) {
+      if (!sourced) break;
       meta[key] = value;
     } else if (key === "mark") {
       const mark = /^(\S+(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?)\s+(.+)$/.exec(value);
@@ -115,6 +147,7 @@ export function parseChartBlock(text: string): ChartBlock | { error: string } {
           ...(keys.get("from") ? { from: keys.get("from") } : {}),
           ...(keys.get("to") ? { to: keys.get("to") } : {}),
           live,
+          ...(Object.keys(meta).length ? { vars: meta } : {}),
         }
       : link
         ? { kind: "link", link, live, meta }

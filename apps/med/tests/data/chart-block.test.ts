@@ -32,6 +32,18 @@ threshold: 500 SLO`),
     ],
     threshold: { value: 500, label: "SLO" },
   });
+  // Any other key sets a variable of the Grafana dashboard.
+  expect(
+    parseChartBlock(
+      "grafana: https://g.acme.dev/d/abc?viewPanel=4\nenv: staging\nfrom: now-1h\nservice: api",
+    ),
+  ).toMatchObject({
+    source: {
+      kind: "grafana",
+      from: "now-1h",
+      vars: { env: "staging", service: "api" },
+    },
+  });
 });
 
 test("rows after the keys are the data; a block names one source", () => {

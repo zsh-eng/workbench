@@ -23,13 +23,13 @@ inputs:
 views:
   - name: Overview
     panels:
-      - link: https://status.acme.dev/${service}?env=${env}&from=${from}&to=${to}
+      - link: https://status.acme.dev/metrics
         metric: requests
         type: stat
         title: Requests
         unit: req/s
         width: quarter
-      - link: https://status.acme.dev/${service}?env=${env}&from=${from}&to=${to}
+      - link: https://status.acme.dev/metrics
         metric: latency
         title: p99 latency
         unit: ms
@@ -40,7 +40,7 @@ views:
         width: quarter
   - name: Endpoints
     panels:
-      - link: https://status.acme.dev/${service}?env=${env}
+      - link: https://status.acme.dev/metrics
         metric: endpoints
         type: table
         title: Slowest endpoints
@@ -48,21 +48,20 @@ views:
 
 ### The file
 
-| Key           | What it holds                                                                                                                                 |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `title`       | The page's title. The file's name if none.                                                                                                    |
-| `description` | A line under the title.                                                                                                                       |
-| `range`       | Shows the time picker, starting at this range: `now-6h`, `today`, `last 7 days`, `now-7d to now-1d`. Panels read it as `${from}` and `${to}`. |
-| `live`        | `true`: every chart reads again each minute while the page shows. A panel's own `live:` wins.                                                 |
-| `inputs`      | Values the reader picks, by name.                                                                                                             |
-| `views`       | Tabs, each a `name` and its `panels`. One view can be `panels:` at the top instead.                                                           |
+| Key           | What it holds                                                                                                                               |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `title`       | The page's title. The file's name if none.                                                                                                  |
+| `description` | A line under the title.                                                                                                                     |
+| `range`       | Shows the time picker, starting at this range: `now-6h`, `today`, `last 7 days`, `now-7d to now-1d`. Every Grafana panel and link reads it. |
+| `live`        | `true`: every chart reads again each minute while the page shows. A panel's own `live:` wins.                                               |
+| `inputs`      | Values the reader picks, by name.                                                                                                           |
+| `views`       | Tabs, each a `name` and its `panels`. One view can be `panels:` at the top instead.                                                         |
 
 **Inputs.** `type: text` is a field and `type: choice` a menu of `options`.
 A text input may have a `pattern` its values match. Short forms: a value
 (`service: checkout`) is a text input with that default, and a list
-(`env: [prod, staging]`) is a choice. `label` names it on the page. `${name}`
-in any panel key, or in a text panel, becomes the input's value. A choice of
-more than two options has a search field. The values live in the page's
+(`env: [prod, staging]`) is a choice. `label` names it on the page. A choice
+of more than two options has a search field. The values live in the page's
 address (`?var-service=payments&from=now-24h&to=now&view=Endpoints`), so a
 link opens the same dashboard, and **Back** undoes a change.
 
@@ -81,8 +80,25 @@ link opens the same dashboard, and **Back** undoes a change.
   `third`, or `quarter` (a stat's default); or columns of 12. Panels fill the
   rows left to right. On a narrow window every panel takes the whole row.
 - Any other key reaches the chart source's command as `MED_CHART_<KEY>`, as
-  `metric: latency` does above.
+  `metric: latency` does above, or sets a variable of a `grafana:` panel's
+  dashboard (`env: staging`).
 - `text:` makes a Markdown panel instead: notes, links, what a number means.
+
+**What a panel reads.** No link spells the range or the inputs: Med passes
+them to every `link:` and `grafana:` panel as keys, as an agent's chart passes
+them.
+
+- The range is `from` and `to`: a Grafana panel's range, over the one in its
+  link, and `MED_CHART_FROM` and `MED_CHART_TO` for a chart source's command.
+- Each input goes by its name: `MED_CHART_ENV` for the command, and the
+  Grafana dashboard's `env` variable, over the link's `var-env`. A Grafana
+  dashboard without that variable does not read it.
+- A panel's own key wins: `from: now-30d` and `to: now` keep a panel's range
+  whatever the picker shows, and `env: prod` keeps its env.
+- An input named as a key Med draws (`title`, `unit`, `type`, …) reaches no
+  panel as a key.
+- `${name}` in any key, or in a text panel, becomes the value too, for a
+  link that has a value in its path: `link: https://status.acme.dev/${service}`.
 
 Every panel reads as of the same minute, so the panels agree; **Read every
 panel again** reads them all now. The page reads four panels at a time: a
@@ -110,8 +126,9 @@ doubles it. Its panel has:
 Times are your computer's; the panel's foot names the zone. Words stay
 relative: a link to "Yesterday" opens the day before whenever it opens.
 **Drag across a chart's time** to zoom the whole dashboard to it; Back zooms
-out again. A panel reads a fixed time as an ISO time in `${from}` and
-`${to}`, and a relative one as Grafana writes it (`now-6h`, `now-1d/d`).
+out again. A panel with its own range zooms only itself. A chart source's
+command reads a fixed time as an ISO time, and a relative one as Grafana
+writes it (`now-6h`, `now-1d/d`), with `MED_CHART_AT` as now.
 
 ### Asking instead of clicking
 

@@ -157,7 +157,9 @@ is `MED_CHART_FROM`.
 A `link:` chart has no rows, so any key that Med does not draw with
 (`title`, `subtitle`, `unit`, `scale`, `type`, `threshold`, `mark`,
 `highlight`, `live`) is the command's. A `grafana:` link read through a
-source passes its `from:` and `to:` this way.
+source passes its `from:`, `to:`, and variables this way. On a
+[dashboard](dashboards.md#what-a-panel-reads), the range and each input
+arrive this way too: `MED_CHART_FROM`, `MED_CHART_TO`, `MED_CHART_ENV`.
 
 The command prints the chart's data in one of two ways:
 

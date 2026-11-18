@@ -36,7 +36,7 @@ const dashboard: Dashboard = {
           kind: "chart",
           width: 3,
           keys: [
-            ["link", "https://status.acme.build/${service}?env=${env}&from=${from}"],
+            ["link", "https://status.acme.build/${service}"],
             ["metric", "requests"],
             ["type", "stat"],
             ["title", "Requests"],
@@ -48,7 +48,7 @@ const dashboard: Dashboard = {
           kind: "chart",
           width: 6,
           keys: [
-            ["link", "https://status.acme.build/${service}?env=${env}"],
+            ["link", "https://status.acme.build/${service}"],
             ["title", "Mistyped"],
             ["metric", "${metrc}"],
           ],
@@ -62,7 +62,7 @@ const dashboard: Dashboard = {
           kind: "chart",
           width: 12,
           keys: [
-            ["link", "https://status.acme.build/${service}?env=${env}"],
+            ["link", "https://status.acme.build/${service}"],
             ["metric", "endpoints"],
             ["type", "table"],
             ["title", "Slowest endpoints"],
@@ -109,7 +109,7 @@ test("a dashboard draws its inputs, its panels from their sources, and its probl
     if (url.pathname !== "/api/charts/link")
       return Response.json({ error: { message: "Not in this test." } }, { status: 404 });
     asked.push(body);
-    const env = new URL(body.link).searchParams.get("env");
+    const env = body.meta?.env;
     if (body.meta?.metric === "requests")
       return Response.json({
         source: "https://status.acme.build",
@@ -141,9 +141,10 @@ test("a dashboard draws its inputs, its panels from their sources, and its probl
   await expect.element(mistyped).toBeVisible();
   expect(mistyped.element().textContent).toContain("${metrc} is no input of this dashboard.");
   expect(asked).toHaveLength(1);
+  // The source gets the inputs and the range as keys; the link spells none.
   expect(asked[0]).toMatchObject({
-    link: "https://status.acme.build/checkout?env=prod&from=now-6h",
-    meta: { metric: "requests" },
+    link: "https://status.acme.build/checkout",
+    meta: { metric: "requests", service: "checkout", env: "prod", from: "now-6h", to: "now" },
   });
   // Every panel reads as of one minute.
   expect(asked[0]!.at! % 60_000).toBe(0);
@@ -152,16 +153,17 @@ test("a dashboard draws its inputs, its panels from their sources, and its probl
   // Two choices flip with a click.
   await page.getByRole("button", { name: "env: prod" }).click();
   await expect.element(stat.getByText("40 req/s")).toBeVisible();
-  expect(asked.at(-1)!.link).toBe("https://status.acme.build/checkout?env=staging&from=now-6h");
+  expect(asked.at(-1)).toMatchObject({
+    link: "https://status.acme.build/checkout",
+    meta: { env: "staging" },
+  });
   expect(new URLSearchParams(location.search).get("var-env")).toBe("staging");
   // A text input reads on Enter.
   const service = page.getByRole("textbox", { name: "Service" });
   await service.fill("payments");
   await userEvent.keyboard("{Enter}");
   await expect.poll(note, { timeout: 5_000 }).toBe("payments in staging");
-  await expect
-    .poll(() => asked.at(-1)?.link)
-    .toBe("https://status.acme.build/payments?env=staging&from=now-6h");
+  await expect.poll(() => asked.at(-1)?.link).toBe("https://status.acme.build/payments");
 
   // Inspect shows the link, the keys the command read, and what it printed.
   await stat.getByRole("button", { name: "Inspect data" }).click();
@@ -169,6 +171,7 @@ test("a dashboard draws its inputs, its panels from their sources, and its probl
   await expect
     .element(dialog.getByText("MED_CHART_METRIC=requests", { exact: false }))
     .toBeVisible();
+  await expect.element(dialog.getByText("MED_CHART_ENV=staging", { exact: false })).toBeVisible();
   await expect.element(dialog.getByText("2026-11-16T09:01:00,40", { exact: false })).toBeVisible();
   await userEvent.keyboard("{Escape}");
 
@@ -239,7 +242,7 @@ const timed: DashboardFile = {
             kind: "chart",
             width: 6,
             keys: [
-              ["link", "https://status.acme.build/${service}?from=${from}&to=${to}"],
+              ["link", "https://status.acme.build/${service}"],
               ["metric", "requests"],
               ["type", "stat"],
               ["title", "Requests"],
@@ -249,7 +252,7 @@ const timed: DashboardFile = {
             kind: "chart",
             width: 6,
             keys: [
-              ["link", "https://status.acme.build/${service}?from=${from}&to=${to}"],
+              ["link", "https://status.acme.build/${service}"],
               ["metric", "latency"],
               ["title", "Latency"],
             ],
@@ -364,7 +367,7 @@ test("a dashboard keeps what it drew while it reads again, picks a range from wo
   expect(page.getByRole("option", { name: "search" }).query()).toBeNull();
   await userEvent.keyboard("{Enter}");
   // While it reads, the last value stays, dimmed under a bar, and says it fetches.
-  await expect.poll(() => asked.at(-1)?.link).toMatch(/\/payments\?/);
+  await expect.poll(() => asked.at(-1)?.link).toMatch(/\/payments$/);
   await expect.element(stat.getByText("500")).toBeVisible();
   await expect.poll(() => !!document.querySelector("[data-chart-busy]")).toBe(true);
   expect(stat.element().textContent).toMatch(/Fetching/);
@@ -388,8 +391,8 @@ test("a dashboard keeps what it drew while it reads again, picks a range from wo
   yesterday.setDate(yesterday.getDate() - 1);
   yesterday.setHours(14, 0, 0, 0);
   expect(new URLSearchParams(location.search).get("from")).toBe(String(yesterday.getTime()));
-  // A source reads a moment as an ISO time.
-  await expect.poll(() => asked.at(-1)?.link).toContain(`from=${yesterday.toISOString()}`);
+  // A source reads a moment as an ISO time, in MED_CHART_FROM.
+  await expect.poll(() => asked.at(-1)?.meta?.from).toBe(yesterday.toISOString());
 
   // A drag across a chart's time zooms the whole page to it.
   const surface = await vi.waitFor(() => {

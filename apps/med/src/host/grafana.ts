@@ -607,6 +607,8 @@ export interface PanelRequest {
   at?: number;
   from?: string;
   to?: string;
+  /** The dashboard's variables, over the link's `var-` values. */
+  vars?: Record<string, string>;
   live?: boolean;
   refresh?: boolean;
 }
@@ -950,6 +952,7 @@ export function createGrafana(options: GrafanaOptions) {
     /** A panel's data over the range of its link or of the block. */
     async panel(input: PanelRequest, signal?: AbortSignal): Promise<GrafanaPanel> {
       const link = parsePanelLink(input.link, await options.sites());
+      for (const [name, value] of Object.entries(input.vars ?? {})) link.vars.set(name, [value]);
       const fromText = input.from ?? link.from ?? "now-6h";
       const toText = input.to ?? link.to ?? "now";
       const relative = /^now/.test(fromText) || /^now/.test(toText);

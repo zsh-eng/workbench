@@ -9,8 +9,6 @@ import {
   type ReactNode,
 } from "react";
 import {
-  MAX_PROMPT_IMAGE_BYTES,
-  PROMPT_IMAGE_TYPES,
   type AgentMessage,
   type DraftComment,
   type PromptImage,
@@ -30,7 +28,7 @@ import { ChoiceSelect } from "../Controls";
 import { Icon, type IconName } from "../Icon";
 import { tooltip } from "../ToolButton";
 import { PlanCard, QuestionCard, type CardKeys } from "./AskCards";
-import { ImageViewer, imageSource } from "./ImageThumbs";
+import { AddImagesButton, PromptImageList, usePromptImages } from "./PromptImages";
 import { mentionPopover, useMentions } from "../Mentions";
 import { SessionNotice } from "./SessionNotice";
 import type { MentionSources } from "../../data/mentions";
@@ -54,22 +52,6 @@ export interface OwnedControls {
 }
 
 const SETTING_ORDER: OwnedSetting["category"][] = ["model", "effort", "mode", "other"];
-/** Images in one message at most. */
-const MAX_IMAGES = 10;
-
-/** An image file as base64, for a prompt. */
-function readImage(file: File) {
-  return new Promise<PromptImage>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () =>
-      resolve({
-        mimeType: file.type as PromptImage["mimeType"],
-        data: String(reader.result).replace(/^data:[^,]*,/, ""),
-      });
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
 /** Commands shown at most in the `/` menu. */
 const MAX_COMMANDS = 8;
 
@@ -211,9 +193,6 @@ export function SessionComposer({
 }) {
   const [kept] = useState(() => (draftKey ? readDraft(draftKey) : undefined));
   const [text, setText] = useState(kept?.text ?? "");
-  const [images, setImages] = useState<(PromptImage & { id: string })[]>([]);
-  const [shownImage, setShownImage] = useState<number | null>(null);
-  const imageInput = useRef<HTMLInputElement>(null);
   const [left, setLeft] = useState<ReadonlySet<string>>(new Set());
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -262,31 +241,8 @@ export function SessionComposer({
       setAsking(null);
     },
   });
-  const empty = !text.trim() && !chosen.length && !attachments.length && !images.length;
-  const addImages = async (files: File[]) => {
-    const found = files.filter((file) => file.type.startsWith("image/"));
-    if (!found.length) return false;
-    const usable = found.filter(
-      (file) =>
-        (PROMPT_IMAGE_TYPES as readonly string[]).includes(file.type) &&
-        file.size <= MAX_PROMPT_IMAGE_BYTES,
-    );
-    setError(
-      usable.length < found.length
-        ? "Images can be PNG, JPEG, GIF, or WebP, up to 5 MB each."
-        : images.length + usable.length > MAX_IMAGES
-          ? `A message holds up to ${MAX_IMAGES} images.`
-          : null,
-    );
-    const read = await Promise.all(usable.map(readImage));
-    setImages((current) =>
-      [...current, ...read.map((image) => ({ ...image, id: crypto.randomUUID() }))].slice(
-        0,
-        MAX_IMAGES,
-      ),
-    );
-    return true;
-  };
+  const pictures = usePromptImages(setError);
+  const empty = !text.trim() && !chosen.length && !attachments.length && !pictures.images.length;
   const status = owned?.state.status;
   const working = status === "working";
   // Claude Code reads a message at its next step, and Codex in the turn that
@@ -367,13 +323,13 @@ export function SessionComposer({
       text: await mentions.expand(text.trim()),
       noteIds: chosen.map((draft) => draft.id),
       attachments: attachments.map(({ label, text }) => ({ label, text })),
-      images: images.map(({ mimeType, data }) => ({ mimeType, data })),
+      images: pictures.sent(),
       // Only a Queue message says so; the host sends the rest now.
       ...(afterTurn ? { afterTurn: true } : {}),
     });
     setText("");
     mentions.clear();
-    setImages([]);
+    pictures.clear();
     setLeft(new Set());
     setOpen(false);
     for (const attachment of attachments) onRemoveAttachment(attachment.id);
@@ -579,31 +535,7 @@ export function SessionComposer({
         }}
         {...stylex.props(styles.box, column.bar)}
       >
-        {images.length > 0 && (
-          <div aria-label="Images to send" role="list" {...stylex.props(styles.images)}>
-            {images.map((image, index) => (
-              <span key={image.id} role="listitem" {...stylex.props(styles.image)}>
-                <button
-                  type="button"
-                  aria-label={`Show attachment ${index + 1}`}
-                  onClick={() => setShownImage(index)}
-                  {...stylex.props(styles.imageShow)}
-                >
-                  <img alt="" src={imageSource(image)} {...stylex.props(styles.imagePreview)} />
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Remove attachment ${index + 1}`}
-                  onClick={() => setImages((current) => current.filter((entry) => entry !== image))}
-                  {...stylex.props(styles.imageRemove)}
-                >
-                  <Icon name="close" size={10} />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-        <ImageViewer images={images} shown={shownImage} onShow={setShownImage} />
+        <PromptImageList images={pictures.images} onRemove={pictures.remove} />
         {(drafts.length > 0 || attachments.length > 0) && (
           <div {...stylex.props(styles.chips)}>
             {drafts.length > 0 && (
@@ -784,23 +716,7 @@ export function SessionComposer({
               if (!event.target.value.startsWith("/")) setMenuClosed(false);
             }}
             onKeyDown={onKeyDown}
-            onDragOver={(event) => {
-              if (event.dataTransfer.types.includes("Files")) event.preventDefault();
-            }}
-            onDrop={(event) => {
-              const files = [...event.dataTransfer.files];
-              if (files.some((file) => file.type.startsWith("image/"))) {
-                event.preventDefault();
-                void addImages(files);
-              }
-            }}
-            onPaste={(event) => {
-              const files = [...event.clipboardData.files];
-              if (files.some((file) => file.type.startsWith("image/"))) {
-                event.preventDefault();
-                void addImages(files);
-              }
-            }}
+            {...pictures.field}
             {...stylex.props(styles.input, mentions.over)}
           />,
         )}
@@ -825,27 +741,7 @@ export function SessionComposer({
           )}
           {/* The buttons stay together, at the end, when the line wraps. */}
           <div {...stylex.props(styles.actions)}>
-            <input
-              ref={imageInput}
-              type="file"
-              accept={PROMPT_IMAGE_TYPES.join(",")}
-              multiple
-              hidden
-              onChange={(event) => {
-                void addImages([...(event.target.files ?? [])]);
-                event.target.value = "";
-              }}
-            />
-            <button
-              type="button"
-              aria-label="Add images"
-              title="Add images, or paste them"
-              disabled={stopped}
-              onClick={() => imageInput.current?.click()}
-              {...stylex.props(ui.button, ui.iconButton, styles.attach)}
-            >
-              <Icon name="image" size={15} />
-            </button>
+            <AddImagesButton onAdd={(files) => void pictures.add(files)} disabled={stopped} />
             {working && (
               <button
                 type="button"
@@ -948,46 +844,6 @@ const styles = stylex.create({
     },
   },
   chips: { display: "flex", flexWrap: "wrap", gap: 4 },
-  images: { display: "flex", flexWrap: "wrap", gap: 6, paddingTop: 2 },
-  // As large as a sent message's thumbnails (THUMB in ImageThumbs).
-  image: { position: "relative", display: "block", width: 64, height: 64 },
-  imageShow: {
-    display: "block",
-    width: "100%",
-    height: "100%",
-    padding: 0,
-    borderWidth: 0,
-    borderRadius: `calc(8px * ${tokens.round})`,
-    backgroundColor: tokens.panel,
-    cursor: "zoom-in",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
-    outlineOffset: 2,
-  },
-  imagePreview: {
-    display: "block",
-    width: "100%",
-    height: "100%",
-    objectFit: "cover",
-    borderRadius: `calc(8px * ${tokens.round})`,
-    boxShadow: `0 0 0 1px ${tokens.line}`,
-  },
-  imageRemove: {
-    position: "absolute",
-    top: -5,
-    right: -5,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    width: 16,
-    height: 16,
-    padding: 0,
-    borderWidth: 0,
-    borderRadius: 999,
-    backgroundColor: tokens.text,
-    color: tokens.canvas,
-    cursor: "pointer",
-  },
-  attach: { color: tokens.muted },
   chip: {
     display: "inline-flex",
     alignItems: "center",

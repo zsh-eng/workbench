@@ -27,11 +27,11 @@ inputs:
 views:
   - name: Overview
     panels:
-      - link: https://status.acme.dev/\${service}?env=\${env}&from=\${from}
+      - link: https://status.acme.dev/\${service}
         metric: requests
         type: stat
         title: Requests
-      - link: https://status.acme.dev/\${service}?env=\${env}
+      - link: https://status.acme.dev/\${service}
         metric: latency
         width: two-thirds
         threshold: { value: 500, label: SLO }
@@ -67,7 +67,7 @@ test("a dashboard file reads as its title, inputs, and views of panels, each a c
       width: 3,
       line: 12,
       keys: [
-        ["link", "https://status.acme.dev/${service}?env=${env}&from=${from}"],
+        ["link", "https://status.acme.dev/${service}"],
         ["metric", "requests"],
         ["type", "stat"],
         ["title", "Requests"],
@@ -78,7 +78,7 @@ test("a dashboard file reads as its title, inputs, and views of panels, each a c
       width: 8,
       line: 16,
       keys: [
-        ["link", "https://status.acme.dev/${service}?env=${env}"],
+        ["link", "https://status.acme.dev/${service}"],
         ["metric", "latency"],
         ["threshold", "500 SLO"],
         ["mark", "10:42 Deploy v412"],
@@ -238,12 +238,20 @@ test("Med finds dashboards in its folder and in its repositories, and checks one
       error: "The chart source failed (3): token expired",
     }),
   ]);
-  // Every source ran again, as of one minute, with the inputs' values.
+  // Every source ran again, as of one minute, with the inputs' values and
+  // the range as keys: MED_CHART_ENV, MED_CHART_FROM, and so on.
   expect(asked[0]).toEqual({
-    link: "https://status.acme.dev/checkout?env=staging&from=now-6h",
+    link: "https://status.acme.dev/checkout",
     at: Date.UTC(2026, 10, 17, 12, 0),
     live: true,
-    meta: { metric: "requests" },
+    meta: {
+      metric: "requests",
+      service: "checkout",
+      env: "staging",
+      owner: "payments-team",
+      from: "now-6h",
+      to: "now",
+    },
     refresh: true,
   });
   // A file that Med does not list yet checks by its path.

@@ -202,6 +202,20 @@ test("a panel's queries run with the dashboard's variables, over a range from th
   expect(panel.link).toBe(
     `${fake.address}/d/checkout?viewPanel=4&from=${at - 3 * 3_600_000}&to=${at}`,
   );
+  // The block's variables and range win over the link's, as a dashboard's
+  // inputs and time picker give them; the link to Grafana shows the same.
+  const staging = await grafana.panel({
+    link: `${fake.address}/d/checkout/checkout?viewPanel=4&from=now-3h&to=now&var-env=prod`,
+    at,
+    from: "now-1h",
+    to: "now",
+    vars: { env: "staging" },
+  });
+  expect(staging.range).toEqual([at - 3_600_000, at]);
+  expect(fake.queries.at(-1)!.expr).toContain('env="staging"');
+  expect(staging.link).toBe(
+    `${fake.address}/d/checkout?viewPanel=4&from=${at - 3_600_000}&to=${at}&var-env=staging`,
+  );
 });
 
 test("Med keeps what it read until asked to read Grafana again", async () => {

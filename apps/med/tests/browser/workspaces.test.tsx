@@ -1824,8 +1824,31 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   expect(model.element().getBoundingClientRect().top).toBeGreaterThanOrEqual(box.bottom);
   expect(box.right - effort.element().getBoundingClientRect().right).toBeLessThan(16);
   await expect.element(dialog.getByRole("button", { name: /^Start/ })).not.toBeInTheDocument();
-  // ⌘↵ starts from anywhere on the page: here, from the effort's menu, once
-  // it has closed and its button has the focus again.
+  // An image pastes into the task, as into a thread's message box, and goes
+  // with it; × takes one back.
+  await expect.element(dialog.getByRole("button", { name: "Add images" })).toBeVisible();
+  const png =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  const paste = () => {
+    const clipboard = new DataTransfer();
+    clipboard.items.add(
+      new File([Uint8Array.from(atob(png), (char) => char.charCodeAt(0))], "shot.png", {
+        type: "image/png",
+      }),
+    );
+    task
+      .element()
+      .dispatchEvent(new ClipboardEvent("paste", { clipboardData: clipboard, bubbles: true }));
+  };
+  paste();
+  paste();
+  const images = dialog.getByRole("list", { name: "Images to send" });
+  await expect.poll(() => images.getByRole("listitem").elements().length).toBe(2);
+  await images.getByRole("button", { name: "Remove attachment 2" }).click();
+  await expect.poll(() => images.getByRole("listitem").elements().length).toBe(1);
+  await expect.element(task).toHaveValue("Show each result's age in the list");
+  // ⌘↵ starts from anywhere on the page: here, from the effort's menu's button.
+  (effort.element() as HTMLElement).focus();
   await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
   await expect.element(effort).toHaveFocus();
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
@@ -1841,6 +1864,7 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
           preset: "claude",
           worktree: true,
           choices: { model: "opus", effort: "high" },
+          images: [{ mimeType: "image/png", data: png }],
         },
       },
     ]);

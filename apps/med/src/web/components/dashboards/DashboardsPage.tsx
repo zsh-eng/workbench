@@ -13,6 +13,7 @@ import {
   dashboardPath,
   dashboardRoutes,
   inputValues,
+  followsRange,
   panelChartText,
   panelTitle,
   substitute,
@@ -601,12 +602,9 @@ function Panel({
   // A new text is new data, read afresh; the chart shows the last data,
   // dimmed, until it comes.
   const block = <ChartBlock text={chart.text} at={at} {...(files ? { files } : {})} />;
-  // A chart that does not read the range zooms on its own.
-  return panel.keys.some(([, value]) => /\$\{\s*(?:from|to)\s*\}/.test(value)) ? (
-    block
-  ) : (
-    <ChartZoom value={null}>{block}</ChartZoom>
-  );
+  // A drag on a chart that follows the time picker zooms the dashboard; any
+  // other chart zooms on its own.
+  return followsRange(panel) ? block : <ChartZoom value={null}>{block}</ChartZoom>;
 }
 
 const styles = stylex.create({

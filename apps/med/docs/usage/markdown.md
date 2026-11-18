@@ -113,7 +113,9 @@ once for each mark; `threshold:` a value and a label; `highlight:` the bar
 the chart is about. A Grafana link's range relative to now, such as
 `now-3h`, counts from when the reply was written, so the chart keeps showing
 what the agent looked at; `live: yes` keeps it moving, and reads Grafana
-again each minute while it shows. `from:` and `to:` replace the link's range.
+again each minute while it shows. `from:` and `to:` replace the link's range,
+and any other key sets a variable of the panel's dashboard, over the link's
+`var-` value: `env: staging`.
 
 Med keeps what it read from Grafana or a source, so a chart draws the same
 each time.

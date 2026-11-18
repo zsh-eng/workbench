@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { promptImageSchema } from "./agent-inbox";
 import { agentStatusSchema, sessionHaltSchema, threadTurnSchema } from "./agent-status";
 import { agentChoicesSchema } from "./owned-session";
 import { agentSessionSchema, pullRequestStateSchema, type PullRequestState } from "./saved-review";
@@ -364,6 +365,8 @@ export const threadStartSchema = z.object({
   worktree: z.boolean().default(true),
   title: z.string().trim().min(1).max(120).optional(),
   choices: agentChoicesSchema.optional(),
+  /** Images with the task, as a message to the agent takes them. */
+  images: z.array(promptImageSchema).max(10).default([]),
 });
 export type ThreadStart = z.infer<typeof threadStartSchema>;
 

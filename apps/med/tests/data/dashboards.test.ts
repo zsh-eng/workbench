@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   dashboardPath,
+  followsRange,
   inputValues,
   panelChartText,
   panelTitle,
@@ -86,17 +87,18 @@ test("${name} becomes the input's value in a panel's keys and rows; a name that 
       kind: "chart",
       width: 6,
       keys: [
-        ["link", "https://status.acme.dev/${service}?from=${from}"],
+        ["link", "https://status.acme.dev/${service}"],
         ["title", "${service} p99"],
         ["metric", "latency"],
+        ["service", "${service}"],
       ],
       rows: undefined,
     },
-    { service: "checkout", from: "now-6h" },
+    { service: "checkout" },
     true,
   );
   expect(chart).toEqual({
-    text: "link: https://status.acme.dev/checkout?from=now-6h\ntitle: checkout p99\nmetric: latency\nlive: yes",
+    text: "link: https://status.acme.dev/checkout\ntitle: checkout p99\nmetric: latency\nservice: checkout\nlive: yes",
     unknown: [],
   });
   // A panel's own live: wins over the dashboard's.
@@ -115,6 +117,48 @@ test("${name} becomes the input's value in a panel's keys and rows; a name that 
       true,
     ),
   ).toEqual({ text: "rows: x\nlive: no\n\na,b\n${y},1", unknown: ["y"] });
+});
+
+test("a Grafana panel or a link reads the range and each input as keys; its own keys win", () => {
+  const values = {
+    service: "checkout",
+    env: "staging",
+    type: "bars",
+    note: " ",
+    from: "now-6h",
+    to: "now",
+  };
+  const chart = (keys: [string, string][], rows?: string) =>
+    panelChartText({ kind: "chart", width: 12, keys, rows }, values, false).text;
+  // A chart source's command reads MED_CHART_SERVICE, …_FROM, and …_TO; an
+  // input named as a key Med draws, or with no value, is no key.
+  expect(chart([["link", "https://status.acme.dev/metrics"]])).toBe(
+    "link: https://status.acme.dev/metrics\nservice: checkout\nenv: staging\nfrom: now-6h\nto: now",
+  );
+  // A Grafana panel takes them as its range and its dashboard's variables.
+  // The panel's own range and env win, and keep it out of the dashboard's zoom.
+  const pinned: [string, string][] = [
+    ["grafana", "https://grafana.acme.dev/d/abc?viewPanel=4&var-env=prod"],
+    ["from", "now-30d"],
+    ["env", "prod"],
+  ];
+  expect(chart(pinned)).toBe(
+    "grafana: https://grafana.acme.dev/d/abc?viewPanel=4&var-env=prod\nfrom: now-30d\nenv: prod\nservice: checkout",
+  );
+  expect(followsRange({ kind: "chart", width: 12, keys: pinned })).toBe(false);
+  expect(
+    followsRange({
+      kind: "chart",
+      width: 12,
+      keys: [["grafana", "https://grafana.acme.dev/d/abc"]],
+    }),
+  ).toBe(true);
+  // A file or rows read nothing more; one that names ${from} follows the range.
+  expect(chart([["file", "latency.csv"]])).toBe("file: latency.csv");
+  expect(followsRange({ kind: "chart", width: 12, keys: [["file", "latency.csv"]] })).toBe(false);
+  expect(followsRange({ kind: "chart", width: 12, keys: [["file", "latency-${from}.csv"]] })).toBe(
+    true,
+  );
 });
 
 test("a width is a word, a fraction, or columns of twelve", () => {

@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { SessionEvent } from "../../src/shared/agent-session";
 import type { OwnedState } from "../../src/shared/owned-session";
 import type { SavedReview } from "../../src/shared/saved-review";
 import type { Thread, ThreadList } from "../../src/shared/threads";
@@ -222,6 +223,43 @@ test("a thread starts its agent on a new branch in a worktree, and archiving can
   await vi.waitFor(() => expect(time()).toBeUndefined(), { timeout: 5000 });
   await api(`/api/threads/${second.id}/archive`, { archived: false });
   await vi.waitFor(() => expect(time()).toBe(before), { timeout: 5000 });
+});
+
+test("a thread starts with the images pasted into its task", async () => {
+  const { api, host, repositoryId } = await fixture();
+  const png =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  const started = await api<{ thread: string }>("/api/threads", {
+    repositoryId,
+    prompt: "Match this mockup.",
+    preset: "claude",
+    worktree: false,
+    images: [{ mimeType: "image/png", data: png }],
+  });
+  expect(started.status).toBe(200);
+  // Claude Code takes images, so they go in the first prompt, before its text.
+  const response = await fetch(
+    `http://127.0.0.1:${host.port}/api/sessions/${started.data.thread}/events`,
+    { headers: { authorization: `Bearer ${host.token}` } },
+  );
+  const replies: string[] = [];
+  const controller = new AbortController();
+  streams.push(controller);
+  void readServerEvents(
+    response.body!,
+    (event) => {
+      const payload = JSON.parse(event.data) as { events: SessionEvent[] };
+      if (event.event === "reset") replies.length = 0;
+      for (const { update } of payload.events)
+        if (update.sessionUpdate === "agent_message_chunk" && update.content.type === "text")
+          replies.push(update.content.text);
+    },
+    controller.signal,
+    4 * 1024 * 1024,
+  ).catch(() => {});
+  await vi.waitFor(() => expect(replies).toContain("Saw base64 image/png: Match this mockup."), {
+    timeout: 5000,
+  });
 });
 
 test("a thread's agent hands off its work as the setup instructions say, with no flags for the thread", async () => {

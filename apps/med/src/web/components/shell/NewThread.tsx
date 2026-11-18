@@ -19,6 +19,7 @@ import { createBrowseApi, useBrowseFiles, useVaults } from "../../data/browse";
 import { useMentionSources } from "../../data/mentions";
 import type { BrowseSource } from "../../../shared/browse";
 import { readHistory } from "../../data/tabs";
+import { AddImagesButton, PromptImageList, usePromptImages } from "../session/PromptImages";
 import { WhereToWork } from "./WhereToWork";
 
 const CLAUDE = "#d97757";
@@ -175,6 +176,8 @@ export function NewThread({
     busyRef.current = busy;
   }, [busy]);
   const [error, setError] = useState<string | null>(null);
+  // Images paste or drop into the task, as into a thread's message box.
+  const pictures = usePromptImages(setError);
   useEffect(() => input.current?.focus(), []);
   // Escape leaves, as it closes other views over the workspaces; a menu, or
   // the filter while it has text, takes its own Escape first. ⌘↵ starts from
@@ -242,6 +245,7 @@ export function NewThread({
             preset: agent.id,
             worktree: choice.worktree,
             choices: { model, effort },
+            images: pictures.sent(),
           }),
         },
       );
@@ -288,6 +292,11 @@ export function NewThread({
         <div {...stylex.props(styles.composer)}>
           <div {...stylex.props(styles.card)}>
             {mentions.menu}
+            {pictures.images.length > 0 && (
+              <div {...stylex.props(styles.images)}>
+                <PromptImageList images={pictures.images} onRemove={pictures.remove} />
+              </div>
+            )}
             {mentions.field(
               <textarea
                 {...mentions.textarea}
@@ -319,9 +328,13 @@ export function NewThread({
                     void start();
                   }
                 }}
+                {...pictures.field}
                 {...stylex.props(styles.input, mentions.over)}
               />,
             )}
+            <div {...stylex.props(styles.tray)}>
+              <AddImagesButton onAdd={(files) => void pictures.add(files)} disabled={busy} />
+            </div>
           </div>
           <div {...stylex.props(styles.menus)}>
             {ordered.length > 1 ? (
@@ -565,6 +578,15 @@ const styles = stylex.create({
     lineHeight: 1.55,
     outline: "none",
     "::placeholder": { color: tokens.faint },
+  },
+  images: { paddingInline: 16, paddingTop: 14 },
+  // The composer's own buttons, under the text.
+  tray: {
+    display: "flex",
+    justifyContent: "flex-end",
+    paddingInline: 8,
+    paddingBottom: 8,
+    marginTop: -8,
   },
   // One line of menus under the composer.
   menus: { display: "flex", alignItems: "center", gap: 2, minWidth: 0, marginTop: 6 },

@@ -24,7 +24,13 @@ import {
   type PanelCheck,
 } from "../shared/dashboards";
 import type { RegisteredRepository } from "../shared/protocol";
-import { parseChartBlock, rowsData, type ChartData } from "../web/components/chart/chart-block";
+import {
+  grafanaRequest,
+  linkRequest,
+  parseChartBlock,
+  rowsData,
+  type ChartData,
+} from "../web/components/chart/chart-block";
 import {
   dataWarnings,
   REDUCES,
@@ -483,14 +489,7 @@ export function createDashboards(options: DashboardsOptions) {
         if (source.kind === "grafana" && !covered) {
           from = "Grafana";
           const panelRead = await options.readGrafana(
-            {
-              link: source.link,
-              at,
-              ...(source.from ? { from: source.from } : {}),
-              ...(source.to ? { to: source.to } : {}),
-              ...(source.live ? { live: true } : {}),
-              refresh: true,
-            },
+            { ...grafanaRequest(source, at)!, refresh: true },
             signal,
           );
           unit ??= panelRead.unit;
@@ -498,21 +497,8 @@ export function createDashboards(options: DashboardsOptions) {
           notes.push(...panelRead.notes);
         } else {
           from = covered?.base ?? "a chart source";
-          const meta =
-            source.kind === "link"
-              ? source.meta
-              : {
-                  ...(source.from ? { from: source.from } : {}),
-                  ...(source.to ? { to: source.to } : {}),
-                };
           const linkRead = await options.readLink(
-            {
-              link: source.link,
-              at,
-              ...(source.live ? { live: true } : {}),
-              ...(Object.keys(meta).length ? { meta } : {}),
-              refresh: true,
-            },
+            { ...linkRequest(source, at)!, refresh: true },
             signal,
           );
           if (linkRead.rows !== undefined) text = linkRead.rows;

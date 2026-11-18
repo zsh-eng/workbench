@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CHART_KEYS } from "./charts";
 import type { RouteContract } from "./routes";
 import { isRelative, parseRange, resolveRange, timeValue, type TimeRange } from "./time-range";
 
@@ -6,12 +7,15 @@ import { isRelative, parseRange, resolveRange, timeValue, type TimeRange } from 
 // does: `<name>.dashboard.yaml` in a repository Med knows, or in the
 // dashboards folder beside Med's settings. Its views are tabs of panels, and
 // each panel takes a chart block's keys (a link, a grafana link, a file, or
-// rows), or Markdown text. Its inputs are the values a reader picks; `${name}`
-// in a panel's keys becomes the value, so a chart source reads it as one more
-// key. Med reads what the file says and draws it; the chart sources fetch.
+// rows), or Markdown text. Its inputs are the values a reader picks. A
+// Grafana panel or a chart source's link gets the range and each input as
+// keys, as an agent's chart passes them (panelChartText), so its link needs
+// none of them; `${name}` in a panel's keys becomes the value, for a link
+// that has the value in its path. Med reads what the file says and draws it;
+// the chart sources fetch.
 //
 //   title: Checkout
-//   range: now-6h            # the time picker's first range; ${from} and ${to}
+//   range: now-6h            # the time picker's first range
 //   live: true               # every chart reads again each minute
 //   inputs:
 //     service: { type: text, default: checkout }
@@ -19,7 +23,7 @@ import { isRelative, parseRange, resolveRange, timeValue, type TimeRange } from 
 //   views:
 //     - name: Overview
 //       panels:
-//         - link: https://status.acme.dev/${service}?env=${env}&from=${from}
+//         - link: https://status.acme.dev/${service}/latency
 //           title: p99 latency
 //           width: half
 //         - text: Deploys go out at 10:00 and 15:00.
@@ -322,19 +326,57 @@ export function substitute(text: string, values: Record<string, string>) {
   return { text: result, unknown };
 }
 
-/** A chart panel as a chart block's text, with the inputs' values in it.
- * A live dashboard's charts are live unless one says otherwise. */
+/** A Grafana panel or a chart source's link, which reads the range and the
+ * inputs as keys. */
+const sourced = (panel: Extract<DashboardPanel, { kind: "chart" }>) =>
+  panel.keys.some(([key]) => key === "grafana" || key === "link");
+
+/** The panel's chart follows the time picker: it reads the dashboard's range,
+ * as a Grafana panel or a link does unless it sets its own, or names
+ * `${from}` or `${to}`. */
+export function followsRange(panel: DashboardPanel) {
+  if (panel.kind !== "chart") return false;
+  const own = panel.keys.some(([key]) => key === "from" || key === "to");
+  return (
+    (sourced(panel) && !own) ||
+    [...panel.keys.map(([, value]) => value), panel.rows ?? ""].some((text) =>
+      /\$\{\s*(?:from|to)\s*\}/.test(text),
+    )
+  );
+}
+
+/**
+ * A chart panel as a chart block's text, with the inputs' values in it. A
+ * Grafana panel or a link reads them as keys, as an agent's chart does, so no
+ * link needs to spell them: the range as `from` and `to` (Grafana's range;
+ * MED_CHART_FROM and MED_CHART_TO for a chart source), and each input by its
+ * name (a variable of the Grafana dashboard; MED_CHART_<NAME>). The panel's
+ * own keys win, and an input named as a key Med draws, such as `title`,
+ * reaches it only as `${title}`. A live dashboard's charts are live unless
+ * one says otherwise.
+ */
 export function panelChartText(
   panel: Extract<DashboardPanel, { kind: "chart" }>,
   values: Record<string, string>,
   live: boolean,
 ) {
   const unknown = new Set<string>();
+  const oneLine = (text: string) => text.replace(/\s*\n\s*/g, " ");
   const lines = panel.keys.map(([key, value]) => {
     const resolved = substitute(value, values);
     for (const name of resolved.unknown) unknown.add(name);
-    return `${key}: ${resolved.text.replace(/\s*\n\s*/g, " ")}`;
+    return `${key}: ${oneLine(resolved.text)}`;
   });
+  if (sourced(panel)) {
+    const own = new Set(panel.keys.map(([key]) => key.toLowerCase()));
+    const ranged = own.has("from") || own.has("to");
+    for (const [name, value] of Object.entries(values)) {
+      const range = name === "from" || name === "to";
+      if (own.has(name.toLowerCase()) || !value.trim()) continue;
+      if (range ? ranged : CHART_KEYS.has(name.toLowerCase())) continue;
+      lines.push(`${name}: ${oneLine(value)}`);
+    }
+  }
   if (live && !panel.keys.some(([key]) => key === "live")) lines.push("live: yes");
   const rows = panel.rows !== undefined ? substitute(panel.rows, values) : undefined;
   for (const name of rows?.unknown ?? []) unknown.add(name);

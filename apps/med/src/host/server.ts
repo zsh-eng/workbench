@@ -2524,7 +2524,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           // and an agent that starts on the task there. It has no review
           // until the agent hands one off.
           if (url.pathname === "/api/threads" && request.method === "POST") {
-            const input = threadStartSchema.parse(await readBody(request));
+            const input = threadStartSchema.parse(await readBody(request, MAX_AGENT_MESSAGE_BODY));
             const entry = registry.snapshot().find((item) => item.id === input.repositoryId);
             if (!entry)
               throw new HostError("repository-not-found", "Add this repository to Med first.", 404);
@@ -2560,7 +2560,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               ...(input.choices ? { choices: input.choices } : {}),
             });
             const thread = await threads.keep(runner.session, { prompt: input.prompt, title });
-            await runner.prompt(input.prompt);
+            // As with a message: an agent that takes images gets them in the
+            // prompt; any other gets the paths of saved copies.
+            const native = runner.state().images ? input.images : [];
+            const saved =
+              input.images.length && !native.length
+                ? imagesText(await saveImages(imageDirectory, input.images))
+                : "";
+            await runner.prompt([input.prompt, saved].filter(Boolean).join("\n\n"), native);
             send({ thread });
             return;
           }
