@@ -283,6 +283,53 @@ test("a thread with its session on screen shows its session first, and its diff 
   expect(status()).toBe("ready");
 });
 
+test("a thread whose agent went on while it was away shows with that work, in the frame that shows it", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  host.releaseSession();
+  const changed = Date.now() - 60_000;
+  host.talkReplies("Renamed it in the tests too.", changed);
+  host.setThreads([{ ...talkThread(), updatedAt: changed }, thread("agent")]);
+  await page.getByRole("button", { name: /^Talk review/ }).click();
+  const log = () =>
+    document
+      .querySelector(`[data-workspace-slot="thread-${TALK}"]`)
+      ?.querySelector<HTMLElement>('[role="log"][aria-label="Session"]');
+  await expect.poll(() => log()?.textContent).toContain("Renamed it in the tests too.");
+  await page.getByRole("button", { name: /^Agent review/ }).click();
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
+
+  // Away, its agent replies again, and the thread list says the session
+  // changed. The thread's stream paused while it was hidden, and takes a
+  // round trip to answer when it shows.
+  host.talkReplies("Then I checked the callers.", changed + 30_000, 80);
+  host.setThreads([{ ...talkThread(), updatedAt: changed + 30_000 }, thread("agent")]);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  // Back to it: no frame shows the thread without the new reply.
+  const stale: string[] = [];
+  let watching = true;
+  void (async () => {
+    while (watching) {
+      await new Promise(requestAnimationFrame);
+      const shownLog = log();
+      if (
+        shownLog?.checkVisibility({ visibilityProperty: true }) &&
+        !shownLog.textContent?.includes("Then I checked the callers.")
+      )
+        stale.push(shownLog.textContent?.slice(-60) ?? "");
+    }
+  })();
+  await page.getByRole("button", { name: /^Talk review/ }).click();
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("talk-target");
+  await expect
+    .element(page.getByRole("log", { name: "Session" }).getByText("Then I checked the callers."))
+    .toBeVisible();
+  watching = false;
+  expect(stale).toEqual([]);
+});
+
 test("the notice after Clear shows under the header's end, on one line, wider than All comments", async () => {
   const host = createHost();
   render(host);

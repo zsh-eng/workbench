@@ -285,15 +285,30 @@ export function SessionPanel({
   // thread read ahead of the click, never shows an empty pane. The stream
   // then takes only the updates after the ones the thread holds, or a new
   // first view in one step. A read ahead that runs, as from the click that
-  // opened the thread, ends first.
+  // opened the thread, ends first. Until the stream answers, the thread can
+  // lack what the agent did meanwhile: a workspace that prepares to show it
+  // waits for that out of sight (see WorkspaceViews).
+  const [answered, setAnswered] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     void (async () => {
       await readAhead(threadId);
       if (controller.signal.aborted) return;
-      await followSession(threadId, store, setState, controller.signal, fetcher);
+      await followSession(
+        threadId,
+        store,
+        (next) => {
+          setState(next);
+          if (next.status !== "connecting") setAnswered(true);
+        },
+        controller.signal,
+        fetcher,
+      );
     })();
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      setAnswered(false);
+    };
   }, [threadId, session.id, store, fetcher]);
 
   // The elapsed time moves while the agent works, and a quiet transcript
@@ -764,6 +779,7 @@ export function SessionPanel({
       aria-label={`${agent} session`}
       // A workspace shows once this has its thread (see WorkspaceViews).
       data-pending={loading || waiting || undefined}
+      data-catching-up={!answered || undefined}
       data-lead={lead || undefined}
       {...stylex.props(styles.panel)}
     >

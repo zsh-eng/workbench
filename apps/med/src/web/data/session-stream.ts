@@ -7,6 +7,7 @@ import { browserFetch } from "./live";
 import { createSessionStore, type SessionStore } from "./session-store";
 import { readServerEvents } from "./sse";
 import { reconnectPause } from "./reconnect";
+import { dropSession, holdSession } from "./session-held";
 
 /** A session counts as working until its agent ends the turn, or until the
  * transcript has not changed for this long (the agent stopped or crashed). */
@@ -165,6 +166,7 @@ export async function followSession(
               ...(reset.start !== undefined ? { start: reset.start } : {}),
             });
           }
+          if (!first && kept.get(threadId) === store) holdSession(threadId, payload.modifiedAt);
           set({ idle: payload.idle, modifiedAt: payload.modifiedAt });
         },
         signal,
@@ -196,7 +198,11 @@ export function keptSessionStore(threadId: string) {
   const store = kept.get(threadId) ?? createSessionStore();
   kept.delete(threadId);
   kept.set(threadId, store);
-  if (kept.size > KEPT) kept.delete(kept.keys().next().value!);
+  if (kept.size > KEPT) {
+    const oldest = kept.keys().next().value!;
+    kept.delete(oldest);
+    dropSession(oldest);
+  }
   return store;
 }
 

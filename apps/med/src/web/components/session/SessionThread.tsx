@@ -790,6 +790,8 @@ const knownMetrics = new Map<string, ThreadMetrics>();
 const AHEAD = 8;
 /** The view loads the page before the first update within this many screens of it. */
 const EARLIER_SCREENS = 2;
+/** How long after a new width the thread's end moves at once, not in a glide. */
+const REWRAP_MS = 250;
 
 /** The unit at height `y` of the list: the last one that starts at or above it. */
 function indexAt(offsets: Float64Array, y: number) {
@@ -1433,6 +1435,18 @@ export function SessionThread({
     () => globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches !== true,
     [],
   );
+  // Units that came, whether or not they rose: a thread that shows again
+  // attaches its units anew, and they came before.
+  const [came] = useState(() => new Set<string>());
+  // The thread is hidden, as in a workspace out of view, from its effects'
+  // end until they run again. Units attach before them when it shows.
+  const away = useRef(false);
+  useLayoutEffect(() => {
+    away.current = false;
+    return () => {
+      away.current = true;
+    };
+  }, []);
   const unitRef = useCallback(
     (element: HTMLDivElement | null) => {
       if (!element) return;
@@ -1440,20 +1454,26 @@ export function SessionThread({
       heights.elements.set(key, element);
       observer.current ??= new ResizeObserver(onResize);
       observer.current.observe(element);
-      if (element.dataset.rise !== undefined && rise)
-        element.animate(
-          [
-            { opacity: 0, transform: "translateY(4px)" },
-            { opacity: 1, transform: "none" },
-          ],
-          { duration: 220, easing: "cubic-bezier(0.23, 1, 0.32, 1)" },
-        );
+      // A unit rises once, as it comes in view. One that came while the
+      // thread was hidden or out of sight, as it caught up to show, is there
+      // already.
+      if (element.dataset.rise !== undefined && !came.has(key)) {
+        came.add(key);
+        if (rise && !away.current && element.checkVisibility({ visibilityProperty: true }))
+          element.animate(
+            [
+              { opacity: 0, transform: "translateY(4px)" },
+              { opacity: 1, transform: "none" },
+            ],
+            { duration: 220, easing: "cubic-bezier(0.23, 1, 0.32, 1)" },
+          );
+      }
       return () => {
         observer.current?.unobserve(element);
         if (heights.elements.get(key) === element) heights.elements.delete(key);
       };
     },
-    [onResize, heights, rise],
+    [onResize, heights, rise, came],
   );
   useEffect(() => {
     for (const element of heights.elements.values()) observer.current?.observe(element);
@@ -1599,6 +1619,19 @@ export function SessionThread({
     // view moves with it at once.
     let seen: { unit: HTMLElement; top: number; scroll: number; room: number } | undefined;
     const roomHeight = () => spacer.current?.offsetHeight ?? 0;
+    // A new width rewraps the thread, as when a pane or the session rail
+    // opens beside it: the view keeps its end at once, as for the room. Only
+    // work that comes glides. The units measure again within the frame, and
+    // a diagram or a table can take a few more.
+    let width = Number.NaN;
+    let rewrappedAt = Number.NEGATIVE_INFINITY;
+    const rewrapping = () => {
+      if (inner.clientWidth !== width) {
+        width = inner.clientWidth;
+        rewrappedAt = performance.now();
+      }
+      return performance.now() - rewrappedAt < REWRAP_MS;
+    };
     const see = () => {
       let unit = inner.lastElementChild as HTMLElement | null;
       while (unit && unit.dataset.unit === undefined)
@@ -1636,6 +1669,7 @@ export function SessionThread({
       // A thread out of sight, as one that prepares to show, has no one to
       // glide for; a glide it started would end on screen.
       if (
+        !rewrapping() &&
         latest.current.settled &&
         node.clientHeight === height &&
         node.checkVisibility({ visibilityProperty: true })
@@ -1782,7 +1816,10 @@ export function SessionThread({
     const follow = () => {
       reader.check();
       if (stuck.current) followed();
-      else height = node.clientHeight;
+      else {
+        height = node.clientHeight;
+        rewrapping();
+      }
       reader.wrote();
       if (stuck.current) recorded = node.scrollTop;
       setAtBottom(stuck.current);
@@ -2075,6 +2112,9 @@ export function SessionThread({
                 // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
                 tabIndex={0}
                 data-message-keys=""
+                // The thread keeps its own place, by its units: a workspace
+                // that shows again leaves its offset alone (KeepScroll).
+                data-keeps-place=""
                 {...slim(scrollerProps, "med-thread-scroller")}
               >
                 <div {...stylex.props(styles.track)}>

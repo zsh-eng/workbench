@@ -47,6 +47,7 @@ import { createWindowDrafts, type WindowDrafts } from "../data/editor-drafts";
 import { browserFetch } from "../data/live";
 import { readBrowserToken } from "../data/auth";
 import { readServerEvents } from "../data/sse";
+import { sessionBehind } from "../data/session-held";
 import { renderBriefs } from "../markdown/brief-render";
 import { endReplies } from "./session/thread-model";
 import { themeController } from "../themes";
@@ -2314,10 +2315,27 @@ export function WorkspaceViews({
   // on screen shows when its session is ready, and its review fills in after,
   // so a large diff does not hold the thread. A slow one shows anyway after
   // PREPARE_MS.
+  // A workspace seen before shows at once, as it was, unless its session
+  // showed something since: a hidden thread's stream pauses, so the thread
+  // prepares out of sight until the stream brings it up to date, and shows
+  // at its place with it. An agent at work is taken to have.
   const [seen] = useState(() => new Set<string>());
   const [shown, setShown] = useState(onScreen);
+  const behind = (id: string) => {
+    const workspace = workspaceOf(id);
+    if (workspace?.kind !== "thread") return false;
+    const thread = threadStore.get().get(workspace.threadId);
+    return (
+      !!thread?.session &&
+      (thread.state === "working" || sessionBehind(workspace.threadId, thread.updatedAt))
+    );
+  };
   const preparing =
-    onScreen && shown && onScreen !== shown && !seen.has(onScreen) && next.includes(shown)
+    onScreen &&
+    shown &&
+    onScreen !== shown &&
+    (!seen.has(onScreen) || behind(onScreen)) &&
+    next.includes(shown)
       ? onScreen
       : null;
   if (!preparing && shown !== onScreen) setShown(onScreen);
@@ -2335,8 +2353,15 @@ export function WorkspaceViews({
     const started = performance.now();
     let frame = requestAnimationFrame(function check() {
       const slot = document.querySelector(`[data-workspace-slot="${CSS.escape(preparing)}"]`);
+      const lead = slot?.querySelector("[data-lead]") ?? slot;
+      // A thread shows once its stream has caught up, with what its agent did
+      // while the thread was out of sight.
       const ready =
-        !!slot?.firstElementChild && !pending(slot.querySelector("[data-lead]") ?? slot);
+        !!lead &&
+        !!slot?.firstElementChild &&
+        !pending(lead) &&
+        !lead.matches("[data-catching-up]") &&
+        !lead.querySelector("[data-catching-up]");
       // The swap commits in this frame, before it paints; a plain update
       // would render after the paint and show a frame later.
       if (ready || performance.now() - started > PREPARE_MS) flushSync(() => setShown(preparing));
@@ -2727,7 +2752,8 @@ function leadReady(id: string) {
  * offsets. This records them as they change and restores them when the
  * workspace is shown, before its own effects read them. Virtualized diffs
  * measure themselves again after the first frame and re-anchor, so the saved
- * offsets apply once more after that measurement. */
+ * offsets apply once more after that measurement. A view marked
+ * `data-keeps-place`, as a session's thread, keeps its own. */
 function KeepScroll({
   id,
   preparing,
@@ -2756,9 +2782,15 @@ function KeepScroll({
     let frame = requestAnimationFrame(() => {
       frame = requestAnimationFrame(restore);
     });
+    // A view that keeps its own place, as a thread by its units, restores
+    // it itself: an offset from before would undo it.
     const record = (event: Event) => {
       const target = event.target;
-      if (target instanceof Element && target.getClientRects().length)
+      if (
+        target instanceof Element &&
+        target.getClientRects().length &&
+        !target.hasAttribute("data-keeps-place")
+      )
         offsets.current.set(target, [target.scrollTop, target.scrollLeft]);
     };
     node.addEventListener("scroll", record, { capture: true, passive: true });

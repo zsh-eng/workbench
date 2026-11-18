@@ -189,6 +189,11 @@ export function createHost() {
   // Each text search: the checkout it read, and the text.
   const searches: string[] = [];
   // The talk thread's session sends its first view when the test releases it.
+  // Replies that its agent wrote later, and when its transcript changed.
+  let talkLater: string[] = [];
+  let talkModifiedAt = 0;
+  // How long the talk session's stream takes to answer, as a host's round trip.
+  let talkDelay = 0;
   let releaseSession!: () => void;
   const sessionHeld = new Promise<void>((resolve) => {
     releaseSession = resolve;
@@ -378,18 +383,28 @@ export function createHost() {
               _meta: { med: { tool: "Agent" } },
             },
           },
+          ...talkLater.map((text, index) => ({
+            at: 10 + index,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              messageId: `later-${index}`,
+              content: { type: "text", text },
+            },
+          })),
         ],
         idle: true,
-        modifiedAt: 0,
+        modifiedAt: talkModifiedAt,
         truncated: false,
       };
       const body = new ReadableStream<Uint8Array>({
         start(controller) {
-          void sessionHeld.then(() =>
-            controller.enqueue(
-              new TextEncoder().encode(`event: reset\ndata: ${JSON.stringify(reset)}\n\n`),
-            ),
-          );
+          void sessionHeld
+            .then(() => new Promise((resolve) => setTimeout(resolve, talkDelay)))
+            .then(() =>
+              controller.enqueue(
+                new TextEncoder().encode(`event: reset\ndata: ${JSON.stringify(reset)}\n\n`),
+              ),
+            );
           init?.signal?.addEventListener("abort", () =>
             controller.error(new DOMException("Aborted", "AbortError")),
           );
@@ -587,6 +602,13 @@ export function createHost() {
     setPull,
     removals,
     releaseSession,
+    /** The talk session's agent replies again: the session's next stream has
+     * it, and answers after `delay` milliseconds. */
+    talkReplies(text: string, at: number, delay = 0) {
+      talkLater = [...talkLater, text];
+      talkModifiedAt = at;
+      talkDelay = delay;
+    },
     setFileText(text: string) {
       fileText = text;
     },

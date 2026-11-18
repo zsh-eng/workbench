@@ -282,7 +282,7 @@ test("a change above the view moves nothing, and a glide under way runs on as th
   expect(gapOf(scroller)).toBeLessThan(32);
 });
 
-test("a thread that shows again is still at its end, and the message box moves the end with it at once", async () => {
+test("a thread that shows again is still at its end, as after a new width or the message box; only work that comes in view moves", async () => {
   await page.viewport(1280, 900);
   initializeTheme();
   // A thread a little taller than its frame, so its end is less than the
@@ -305,6 +305,7 @@ test("a thread that shows again is still at its end, and the message box moves t
   expect(range).toBeGreaterThan(40);
   expect(range).toBeLessThan(1200);
   const glides = () => log.getAnimations().filter((animation) => animation.playState === "running");
+  const rises = () => units().filter((unit) => unit.getAnimations().length > 0);
   const last = () => units().at(-1)!.getBoundingClientRect().top;
 
   // Hidden, as a thread in another workspace, then shown again: it is at its
@@ -332,17 +333,48 @@ test("a thread that shows again is still at its end, and the message box moves t
   }
   expect(gapOf(scroller)).toBeLessThan(32);
 
+  // A new width, as when a pane opens beside the thread, rewraps it: the end
+  // stays in place at once, without a glide.
+  mount!.style.width = "380px";
+  for (let frame = 0; frame < 12; frame++) {
+    await nextFrame();
+    expect(glides()).toHaveLength(0);
+    expect(gapOf(scroller)).toBeLessThan(32);
+  }
+
   // Out of sight, as a thread that prepares to show, new work lands without
-  // a glide that would end on screen.
+  // a glide or a rise that would end on screen.
   mount!.style.visibility = "hidden";
   store.applyAll(turnEvents(6, 1));
   show("visible");
   await expect.element(page.getByText(/^Reply 6\./)).toBeInTheDocument();
+  mount!.style.visibility = "";
   for (let frame = 0; frame < 12; frame++) {
     await nextFrame();
     expect(glides()).toHaveLength(0);
+    expect(rises()).toHaveLength(0);
   }
   expect(gapOf(scroller)).toBeLessThan(32);
+
+  // Work that lands while the thread is hidden shows with it, still.
+  show("hidden");
+  store.applyAll(turnEvents(7, 1));
+  show("hidden");
+  await afterFrames(3);
+  show("visible");
+  await expect.element(page.getByText(/^Reply 7\./)).toBeInTheDocument();
+  expect(gapOf(scroller)).toBeLessThan(32);
+  for (let frame = 0; frame < 12; frame++) {
+    await nextFrame();
+    expect(glides()).toHaveLength(0);
+    expect(rises()).toHaveLength(0);
+  }
+
+  // Work that comes in view rises and glides in, as before.
+  store.applyAll(turnEvents(8, 1));
+  show("visible");
+  await expect.element(page.getByText(/^Reply 8\./)).toBeInTheDocument();
+  await expect.poll(() => rises().length).toBeGreaterThan(0);
 });
 
 test("a reply that stops streaming stays until the transcript has it, so the reader's place holds", async () => {
