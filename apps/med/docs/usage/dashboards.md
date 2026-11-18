@@ -84,21 +84,20 @@ link opens the same dashboard, and **Back** undoes a change.
   dashboard (`env: staging`).
 - `text:` makes a Markdown panel instead: notes, links, what a number means.
 
-**What a panel reads.** No link spells the range or the inputs: Med passes
-them to every `link:` and `grafana:` panel as keys, as an agent's chart passes
-them.
+**What a panel reads.** Med passes the range and the inputs to every `link:`
+and `grafana:` panel as keys, as an agent's chart passes them: `from` and
+`to`, and each input by its name. A chart source's command gets them as
+`MED_CHART_FROM`, `MED_CHART_TO`, `MED_CHART_ENV`, beside the link as it is
+written. Med is not particular about where your script reads them: a bare
+link and the keys, or a full Grafana link with the values in it
+(`?var-env=${env}&from=${from}&to=${to}`), both work. `${name}` in any key,
+or in a text panel, becomes the input's value.
 
-- The range is `from` and `to`: a Grafana panel's range, over the one in its
-  link, and `MED_CHART_FROM` and `MED_CHART_TO` for a chart source's command.
-- Each input goes by its name: `MED_CHART_ENV` for the command, and the
-  Grafana dashboard's `env` variable, over the link's `var-env`. A Grafana
-  dashboard without that variable does not read it.
-- A panel's own key wins: `from: now-30d` and `to: now` keep a panel's range
-  whatever the picker shows, and `env: prod` keeps its env.
-- An input named as a key Med draws (`title`, `unit`, `type`, …) reaches no
-  panel as a key.
-- `${name}` in any key, or in a text panel, becomes the value too, for a
-  link that has a value in its path: `link: https://status.acme.dev/${service}`.
+A `grafana:` panel that Med reads itself takes the keys as its range and its
+dashboard's variables, over the link's own. A panel's own key wins over the
+dashboard's: `from: now/d` keeps a panel on today whatever the picker shows.
+An input named as a key Med draws (`title`, `unit`, `type`, …) reaches a panel
+only as `${name}`.
 
 Every panel reads as of the same minute, so the panels agree; **Read every
 panel again** reads them all now. The page reads four panels at a time: a

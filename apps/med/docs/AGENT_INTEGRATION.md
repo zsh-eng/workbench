@@ -723,11 +723,11 @@ panels:
 
 `inputs` are text fields or choices, `range` is the time picker, `views` are
 tabs, and `type` is `line`, `bars`, `stat`, or `table`; a `text:` panel is
-Markdown. Write no range or input into a link: Med passes them to every
-`link:` and `grafana:` panel as keys. A chart source reads `MED_CHART_FROM`,
-`MED_CHART_TO`, and `MED_CHART_ENV`; a Grafana panel takes the range as its
-own and `env` as its dashboard's variable. A panel's own key, such as
-`from: now-30d`, wins. You can't see the page, so
+Markdown. Med passes the range and each input to every `link:` and
+`grafana:` panel as keys (`MED_CHART_FROM`, `MED_CHART_TO`, `MED_CHART_ENV`
+for a chart source), and fills `${name}` anywhere, so a source's script can
+read a full Grafana link or the keys, whichever suits it. You can't see the
+page, so
 run `med dashboard check <file> [--set env=staging]` after each edit: it
 reads every panel through the same sources and says what each drew, or the
 line of the file that is wrong, and exits 1 until it passes. End with the
