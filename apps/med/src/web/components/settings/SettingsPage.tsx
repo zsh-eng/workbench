@@ -248,7 +248,7 @@ function Files() {
       </Row>
       <Row
         label="Render Markdown with Pierre Words"
-        note="A faster renderer, in beta, for replies, guides, and files. Pull request descriptions keep the current one."
+        note="Replies, guides, and files render several times faster. Off, they use the previous renderer, which pull request descriptions always use."
       >
         <Switch
           label="Render Markdown with Pierre Words"

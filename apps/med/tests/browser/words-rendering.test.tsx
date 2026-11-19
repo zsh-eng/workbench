@@ -18,7 +18,13 @@ afterEach(() => {
   frame?.remove();
   root = undefined;
   frame = undefined;
-  viewSettings.wordsMarkdown.set("off");
+  // Back to the default, as a reader who never chose.
+  localStorage.removeItem(viewSettings.wordsMarkdown.key);
+});
+
+test("Markdown renders in Pierre Words unless the reader turns it off", () => {
+  localStorage.removeItem(viewSettings.wordsMarkdown.key);
+  expect(viewSettings.wordsMarkdown.get()).toBe("on");
 });
 
 const REPLY = [
