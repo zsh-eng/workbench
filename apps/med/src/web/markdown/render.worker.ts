@@ -8,8 +8,9 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkRehype from "remark-rehype";
 import rehypeStringify from "rehype-stringify";
-import type { Root, Element, RootContent } from "hast";
+import type { Root, Element, ElementContent, RootContent } from "hast";
 import { loadTheme, tokenLines, type SyntaxThemeData } from "../highlighting/highlighter";
+import { codeHtml } from "./code-html";
 import type { MarkdownBlock, MarkdownHeading } from "./model";
 import { siteIcon } from "./site-icons";
 const parser = unified().use(remarkParse).use(remarkGfm).use(remarkMath).use(remarkRehype);
@@ -20,7 +21,77 @@ const replyParser = unified()
   .use(remarkMath, { singleDollarTextMath: false })
   .use(remarkRehype);
 const stringify = unified().use(rehypeStringify);
-const codeCache = new Map<string, Element["children"]>();
+const toHtml = (children: ElementContent[]) => stringify.stringify({ type: "root", children });
+
+// HTML that the worker makes once and keeps: a code block's highlighting, and
+// a formula's KaTeX. The tree holds a slot in its place, and the block's HTML
+// takes the kept HTML where the slot's tag stands. A stream renders its reply
+// again for each update, and so serializes only what changed. A document can
+// write no slot: its raw HTML is never kept and its text escapes `<`.
+const SLOT = /<med-slot data-slot="(\d+)"><\/med-slot>/g;
+const kept = <T>(limit: number) => {
+  const cache = new Map<string, T>();
+  return {
+    get: (key: string) => cache.get(key),
+    set(key: string, value: T) {
+      if (cache.size >= limit) cache.delete(cache.keys().next().value!);
+      cache.set(key, value);
+    },
+  };
+};
+const codeCache = kept<string>(32);
+const mathCache = kept<string>(256);
+
+// KaTeX loads with the first formula. Its options and its fallbacks for a
+// formula it cannot parse are those that Med used through rehype-katex.
+let katex: (typeof import("katex"))["default"] | undefined;
+const KATEX = { trust: false, strict: "ignore", maxExpand: 500, maxSize: 20 } as const;
+async function formula(tex: string, displayMode: boolean) {
+  const key = `${displayMode ? "display" : "inline"}:${tex}`;
+  let html = mathCache.get(key);
+  if (html === undefined) {
+    katex ??= (await import("katex")).default;
+    try {
+      html = katex.renderToString(tex, { ...KATEX, displayMode, throwOnError: true });
+    } catch (error) {
+      try {
+        html = katex.renderToString(tex, { ...KATEX, displayMode, throwOnError: false });
+      } catch {
+        html = toHtml([
+          {
+            type: "element",
+            tagName: "span",
+            properties: {
+              className: ["katex-error"],
+              style: "color:#cc0000",
+              title: String(error),
+            },
+            children: [{ type: "text", value: tex }],
+          },
+        ]);
+      }
+    }
+    mathCache.set(key, html);
+  }
+  return html;
+}
+const classesOf = (node: Element) =>
+  Array.isArray(node.properties.className) ? node.properties.className.map(String) : [];
+/** A formula, as rehype-katex finds it: display math's `pre`, or inline math. */
+function mathOf(node: RootContent) {
+  if (node.type !== "element") return;
+  const code = node.children[0];
+  if (
+    node.tagName === "pre" &&
+    code?.type === "element" &&
+    code.tagName === "code" &&
+    classesOf(code).includes("language-math")
+  )
+    return { tex: textOf(node), displayMode: true };
+  const classes = classesOf(node);
+  if (["language-math", "math-display", "math-inline"].some((name) => classes.includes(name)))
+    return { tex: textOf(node), displayMode: classes.includes("math-display") };
+}
 /** Text with a line break opportunity (<wbr>) at the separators of its long
  * words (breaks.ts), so that a table column's narrowest width is its longest
  * piece, not its longest word. Copied text is unchanged. */
@@ -97,13 +168,20 @@ async function drain() {
       if (task.text.length > 512 * 1024)
         throw new Error("Markdown preview supports up to 512 KiB. The source remains available.");
       // Words and its WebAssembly load once a task asks for them.
-      let tree =
+      const tree =
         task.words && !task.htmlImages
           ? (await import("./words/tree")).wordsTree(task.text, task)
           : await remarkTree(task);
       const headings: MarkdownHeading[] = [];
       const slugs = new Map<string, number>();
-      let hasMath = false;
+      const slots: string[] = [];
+      const slot = (html: string, position: Element["position"]): Element => ({
+        type: "element",
+        tagName: "med-slot",
+        properties: { dataSlot: slots.push(html) - 1 },
+        children: [],
+        position,
+      });
       if (task.theme) themes.set(task.theme.name!, task.theme);
       const known = task.theme ?? themes.get(task.themeName!);
       if (!known) throw new Error("The Markdown theme is not loaded. Reload the page.");
@@ -115,8 +193,6 @@ async function drain() {
           node.properties.dataSourceLine = node.position.start.line;
           node.properties.dataSourceEnd = node.position.end.line;
         }
-        const classes = String(node.properties.className ?? "");
-        if (classes.includes("math-inline") || classes.includes("math-display")) hasMath = true;
         if (/^h[1-6]$/.test(node.tagName)) {
           const text = textOf(node);
           const slug =
@@ -238,24 +314,12 @@ async function drain() {
             }
             if (language !== "text" && source.length < 100_000 && language !== "markdown") {
               const key = `${theme.name}:${language}:${source}`;
-              let children = codeCache.get(key);
-              if (!children) {
-                children = [];
-                const lines = await tokenLines(source, language, theme.name!);
-                lines.forEach((line, index) => {
-                  if (index) children!.push({ type: "text", value: "\n" });
-                  for (const token of line)
-                    children!.push({
-                      type: "element",
-                      tagName: "span",
-                      properties: { style: token.style },
-                      children: [{ type: "text", value: token.content }],
-                    });
-                });
-                if (codeCache.size >= 32) codeCache.delete(codeCache.keys().next().value!);
-                codeCache.set(key, children);
+              let html = codeCache.get(key);
+              if (html === undefined) {
+                html = codeHtml(await tokenLines(source, language, theme.name!));
+                codeCache.set(key, html);
               }
-              code.children = children;
+              code.children = [slot(html, undefined)];
               return;
             }
           }
@@ -267,15 +331,19 @@ async function drain() {
           node.children = node.children.flatMap((child) =>
             child.type === "text" ? breakable(child.value) : [child],
           );
-        for (const child of node.children) await visit(child, sourceLine, inCell);
+        await visitChildren(node.children, sourceLine, inCell);
       }
-      for (const node of tree.children) await visit(node, firstSourceLine(node) ?? 1);
-      if (hasMath) {
-        const { default: katex } = await import("rehype-katex");
-        tree = (await unified()
-          .use(katex, { trust: false, strict: "ignore", maxExpand: 500, maxSize: 20 })
-          .run(tree)) as Root;
+      /** Visits each child, and puts a formula's KaTeX in its place. At the
+       * top, each block starts from its own first line. */
+      async function visitChildren(children: RootContent[], sourceLine?: number, cell = false) {
+        for (const [index, child] of children.entries()) {
+          const math = mathOf(child);
+          if (math)
+            children[index] = slot(await formula(math.tex, math.displayMode), child.position);
+          else await visit(child, sourceLine ?? firstSourceLine(child) ?? 1, cell);
+        }
       }
+      await visitChildren(tree.children);
       if (latest && !queued) continue;
       let previousEnd = 0;
       const blocks: MarkdownBlock[] = tree.children
@@ -285,8 +353,9 @@ async function drain() {
           const start = node.position?.start.line ?? previousEnd + 1;
           const end = node.position?.end.line ?? start;
           previousEnd = end;
+          const html = stringify.stringify({ type: "root", children: [node] });
           return {
-            html: stringify.stringify({ type: "root", children: [node] }),
+            html: slots.length ? html.replace(SLOT, (_, index) => slots[Number(index)]!) : html,
             start,
             end,
             ...(node.type === "element" && node.properties.dataMermaid

@@ -30,7 +30,7 @@ export default defineConfig({
         // Same worker-safe decoders as vite.config.ts, so Markdown workers run.
         resolve: {
           alias: Object.fromEntries(
-            ["decode-named-character-reference", "hast-util-from-html-isomorphic"].map((name) => [
+            ["decode-named-character-reference"].map((name) => [
               name,
               createRequire(import.meta.url).resolve(name),
             ]),
@@ -48,7 +48,7 @@ export default defineConfig({
             "@base-ui/react/tooltip",
             "@pierre/trees",
             // The Markdown worker's; the scan does not follow a worker's imports.
-            "rehype-katex",
+            "katex",
             "rehype-stringify",
             "remark-gfm",
             "remark-math",

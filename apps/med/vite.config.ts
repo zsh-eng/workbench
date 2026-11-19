@@ -11,9 +11,6 @@ export default defineConfig({
       "decode-named-character-reference": createRequire(import.meta.url).resolve(
         "decode-named-character-reference",
       ),
-      "hast-util-from-html-isomorphic": createRequire(import.meta.url).resolve(
-        "hast-util-from-html-isomorphic",
-      ),
     },
   },
   plugins: [
@@ -37,7 +34,7 @@ export default defineConfig({
       "@base-ui/react/tabs",
       "@pierre/trees",
       // The Markdown worker's; the scan does not follow a worker's imports.
-      "rehype-katex",
+      "katex",
       "rehype-stringify",
       "remark-gfm",
       "remark-math",

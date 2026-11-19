@@ -748,11 +748,14 @@ instead (words/), a WebAssembly renderer that Med builds with a patch
 heading, code block, and table in the source, leaves each HTML block as
 escaped text for the folds, and its HTML becomes the hast tree that remark
 would make, so the steps after it are the same. A pull request's description
-keeps remark, for its images. KaTeX loads only for math, with trust disabled and expansion
-limits. Pele draws Mermaid diagrams near the viewport, and each diagram type
-loads on demand. Diagram links and images are off. Diagram colors are CSS
-variables that MarkdownPreview.css maps to theme tokens, so a theme change does
-not draw again. Code fences use Pierre's highlighter. MarkdownPreview keeps
+keeps remark, for its images. KaTeX loads only for math, with trust disabled
+and expansion limits. Pele draws Mermaid diagrams near the viewport, and each
+diagram type loads on demand. Diagram links and images are off. Diagram colors
+are CSS variables that MarkdownPreview.css maps to theme tokens, so a theme
+change does not draw again. Code fences use Pierre's highlighter. The worker
+keeps the HTML of its last 32 highlighted code blocks and 256 formulas, and a
+block takes it in place of a slot, so a streaming reply, which renders again
+for each update, writes only what changed. MarkdownPreview keeps
 its last 12 results by theme, options, and text, so a page that shows again
 has its blocks in its first frame; while a file reads again, FullFileView
 renders its open draft in its place, never its source.
