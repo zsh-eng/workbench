@@ -41,11 +41,20 @@ export default defineConfig({
           exclude: ["@pierre/diffs"],
           include: [
             "@pierre/diffs > lru_map",
+            "@pierre/diffs > @pierre/patches",
             "@base-ui/react/combobox",
             "@base-ui/react/popover",
             "@base-ui/react/tabs",
             "@base-ui/react/tooltip",
             "@pierre/trees",
+            // The Markdown worker's; the scan does not follow a worker's imports.
+            "rehype-katex",
+            "rehype-stringify",
+            "remark-gfm",
+            "remark-math",
+            "remark-parse",
+            "remark-rehype",
+            "unified",
           ],
         },
         test: {

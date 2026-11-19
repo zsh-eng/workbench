@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import type { Plugin } from "vite";
 
 /**
- * Keeps Pierre's CodeView mounted while it is hidden. Version-checked, like the
- * highlighter patch.
+ * Keeps Pierre's CodeView mounted while it is hidden. Version-checked: a new
+ * Pierre needs this patch read again against its CodeView.
  *
  * A hidden React `<Activity>` detaches refs but keeps the elements. Pierre's
  * React wrapper destroyed its CodeView when the ref detached, so each
@@ -13,10 +13,9 @@ import type { Plugin } from "vite";
  * new view attaches, as before, because a freed view still notifies shared
  * listeners, such as the Vim caret of the file view that replaced it.
  *
- * A view with `display: none` has no box. Pierre measured it as zero height
- * and replaced the rendered rows; it now skips that work until the view has a
- * box again. When the view shows again, its resize observer reports the new
- * size and renders it once; a second render on reattach cost a full layout.
+ * A view with `display: none` has no box. Pierre 1.7 skips layout and render
+ * until its resize observer sees a box again (`hasLayout`), as this patch did
+ * before, so that part is Pierre's own now.
  */
 export function pierreKeepAlive(): Plugin {
   function replace(source: string, from: string, to: string) {
@@ -31,8 +30,10 @@ export function pierreKeepAlive(): Plugin {
       const pkg = JSON.parse(
         readFileSync(new URL("../package.json", import.meta.resolve("@pierre/diffs")), "utf8"),
       );
-      if (pkg.version !== "1.6.4")
-        throw new Error("Re-audit the CodeView keep-alive patch before upgrading Pierre 1.6.4");
+      if (pkg.version !== "1.7.0-beta.4")
+        throw new Error(
+          "Re-audit the CodeView keep-alive patch before upgrading Pierre 1.7.0-beta.4",
+        );
     },
     transform(source, id) {
       const path = id.split("?")[0]!;
@@ -90,24 +91,6 @@ function CodeViewInner(props, ref) {`,
 		// ones, so they clean up first, in the original order.
 		if (node != null) cleanUpRemovedViews();
 `,
-        );
-      }
-      if (path.endsWith("/@pierre/diffs/dist/components/CodeView.js")) {
-        source = replace(
-          source,
-          "\thandleResize = (entries) => {\n",
-          `\thandleResize = (entries) => {
-		if (this.root != null && this.root.getClientRects().length === 0) {
-			this.scrollDirty = true;
-			this.heightDirty = true;
-			return;
-		}
-`,
-        );
-        return replace(
-          source,
-          "\t\tif (CodeView.__STOP || this.container == null) return;\n\t\tif (!this.isReady()) return;",
-          "\t\tif (CodeView.__STOP || this.container == null) return;\n\t\tif (this.root != null && this.root.getClientRects().length === 0) return;\n\t\tif (!this.isReady()) return;",
         );
       }
     },
