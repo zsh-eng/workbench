@@ -57,7 +57,24 @@ type Task = {
   plainDollars?: boolean;
   /** A pull request's description: its <img> tags are images. */
   htmlImages?: boolean;
+  /** Parse with Pierre Words (words/tree.ts), not remark. A description's
+   * images need remark. */
+  words?: boolean;
 };
+/** The document as hast, from remark, with Med's Markdown steps. */
+async function remarkTree(task: Task) {
+  const markdownParser = task.plainDollars ? replyParser : parser;
+  const markdown = markdownParser.parse(task.text);
+  if (task.vault) wikiLinks(markdown, task.text);
+  details(markdown, (summary) => {
+    const [first, ...rest] = markdownParser.parse(summary).children;
+    return first?.type === "paragraph" && !rest.length
+      ? first.children
+      : [{ type: "text", value: summary }];
+  });
+  if (task.htmlImages) htmlImages(markdown);
+  return (await markdownParser.run(markdown)) as Root;
+}
 // A preview keeps only its latest task. A batch, as of a thread's replies,
 // renders each task in order and replies to each.
 let latest: Task | undefined;
@@ -79,17 +96,11 @@ async function drain() {
       const started = performance.now();
       if (task.text.length > 512 * 1024)
         throw new Error("Markdown preview supports up to 512 KiB. The source remains available.");
-      const markdownParser = task.plainDollars ? replyParser : parser;
-      const markdown = markdownParser.parse(task.text);
-      if (task.vault) wikiLinks(markdown, task.text);
-      details(markdown, (summary) => {
-        const [first, ...rest] = markdownParser.parse(summary).children;
-        return first?.type === "paragraph" && !rest.length
-          ? first.children
-          : [{ type: "text", value: summary }];
-      });
-      if (task.htmlImages) htmlImages(markdown);
-      let tree = (await markdownParser.run(markdown)) as Root;
+      // Words and its WebAssembly load once a task asks for them.
+      let tree =
+        task.words && !task.htmlImages
+          ? (await import("./words/tree")).wordsTree(task.text, task)
+          : await remarkTree(task);
       const headings: MarkdownHeading[] = [];
       const slugs = new Map<string, number>();
       let hasMath = false;

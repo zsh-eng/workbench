@@ -26,9 +26,9 @@ type Piece =
 // <details …>, <summary …>…</summary> (or one that the HTML block ends), </details>.
 const TAG =
   /<details\b([^>]*)>|<summary\b[^>]*>([\s\S]*?)(?:<\/summary\s*>|(?=<\/details)|$)|<\/details\s*>/gi;
-const FOLDS = /<\/?details\b|<summary\b/i;
+export const FOLDS = /<\/?details\b|<summary\b/i;
 
-function pieces(html: string): Piece[] {
+export function pieces(html: string): Piece[] {
   const found: Piece[] = [];
   let last = 0;
   for (const match of html.matchAll(TAG)) {
@@ -48,13 +48,13 @@ function pieces(html: string): Piece[] {
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" };
 const decode = (text: string) =>
   text.replace(/&(amp|lt|gt|quot|#39);/g, (_, name: string) => ENTITIES[name]!);
-const words = (html: string) =>
+export const words = (html: string) =>
   decode(html.replace(/<[^>]*>/g, " "))
     .replace(/\s+/g, " ")
     .trim();
 
 /** A summary's words, with its bold, italic, and code marks as Markdown. */
-const summaryMarkdown = (html: string) =>
+export const summaryMarkdown = (html: string) =>
   html
     .replace(/<\/?(?:b|strong)\b[^>]*>/gi, "**")
     .replace(/<\/?(?:i|em)\b[^>]*>/gi, "_")

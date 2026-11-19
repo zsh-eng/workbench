@@ -13,6 +13,7 @@ import { useKeptFolds } from "../../markdown/folds";
 import { loadMarkdownImages, markdownImageUrl } from "../../markdown/images";
 import type { MarkdownResult } from "../../markdown/model";
 import { useTheme } from "../../themes";
+import { useViewSetting, viewSettings } from "../../data/view-settings";
 import { branchRefOf, fileRefOf } from "../../data/file-refs";
 import { useCodeCopy } from "../CodeCopy";
 import { DiagramBlock } from "../DiagramBlock";
@@ -56,12 +57,14 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   at?: number;
 }) {
   const { active: theme } = useTheme();
+  // The renderer that the reader chose; a change renders the reply again.
+  const words = useViewSetting(viewSettings.wordsMarkdown);
   const [rendered, setRendered] = useState<MarkdownResult>();
   // A reply that rendered before, as when it scrolls back into a list, shows at once.
   const result = renderedBrief(theme.pierreTheme, text, "session") ?? rendered;
   const host = useRef<HTMLDivElement>(null);
   // The newest request; a render that finishes starts the next one from here.
-  const latest = useRef({ text, theme: theme.pierreTheme, streaming, settled });
+  const latest = useRef({ text, theme: theme.pierreTheme, streaming, settled, words });
   const pump = useRef({ running: false, mounted: true });
   const open = useRef(onOpenLink);
   // Paths that name a file of the thread's checkout are links to it.
@@ -87,7 +90,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   useReveal(host, blocks, streaming);
 
   useLayoutEffect(() => {
-    latest.current = { text, theme: theme.pierreTheme, streaming, settled };
+    latest.current = { text, theme: theme.pierreTheme, streaming, settled, words };
     open.current = onOpenLink;
     fileRefs.current = refs;
     reviews.current = handoff;
@@ -118,13 +121,16 @@ export const SessionMarkdown = memo(function SessionMarkdown({
         .finally(() => {
           state.running = false;
           const next = latest.current;
-          const changed = next.text !== request.text || next.theme !== request.theme;
+          const changed =
+            next.text !== request.text ||
+            next.theme !== request.theme ||
+            next.words !== request.words;
           const kept = (request.streaming && !next.streaming) || (!request.settled && next.settled);
           if (state.mounted && (changed || kept)) run(next);
         });
     };
     run(latest.current);
-  }, [text, streaming, settled, theme.pierreTheme]);
+  }, [text, streaming, settled, theme.pierreTheme, words]);
 
   // Links to files open in Med; web links open in a new tab from the worker's HTML.
   useEffect(() => {

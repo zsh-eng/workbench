@@ -80,7 +80,7 @@ flowchart TB
 | Editing                                      | CodeMirror 6 and `@replit/codemirror-vim`, loaded on demand                            |
 | Selectors, menus, dialogs, tooltips          | `@base-ui/react`                                                                       |
 | Layout, themes, focus, density               | StyleX and a small CSS reset                                                           |
-| Markdown                                     | unified, remark, and rehype in a worker; KaTeX and Pele (Mermaid) on demand            |
+| Markdown                                     | unified, remark, and rehype in a worker, or Pierre Words; KaTeX and Pele on demand     |
 | Separators and status elements               | Local React, HTML, and SVG                                                             |
 | Browser state                                | Local controllers and React external-store subscriptions                               |
 | Review semantics                             | Pinned Hunk source ([Hunk provenance](#hunk-provenance))                               |
@@ -741,7 +741,14 @@ The preview worker runs remark-parse, remark-gfm, remark-math, remark-rehype,
 and rehype-stringify. It keeps top-level source ranges for scroll mapping and
 heading IDs for navigation. **Raw HTML is disabled and link schemes are
 limited.** `<details>` and `<summary>` tags become a fold of the Markdown
-between them (details.ts), before remark-rehype, so no HTML passes through. KaTeX loads only for math, with trust disabled and expansion
+between them (details.ts), before remark-rehype, so no HTML passes through.
+With the `markdown.words` setting, the worker parses with Pierre Words
+instead (words/), a WebAssembly renderer that Med builds with a patch
+([provenance](upstream/PIERRE-WORDS.md)): Words places each top-level block,
+heading, code block, and table in the source, leaves each HTML block as
+escaped text for the folds, and its HTML becomes the hast tree that remark
+would make, so the steps after it are the same. A pull request's description
+keeps remark, for its images. KaTeX loads only for math, with trust disabled and expansion
 limits. Pele draws Mermaid diagrams near the viewport, and each diagram type
 loads on demand. Diagram links and images are off. Diagram colors are CSS
 variables that MarkdownPreview.css maps to theme tokens, so a theme change does

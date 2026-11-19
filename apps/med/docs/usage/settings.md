@@ -217,6 +217,7 @@ the file.
 | `files.findPreview`     | `true` or `false`: the preview in Find file                | `true`           |
 | `session.followUp`      | `"now"` or `"queue"`: what `⌘↩` does while the agent works | `"now"`          |
 | `comments.sendNow`      | `true` or `false`: a new comment goes to the agent at once | `true`           |
+| `markdown.words`        | `true` or `false`: Markdown renders in Pierre Words (beta) | `false`          |
 | `sources.pullBase`      | `true` or `false`: pull each repository's base branch      | `true`           |
 | `openIn.hosts`          | a host's kind by host: `"github"`, `"gitlab"`, or `"off"`  | `{}`             |
 | `openIn.sourcegraph`    | your Sourcegraph's address, or `""` for none               | `""`             |

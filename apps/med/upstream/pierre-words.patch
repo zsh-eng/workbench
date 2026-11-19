@@ -1,0 +1,524 @@
+diff --git a/packages/words/lib/core.ts b/packages/words/lib/core.ts
+index e5c87e7..287797b 100644
+--- a/packages/words/lib/core.ts
++++ b/packages/words/lib/core.ts
+@@ -169,7 +169,11 @@ class Renderer {
+     );
+     this.dv.setUint8(
+       31,
+-      (options?.cjk === true ? 1 : 0) | (options?.math === true ? 2 : 0)
++      (options?.cjk === true ? 1 : 0) |
++        (options?.math === true ? 2 : 0) |
++        (options?.sourceLines === true ? 4 : 0) |
++        (options?.doubleDollarMath === true ? 8 : 0) |
++        (options?.mathSource === true ? 16 : 0)
+     );
+     this.dv.setUint32(2, inputLength, true);
+     const format = options?.format;
+diff --git a/packages/words/lib/types.ts b/packages/words/lib/types.ts
+index 0e40267..135bfe9 100644
+--- a/packages/words/lib/types.ts
++++ b/packages/words/lib/types.ts
+@@ -1,6 +1,24 @@
+ /** Options for the HTML renderer. */
+ export interface RenderOptions extends HtmlSessionOptions {
+   skipHtml?: boolean;
++  /**
++   * Place the HTML in the source, for a host that maps output to lines. Each
++   * top-level block ends with a NUL, its first and last source lines as
++   * `first,last`, and a NUL. Headings, code blocks, and tables name their
++   * lines in `data-source-line` and `data-source-end`. An HTML block is its
++   * escaped text in a `<template data-html>`, which the browser does not
++   * render. Lines count from 1.
++   */
++  sourceLines?: boolean;
++  /** With `math`, only `$$` starts inline math, so `$HOME` and `$3` stay text. */
++  doubleDollarMath?: boolean;
++  /**
++   * With `math`, write the TeX source for the host to typeset, as remark-math
++   * does for rehype-katex: inline math in
++   * `<code class="language-math math-inline">`, display math in
++   * `<pre><code class="language-math math-display">`.
++   */
++  mathSource?: boolean;
+   /**
+    * Parse a leading YAML frontmatter block. The return value becomes
+    * `[meta, output]`, where `meta` is `null` when the input has no frontmatter.
+diff --git a/packages/words/src/block.wat b/packages/words/src/block.wat
+index 8a67529..56159a1 100644
+--- a/packages/words/src/block.wat
++++ b/packages/words/src/block.wat
+@@ -162,6 +162,7 @@
+             (global.set $pos (local.get $q))
+             (global.set $lineEnd (local.get $close))
+             (call $addLine)))
++        (i32.store offset=$R.src (global.get $leafRec) (local.get $line))
+         (call $closeLeaf)
+         (global.set $lineEnd (local.get $end))
+         (return (i32.const 1))))
+@@ -217,6 +218,7 @@
+       (then
+         (i32.store offset=$R.header (local.get $r) (local.get $beg))
+         (i32.store offset=$R.header+4 (local.get $r) (local.get $end))))
++    (i32.store offset=$R.src (local.get $r) (local.get $start))
+     (global.set $leafRec (local.get $r))
+     (global.set $leafBlank (i32.const 0))
+     (global.set $rec (i32.add (local.get $r) (local.get $size)))
+@@ -503,6 +505,9 @@
+     (local.set $r (call $recNew (i32.or (local.get $type) (i32.const $F.openerType))))
+     (i64.store offset=8 (local.get $r) (i64.or (i64.extend_i32_u (local.get $start))
+       (i64.shl (i64.extend_i32_u (local.get $ch)) (i64.const 32))))
++    ;; a footnote's [20] links the definitions
++    (if (i32.ne (local.get $type) (enum.get $Blk.footnote))
++      (then (i32.store offset=$R.src (local.get $r) (global.get $pos))))
+     (call $noteChildAdded)
+     (global.set $sp (i32.add (global.get $sp) (i32.const 1)))
+     (global.set $top (local.tee $e (call $containerAt (global.get $sp))))
+@@ -667,6 +672,7 @@
+                               (global.set $lineEnd (local.get $n))
+                               (call $addLine)
+                               (global.set $lineEnd (local.get $e))))
++                          (i32.store offset=$R.src (global.get $leafRec) (global.get $fns))
+                           (call $closeLeaf)
+                           (return (i32.const 1)))))
+                     (else
+@@ -677,6 +683,7 @@
+                         (then
+                           (if (call $closesFence (global.get $fns) (global.get $lineEnd))
+                             (then
++                              (i32.store offset=$R.src (global.get $leafRec) (global.get $fns))
+                               (call $closeLeaf)
+                               (return (i32.const 1))))))))
+                   ;; strip up to the opening fence's own indentation
+@@ -812,6 +819,7 @@
+                (local.set $headEnd (call $atxContentEnd (local.get $save) (global.get $lineEnd)))
+                (call $openLeaf (enum.get $Blk.heading))
+                (i32.store offset=8 (global.get $leafRec) (global.get $atxLevel))
++               (i32.store offset=$R.src (global.get $leafRec) (local.get $save))
+                ;; nothing reads the true line end after a block start took the line
+                (global.set $lineEnd (local.get $headEnd))
+                (if (i32.gt_u (local.get $headEnd) (local.get $save))
+@@ -880,6 +888,7 @@
+                     (then (call $closeLeaf)))
+                   (br_if $setextDone (i32.eqz (i32.load offset=$R.nLines (global.get $leafRec))))
+                   (i32.store8 (global.get $leafRec) (enum.get $Blk.heading))
++                  (i32.store offset=$R.src (global.get $leafRec) (global.get $fns))
+                   (i32.store offset=8 (global.get $leafRec)
+                     (select (i32.const 1) (i32.const 2)
+                       (i32.eq (local.get $setextC) (i32.const "="))))
+@@ -895,7 +904,7 @@
+              (then
+                (call $closeUnmatched (i32.const 1))
+                (call $prepareLeafParent)
+-               (drop (call $recNew (enum.get $Blk.hr)))
++               (i32.store offset=$R.src (call $recNew (enum.get $Blk.hr)) (global.get $fns))
+                (call $noteChildAdded)
+                (global.set $pos (global.get $lineEnd))
+                (global.set $curLevel (global.get $sp))
+@@ -1011,6 +1020,7 @@
+         (global.set $tableAutoCells (i32.const 0))
+         (i32.store offset=8 (global.get $leafRec) (local.get $tableCols))
+         (i32.store offset=12 (global.get $leafRec) (global.get $tableHead))
++        (i32.store offset=$R.src (global.get $leafRec) (global.get $fns))
+         (global.set $tableHead (global.get $leafRec))
+         ;; Alignment bytes sit between the header and line array.
+         (local.set $tableExtra
+diff --git a/packages/words/src/html.wat b/packages/words/src/html.wat
+index 73776b4..56663b4 100644
+--- a/packages/words/src/html.wat
++++ b/packages/words/src/html.wat
+@@ -74,6 +74,11 @@
+             (call $cr)
+             (call $outSmall (i64.extend_i32_u
+               (i32.or (i32.const "<h0>") (i32.shl (local.get $n) (i32.const 16)))) (i32.const 4))
++            (if (global.get $srcOn)
++              (then
++                (global.set $out (i32.sub (global.get $out) (i32.const 1)))
++                (call $srcAttrs)
++                (call $outByte (i32.const ">"))))
+             (if (global.get $fmt) (then (call $mark (i32.const 2) (i32.const 0))))
+             (call $renderInline (local.get $r))
+             (call $outSmall (i64.or (i64.const "</h0>\n")
+@@ -152,6 +157,7 @@
+     (local $word i32)
+     (call $cr)
+     (out.str "<pre")
++    (call $srcAttrs)
+     ;; Only sessions mark an open fence.
+     (if (i32.and (i32.ne (i32.and (i32.load8_u (i32.const 1)) (i32.const 8)) (i32.const 0))
+           (i32.eq (local.get $r) (global.get $incompleteCodeRec)))
+@@ -177,6 +183,8 @@
+     (local $n i32)
+     (local $i i32)
+     (local $line i32)
++    (if (global.get $srcOn)
++      (then (call $htmlRawSource (local.get $r)) (return)))
+     ;; skipped raw HTML leaves no line breaks behind
+     (if (i32.and (i32.load8_u (i32.const 1)) (i32.const 2)) (then (return)))
+     (call $cr)
+@@ -192,6 +200,27 @@
+         (local.set $i (i32.add (local.get $i) (i32.const 1)))
+         (br $l))))
+ 
++  ;; With the source option, an HTML block is its escaped text in a template,
++  ;; for the host to read; the browser renders none of it.
++  (func $htmlRawSource (param $r i32)
++    (local $n i32)
++    (local $i i32)
++    (local $line i32)
++    (call $cr)
++    (out.str "<template data-html")
++    (call $srcAttrs)
++    (call $outByte (i32.const ">"))
++    (local.set $n (i32.load offset=$R.nLines (local.get $r)))
++    (block $done
++      (loop $l
++        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
++        (if (local.get $i) (then (call $outByte (i32.const 10))))
++        (local.set $line (call $lineAt (local.get $r) (local.get $i)))
++        (call $outText (call $lineBeg (local.get $line)) (call $lineEndOf (local.get $line)))
++        (local.set $i (i32.add (local.get $i) (i32.const 1)))
++        (br $l)))
++    (out.str "</template>\n"))
++
+   ;; raw HTML passes through, except that GFM escapes a handful of tag names
+   (func $htmlFiltered2 (param $p i32) (param $e i32) (param $eol i32)
+     (local $q i32)
+@@ -253,7 +282,10 @@
+     (local.set $rows (i32.load offset=$R.nLines (local.get $r)))
+     (if (global.get $fmt)
+       (then (out.str "<table data-markdown=\22table\22>\n<thead data-markdown=\22thead\22>\n"))
+-      (else (out.str "<table>\n<thead>\n")))
++      (else
++        (out.str "<table")
++        (call $srcAttrs)
++        (out.str ">\n<thead>\n")))
+     (call $htmlTableRow (local.get $r) (i32.const 0) (local.get $cols) (i32.const 1))
+     (out.str "</thead>\n")
+     (if (i32.gt_u (local.get $rows) (i32.const 1))
+diff --git a/packages/words/src/inline.wat b/packages/words/src/inline.wat
+index 5e358ea..e7bfc8a 100644
+--- a/packages/words/src/inline.wat
++++ b/packages/words/src/inline.wat
+@@ -476,6 +476,10 @@
+     (local.set $n (i32.sub (local.get $q) (local.get $p)))
+     (if (i32.or (i32.gt_u (local.get $n) (i32.const 2)) (i32.ge_u (local.get $q) (local.get $end)))
+       (then (return (local.get $q))))
++    ;; extension bit 8: only `$$` starts math, so $HOME and $3 stay text
++    (if (i32.and (i32.eq (local.get $n) (i32.const 1))
++          (i32.ne (i32.and (global.get $ext) (i32.const 8)) (i32.const 0)))
++      (then (return (local.get $q))))
+     (if (i32.and (i32.eq (local.get $n) (i32.const 1))
+           (call $isWhiteCp (call $utf8At (i32.add (local.get $base) (local.get $q))
+             (i32.add (local.get $base) (local.get $end)))))
+diff --git a/packages/words/src/math.wat b/packages/words/src/math.wat
+index 025734f..8965573 100644
+--- a/packages/words/src/math.wat
++++ b/packages/words/src/math.wat
+@@ -3231,6 +3231,14 @@
+     (local $len i32)
+     (local.set $len (i32.sub (local.get $e) (local.get $b)))
+     (if (i32.ge_u (local.get $len) (i32.const 16000)) (then (return (i32.const 0))))
++    ;; extension bit 16: the host typesets math from its TeX source, in the
++    ;; markup that remark-math writes and rehype-katex reads
++    (if (i32.and (global.get $ext) (i32.const 16))
++      (then
++        (out.str "<code class=\22language-math math-inline\22>")
++        (call $outText (call $contentAt (local.get $b)) (call $contentAt (local.get $e)))
++        (out.str "</code>")
++        (return (i32.const 1))))
+     (memory.copy (i32.const $mem.mathSrc) (call $contentAt (local.get $b)) (local.get $len))
+     (global.set $mOpen (i32.const 0))
+     (call $mathSvg (local.get $len) (local.get $display)))
+@@ -3273,6 +3281,16 @@
+         (local.set $i (i32.add (local.get $i) (i32.const 1)))
+         (br $l)))
+     (call $cr)
++    (if (i32.and (global.get $ext) (i32.const 16))
++      (then
++        (out.str "<pre")
++        (call $srcAttrs)
++        (out.str "><code class=\22language-math math-display\22>")
++        ;; without the last line's LF
++        (call $outText (i32.const $mem.mathSrc)
++          (i32.sub (local.get $dst) (i32.ne (local.get $dst) (i32.const $mem.mathSrc))))
++        (out.str "</code></pre>\n")
++        (return (i32.const 1))))
+     (global.set $mOpen (i32.eq (local.get $r) (global.get $incompleteCodeRec)))
+     (if (i32.eqz (call $mathSvg (i32.sub (local.get $dst) (i32.const $mem.mathSrc)) (i32.const 1)))
+       (then (return (i32.const 0))))
+diff --git a/packages/words/src/render.wat b/packages/words/src/render.wat
+index 9ec5ee5..03981fe 100644
+--- a/packages/words/src/render.wat
++++ b/packages/words/src/render.wat
+@@ -19,6 +19,121 @@
+   (global $fnSkip (mut i32) (i32.const 0))
+   (global $singleLineContent (mut i32) (i32.const 0))
+ 
++  ;; The source option (extension bit 4): each top-level block ends with a
++  ;; NUL, its first and last source lines as "first,last", and a NUL. Headings,
++  ;; code blocks, and tables name their lines in `data-source-line` and
++  ;; `data-source-end`, and an HTML block is escaped text in a `<template>`
++  ;; for the host. Lines count from 1, at each LF of the input.
++  (global $srcOn (mut i32) (i32.const 0))
++  (global $srcDepth (mut i32) (i32.const 0))
++  (global $srcFirst (mut i32) (i32.const 0))
++  (global $srcLast (mut i32) (i32.const 0))
++  ;; the lines of the record being rendered; 0 when it has none
++  (global $spanFirst (mut i32) (i32.const 0))
++  (global $spanLast (mut i32) (i32.const 0))
++  ;; the line count at $lcPos, which moves forward as blocks render in order
++  (global $lcPos (mut i32) (i32.const 0))
++  (global $lcLine (mut i32) (i32.const 0))
++
++  ;; the line of input position $p
++  (func $lineOf (param $p i32) (result i32)
++    (local $q i32)
++    (if (i32.lt_u (local.get $p) (global.get $lcPos))
++      (then
++        (global.set $lcPos (i32.const $mem.input))
++        (global.set $lcLine (i32.const 1))))
++    (block $done
++      (loop $l
++        (local.set $q (call $findByte (global.get $lcPos) (local.get $p) (i32.const 10)))
++        (br_if $done (i32.ge_u (local.get $q) (local.get $p)))
++        (global.set $lcLine (i32.add (global.get $lcLine) (i32.const 1)))
++        (global.set $lcPos (i32.add (local.get $q) (i32.const 1)))
++        (br $l)))
++    (global.set $lcPos (local.get $p))
++    (global.get $lcLine))
++
++  ;; Set $spanFirst and $spanLast to the lines of record $r: its line ranges,
++  ;; a fence's opening line, and the position at $R.src.
++  (func $recSpan (param $r i32)
++    (local $t i32)
++    (local $n i32)
++    (local $lo i32)
++    (local $hi i32)
++    (local $p i32)
++    (local.set $t (i32.load8_u (local.get $r)))
++    (local.set $lo (i32.const -1))
++    (local.set $n (i32.load offset=$R.nLines (local.get $r)))
++    ;; containers have no lines
++    (if (i32.and (i32.ne (local.get $n) (i32.const 0))
++          (i32.eqz (i32.and (i32.load8_u offset=1 (local.get $r)) (i32.const $F.opener))))
++      (then
++        (local.set $lo (call $lineBeg (call $lineAt (local.get $r) (i32.const 0))))
++        (local.set $hi (call $lineEndOf
++          (call $lineAt (local.get $r) (i32.sub (local.get $n) (i32.const 1)))))))
++    (if (i32.and (i32.eq (local.get $t) (enum.get $Blk.code))
++          (i32.ne (i32.and (i32.load8_u offset=1 (local.get $r)) (i32.const $F.fenced)) (i32.const 0)))
++      (then
++        (local.set $p (i32.load offset=8 (local.get $r)))
++        (if (i32.lt_u (local.get $p) (local.get $lo)) (then (local.set $lo (local.get $p))))
++        (if (i32.gt_u (local.get $p) (local.get $hi)) (then (local.set $hi (local.get $p))))))
++    (local.set $p (i32.load offset=$R.src (local.get $r)))
++    (if (local.get $p)
++      (then
++        (if (i32.lt_u (local.get $p) (local.get $lo)) (then (local.set $lo (local.get $p))))
++        (if (i32.gt_u (local.get $p) (local.get $hi)) (then (local.set $hi (local.get $p))))))
++    (if (i32.eqz (local.get $hi))
++      (then
++        (global.set $spanFirst (i32.const 0))
++        (global.set $spanLast (i32.const 0))
++        (return)))
++    (global.set $spanFirst (call $lineOf (local.get $lo)))
++    (global.set $spanLast (call $lineOf (local.get $hi))))
++
++  ;; Track the top-level block of record $r before it renders. Returns whether
++  ;; the record is part of the document flow.
++  (func $srcBefore (param $r i32) (result i32)
++    (local $t i32)
++    (local $flags i32)
++    (local.set $t (i32.load8_u (local.get $r)))
++    (local.set $flags (i32.load8_u offset=1 (local.get $r)))
++    (if (i32.or (i32.or (i32.eq (local.get $t) (enum.get $Blk.none))
++            (i32.eq (local.get $t) (enum.get $Blk.linkdef)))
++          (i32.or (i32.eq (local.get $t) (enum.get $Blk.footnote))
++            (i32.ne (global.get $fnSkip) (i32.const 0))))
++      (then (return (i32.const 0))))
++    (if (i32.and (local.get $flags) (i32.const $F.closer))
++      (then
++        (global.set $srcDepth (i32.sub (global.get $srcDepth) (i32.const 1)))
++        (return (i32.const 1))))
++    (call $recSpan (local.get $r))
++    (if (i32.eqz (global.get $srcDepth))
++      (then
++        (global.set $srcFirst (global.get $spanFirst))
++        (global.set $srcLast (global.get $spanLast))))
++    (if (i32.gt_u (global.get $spanLast) (global.get $srcLast))
++      (then (global.set $srcLast (global.get $spanLast))))
++    (if (i32.and (local.get $flags) (i32.const $F.opener))
++      (then (global.set $srcDepth (i32.add (global.get $srcDepth) (i32.const 1)))))
++    (i32.const 1))
++
++  ;; end a top-level block with its lines
++  (func $srcMark
++    (call $outByte (i32.const 0))
++    (call $outNum (global.get $srcFirst))
++    (call $outByte (i32.const ","))
++    (call $outNum (global.get $srcLast))
++    (call $outByte (i32.const 0)))
++
++  ;; ` data-source-line="first" data-source-end="last"` for the record being rendered
++  (func $srcAttrs
++    (if (i32.eqz (i32.and (global.get $srcOn) (i32.ne (global.get $spanFirst) (i32.const 0))))
++      (then (return)))
++    (out.str " data-source-line=\22")
++    (call $outNum (global.get $spanFirst))
++    (out.str "\22 data-source-end=\22")
++    (call $outNum (global.get $spanLast))
++    (call $outByte (i32.const 34)))
++
+   ;; the render-time container stack reuses the block analysis stack, which is
+   ;; finished by now: one byte of type and one of list tightness per level
+   (func $rsAt (param $i i32) (result i32)
+@@ -34,6 +149,14 @@
+ 
+   (func $renderBlocks
+     (local $r i32)
++    (local $flow i32)
++    ;; plain HTML only: formatted tags carry their names instead
++    (global.set $srcOn (i32.and (i32.eqz (i32.or (global.get $mode) (global.get $fmt)))
++      (i32.ne (i32.and (global.get $ext) (i32.const 4)) (i32.const 0))))
++    (global.set $srcDepth (i32.const 0))
++    (global.set $spanFirst (i32.const 0))
++    (global.set $lcPos (i32.const $mem.input))
++    (global.set $lcLine (i32.const 1))
+     (global.set $rsp (i32.const 0))
+     (global.set $plain (i32.const 0))
+     (global.set $pendingTask (i32.const 0))
+@@ -63,9 +186,15 @@
+         (if (i32.eq (local.get $r) (global.get $boundaryRec))
+           (then (global.set $boundaryOut (global.get $out))))
+         (br_if $done (i32.ge_u (local.get $r) (global.get $recEnd)))
++        (if (global.get $srcOn)
++          (then (local.set $flow (call $srcBefore (local.get $r)))))
+         (call $renderBlock (local.get $r))
++        (if (i32.and (global.get $srcOn) (local.get $flow))
++          (then (if (i32.eqz (global.get $srcDepth)) (then (call $srcMark)))))
+         (local.set $r (i32.add (local.get $r) (i32.load offset=4 (local.get $r))))
+         (br $l)))
++    ;; footnote blocks name no lines
++    (global.set $spanFirst (i32.const 0))
+     (call $renderFootnotes)
+     (if (global.get $mode)
+       (then
+diff --git a/packages/words/src/types.wat b/packages/words/src/types.wat
+index 32b9b3d..ad74ad5 100644
+--- a/packages/words/src/types.wat
++++ b/packages/words/src/types.wat
+@@ -18,6 +18,11 @@
+   (const $R.line 8)
+   (const $R.nLines 16)     ;; u32 line/range count, not limited to 65535
+   (const $R.defNext 20)    ;; link/footnote definition chain, in source order
++  ;; Other records keep a source position at [20] when their lines do not
++  ;; place them: a container's first line, a thematic break, an empty ATX
++  ;; heading, a setext underline, a table's delimiter row, or a closing fence.
++  ;; Zero means none. Only the source option reads it.
++  (const $R.src 20)
+   (const $R.labelLen 24)   ;; link and footnote definitions only
+   (const $R.hash 28)
+   (const $R.labelBytes 32)
+diff --git a/packages/words/test/source_test.ts b/packages/words/test/source_test.ts
+new file mode 100644
+index 0000000..9655a3c
+--- /dev/null
++++ b/packages/words/test/source_test.ts
+@@ -0,0 +1,96 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++
++import { renderToHtml } from '../dist/index.js';
++
++const dec = new TextDecoder();
++const html = (input: string, options = {}) =>
++  dec.decode(renderToHtml(input, { sourceLines: true, ...options }));
++
++/** The lines of each top-level block, and the HTML before each mark. */
++function blocks(input: string, options = {}) {
++  const parts = html(input, options).split('\0');
++  const found: { lines: string; html: string }[] = [];
++  for (let at = 1; at < parts.length; at += 2)
++    found.push({ lines: parts[at], html: parts[at - 1].trim() });
++  return { found, rest: parts.at(-1)!.trim() };
++}
++
++test('each top-level block ends with its source lines', () => {
++  const { found } = blocks(
++    '# Title\n\nOne\ntwo\n\n- a\n- b\n\n  c\n\n> q\n> r\n\n```ts\nx\n```\n\n---\n\n| a |\n|---|\n| 1 |\n\nSetext\n===\n\n    code\n'
++  );
++  assert.deepEqual(
++    found.map((block) => block.lines),
++    ['1,1', '3,4', '6,9', '11,12', '14,16', '18,18', '20,22', '24,25', '27,27']
++  );
++});
++
++test('headings, code blocks, and tables name their lines', () => {
++  const { found } = blocks('Setext\n===\n\n```\nx\n```\n\n| a |\n|---|\n');
++  assert.equal(
++    found[0].html,
++    '<h1 data-source-line="1" data-source-end="2">Setext</h1>'
++  );
++  assert.match(found[1].html, /^<pre data-source-line="4" data-source-end="6">/);
++  assert.match(found[2].html, /^<table data-source-line="8" data-source-end="9">/);
++});
++
++test('nested blocks and lazy lines widen the block that holds them', () => {
++  const { found } = blocks(
++    '> - a\n>\n>   ```\n>   x\n>   ```\n> - b\nlazy\n\nafter\n'
++  );
++  assert.deepEqual(
++    found.map((block) => block.lines),
++    ['1,7', '9,9']
++  );
++  assert.match(found[0].html, /<pre data-source-line="3" data-source-end="5">/);
++});
++
++test('definitions and footnotes are not blocks; footnotes follow the last mark', () => {
++  const { found, rest } = blocks('[a]: /x\n\nNote[^1] [a].\n\n[^1]: Text.\n\nEnd\n');
++  assert.deepEqual(
++    found.map((block) => block.lines),
++    ['3,3', '7,7']
++  );
++  assert.match(rest, /^<section class="footnotes" data-footnotes>/);
++  assert.doesNotMatch(rest, /data-source-line/);
++});
++
++test('an HTML block is escaped text in a template', () => {
++  const { found } = blocks('<details>\n<summary>S</summary>\n\nBody\n\n</details>\n', {
++    skipHtml: true,
++  });
++  assert.equal(
++    found[0].html,
++    '<template data-html data-source-line="1" data-source-end="2">&lt;details&gt;\n&lt;summary&gt;S&lt;/summary&gt;</template>'
++  );
++  assert.equal(found[2].html, '<template data-html data-source-line="6" data-source-end="6">&lt;/details&gt;</template>');
++});
++
++test('line ends count at each LF, with CRLF input', () => {
++  const { found } = blocks('a\r\n\r\n# b\r\n');
++  assert.deepEqual(
++    found.map((block) => block.lines),
++    ['1,1', '3,3']
++  );
++});
++
++test('only $$ starts math with doubleDollarMath, and mathSource writes TeX', () => {
++  const options = { math: true, doubleDollarMath: true, mathSource: true };
++  const { found } = blocks('$HOME and $3, $$x<1$$.\n\n$$\na\n$$\n', options);
++  assert.equal(
++    found[0].html,
++    '<p>$HOME and $3, <code class="language-math math-inline">x&lt;1</code>.</p>'
++  );
++  assert.equal(
++    found[1].html,
++    '<pre data-source-line="3" data-source-end="5"><code class="language-math math-display">a</code></pre>'
++  );
++  assert.match(html('$x$', { math: true }), /<svg/);
++});
++
++test('without the option, output is unchanged', () => {
++  const input = '# a\n\n- b\n\n```\nc\n```\n\n<div>d</div>\n';
++  assert.doesNotMatch(dec.decode(renderToHtml(input)), /\0|data-source/);
++});
