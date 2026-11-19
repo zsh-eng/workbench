@@ -2222,9 +2222,11 @@ export function App({
   }, [inView, workspaceId]);
   useEffect(() => {
     if (!inView || !workspaceId) return;
+    // A page that the review shows while it is hidden is not on screen: a
+    // reload or Back to this entry leaves the review hidden.
     const screen: Screen = {
       workspace: workspaceId,
-      ...(shownTab ? { tab: shownTab } : {}),
+      ...(shownTab && reviewVisible ? { tab: shownTab } : {}),
       ...(entryReview ? { review: entryReview } : {}),
       ...(dashboardShown ? { dashboard: dashboardShown } : {}),
     };
@@ -2233,7 +2235,7 @@ export function App({
     if (target && !sameScreen(target.screen, screen) && Date.now() < target.until) return;
     restoring.current = null;
     record(screen);
-  }, [inView, workspaceId, shownTab, entryReview, dashboardShown]);
+  }, [inView, workspaceId, shownTab, reviewVisible, entryReview, dashboardShown]);
   /** The reader shows a tab: a step that Back goes back from. */
   const selectTab = useCallback(
     (id: string) => {

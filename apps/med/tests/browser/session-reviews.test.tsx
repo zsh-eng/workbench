@@ -5,8 +5,10 @@ import {
   createHost,
   pages,
   prepareWindow,
+  mount,
   readVersions,
   render,
+  root,
   sessionShown,
   sessionThread,
   shown,
@@ -116,4 +118,46 @@ test("a thread with one review has no list at the review's name", async () => {
     .poll(() => document.querySelector('header[aria-label="Review header"]')?.checkVisibility())
     .toBe(true);
   expect(document.querySelector('[aria-label="Reviews of this thread"]')).toBeNull();
+});
+
+test("a review that the reader hid beside a thread stays hidden after a reload", async () => {
+  const host = createHost([sessionThread(Date.now())]);
+  render(host);
+  await page.viewport(2400, 900);
+  await userEvent.click(
+    page.getByRole("navigation", { name: "Sessions" }).getByRole("button", { name: /^Tide times/ }),
+  );
+  await expect.poll(shown).toBe("rev-a-target");
+  const changes = () => pages().getByRole("radio", { name: "Changes" });
+  const checked = () =>
+    pages()
+      .getByRole("radio")
+      .elements()
+      .filter((radio) => radio.getAttribute("aria-checked") === "true").length;
+  const reload = async () => {
+    // The layout and the screen are saved as they change.
+    await new Promise((done) => setTimeout(done, 300));
+    root!.unmount();
+    mount!.remove();
+    render(host);
+    await expect.poll(shown).toBe("rev-a-target");
+    // A reload shows the screen again once the review has loaded.
+    await new Promise((done) => setTimeout(done, 1000));
+  };
+  await expect.element(pages().getByRole("radio", { name: "Review" })).toBeVisible();
+  await changes().click();
+  await expect.element(changes()).toBeChecked();
+  await reload();
+  // The review is beside the thread again.
+  await expect.poll(checked).toBe(1);
+
+  // Changes, clicked again, hides the review: the thread fills the room,
+  // also after a reload.
+  await changes().click();
+  await expect.element(changes()).toBeChecked();
+  await changes().click();
+  await expect.poll(checked).toBe(0);
+  await reload();
+  expect(checked()).toBe(0);
+  expect(sessionShown()).toBe(true);
 });
