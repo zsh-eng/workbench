@@ -29,6 +29,8 @@ export interface Stat {
   change: number | null;
   /** The line it comes from, for a sparkline. */
   points: readonly (number | null)[];
+  /** Each point's time, for a dashboard's shared cursor. */
+  times?: readonly number[];
 }
 
 /** A stat panel's number: the first line's last value (or its sum, mean…),
@@ -60,6 +62,7 @@ export function statOf(data: ChartData, how: Reduce = "last"): Stat {
         ? (last - first) / Math.abs(first)
         : null,
     points: series.points.map(([, value]) => value),
+    times: series.points.map(([time]) => time),
   };
 }
 

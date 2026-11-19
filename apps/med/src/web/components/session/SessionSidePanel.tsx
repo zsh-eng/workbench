@@ -254,6 +254,7 @@ export function SessionSidePanel({
   breakdown,
   working = false,
   reviews,
+  dashboards,
   pulls,
   place,
   backgroundRef,
@@ -267,6 +268,8 @@ export function SessionSidePanel({
   working?: boolean;
   /** What the agent handed off to read, newest first. */
   reviews?: ThreadLink[];
+  /** The dashboards that the thread's replies link to: each opens beside it. */
+  dashboards?: ThreadLink[];
   /** The thread's pull requests: each opens its own page. */
   pulls?: ThreadLink[];
   place: SessionEnvironment;
@@ -326,6 +329,15 @@ export function SessionSidePanel({
         <SidePanelCard label="Reviews">
           <div {...stylex.props(styles.rows)}>
             {reviews.map(({ id, ...link }) => (
+              <Row key={id} {...link} />
+            ))}
+          </div>
+        </SidePanelCard>
+      )}
+      {dashboards && dashboards.length > 0 && (
+        <SidePanelCard label="Dashboards">
+          <div {...stylex.props(styles.rows)}>
+            {dashboards.map(({ id, ...link }) => (
               <Row key={id} {...link} />
             ))}
           </div>

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { runDashboardCommand } from "../../src/cli/dashboard";
+import { runReviewCommand } from "../../src/cli/review";
 import { startHost, type RunningHost } from "../../src/host/server";
 
 let folder: string;
@@ -11,6 +12,7 @@ let host: RunningHost | undefined;
 beforeEach(async () => {
   vi.stubEnv("MED_PORT", "");
   vi.stubEnv("MED_STATE_DIR", "");
+  vi.stubEnv("MED_THREAD_KEY", "");
   folder = await realpath(await mkdtemp(join(tmpdir(), "med-dashboard-cli-")));
 });
 afterEach(async () => {
@@ -45,7 +47,7 @@ async function start() {
     JSON.stringify({ "charts.sources": { "https://status.acme.build": source } }),
   );
   host = await startHost({ repo, stateDir, port: 0 });
-  return { stateDir };
+  return { stateDir, repo };
 }
 
 test("a page of many charts reads them all: chart reads wait their turn, and none is turned away", async () => {
@@ -198,6 +200,124 @@ panels:
   await expect(run("open", "--range", "whenever")).rejects.toThrow(
     'Med does not read "whenever" as a range.',
   );
+  abort.abort();
+  await reading;
+});
+
+test("med dashboard history lists the values every window kept, newest first, across a restart; an agent in a thread names its thread when it shows one", async () => {
+  const { stateDir, repo } = await start();
+  await writeFile(
+    join(stateDir, "dashboards", "checkout.dashboard.yaml"),
+    `title: Checkout
+range: now-6h
+inputs:
+  env: [prod, staging]
+views:
+  - name: Overview
+    panels: [{ text: "\${env}" }]
+  - name: Errors
+    panels: [{ text: "errors in \${env}" }]
+`,
+  );
+  const output: string[] = [];
+  const run = async (...args: string[]) => {
+    output.length = 0;
+    await runDashboardCommand(
+      [...args, "--state-dir", stateDir, "--port", String(host!.port)],
+      (text) => output.push(text),
+      () => {},
+    );
+    return output.join("\n");
+  };
+  const auth = { authorization: `Bearer ${host!.token}`, "content-type": "application/json" };
+  const keep = async (values: Record<string, string>, by?: "agent") => {
+    const response = await fetch(new URL("/api/dashboards/history/keep", host!.url), {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({ id: "personal/checkout", values, ...(by ? { by } : {}) }),
+    });
+    return (
+      (await response.json()) as { entries: { values: Record<string, string>; by?: string }[] }
+    ).entries;
+  };
+  const prod = { env: "prod", from: "now-6h", to: "now" };
+  const staging = { env: "staging", from: "now-24h", to: "now" };
+
+  expect(await run("history", "personal/checkout")).toBe("Checkout has not shown in Med yet.");
+  await keep(prod);
+  await keep(staging, "agent");
+  // The same values again, in another view, change nothing; values seen
+  // before move to the top.
+  expect((await keep({ ...staging, view: "Errors" })).map((entry) => entry.values.env)).toEqual([
+    "staging",
+    "prod",
+  ]);
+  expect((await keep(prod)).map((entry) => entry.values)).toEqual([prod, staging]);
+  // Values that an agent chose stay its choice when the reader shows them again.
+  expect((await keep(staging)).map((entry) => entry.by)).toEqual(["agent", undefined]);
+  await keep(prod);
+
+  // Med keeps them across a restart.
+  await host!.close();
+  host = await startHost({ repo, stateDir, port: 0 });
+  const listed = (await run("history", "personal/checkout")).split("\n");
+  expect(listed[0]).toBe("Checkout  personal/checkout");
+  expect(listed[1]).toMatch(/^ {2}now {9}env=prod {2}Last 6 hours$/);
+  expect(listed[2]).toMatch(/^ {2}now {9}env=staging {2}Last 24 hours {2}\(an agent's\)$/);
+  expect(JSON.parse(await run("history", "personal/checkout", "--json")).entries).toHaveLength(2);
+
+  // An agent in a Med thread (MED_THREAD_KEY) shows the dashboard with its
+  // thread, so a window that shows that thread shows it beside the thread.
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-c", "user.name=T", "-c", "user.email=t@example.invalid", ...args], {
+      cwd: repo,
+    });
+  await writeFile(join(repo, "notes.md"), "before\n");
+  git("add", ".");
+  git("commit", "-q", "-m", "before");
+  await writeFile(join(repo, "notes.md"), "after\n");
+  await runReviewCommand(
+    [
+      ...["create", "--title", "Checkout notes", "--key", "ops", "--repo", repo, "--working"],
+      ...["--no-pr", "--state-dir", stateDir, "--port", String(host!.port)],
+    ],
+    { print: () => {}, openUrl: () => {}, environment: {}, home: folder },
+  );
+  const thread = (
+    (await (
+      await fetch(new URL("/api/threads/by-key", host!.url), {
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify({ key: "ops" }),
+      })
+    ).json()) as { thread: string }
+  ).thread;
+  const abort = new AbortController();
+  const stream = await fetch(new URL("/api/windows", host!.url), {
+    headers: auth,
+    signal: abort.signal,
+  });
+  const reader = stream.body!.getReader();
+  let heard = "";
+  const reading = (async () => {
+    for (;;) {
+      const { value, done } = await reader.read().catch(() => ({ value: undefined, done: true }));
+      if (done) return;
+      heard += new TextDecoder().decode(value);
+    }
+  })();
+  vi.stubEnv("MED_THREAD_KEY", "ops");
+  await run("open", "personal/checkout", "--set", "env=staging");
+  vi.stubEnv("MED_THREAD_KEY", "");
+  await run("open", "personal/checkout", "--set", "env=prod");
+  await expect.poll(() => [...heard.matchAll(/event: show\ndata: (.+)\n/g)].length).toBe(2);
+  const shows = [...heard.matchAll(/event: show\ndata: (.+)\n/g)].map((match) =>
+    JSON.parse(match[1]!),
+  );
+  expect(shows).toEqual([
+    { type: "show", path: "/dashboards/personal/checkout?var-env=staging", thread },
+    { type: "show", path: "/dashboards/personal/checkout?var-env=prod" },
+  ]);
   abort.abort();
   await reading;
 });

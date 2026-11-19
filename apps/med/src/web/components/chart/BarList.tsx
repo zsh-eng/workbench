@@ -2,11 +2,12 @@
 // them: the row the chart is about takes the accent. The bars grow in once
 // they come into view, by transform.
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { tokens, ui } from "../../theme.stylex";
 import { CopyNoteText, copyFailure, useCopyNote } from "../DiagramCopy";
 import { Icon } from "../Icon";
 import { ActionMenu } from "../Controls";
+import { OnBoard } from "./chart-board";
 import { formatValue, type Bar } from "./chart-model";
 
 export function BarList({
@@ -40,9 +41,10 @@ export function BarList({
     observer.observe(list.current!);
     return () => observer.disconnect();
   }, []);
+  const board = useContext(OnBoard);
   const csv = ["label,value", ...bars.map(({ label, value }) => `${label},${value}`)].join("\n");
   return (
-    <div {...stylex.props(styles.frame, stylex.defaultMarker())}>
+    <div {...stylex.props(styles.frame, board && styles.frameBoard, stylex.defaultMarker())}>
       <h3 {...stylex.props(styles.title)}>{title}</h3>
       {subtitle && <p {...stylex.props(styles.subtitle)}>{subtitle}</p>}
       <ol ref={list} {...stylex.props(styles.list)} onPointerLeave={() => setHover(null)}>
@@ -140,6 +142,19 @@ const styles = stylex.create({
     fontSize: 13,
     lineHeight: "normal",
     overflowWrap: "normal",
+  },
+  // On a dashboard: a hairline on the page, as tall as its row, no fill.
+  frameBoard: {
+    height: "100%",
+    boxSizing: "border-box",
+    paddingTop: 14,
+    paddingInline: 16,
+    paddingBottom: 10,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: tokens.line,
+    borderRadius: `calc(8px * ${tokens.round})`,
+    backgroundColor: "transparent",
   },
   title: {
     margin: 0,

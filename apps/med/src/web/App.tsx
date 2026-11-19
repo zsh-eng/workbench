@@ -96,6 +96,8 @@ import {
   useWorkspaceEntry,
   useWorkspaceInView,
   useWorkspaceShown,
+  DASHBOARD_SHOW,
+  type DashboardShow,
 } from "./components/Workspaces";
 import { whenFree, whenIdle } from "./data/idle";
 import type { BranchEntry } from "./components/BranchPicker";
@@ -158,6 +160,7 @@ import { placeThreads } from "./data/pull-request";
 import type { CodexFinding, CodexReviewRun } from "../shared/codex-review";
 import { listComments, type ListedComment } from "./data/listed-comments";
 import { record, sameScreen, screenOf, settle, step, type Screen } from "./data/navigation";
+import { overlayAddress } from "./data/workspaces";
 import { markCommentsRead, useCommentReads } from "./data/comment-reads";
 import {
   PullRequestTitle,
@@ -208,6 +211,7 @@ import { matchReviewFile, parseBriefHref } from "./data/file-links";
 import { GuideRail } from "./components/guide/GuideRail";
 import { GuideStepper } from "./components/guide/GuideStepper";
 import { HandoffContext } from "./components/session/HandoffCard";
+import { DashboardBeside } from "./components/session/DashboardLinkCard";
 import { ChangesRail } from "./components/ChangesRail";
 import { GuideOverview } from "./components/guide/GuideOverview";
 import type { Offer, OverviewProof } from "./components/guide/OverviewParts";
@@ -251,6 +255,11 @@ import { CommentRefsContext, type FileRefs } from "./components/FileRefs";
 import { HIGHLIGHTER } from "./pierre-theme";
 
 const PullRequestView = lazy(() => import("./components/PullRequestView"));
+const DashboardPane = lazy(() =>
+  import("./components/dashboards/DashboardsPage").then((module) => ({
+    default: module.DashboardPane,
+  })),
+);
 // Memoized: the tab stays mounted once shown, and the review around it
 // renders again for unrelated state, such as an open palette.
 const CommitView = preloadable<ComponentProps<typeof import("./components/CommitView").default>>(
@@ -419,6 +428,7 @@ const PANE_PLACES: Record<string, { near?: string; side: Side; share: number }> 
   session: { near: "review", side: "left", share: 0.5 },
   review: { near: "session", side: "right", share: 0.5 },
   files: { near: "review", side: "right", share: 0.26 },
+  dashboard: { near: "session", side: "right", share: 0.58 },
   // At the right of the row, with room from the thread and the review alike,
   // so that an answer has room to read.
 };
@@ -555,6 +565,16 @@ export function App({
     if (retiredChanged) closeRetired("changed");
     if (retiredFiles) closeRetired("files");
   }, [retiredPreview, retiredChanged, retiredFiles, closeRetired]);
+  // A dashboard beside the thread, at the address that a reply linked to
+  // (DashboardLinkCard) or that its agent showed; the reader's changes move
+  // it. The thread's workspace keeps it, so it stays across a reload and
+  // each thread has its own. A layout that kept the pane without one closes it.
+  const besideDashboard = entry?.kind === "thread" ? entry.dashboard : undefined;
+  const dashboardPaneOpen = panes.isOpen("dashboard");
+  useEffect(() => {
+    if (dashboardPaneOpen && !besideDashboard) closeRetired("dashboard");
+  }, [dashboardPaneOpen, besideDashboard, closeRetired]);
+  const dashboardShown = dashboardPaneOpen ? besideDashboard : undefined;
   const comparisonActions = useRef<ComparisonActionsHandle>(null);
   const comparisonTrigger = useRef<HTMLButtonElement>(null);
   // The comparison's place in the review's row; empty while it is in ⋯.
@@ -2171,6 +2191,13 @@ export function App({
     showScreen.current = (screen) => {
       if (workspace && entry?.kind === "thread" && screen.review && screen.review !== entryReview)
         workspace.update(workspace.id, { reviewId: screen.review });
+      // The dashboard beside the thread, with the values it showed then.
+      if (workspace && entry?.kind === "thread" && screen.dashboard !== dashboardShown) {
+        if (screen.dashboard) {
+          workspace.update(workspace.id, { dashboard: screen.dashboard });
+          showPane("dashboard");
+        } else closePane("dashboard");
+      }
       const tab = screen.tab;
       const known =
         tab && (PAGES.has(tab) || fileWorkspace.getSnapshot().tabs.some((each) => each.id === tab));
@@ -2199,13 +2226,14 @@ export function App({
       workspace: workspaceId,
       ...(shownTab ? { tab: shownTab } : {}),
       ...(entryReview ? { review: entryReview } : {}),
+      ...(dashboardShown ? { dashboard: dashboardShown } : {}),
     };
     // While an entry's screen shows again, the entry keeps it.
     const target = restoring.current;
     if (target && !sameScreen(target.screen, screen) && Date.now() < target.until) return;
     restoring.current = null;
     record(screen);
-  }, [inView, workspaceId, shownTab, entryReview]);
+  }, [inView, workspaceId, shownTab, entryReview, dashboardShown]);
   /** The reader shows a tab: a step that Back goes back from. */
   const selectTab = useCallback(
     (id: string) => {
@@ -6351,6 +6379,47 @@ export function App({
   // The session's controls are at the title band's end while it shows and
   // the review does not fill the workspace.
   const sessionBandTools = sessionVisible && panes.zoom !== "review";
+  // Opening a dashboard beside the thread, or new values in it, is a step
+  // that Back undoes (the screen keeps it). The address goes first, so the
+  // pane never shows without one.
+  const showDashboardBeside = useCallback(
+    (path: string) => {
+      if (!workspace || !threadId) return;
+      step();
+      workspace.update(workspace.id, { dashboard: path });
+      showPane("dashboard");
+    },
+    [workspace, threadId, showPane],
+  );
+  const dashboardBeside = useMemo(
+    () =>
+      threadId
+        ? {
+            thread: threadId,
+            open: showDashboardBeside,
+            ...(dashboardShown ? { shown: dashboardShown } : {}),
+          }
+        : null,
+    [threadId, showDashboardBeside, dashboardShown],
+  );
+  // An agent's `med dashboard open` shows the dashboard beside its own
+  // thread while this window shows that thread; an agent with no thread
+  // changes the dashboard beside the thread on screen. Otherwise the window
+  // shows it as its page (Workspaces.tsx).
+  useEffect(() => {
+    if (!threadId) return;
+    const offer = (event: Event) => {
+      const { path, thread } = (event as CustomEvent<DashboardShow>).detail;
+      // On screen, and not under a page such as the dashboard's own, which
+      // the Superagent changes in place.
+      if (event.defaultPrevented || !shown() || overlayAddress(location.pathname)) return;
+      if (thread ? thread !== threadId : !dashboardShown) return;
+      event.preventDefault();
+      showDashboardBeside(path);
+    };
+    window.addEventListener(DASHBOARD_SHOW, offer);
+    return () => window.removeEventListener(DASHBOARD_SHOW, offer);
+  }, [threadId, shown, dashboardShown, showDashboardBeside]);
   const sidePanes: PaneSpec[] = [
     // A thread's session, or the session of a review that opens on its own.
     ...(entry?.kind === "thread" || state.savedReview
@@ -6450,6 +6519,30 @@ export function App({
                     }
                   />
                 )}
+              </Suspense>
+            ),
+          },
+        ]
+      : []),
+    ...(besideDashboard && threadId
+      ? [
+          {
+            id: "dashboard",
+            label: "Dashboard",
+            ariaLabel: "Dashboard",
+            icon: "display" as const,
+            render: (controls: ReactNode) => (
+              <Suspense fallback={null}>
+                <DashboardPane
+                  path={besideDashboard}
+                  thread={threadId}
+                  controls={controls}
+                  onPath={(path, isStep) => {
+                    if (!workspace) return;
+                    if (isStep) step();
+                    workspace.update(workspace.id, { dashboard: path });
+                  }}
+                />
               </Suspense>
             ),
           },
@@ -7233,7 +7326,9 @@ export function App({
     <PendingReviewContext.Provider value={pendingReview}>
       <CommentAgentContext.Provider value={commentAgent}>
         <HandoffContext.Provider value={handoff}>
-          <CommentRefsContext.Provider value={commentFileRefs}>{app}</CommentRefsContext.Provider>
+          <DashboardBeside value={dashboardBeside}>
+            <CommentRefsContext.Provider value={commentFileRefs}>{app}</CommentRefsContext.Provider>
+          </DashboardBeside>
         </HandoffContext.Provider>
       </CommentAgentContext.Provider>
     </PendingReviewContext.Provider>

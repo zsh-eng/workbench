@@ -189,7 +189,14 @@ test("a stat is the first line's last value and its change; a table keeps the ro
       },
     ],
   });
-  expect(stat).toEqual({ value: 500, label: "req/s", change: 0.25, points: [400, null, 500] });
+  // Each point's time too, for the page's shared cursor.
+  expect(stat).toEqual({
+    value: 500,
+    label: "req/s",
+    change: 0.25,
+    points: [400, null, 500],
+    times: [1, 2, 3],
+  });
   expect(
     statOf(
       {

@@ -741,6 +741,14 @@ takes the dashboard their window shows, or showed last, and keeps its other
 values; Back in Med undoes it. To answer what a dashboard shows, run
 `med dashboard check` with the same flags, and say it in words.
 
+To hand over what you read, put the link that `med dashboard link` prints
+(with the same flags) on a line of its own in your reply: Med shows it as a
+card that opens the dashboard beside the thread with your values, and the
+thread's rail lists it. In a Med thread, `med dashboard open` shows it beside
+your thread while the user's window shows that thread.
+`med dashboard history` lists the values the user looked at lately, newest
+first, so you can start from what they saw.
+
 ## Checks
 
 `med review create` and `update` check the hand-off and print the next step.

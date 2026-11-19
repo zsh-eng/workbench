@@ -19,6 +19,7 @@ export const dashboardHelp = `Usage: med dashboard                      List the
        med dashboard check [<file|id>] [values] [--json]
                                           Read every panel, and say what each drew
        med dashboard link [<id>] [values]    Print the link that opens it so
+       med dashboard history [<id>] [--json] The values it showed, newest first
 Values: --set name=value (each input), --range <words> (6h, yesterday,
         "yesterday 14:00 to 16:30", "since 9:00", now-7d), --from and --to
         (now-6h, now, an ISO time), --view <name>
@@ -33,7 +34,13 @@ Without a dashboard, open, check, and link take the one that the reader's
 Med window shows, or showed last, with the values it shows: so when the
 reader asks for staging, or for yesterday afternoon, open --set env=staging
 or open --range "yesterday 12:00 to 18:00" changes only that, on their
-screen. Back in Med undoes it.
+screen. Back in Med undoes it. In a thread (MED_THREAD_KEY), open shows it
+beside the thread while the reader's window shows that thread. A reply
+whose line is only the link that link prints shows as a card that opens it
+there.
+
+history lists the values the dashboard showed in any window, newest first,
+with the ones an agent chose marked: what the reader looked at, and when.
 
 check reads each panel through the same chart sources the page uses, running
 each again, and prints a line on what it drew: its lines or bars, their span,
@@ -94,6 +101,18 @@ export function describeCheck(check: DashboardCheck, link?: string) {
   return lines.join("\n");
 }
 
+/** How long ago, as the history lists it: "now", "4 min ago", "3 h ago",
+ * "2 days ago". */
+function ago(at: number, now: number) {
+  const minutes = Math.round((now - at) / 60_000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
 /** The values in words: "service=checkout  env=staging  Yesterday". */
 function valuesLine(values: Record<string, string>, now = Date.now()) {
   const { from, to, view, ...inputs } = values;
@@ -132,7 +151,8 @@ export async function runDashboardCommand(
   const [action = "list", target] = positionals;
   const valid =
     (action === "list" && positionals.length <= 1) ||
-    ((action === "check" || action === "link" || action === "open") && positionals.length <= 2);
+    ((action === "check" || action === "link" || action === "open" || action === "history") &&
+      positionals.length <= 2);
   if (!valid) throw new UsageError(dashboardHelp);
   const stateDir = getStateDirectory(flags["state-dir"]);
   const connection = await readConnection(stateDir, await clientPort(stateDir, flags.port));
@@ -173,6 +193,24 @@ export async function runDashboardCommand(
     throw new UsageError(
       `Med has no dashboard ${named}. Name its file (…${DASHBOARD_SUFFIX}), or an id from med dashboard.`,
     );
+  if (action === "history") {
+    if (!entry)
+      throw new UsageError(
+        `Med does not find ${file} yet: keep dashboards in a repository Med knows, or in ${list.folder}.`,
+      );
+    const { entries } = dashboardRoutes.history.output.parse(
+      await call(dashboardRoutes.history, { id: entry.id }),
+    );
+    if (flags.json) return print(JSON.stringify({ id: entry.id, entries }, null, 2));
+    if (!entries.length) return print(`${entry.title} has not shown in Med yet.`);
+    print(`${entry.title}  ${entry.id}`);
+    const now = Date.now();
+    for (const item of entries)
+      print(
+        `  ${ago(item.at, now).padEnd(10)}  ${valuesLine(item.values, now)}${item.by === "agent" ? "  (an agent's)" : ""}`,
+      );
+    return;
+  }
   // The values on screen stay unless the command changes them.
   const given: Record<string, string> = entry && shown?.id === entry.id ? { ...shown.values } : {};
   for (const pair of flags.set ?? []) {
@@ -245,8 +283,19 @@ export async function runDashboardCommand(
   }
   const title = dashboard?.title ?? entry.title;
   if (action === "link") return print(`[${title}](${linkOf(entry.id, given)})`);
+  // An agent in a thread shows the dashboard beside its thread.
+  const key = process.env.MED_THREAD_KEY;
+  const thread = key
+    ? await request(connection, "/api/threads/by-key", fetch, { key })
+        .then((found) => (found as { thread?: unknown }).thread)
+        .catch(() => undefined)
+    : undefined;
   const shownNow = dashboardRoutes.show.output.parse(
-    await call(dashboardRoutes.show, { id: entry.id, values: given }),
+    await call(dashboardRoutes.show, {
+      id: entry.id,
+      values: given,
+      ...(typeof thread === "string" ? { thread } : {}),
+    }),
   );
   const line = valuesLine(given);
   if (!shownNow.windows) {

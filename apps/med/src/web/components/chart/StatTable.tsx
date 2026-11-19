@@ -1,10 +1,12 @@
 import { Dialog } from "@base-ui/react/dialog";
 import * as stylex from "@stylexjs/stylex";
-import { useId, useMemo, useState } from "react";
+import { useContext, useId, useMemo, useState, type PointerEvent } from "react";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon } from "../Icon";
 import { tooltip } from "../ToolButton";
-import { formatValue } from "./chart-model";
+import { formatMoment, formatValue } from "./chart-model";
+import { OnBoard } from "./chart-board";
+import { ChartCursor } from "./chart-cursor";
 import { cellTime } from "./chart-block";
 import { timeCell, type Stat, type Table } from "./chart-summary";
 
@@ -75,6 +77,16 @@ function Footer({
         ))}
       </span>
       <span {...stylex.props(styles.grow)} />
+      <Tools {...(onRefresh ? { onRefresh } : {})} {...(onInspect ? { onInspect } : {})} />
+    </footer>
+  );
+}
+
+/** Refresh and Inspect: below the panel in a reply, beside its title on a
+ * dashboard; either way they show while the pointer is on the panel. */
+function Tools({ onRefresh, onInspect }: { onRefresh?(): void; onInspect?(): void }) {
+  return (
+    <>
       {onRefresh && (
         <button
           type="button"
@@ -97,12 +109,61 @@ function Footer({
           <Icon name="search" size={13} />
         </button>
       )}
-    </footer>
+    </>
+  );
+}
+
+/** A dashboard panel's title row: its title, a fainter word of context (a
+ * table's rows, a stat's series), what its read does now, and its tools. */
+function BoardHead({
+  title,
+  extra,
+  status,
+  onRefresh,
+  onInspect,
+  quiet,
+}: {
+  title: string;
+  extra?: string;
+  status?: string;
+  onRefresh?(): void;
+  onInspect?(): void;
+  /** A stat's title, quieter than its number. */
+  quiet?: boolean;
+}) {
+  return (
+    <div {...stylex.props(styles.boardHead)}>
+      <figcaption {...stylex.props(styles.title, quiet && styles.titleQuiet, styles.boardTitle)}>
+        {title}
+        {extra && <span {...stylex.props(styles.extra)}>{extra}</span>}
+      </figcaption>
+      {status && (
+        <span data-panel-status="" {...stylex.props(styles.headStatus)}>
+          {status}
+        </span>
+      )}
+      <span {...stylex.props(styles.headTools)}>
+        <Tools {...(onRefresh ? { onRefresh } : {})} {...(onInspect ? { onInspect } : {})} />
+      </span>
+    </div>
   );
 }
 
 /** A small line under the number: its shape over the range, no axes. */
-function Sparkline({ points }: { points: readonly (number | null)[] }) {
+function Sparkline({
+  points,
+  mark,
+  onPoint,
+  bleed,
+}: {
+  points: readonly (number | null)[];
+  /** The point of the page's shared cursor, by its index. */
+  mark?: number;
+  /** The point under the pointer, by its index; null as it leaves. */
+  onPoint?(index: number | null): void;
+  /** On a dashboard: along the panel's foot, edge to edge. */
+  bleed?: boolean;
+}) {
   const values = points.filter((value): value is number => value !== null);
   if (values.length < 2) return null;
   const min = Math.min(...values);
@@ -110,6 +171,8 @@ function Sparkline({ points }: { points: readonly (number | null)[] }) {
   const span = max - min || 1;
   const width = 200;
   const height = 40;
+  // Along a panel's foot, the lowest point keeps clear of its edge.
+  const floor = bleed ? 9 : 2;
   let path = "";
   let pen = false;
   points.forEach((value, index) => {
@@ -118,18 +181,30 @@ function Sparkline({ points }: { points: readonly (number | null)[] }) {
       return;
     }
     const x = (index / (points.length - 1)) * width;
-    const y = height - 2 - ((value - min) / span) * (height - 4);
+    const y = height - floor - ((value - min) / span) * (height - floor - 2);
     path += `${pen ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
     pen = true;
   });
   const area = `${path}L${width},${height}L0,${height}Z`;
   const id = `spark-${useId().replace(/[^\w-]/g, "")}`;
+  const pointAt = (event: PointerEvent<SVGSVGElement>) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    const fraction = Math.min(1, Math.max(0, (event.clientX - box.left) / (box.width || 1)));
+    return Math.round(fraction * (points.length - 1));
+  };
+  const markX = mark !== undefined ? (mark / (points.length - 1)) * width : null;
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
       preserveAspectRatio="none"
       aria-hidden="true"
-      {...stylex.props(styles.spark)}
+      {...(onPoint
+        ? {
+            onPointerMove: (event: PointerEvent<SVGSVGElement>) => onPoint(pointAt(event)),
+            onPointerLeave: () => onPoint(null),
+          }
+        : {})}
+      {...stylex.props(styles.spark, bleed && styles.sparkBleed, onPoint && styles.sparkPointer)}
     >
       <defs>
         <linearGradient id={id} x1="0" x2="0" y1="0" y2="1">
@@ -145,8 +220,30 @@ function Sparkline({ points }: { points: readonly (number | null)[] }) {
         strokeWidth="1.5"
         vectorEffect="non-scaling-stroke"
       />
+      {markX !== null && (
+        <line
+          x1={markX}
+          x2={markX}
+          y1={0}
+          y2={height}
+          stroke="currentColor"
+          strokeWidth="1"
+          strokeDasharray="3 3"
+          vectorEffect="non-scaling-stroke"
+          opacity={0.8}
+        />
+      )}
     </svg>
   );
+}
+
+/** The point of `times` at the page's shared cursor, or -1 off its span. */
+function cursorIndex(times: readonly number[] | undefined, time: number | null) {
+  if (time === null || !times?.length || time < times[0]! || time > times.at(-1)!) return -1;
+  let best = 0;
+  for (let index = 1; index < times.length; index++)
+    if (Math.abs(times[index]! - time) < Math.abs(times[best]! - time)) best = index;
+  return best;
 }
 
 export function StatPanel({
@@ -170,9 +267,41 @@ export function StatPanel({
   onInspect?(): void;
   status?: string;
 }) {
+  // On a dashboard, the number reads the moment that the pointer is at on
+  // any chart, and the pointer on its line moves that moment.
+  const cursor = useContext(ChartCursor);
+  const owner = useId();
+  const times = stat?.times;
+  const index = cursorIndex(times, cursor?.time ?? null);
+  let atCursor: number | null = null;
+  for (let at = index; at >= 0; at--)
+    if (stat!.points[at] !== null && stat!.points[at] !== undefined) {
+      atCursor = stat!.points[at]!;
+      break;
+    }
+  const spacing = times && times.length > 1 ? times[1]! - times[0]! : 60_000;
+  const value = index >= 0 ? atCursor : (stat?.value ?? null);
+  const board = useContext(OnBoard);
+  // The series, when the title does not name it already: "mean of nodes".
+  const extra =
+    stat?.label && stat.label !== unit && !title.toLowerCase().includes(stat.label.toLowerCase())
+      ? stat.label
+      : undefined;
+  const shownStatus = status || state === "loading" ? (status ?? "Fetching…") : undefined;
   return (
-    <figure data-stat-panel="" {...stylex.props(styles.frame)}>
-      <figcaption {...stylex.props(styles.title)}>{title}</figcaption>
+    <figure data-stat-panel="" {...stylex.props(styles.frame, board && styles.frameBoard)}>
+      {board ? (
+        <BoardHead
+          title={title}
+          quiet
+          {...(extra ? { extra } : {})}
+          {...(shownStatus ? { status: shownStatus } : {})}
+          {...(onRefresh ? { onRefresh } : {})}
+          {...(onInspect ? { onInspect } : {})}
+        />
+      ) : (
+        <figcaption {...stylex.props(styles.title)}>{title}</figcaption>
+      )}
       {state === "error" ? (
         <p role="alert" {...stylex.props(styles.error)}>
           {error}
@@ -183,35 +312,62 @@ export function StatPanel({
             data-stat-value=""
             {...stylex.props(styles.statValue, state === "loading" && styles.waiting)}
           >
-            {stat && stat.value !== null ? formatValue(stat.value, unit) : "–"}
+            {stat && value !== null ? formatValue(value, unit) : "–"}
           </span>
-          {stat?.change !== null && stat?.change !== undefined && (
-            <span {...stylex.props(styles.change)}>
-              {stat.change >= 0 ? "↗" : "↘"}{" "}
-              {Math.abs(stat.change * 100).toFixed(Math.abs(stat.change) < 0.1 ? 1 : 0)}%
+          {index >= 0 && times ? (
+            <span data-stat-moment="" {...stylex.props(styles.change)}>
+              at {formatMoment(times[index]!, spacing)}
             </span>
+          ) : (
+            stat?.change !== null &&
+            stat?.change !== undefined && (
+              // Neutral: whether up is good depends on what is measured. Its
+              // start says what it changed from.
+              <span data-stat-change="" {...stylex.props(styles.change)}>
+                <span {...stylex.props(styles.changeAmount)}>
+                  {stat.change >= 0 ? "↗" : "↘"}{" "}
+                  {Math.abs(stat.change * 100).toFixed(Math.abs(stat.change) < 0.1 ? 1 : 0)}%
+                </span>
+                {times?.[0] !== undefined && (
+                  <span {...stylex.props(styles.since)}>
+                    since {formatMoment(times[0], spacing)}
+                  </span>
+                )}
+              </span>
+            )
           )}
         </div>
       )}
       {stat && state === "ready" ? (
-        <Sparkline points={stat.points} />
+        <Sparkline
+          points={stat.points}
+          bleed={board}
+          {...(index >= 0 ? { mark: index } : {})}
+          {...(cursor && times?.length
+            ? {
+                onPoint: (point: number | null) =>
+                  cursor.set(point === null ? null : times[point]!, owner),
+              }
+            : {})}
+        />
       ) : (
         // Its line's room, so the panel keeps its height when the data comes.
         state === "loading" && (
-          <span aria-hidden="true" {...stylex.props(styles.spark, styles.sparkWaiting)} />
+          <span
+            aria-hidden="true"
+            {...stylex.props(styles.spark, styles.sparkWaiting, board && styles.sparkLater)}
+          />
         )
       )}
-      <Footer
-        footer={footer}
-        {...(status || state === "loading" ? { status: status ?? "Fetching…" } : {})}
-        {...(stat?.label &&
-        stat.label !== unit &&
-        !title.toLowerCase().includes(stat.label.toLowerCase())
-          ? { extra: stat.label }
-          : {})}
-        {...(onRefresh ? { onRefresh } : {})}
-        {...(onInspect ? { onInspect } : {})}
-      />
+      {!board && (
+        <Footer
+          footer={footer}
+          {...(shownStatus ? { status: shownStatus } : {})}
+          {...(extra ? { extra } : {})}
+          {...(onRefresh ? { onRefresh } : {})}
+          {...(onInspect ? { onInspect } : {})}
+        />
+      )}
     </figure>
   );
 }
@@ -253,9 +409,30 @@ export function TablePanel({
       return sort.down ? -order : order;
     });
   }, [table, sort]);
+  const board = useContext(OnBoard);
+  const count = table ? `${table.rows.length} row${table.rows.length === 1 ? "" : "s"}` : undefined;
+  const shownStatus = status || state === "loading" ? (status ?? "Fetching…") : undefined;
+  // The last column of words takes the room the others leave, and cuts its
+  // text short with an ellipsis; the full text shows on hover.
+  const wide = table
+    ? table.columns.findLastIndex((_, index) => !table.numeric[index] && !table.times?.[index])
+    : -1;
   return (
-    <figure data-table-panel="" {...stylex.props(styles.frame)}>
-      <figcaption {...stylex.props(styles.title)}>{title}</figcaption>
+    <figure
+      data-table-panel=""
+      {...stylex.props(styles.frame, board && styles.frameBoard, board && styles.tableBoard)}
+    >
+      {board ? (
+        <BoardHead
+          title={title}
+          {...(count ? { extra: count } : {})}
+          {...(shownStatus ? { status: shownStatus } : {})}
+          {...(onRefresh ? { onRefresh } : {})}
+          {...(onInspect ? { onInspect } : {})}
+        />
+      ) : (
+        <figcaption {...stylex.props(styles.title)}>{title}</figcaption>
+      )}
       {state === "error" ? (
         <p role="alert" {...stylex.props(styles.error)}>
           {error}
@@ -289,7 +466,11 @@ export function TablePanel({
                     aria-sort={
                       sort?.column === index ? (sort.down ? "descending" : "ascending") : undefined
                     }
-                    {...stylex.props(styles.th, table.numeric[index] && styles.numeric)}
+                    {...stylex.props(
+                      styles.th,
+                      table.numeric[index] && styles.numeric,
+                      index === wide && styles.wide,
+                    )}
                   >
                     <button
                       type="button"
@@ -321,7 +502,12 @@ export function TablePanel({
                     return (
                       <td
                         key={index}
-                        {...stylex.props(styles.td, table.numeric[index] && styles.numeric)}
+                        {...(cell.length > 24 ? { title: cell } : {})}
+                        {...stylex.props(
+                          styles.td,
+                          table.numeric[index] && styles.numeric,
+                          index === wide && styles.wide,
+                        )}
                       >
                         {table.times?.[index] && cell ? timeCell(cell) : cell}
                       </td>
@@ -333,15 +519,15 @@ export function TablePanel({
           </table>
         </div>
       )}
-      <Footer
-        footer={footer}
-        {...(status || state === "loading" ? { status: status ?? "Fetching…" } : {})}
-        {...(table
-          ? { extra: `${table.rows.length} row${table.rows.length === 1 ? "" : "s"}` }
-          : {})}
-        {...(onRefresh ? { onRefresh } : {})}
-        {...(onInspect ? { onInspect } : {})}
-      />
+      {!board && (
+        <Footer
+          footer={footer}
+          {...(shownStatus ? { status: shownStatus } : {})}
+          {...(count ? { extra: count } : {})}
+          {...(onRefresh ? { onRefresh } : {})}
+          {...(onInspect ? { onInspect } : {})}
+        />
+      )}
     </figure>
   );
 }
@@ -454,25 +640,73 @@ const styles = stylex.create({
     fontFamily: tokens.ui,
     fontSize: 13,
     lineHeight: "normal",
+    // What a table's sticky head covers the rows with: the frame's own fill.
+    "--chart-surface": surface,
   },
+  // On a dashboard: a hairline on the page, as tall as its row, no fill.
+  frameBoard: {
+    height: "100%",
+    boxSizing: "border-box",
+    overflow: "hidden",
+    paddingTop: 14,
+    paddingInline: 16,
+    paddingBottom: 12,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: tokens.line,
+    borderRadius: `calc(8px * ${tokens.round})`,
+    backgroundColor: "transparent",
+    "--chart-surface": tokens.canvas,
+  },
+  tableBoard: { paddingBottom: 6 },
   title: {
     margin: 0,
-    fontSize: 13.5,
+    fontSize: 13,
     fontWeight: 600,
     lineHeight: 1.35,
     letterSpacing: "-0.005em",
     color: tokens.text,
   },
-  statRow: { display: "flex", alignItems: "baseline", gap: 10, marginTop: 10 },
+  titleQuiet: { color: tokens.muted, fontWeight: 500 },
+  boardHead: { display: "flex", alignItems: "center", gap: 8, minHeight: 18 },
+  boardTitle: {
+    flex: "1",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  extra: { marginInlineStart: 8, color: tokens.faint, fontWeight: 400, fontSize: 12 },
+  headStatus: {
+    flexShrink: 0,
+    color: tokens.faint,
+    fontSize: 11.5,
+    fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap",
+  },
+  // They take no height of their own, so the title row stays as tall as its text.
+  headTools: { display: "inline-flex", gap: 2, marginBlock: -5, marginInlineEnd: -6 },
+  statRow: { display: "flex", alignItems: "baseline", gap: 10, marginTop: 8 },
   statValue: {
-    fontSize: 30,
+    fontSize: 26,
     fontWeight: 600,
     letterSpacing: "-0.02em",
     fontVariantNumeric: "tabular-nums",
     lineHeight: 1.1,
   },
   waiting: { color: tokens.faint },
-  change: { color: tokens.muted, fontSize: 12.5, fontVariantNumeric: "tabular-nums" },
+  change: {
+    display: "inline-flex",
+    alignItems: "baseline",
+    gap: 6,
+    minWidth: 0,
+    color: tokens.muted,
+    fontSize: 12,
+    fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap",
+  },
+  changeAmount: { color: tokens.muted, fontWeight: 500 },
+  since: { color: tokens.faint },
   spark: {
     display: "block",
     width: "100%",
@@ -481,7 +715,20 @@ const styles = stylex.create({
     color: tokens.accent,
     overflow: "visible",
   },
+  // Along the panel's foot, edge to edge; a taller row leaves its room above.
+  sparkBleed: {
+    flexShrink: 0,
+    width: "calc(100% + 32px)",
+    height: 36,
+    marginTop: "auto",
+    marginInline: -16,
+    marginBottom: -12,
+    paddingTop: 12,
+    boxSizing: "content-box",
+  },
   error: { margin: 0, marginTop: 10, color: tokens.muted, lineHeight: 1.45 },
+  sparkPointer: { cursor: "crosshair" },
+  sparkLater: { height: 36, marginTop: "auto", paddingTop: 12, boxSizing: "content-box" },
   sparkWaiting: {
     borderBottomWidth: 1,
     borderBottomStyle: "dashed",
@@ -557,8 +804,9 @@ const styles = stylex.create({
     zIndex: 1,
     paddingBlock: 0,
     paddingInline: 0,
-    backgroundColor: surface,
+    backgroundColor: "var(--chart-surface)",
     color: tokens.muted,
+    fontSize: 12,
     fontWeight: 500,
     textAlign: "start",
     whiteSpace: "nowrap",
@@ -590,8 +838,12 @@ const styles = stylex.create({
     borderBottomStyle: "solid",
     borderBottomColor: `color-mix(in srgb, ${tokens.text} 6%, transparent)`,
     whiteSpace: "nowrap",
+    maxWidth: 240,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
   numeric: { textAlign: "end" },
+  wide: { width: "100%", maxWidth: 0 },
   backdrop: { zIndex: 110 },
   popup: {
     position: "fixed",

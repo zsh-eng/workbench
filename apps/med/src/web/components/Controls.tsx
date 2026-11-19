@@ -942,12 +942,15 @@ export function SearchSelect({
   choices,
   onChange,
   label,
+  icon,
   trigger,
 }: {
   value: string;
   choices: Choice[];
   onChange(value: string): void;
   label: string;
+  /** Before the value in the trigger, such as the choice's name. */
+  icon?: ReactNode;
   /** The trigger's look, in place of a toolbar button. */
   trigger?: stylex.StyleXStyles;
 }) {
@@ -972,6 +975,7 @@ export function SearchSelect({
         aria-label={label}
         {...stylex.props(ui.button, ui.strong, styles.trigger, trigger)}
       >
+        {icon}
         <span data-choice-value="" {...stylex.props(styles.value)}>
           {labels.get(value) ?? value}
         </span>

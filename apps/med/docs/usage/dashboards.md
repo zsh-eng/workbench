@@ -133,7 +133,16 @@ An input named as a key Med draws (`title`, `unit`, `type`, …) reaches a panel
 only as `${name}`.
 
 Every panel reads as of the same minute, so the panels agree; **Read every
-panel again** reads them all now. The page reads four panels at a time: a
+panel again** reads them all now. The top of the page names where the panels
+read from (a link's host, a file) beside that minute, once, so the panels
+carry no footer: each is outlined on the page, as tall as the row it shares,
+and its tools (Full screen and the menu, or a stat's and a table's Refresh
+and Inspect) show beside its title while the pointer is on it. The pointer on a chart's time marks that
+moment on every chart of the page, as Grafana's shared crosshair does: the
+other charts draw a dashed line there, their legends read their values then,
+and each stat shows its value at that moment (`1.37 s at 22:46`). Moving
+along a stat's small line moves the moment too. A chart whose time does not
+reach that moment, as a panel with its own range, shows nothing. The page reads four panels at a time: a
 panel says **Waiting** until its turn, then **Fetching** and, after a few
 seconds, for how long. When an input or the range changes, each panel keeps
 what it drew, dimmed under a thin bar, until its new data comes. **Inspect
@@ -155,6 +164,14 @@ doubles it. Its panel has:
 - A month to pick a day or a span of days on, with **From** and **To** to set
   the times.
 
+**History**, the clock beside **Read every panel again**, lists the values the dashboard
+showed, newest first: each set of inputs and range that a page settled on
+for a second, in any Med window. What changed from the set before it is in
+bold, and a set that an agent chose (`med dashboard open`, or a link in its
+reply) says **Agent**. A row shows those values again, and Back undoes it.
+Med keeps the last 30 sets of each dashboard, beside its settings, and
+`med dashboard history` prints them.
+
 Times are your computer's; the panel's foot names the zone. Words stay
 relative: a link to "Yesterday" opens the day before whenever it opens.
 **Drag across a chart's time** to zoom the whole dashboard to it; Back zooms
@@ -172,6 +189,26 @@ it with `med dashboard check` and answers in words; its answer shows above the
 bar, and **Open thread** shows the whole of it. You stay on the page, and Back
 undoes what it changed. You can also ask in the Superagent's thread: it knows
 the dashboard your window shows, or showed last.
+
+### A dashboard beside a thread
+
+An agent hands over a dashboard with the values it chose: `med dashboard
+link` prints a Markdown link, and a reply whose line is only that link shows
+it as a card, with the values in words (`prod-sg · Yesterday, 22:00 – 23:30`).
+**Open beside** opens the dashboard in a pane beside the conversation, as a
+review opens; a link inside a sentence opens there too. The session rail's
+**Dashboards** lists each dashboard the thread's replies linked to, newest
+first, and while the pane leaves no room for the rail, the pane's header
+lists them (**2 in this thread**). **Open as a page** shows it as its own
+page.
+
+The pane works as the page does: its inputs, its range, its History, and
+the shared cursor. Each change is a step that Back undoes, and Back past the
+first closes the pane. The thread keeps the dashboard and its values, so it
+is beside the thread again when you come back or reload, and each thread has
+its own. While the window shows the thread, its agent's
+`med dashboard open` changes the dashboard in the pane in place, and
+`med dashboard check` without a dashboard reads what the pane shows.
 
 ### Checking a dashboard
 
@@ -203,6 +240,9 @@ would with those values; `--json` prints the same as JSON.
 `med dashboard` lists the dashboards Med finds, and the one your window shows.
 `med dashboard open [<id>]` shows a dashboard in the Med window you used
 last, with the values given; without an id it changes the one on screen, and
-keeps the values it does not name. `med dashboard link` prints the link
+keeps the values it does not name. An agent in a Med thread shows it beside
+its thread while that window shows the thread, and as the page otherwise.
+`med dashboard history [<id>]` prints the values that History lists, with
+how long ago each showed and which an agent chose. `med dashboard link` prints the link
 that opens a dashboard with those values. Without a dashboard named, `check`
 reads the one on screen, as you see it.

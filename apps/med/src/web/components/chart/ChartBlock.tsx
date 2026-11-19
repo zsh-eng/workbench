@@ -15,6 +15,7 @@ import { openSettings } from "../settings/settings-commands";
 import { useFileRefs } from "../FileRefs";
 import { tokens } from "../../theme.stylex";
 import { BarList } from "./BarList";
+import { OnBoard } from "./chart-board";
 import {
   isRamp,
   markTimes,
@@ -105,6 +106,16 @@ function useShown(element: React.RefObject<HTMLElement | null>) {
     return () => observer.disconnect();
   }, [element]);
   return shown;
+}
+
+/** Where a chart's data comes from, in a word: a link's host, a file's
+ * path. A dashboard names its panels' sources once, at its top. */
+export function chartSourceName(text: string): string | undefined {
+  const block = parseChartBlock(text);
+  if ("error" in block) return undefined;
+  if (block.source.kind === "grafana" || block.source.kind === "link")
+    return hostOf(block.source.link);
+  return block.source.kind === "file" ? block.source.path : undefined;
 }
 
 /** A link's host, for the chart to name where its data came from. */
@@ -387,6 +398,7 @@ export function ChartBlock({
    * data waits for the chart to come into view. */
   const refreshing = (!!busy || (!current && !!previous)) && loaded.state === "ready";
   const zoom = useContext(ChartZoom);
+  const board = useContext(OnBoard);
 
   const live = loaded.state === "ready" && loaded.panel?.live;
   useEffect(() => {
@@ -568,9 +580,14 @@ export function ChartBlock({
           .join(" "),
       });
     const title = block.title ?? (panel?.title || (grafana ? "Grafana panel" : "Chart"));
+    // The source's own title under the block's, unless it says the same: the
+    // axis and the key already give the unit.
+    const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
     const subtitle =
       block.subtitle ??
-      (block.title && panel?.title ? [panel.title, unit].filter(Boolean).join(", ") : undefined);
+      (block.title && panel?.title && !same(block.title, panel.title)
+        ? [panel.title, unit].filter(Boolean).join(", ")
+        : undefined);
     // A source added to Settings reads the chart again by itself, so a
     // missing one offers no Try again.
     const refreshes =
@@ -606,9 +623,18 @@ export function ChartBlock({
     );
   };
   return (
-    <div ref={frame} className="med-md-block" data-chart-block="" aria-busy={!!busy || undefined}>
-      <div {...stylex.props(styles.block)}>
-        <div {...stylex.props(styles.content, refreshing && styles.stale)}>{content()}</div>
+    <div
+      ref={frame}
+      className={["med-md-block", stylex.props(board && styles.fill).className]
+        .filter(Boolean)
+        .join(" ")}
+      data-chart-block=""
+      aria-busy={!!busy || undefined}
+    >
+      <div {...stylex.props(styles.block, board && styles.fill)}>
+        <div {...stylex.props(styles.content, board && styles.fill, refreshing && styles.stale)}>
+          {content()}
+        </div>
         {refreshing && <span aria-hidden="true" data-chart-busy="" {...stylex.props(styles.bar)} />}
       </div>
       {inspecting && inspection() && (
@@ -628,6 +654,8 @@ const appear = stylex.keyframes({ from: { opacity: 0 }, to: { opacity: 1 } });
 
 const styles = stylex.create({
   block: { position: "relative" },
+  // On a dashboard, each wrapper is as tall as the panel's row.
+  fill: { height: "100%" },
   content: { transitionProperty: "opacity", transitionDuration: "200ms" },
   stale: { opacity: 0.55, transitionDelay: "250ms" },
   bar: {

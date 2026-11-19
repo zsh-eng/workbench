@@ -2,7 +2,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { DashboardsPage } from "../../src/web/components/dashboards/DashboardsPage";
-import type { Dashboard, DashboardFile } from "../../src/shared/dashboards";
+import type { Dashboard, DashboardFile, DashboardPanel } from "../../src/shared/dashboards";
 import type { Thread } from "../../src/shared/threads";
 import type { SuperagentLink } from "../../src/web/data/superagent";
 import "../../src/web/pierre-theme";
@@ -99,6 +99,10 @@ async function show(address: string) {
   root = createRoot(frame);
   root.render(<DashboardsPage />);
 }
+
+/** The value a choice's control shows, after the input's name. */
+const shownValue = (name: string) => () =>
+  page.getByRole("combobox", { name }).element().querySelector("[data-choice-value]")?.textContent;
 
 test("a dashboard draws its inputs, its panels from their sources, and its problems; an input's value reaches the source and the address", async () => {
   const asked: { link: string; meta?: Record<string, string>; at?: number }[] = [];
@@ -362,6 +366,8 @@ test("a dashboard keeps what it drew while it reads again, picks a range from wo
   let release!: () => void;
   hold = new Promise((go) => (release = go));
   await page.getByRole("combobox", { name: "Service" }).click();
+  // The search field takes focus as the menu opens.
+  await expect.element(page.getByPlaceholder("Search…")).toHaveFocus();
   await userEvent.keyboard("pay");
   await expect.element(page.getByRole("option", { name: "payments" })).toBeVisible();
   expect(page.getByRole("option", { name: "search" }).query()).toBeNull();
@@ -439,9 +445,7 @@ test("a dashboard keeps what it drew while it reads again, picks a range from wo
     .element(page.getByRole("button", { name: "Time range: Last 6 hours" }))
     .toBeVisible();
   history.back();
-  await expect
-    .element(page.getByRole("combobox", { name: "Service" }))
-    .toHaveTextContent("checkout");
+  await expect.poll(shownValue("Service")).toBe("checkout");
 
   // Asking the Superagent sends the words with what the page shows, and its
   // answer shows on the page.
@@ -516,7 +520,8 @@ test("an input whose options come from a file shows them by their labels, and th
   });
   await show("/dashboards/personal/checkout?var-region=eu");
   const env = page.getByRole("combobox", { name: "env" });
-  await expect.element(env).toHaveTextContent("Production");
+  // The control holds the input's name, then its value's label.
+  await expect.element(env).toHaveTextContent("envProduction");
   await expect
     .poll(() => document.querySelector("[data-dashboard-panel] p")?.textContent)
     .toBe("prod in eu");
@@ -539,3 +544,126 @@ test("an input whose options come from a file shows them by their labels, and th
   await page.getByRole("option", { name: "staging" }).click();
   expect(new URLSearchParams(location.search).get("var-env")).toBe("staging");
 }, 15_000);
+
+test("a dashboard's charts share a cursor, and History lists the values Med kept, shows one again, and Back undoes it", async () => {
+  // Two lines and a stat over the same hour, a point a minute.
+  // A source of its own, so no other test's reads are kept for it.
+  const panel = (metric: string, title: string, type = "line"): DashboardPanel => ({
+    kind: "chart",
+    width: type === "stat" ? 12 : 6,
+    keys: [
+      ["link", "https://cursor.acme.build/${service}"],
+      ["metric", metric],
+      ["type", type],
+      ["title", title],
+    ],
+  });
+  const board: DashboardFile = {
+    ...timed,
+    dashboard: {
+      ...timed.dashboard!,
+      views: [
+        {
+          name: "Overview",
+          panels: [
+            panel("requests", "Requests", "stat"),
+            panel("latency", "Latency"),
+            panel("errors", "Errors"),
+          ],
+        },
+      ],
+    },
+  };
+  // The host's list: an agent showed payments an hour ago.
+  const kept: { values: Record<string, string>; by?: string }[] = [];
+  let entries: { values: Record<string, string>; at: number; by?: string }[] = [
+    {
+      values: { service: "payments", from: "now-24h", to: "now" },
+      at: Date.now() - 3_600_000,
+      by: "agent",
+    },
+  ];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = new URL(String(input instanceof Request ? input.url : input), location.href);
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) : {};
+    if (url.pathname === "/api/dashboards/read") return Response.json(board);
+    if (url.pathname === "/api/dashboards/history") return Response.json({ entries });
+    if (url.pathname === "/api/dashboards/history/keep") {
+      kept.push(body);
+      const same = (entry: (typeof entries)[number]) =>
+        JSON.stringify(entry.values) === JSON.stringify(body.values);
+      if (!entries[0] || !same(entries[0]))
+        entries = [{ values: body.values, at: Date.now() }, ...entries.filter((e) => !same(e))];
+      return Response.json({ entries });
+    }
+    if (url.pathname !== "/api/charts/link") return Response.json({});
+    const points = Array.from(
+      { length: 60 },
+      (_, minute) => `2026-11-16T09:${String(minute).padStart(2, "0")}:00,${100 + minute}`,
+    );
+    return Response.json({
+      source: "https://cursor.acme.build",
+      rows: `time,${body.meta?.metric}\n${points.join("\n")}`,
+      live: false,
+      fetched: Date.parse("2026-11-16T10:05:00"),
+    });
+  });
+  await show("/dashboards/personal/checkout");
+  const surfaces = await vi.waitFor(() => {
+    const found = document.querySelectorAll<SVGRectElement>(
+      "[data-chart-plot] > rect[fill='transparent']",
+    );
+    if (found.length < 2) throw new Error("No plots yet");
+    return [...found];
+  });
+  const stat = page.getByRole("figure").filter({ hasText: "Requests" });
+  await expect.element(stat.getByText("159")).toBeVisible();
+
+  // The pointer at half past on one chart: the other marks the same moment,
+  // and the stat reads its value then.
+  const box = surfaces[0]!.getBoundingClientRect();
+  const point = (type: string, target: Element, fraction: number) =>
+    target.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        pointerId: 1,
+        clientX: box.left + box.width * fraction,
+        clientY: box.top + box.height / 2,
+      }),
+    );
+  point("pointermove", surfaces[0]!, 0.5);
+  const crosshairs = () =>
+    [...document.querySelectorAll("[data-chart-crosshair]")].map((line) =>
+      line.getAttribute("data-chart-crosshair"),
+    );
+  await expect.poll(crosshairs).toEqual(["lead", "follow"]);
+  await expect.element(stat.getByText(/^at \d{2}:\d{2}$/)).toBeVisible();
+  const moment = Number(stat.getByText(/^at /).element().textContent!.slice(-2));
+  expect(moment).toBeGreaterThan(20);
+  expect(moment).toBeLessThan(40);
+  expect(stat.element().querySelector("[data-stat-value]")!.textContent).toBe(String(100 + moment));
+  // Off the chart, each shows its own again.
+  // (React reads a pointer's leaving from pointerout.)
+  surfaces[0]!.dispatchEvent(
+    new PointerEvent("pointerout", { bubbles: true, pointerId: 1, relatedTarget: document.body }),
+  );
+  await expect.poll(crosshairs).toEqual([]);
+  await expect.element(stat.getByText("159")).toBeVisible();
+
+  // The values the page settled on go to the host's History.
+  await expect
+    .poll(() => kept.at(-1), { timeout: 3_000 })
+    .toEqual({
+      id: "personal/checkout",
+      values: { service: "checkout", from: "now-6h", to: "now" },
+    });
+  await page.getByRole("button", { name: "Input history" }).click();
+  const rows = page.getByRole("dialog", { name: "Input history" }).getByRole("button");
+  await expect.element(rows.nth(0)).toHaveTextContent("checkout · Last 6 hoursjust now");
+  await expect.element(rows.nth(1)).toHaveTextContent("payments · Last 24 hoursAgent1 hr ago");
+  await rows.nth(1).click();
+  await expect.poll(shownValue("Service")).toBe("payments");
+  expect(new URLSearchParams(location.search).get("from")).toBe("now-24h");
+  history.back();
+  await expect.poll(shownValue("Service")).toBe("checkout");
+}, 20_000);

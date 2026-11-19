@@ -6,6 +6,7 @@ import * as stylex from "@stylexjs/stylex";
 import { Dialog } from "@base-ui/react/dialog";
 import {
   useCallback,
+  useContext,
   useEffect,
   useId,
   useLayoutEffect,
@@ -22,6 +23,8 @@ import { tooltip } from "../ToolButton";
 import { CopyNoteText, copyFailure, useCopyNote } from "../DiagramCopy";
 import { Icon } from "../Icon";
 import { copyChart } from "./chart-copy";
+import { OnBoard } from "./chart-board";
+import { ChartCursor } from "./chart-cursor";
 import {
   areaPath,
   extent,
@@ -132,7 +135,8 @@ function Reading({ text }: { text: string }) {
 /** A series' color: one hue in steps for a ramp, else the theme's own colors. */
 function seriesColor(index: number, count: number, ramp?: boolean) {
   if (ramp) {
-    const strength = count === 1 ? 100 : Math.round(52 + (48 * index) / (count - 1));
+    // The first is the strongest: a source lists the measure that matters first (p99 before p50).
+    const strength = count === 1 ? 100 : Math.round(100 - (55 * index) / (count - 1));
     return `color-mix(in srgb, ${tokens.accent} ${strength}%, transparent)`;
   }
   return [tokens.accent, tokens.warning, tokens.green, tokens.red, tokens.muted][index % 5]!;
@@ -205,10 +209,16 @@ export function LineChart({
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   const [focus, setFocus] = useState<string | null>(null);
   const [zoom, setZoom] = useState<readonly [number, number] | null>(null);
-  const [hover, setHover] = useState<number | null>(null);
+  // On a dashboard the moment under the pointer is the page's, which every
+  // chart marks (chart-cursor.tsx); alone, a chart keeps its own.
+  const cursor = useContext(ChartCursor);
+  const cursorId = useId();
+  const [ownHover, setOwnHover] = useState<number | null>(null);
   const [brush, setBrush] = useState<{ from: number; to: number } | null>(null);
   const [fullScreen, setFullScreen] = useState(false);
   const [note, say] = useCopyNote();
+  // On a dashboard: outlined on the page, its tools in its header.
+  const board = useContext(OnBoard) && !large;
   const data = useMemo(() => (state === "ready" ? (series ?? []) : []), [state, series]);
   const empty = state === "ready" && data.every(({ points }) => points.length === 0);
   const drawn = state === "ready" && !empty;
@@ -228,6 +238,17 @@ export function LineChart({
     return known.length ? [Math.min(...known), Math.max(...known)] : [0, 1];
   }, [source, data]);
   const [from, to] = zoom ?? full;
+  const shared = cursor?.time ?? null;
+  // Another chart's moment shows here only within this chart's time.
+  const hover = cursor
+    ? shared !== null && shared >= from && shared <= to
+      ? shared
+      : null
+    : ownHover;
+  const setHover = (time: number | null) =>
+    cursor ? cursor.set(time, cursorId) : setOwnHover(time);
+  /** The pointer is on this chart, not on another of the page's. */
+  const leading = !cursor || cursor.owner === cursorId;
   const visible = data.filter(({ name }) => !hidden.has(name));
   const values = extent(visible.length ? visible : data, from, to);
   const ceiling = Math.max(values.max, spec.threshold?.value ?? -Infinity);
@@ -298,7 +319,10 @@ export function LineChart({
   // The point under the pointer, on the first line that shows.
   const anchor = visible[0] ?? data[0];
   const hoverIndex = hover !== null && anchor ? nearestIndex(anchor.points, hover) : -1;
-  const hoverTime = hoverIndex >= 0 ? anchor!.points[hoverIndex]![0] : null;
+  const near = hoverIndex >= 0 ? anchor!.points[hoverIndex]![0] : null;
+  // Another chart's moment that this one has no point near draws nothing here.
+  const hoverTime =
+    near !== null && (leading || Math.abs(near - hover!) <= spacing * 2) ? near : null;
   const readout = (points: Series["points"]) => {
     if (!points.length) return null;
     const index =
@@ -452,12 +476,72 @@ export function LineChart({
         ? siteIcon(source.url)
         : undefined;
   const linearOpacity = 1 - view.blend;
+  const status = busy ?? (state === "loading" ? "Fetching…" : undefined);
+  const tools = (
+    <div {...stylex.props(styles.tools, board && styles.toolsBoard)}>
+      <span {...stylex.props(styles.noteSpot)}>
+        <CopyNoteText note={note} />
+      </span>
+      {/* On a dashboard the page names the range; a chart zoomed on its own says its own. */}
+      {board && status && (
+        <span data-chart-status="" {...stylex.props(styles.fetching, styles.headStatus)}>
+          {status}
+        </span>
+      )}
+      {board && zoom && <span {...stylex.props(styles.headStatus)}>{formatRange(...zoom)}</span>}
+      {zoom && (
+        <button
+          type="button"
+          onClick={() => setZoom(null)}
+          {...stylex.props(ui.button, styles.tool, styles.textTool)}
+        >
+          Reset zoom
+        </button>
+      )}
+      {!large && (
+        // As on a Mermaid diagram: Full screen sits beside the menu.
+        <button
+          type="button"
+          aria-label="Show the chart full screen"
+          {...tooltip("Full screen")}
+          onClick={() => setFullScreen(true)}
+          {...stylex.props(ui.button, ui.iconButton, styles.tool, styles.more)}
+        >
+          <Icon name="focus" size={14} />
+        </button>
+      )}
+      <ActionMenu
+        label="Chart options"
+        sections={options}
+        {...(read ? { note: read } : {})}
+        trigger={[ui.button, ui.iconButton, styles.tool, styles.more]}
+        layer={large ? "dialog" : undefined}
+      >
+        <Icon name="more" size={15} />
+      </ActionMenu>
+      {large && (
+        <button
+          type="button"
+          aria-label="Close"
+          onClick={onClose}
+          {...stylex.props(ui.button, ui.iconButton, styles.tool)}
+        >
+          <Icon name="close" size={14} />
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <div
       ref={frame}
       data-chart=""
-      {...stylex.props(styles.frame, large && styles.frameLarge, stylex.defaultMarker())}
+      {...stylex.props(
+        styles.frame,
+        large && styles.frameLarge,
+        board && styles.frameBoard,
+        stylex.defaultMarker(),
+      )}
     >
       <header {...stylex.props(styles.header)}>
         <div {...stylex.props(styles.heading)}>
@@ -484,9 +568,10 @@ export function LineChart({
             )}
           </div>
         )}
+        {board && tools}
       </header>
 
-      <div {...stylex.props(styles.keys)}>
+      <div {...stylex.props(styles.keys, board && styles.keysBoard)}>
         {(state === "loading" || state === "error"
           ? (series ?? []).map(({ name }) => ({ name, points: [] as Series["points"] }))
           : data
@@ -709,7 +794,8 @@ export function LineChart({
                   x2={x(hoverTime)}
                   y1={TOP - 6}
                   y2={bottom}
-                  {...stylex.props(styles.crosshair)}
+                  data-chart-crosshair={leading ? "lead" : "follow"}
+                  {...stylex.props(styles.crosshair, !leading && styles.crosshairFollow)}
                 />
                 {visible.map(({ name, points }) => {
                   const index = nearestIndex(points, hoverTime);
@@ -781,92 +867,50 @@ export function LineChart({
           {notice}
         </p>
       )}
-      <footer {...stylex.props(styles.footer)}>
-        <span data-chart-source="" {...stylex.props(styles.source)}>
-          {icon && (
-            <img src={icon.src} alt="" width={12} height={12} {...stylex.props(styles.icon)} />
-          )}
-          {source ? (
-            <>
-              {source.url ? (
-                <a
-                  href={source.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  {...stylex.props(styles.sourceLink)}
-                >
-                  {source.label}
-                </a>
-              ) : (
-                <span {...stylex.props(styles.sourceName)}>{source.label}</span>
-              )}
-              {source.range && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span {...stylex.props(styles.range)}>
-                    {source.live && !zoom
-                      ? formatSpan(source.range[1] - source.range[0])
-                      : formatRange(...(zoom ?? source.range))}
+      {!board && (
+        <footer {...stylex.props(styles.footer)}>
+          <span data-chart-source="" {...stylex.props(styles.source)}>
+            {icon && (
+              <img src={icon.src} alt="" width={12} height={12} {...stylex.props(styles.icon)} />
+            )}
+            {source ? (
+              <>
+                {source.url ? (
+                  <a
+                    href={source.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    {...stylex.props(styles.sourceLink)}
+                  >
+                    {source.label}
+                  </a>
+                ) : (
+                  <span {...stylex.props(styles.sourceName)}>{source.label}</span>
+                )}
+                {source.range && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span {...stylex.props(styles.range)}>
+                      {source.live && !zoom
+                        ? formatSpan(source.range[1] - source.range[0])
+                        : formatRange(...(zoom ?? source.range))}
+                    </span>
+                  </>
+                )}
+                {status && (
+                  <span data-chart-status="" {...stylex.props(styles.fetching)}>
+                    · {status}
                   </span>
-                </>
-              )}
-              {(busy ?? (state === "loading" ? "Fetching…" : undefined)) && (
-                <span data-chart-status="" {...stylex.props(styles.fetching)}>
-                  · {busy ?? "Fetching…"}
-                </span>
-              )}
-            </>
-          ) : (
-            <span>From the agent</span>
-          )}
-        </span>
-        <span {...stylex.props(styles.grow)} />
-        <div {...stylex.props(styles.tools)}>
-          <span {...stylex.props(styles.noteSpot)}>
-            <CopyNoteText note={note} />
+                )}
+              </>
+            ) : (
+              <span>From the agent</span>
+            )}
           </span>
-          {zoom && (
-            <button
-              type="button"
-              onClick={() => setZoom(null)}
-              {...stylex.props(ui.button, styles.tool, styles.textTool)}
-            >
-              Reset zoom
-            </button>
-          )}
-          {!large && (
-            // As on a Mermaid diagram: Full screen sits beside the menu.
-            <button
-              type="button"
-              aria-label="Show the chart full screen"
-              {...tooltip("Full screen")}
-              onClick={() => setFullScreen(true)}
-              {...stylex.props(ui.button, ui.iconButton, styles.tool, styles.more)}
-            >
-              <Icon name="focus" size={14} />
-            </button>
-          )}
-          <ActionMenu
-            label="Chart options"
-            sections={options}
-            {...(read ? { note: read } : {})}
-            trigger={[ui.button, ui.iconButton, styles.tool, styles.more]}
-            layer={large ? "dialog" : undefined}
-          >
-            <Icon name="more" size={15} />
-          </ActionMenu>
-          {large && (
-            <button
-              type="button"
-              aria-label="Close"
-              onClick={onClose}
-              {...stylex.props(ui.button, ui.iconButton, styles.tool)}
-            >
-              <Icon name="close" size={14} />
-            </button>
-          )}
-        </div>
-      </footer>
+          <span {...stylex.props(styles.grow)} />
+          {tools}
+        </footer>
+      )}
       {fullScreen && (
         <ChartDialog
           spec={{ ...spec, scale }}
@@ -991,6 +1035,22 @@ const styles = stylex.create({
     fontSize: 13,
     lineHeight: "normal",
     overflowWrap: "normal",
+    // What a dot's ring and a pill cut out of: the frame's own fill.
+    "--chart-surface": surface,
+  },
+  // On a dashboard: a hairline on the page, as tall as its row, no fill.
+  frameBoard: {
+    height: "100%",
+    boxSizing: "border-box",
+    paddingTop: 14,
+    paddingInline: 16,
+    paddingBottom: 10,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: tokens.line,
+    borderRadius: `calc(8px * ${tokens.round})`,
+    backgroundColor: "transparent",
+    "--chart-surface": tokens.canvas,
   },
   frameLarge: {
     height: "100%",
@@ -1002,7 +1062,7 @@ const styles = stylex.create({
   heading: { display: "flex", flexDirection: "column", gap: 3, minWidth: 0, flex: "1" },
   title: {
     margin: 0,
-    fontSize: 13.5,
+    fontSize: 13,
     fontWeight: 600,
     lineHeight: 1.35,
     letterSpacing: "-0.005em",
@@ -1062,22 +1122,20 @@ const styles = stylex.create({
   },
   keyName: { color: tokens.muted },
   keyValue: {
-    minWidth: 44,
+    minWidth: 40,
     color: tokens.text,
-    fontFamily: tokens.code,
-    fontSize: 11.5,
+    fontWeight: 500,
     fontVariantNumeric: "tabular-nums",
     textAlign: "left",
   },
-  keyUnit: { marginLeft: 4, color: tokens.faint, fontFamily: tokens.ui, fontSize: 11.5 },
+  keyUnit: { marginLeft: 3, color: tokens.faint, fontWeight: 400 },
   pending: { color: tokens.faint },
   // At the row's end; when the key wraps, at the end of its last row.
   moment: {
     marginLeft: "auto",
     paddingInline: 6,
     color: tokens.faint,
-    fontFamily: tokens.code,
-    fontSize: 11,
+    fontSize: 11.5,
     fontVariantNumeric: "tabular-nums",
   },
   grow: { flex: "1" },
@@ -1092,10 +1150,11 @@ const styles = stylex.create({
   },
   gridMinor: { stroke: tokens.line },
   base: { stroke: tokens.lineStrong, strokeWidth: 1 },
+  // Small tabular figures in the page's face, as Linear's axes have.
   axis: {
     fill: tokens.faint,
-    fontFamily: tokens.code,
-    fontSize: 10.5,
+    fontFamily: tokens.ui,
+    fontSize: 11,
     fontVariantNumeric: "tabular-nums",
   },
   axisMinor: { opacity: 0.6 },
@@ -1110,7 +1169,7 @@ const styles = stylex.create({
     vectorEffect: "non-scaling-stroke",
   },
   area: { fill: "var(--series)", fillOpacity: 0.09, stroke: "none" },
-  dot: { fill: "var(--series)", stroke: surface, strokeWidth: 2 },
+  dot: { fill: "var(--series)", stroke: "var(--chart-surface)", strokeWidth: 2 },
   halo: {
     fill: "var(--series)",
     transformBox: "fill-box",
@@ -1121,8 +1180,10 @@ const styles = stylex.create({
     animationTimingFunction: "cubic-bezier(0.23, 1, 0.32, 1)",
     opacity: { default: 0, [motion]: 0 },
   },
-  hoverDot: { fill: "var(--series)", stroke: surface, strokeWidth: 2 },
+  hoverDot: { fill: "var(--series)", stroke: "var(--chart-surface)", strokeWidth: 2 },
   crosshair: { stroke: tokens.muted, strokeWidth: 1, opacity: 0.55 },
+  // The moment of the chart under the pointer, on the page's other charts.
+  crosshairFollow: { strokeDasharray: "3 3", opacity: 0.7 },
   brush: { fill: tokens.accentSoft, stroke: tokens.accentLine, strokeWidth: 1 },
   breath: {
     fill: "none",
@@ -1141,7 +1202,7 @@ const styles = stylex.create({
     strokeDasharray: "4 4",
     opacity: 0.7,
   },
-  thresholdLabel: { fill: tokens.warning, fontFamily: tokens.code, fontSize: 10.5 },
+  thresholdLabel: { fill: tokens.warning, fontFamily: tokens.ui, fontSize: 11, fontWeight: 500 },
   mark: { stroke: tokens.muted, strokeWidth: 1, strokeDasharray: "2 3", opacity: 0.6 },
   markLabel: { fill: tokens.muted, fontFamily: tokens.ui, fontSize: 11 },
   pill: { fill: tokens.raised, stroke: tokens.lineStrong, strokeWidth: 1 },
@@ -1211,6 +1272,16 @@ const styles = stylex.create({
   },
   // The tools keep their size; the source's range gives way first.
   tools: { position: "relative", display: "flex", alignItems: "center", gap: 2, flexShrink: 0 },
+  // In the header, beside the title: they take no height of their own.
+  toolsBoard: { marginBlock: -5, marginInlineEnd: -8 },
+  headStatus: {
+    paddingInline: 4,
+    color: tokens.faint,
+    fontSize: 11.5,
+    fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap",
+  },
+  keysBoard: { marginTop: 8 },
   noteSpot: {
     position: "absolute",
     right: "100%",

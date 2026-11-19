@@ -3,15 +3,17 @@ import { useSyncExternalStore } from "react";
 // Back and Forward, as routes have them. Each step the reader takes is an
 // entry of the browser's history: another workspace (Workspaces.tsx), a page
 // that covers them, such as Sources, and in a workspace, its page, its file,
-// and its review. The entry holds what the workspace showed (its `screen`),
+// its review, and the dashboard beside its thread. The entry holds what the workspace showed (its `screen`),
 // and Back shows that again. Med reads the address for the workspace and the
 // entry for the rest, so a thread's link stays its link.
 
-/** What a workspace showed in an entry: its page or file tab, and its review. */
+/** What a workspace showed in an entry: its page or file tab, its review,
+ * and the dashboard beside its thread, with its values. */
 export interface Screen {
   workspace: string;
   tab?: string;
   review?: string;
+  dashboard?: string;
 }
 
 type EntryState = { screen?: Screen } & Record<string, unknown>;
@@ -26,7 +28,10 @@ export function screenOf(state: unknown): Screen | undefined {
 }
 
 export const sameScreen = (a: Screen | undefined, b: Screen | undefined) =>
-  a?.workspace === b?.workspace && a?.tab === b?.tab && a?.review === b?.review;
+  a?.workspace === b?.workspace &&
+  a?.tab === b?.tab &&
+  a?.review === b?.review &&
+  a?.dashboard === b?.dashboard;
 
 /** A step is on its way: the next screen gets an entry of its own. It lapses
  * when nothing changes, as when the reader opens the file on screen. */

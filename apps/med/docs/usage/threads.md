@@ -34,7 +34,9 @@ reviews, such as one for each branch, is one row; its session rail's
 the review's name in the review's header lists them too, also while the
 window is too narrow for the rail. The rail's **Pull requests** lists the
 thread's pull requests, each with its number; a row opens that pull
-request's own page. A row's name is the
+request's own page. Its **Dashboards** lists the dashboards that the
+thread's replies link to; a row opens one beside the thread
+([Dashboards](dashboards.md#a-dashboard-beside-a-thread)). A row's name is the
 name you gave it in Med, else the session's: the name you gave it in the agent,
 else the title that Claude Code gives a session from its work, else its first
 prompt. `⌘1`–`⌘9` open the thread at that

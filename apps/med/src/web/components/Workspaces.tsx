@@ -1,4 +1,5 @@
 import type { Thread, ThreadReview } from "../../shared/threads";
+import { noteAgentShow } from "../data/dashboard-history";
 import { openSettings } from "./settings/settings-commands";
 import * as stylex from "@stylexjs/stylex";
 import { createPortal, flushSync } from "react-dom";
@@ -684,8 +685,18 @@ const reviewEvent = z.object({
 
 type ReviewEvent = z.infer<typeof reviewEvent>;
 /** A page that an agent shows the reader, as `med dashboard open` does: a
- * dashboard with the values it asked for. */
-const showEvent = z.object({ show: z.string().regex(/^\/dashboards\//) });
+ * dashboard with the values it asked for, and the agent's thread, if any. */
+const showEvent = z.object({
+  show: z.string().regex(/^\/dashboards\//),
+  thread: z.string().optional(),
+});
+/** The event that offers an agent's dashboard to the thread on screen; a
+ * thread that takes it beside itself cancels it (App.tsx). */
+export const DASHBOARD_SHOW = "med:dashboard-show";
+export interface DashboardShow {
+  path: string;
+  thread?: string;
+}
 
 /** Reads the host's window channel until `signal` aborts, and reconnects with
  * backoff. It returns early from a host without the channel. */
@@ -693,7 +704,7 @@ async function listenForReviews(
   fetcher: typeof fetch,
   signal: AbortSignal,
   onReview: (review: ReviewEvent) => void,
-  onShow: (path: string) => void,
+  onShow: (show: DashboardShow) => void,
 ) {
   const api = createApi(fetcher, readBrowserToken());
   let attempt = 0;
@@ -708,8 +719,10 @@ async function listenForReviews(
         (event) => {
           try {
             if (event.event === "show") {
-              const show = z.object({ path: z.string() }).safeParse(JSON.parse(event.data));
-              if (show.success) onShow(show.data.path);
+              const show = z
+                .object({ path: z.string(), thread: z.string().optional() })
+                .safeParse(JSON.parse(event.data));
+              if (show.success) onShow(show.data);
               return;
             }
             if (event.event !== "review") return;
@@ -1044,16 +1057,23 @@ export function WorkspaceHost({
       }
       if (here) show(workspace);
     };
-    // The window used last shows the page; Back returns to what it showed.
-    const showPage = (path: string) => {
-      if (!usedLast() || !showEvent.safeParse({ show: path }).success) return;
+    // The window used last shows it: beside the thread on screen when that
+    // thread takes it, else as the page. Back returns to what it showed.
+    const showDashboard = ({ show: path, thread }: z.infer<typeof showEvent>) => {
+      if (!usedLast()) return;
+      noteAgentShow(path);
+      const offer = new CustomEvent<DashboardShow>(DASHBOARD_SHOW, {
+        detail: { path, ...(thread ? { thread } : {}) },
+        cancelable: true,
+      });
+      if (!window.dispatchEvent(offer)) return;
       if (`${location.pathname}${location.search}` !== path) history.pushState(null, "", path);
       window.dispatchEvent(new PopStateEvent("popstate"));
     };
     const others = new BroadcastChannel(WINDOW_CHANNEL);
     others.onmessage = (event: MessageEvent) => {
       const shown = showEvent.safeParse(event.data);
-      if (shown.success) return showPage(shown.data.show);
+      if (shown.success) return showDashboard(shown.data);
       const review = reviewEvent.safeParse(event.data);
       if (review.success) receive(review.data);
     };
@@ -1065,9 +1085,11 @@ export function WorkspaceHost({
           others.postMessage(review);
           receive(review);
         },
-        (path) => {
-          others.postMessage({ show: path });
-          showPage(path);
+        ({ path, thread }) => {
+          const show = showEvent.safeParse({ show: path, ...(thread ? { thread } : {}) });
+          if (!show.success) return;
+          others.postMessage(show.data);
+          showDashboard(show.data);
         },
       );
     // One window holds the channel and passes reviews to the others, so each

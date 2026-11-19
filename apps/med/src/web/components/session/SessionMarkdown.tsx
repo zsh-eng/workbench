@@ -20,6 +20,12 @@ import { ChartBlock } from "../chart/ChartBlock";
 import { useFileRefBlocks, useFileRefs } from "../FileRefs";
 import { useTableCopy } from "../TableCopy";
 import { HandoffContext, medReviewId, openMedReview, ReviewLinkCard } from "./HandoffCard";
+import {
+  DashboardBeside,
+  DashboardLinkCard,
+  medDashboardPath,
+  openDashboardPath,
+} from "./DashboardLinkCard";
 import "../MarkdownPreview.css";
 
 /**
@@ -63,6 +69,13 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   const fileRefs = useRef(refs);
   const blocks = useFileRefBlocks(result?.blocks);
   const reviewLinks = useMemo(() => blocks?.map((block) => reviewLinkOf(block.html)), [blocks]);
+  const dashboardLinks = useMemo(
+    () => blocks?.map((block) => dashboardLinkOf(block.html)),
+    [blocks],
+  );
+  // A link to a dashboard of this Med's opens it beside the thread.
+  const beside = useContext(DashboardBeside);
+  const besideNow = useRef(beside);
   // A link to a review of this Med's opens it here, not in a new window.
   const handoff = useContext(HandoffContext);
   const reviews = useRef(handoff);
@@ -78,6 +91,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({
     open.current = onOpenLink;
     fileRefs.current = refs;
     reviews.current = handoff;
+    besideNow.current = beside;
   });
 
   useEffect(() => {
@@ -132,6 +146,12 @@ export const SessionMarkdown = memo(function SessionMarkdown({
       const link = (event.target as Element).closest<HTMLElement>("a[data-brief-href]");
       const href = link?.dataset.briefHref;
       if (!href) return;
+      const dashboard = medDashboardPath(href);
+      if (dashboard && !(event.metaKey || event.ctrlKey || event.shiftKey)) {
+        event.preventDefault();
+        openDashboardPath(dashboard, besideNow.current);
+        return;
+      }
       const review = reviews.current && medReviewId(href);
       if (review && !(event.metaKey || event.ctrlKey || event.shiftKey)) {
         event.preventDefault();
@@ -162,6 +182,8 @@ export const SessionMarkdown = memo(function SessionMarkdown({
             <ChartBlock key={`${index}:${block.chart}`} text={block.chart} at={at} />
           ) : reviewLinks?.[index] ? (
             <ReviewLinkCard key={index} {...reviewLinks[index]} />
+          ) : dashboardLinks?.[index] ? (
+            <DashboardLinkCard key={index} {...dashboardLinks[index]} />
           ) : (
             <div
               key={index}
@@ -202,6 +224,30 @@ function useReveal(
       node.children[index]?.classList.add("med-reveal");
     });
   }, [host, blocks, streaming]);
+}
+
+const dashboardLinks = new Map<string, { path: string; text: string } | null>();
+/** A paragraph that is only a link to a dashboard of Med's, as `med dashboard
+ * link` prints it, which shows as its card; null for any other block. */
+function dashboardLinkOf(html: string) {
+  if (!html.includes("/dashboards/")) return null;
+  const known = dashboardLinks.get(html);
+  if (known !== undefined) return known;
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const parts = (node: ParentNode) =>
+    [...node.childNodes].filter((child) => child.nodeType !== 3 || child.textContent?.trim());
+  const [paragraph, ...others] = parts(template.content);
+  const [link, ...rest] = paragraph instanceof HTMLParagraphElement ? parts(paragraph) : [];
+  const href =
+    link instanceof HTMLAnchorElement
+      ? (link.dataset.briefHref ?? link.getAttribute("href"))
+      : null;
+  const path = !others.length && !rest.length && href ? medDashboardPath(href) : undefined;
+  const found = path ? { path, text: link!.textContent?.trim() || "Dashboard" } : null;
+  if (dashboardLinks.size > 200) dashboardLinks.clear();
+  dashboardLinks.set(html, found);
+  return found;
 }
 
 const reviewLinks = new Map<string, { id: string; href: string; text: string } | null>();

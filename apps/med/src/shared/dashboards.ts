@@ -221,6 +221,32 @@ export const shownDashboardSchema = z.object({
 });
 export type ShownDashboard = z.infer<typeof shownDashboardSchema>;
 
+/** A set of values that a dashboard showed, as its page settled on them:
+ * each input and the range. `by: "agent"` when an agent chose them, as
+ * `med dashboard open` or a link in a reply does, also once they show again. */
+export const dashboardHistoryEntrySchema = z.object({
+  values: z.record(z.string(), z.string().max(4096)),
+  at: z.number(),
+  by: z.literal("agent").optional(),
+});
+export type DashboardHistoryEntry = z.infer<typeof dashboardHistoryEntrySchema>;
+/** The sets of values that a dashboard keeps, newest first. */
+export const DASHBOARD_HISTORY_LIMIT = 30;
+
+/** The values that history keeps: not the view, which is where the reader
+ * looks, not what the dashboard shows. */
+export function historyValues(values: Record<string, string>) {
+  const { view: _view, ...rest } = values;
+  return rest;
+}
+const historyKey = (values: Record<string, string>) =>
+  JSON.stringify(
+    Object.entries(historyValues(values)).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+  );
+/** The same set of values, in any order, whatever the view. */
+export const sameValues = (a: Record<string, string>, b: Record<string, string>) =>
+  historyKey(a) === historyKey(b);
+
 export const dashboardRoutes = {
   /** The dashboards in the repositories Med knows and in the dashboards
    * folder beside its settings. */
@@ -273,9 +299,31 @@ export const dashboardRoutes = {
     input: z.object({
       id: z.string().min(1).max(2048),
       values: z.record(z.string(), z.string().max(4096)),
+      /** The thread whose agent asks: a window that shows that thread shows
+       * the dashboard beside it, not as its page. */
+      thread: z.string().min(1).max(512).optional(),
     }),
     /** The windows that heard it; with none, the CLI opens the browser. */
     output: z.object({ windows: z.number(), path: z.string() }),
+  },
+  /** The values that a dashboard showed, newest first, in every window. */
+  history: {
+    method: "POST",
+    path: "/api/dashboards/history",
+    input: z.object({ id: z.string().min(1).max(2048) }),
+    output: z.object({ entries: z.array(dashboardHistoryEntrySchema) }),
+  },
+  /** A window keeps the values that its dashboard settled on. The same values
+   * as the newest change nothing; values seen before move to the top. */
+  keep: {
+    method: "POST",
+    path: "/api/dashboards/history/keep",
+    input: z.object({
+      id: z.string().min(1).max(2048),
+      values: z.record(z.string(), z.string().max(4096)),
+      by: z.literal("agent").optional(),
+    }),
+    output: z.object({ entries: z.array(dashboardHistoryEntrySchema) }),
   },
 } as const satisfies Record<string, RouteContract>;
 

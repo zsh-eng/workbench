@@ -33,6 +33,9 @@ export interface ThreadWorkspace extends WorkspaceBase {
   threadId: string;
   /** The review that shows, of the thread's reviews; the newest without it. */
   reviewId?: string;
+  /** The dashboard beside the thread, as its address with the values it
+   * shows (`/dashboards/<id>?var-env=staging`), while its pane is open. */
+  dashboard?: string;
   /** Where the thread's agent works now, as the thread list said last. The
    * view starts there and then stays (`follow` in controller.ts). */
   path?: string;
@@ -79,6 +82,7 @@ export interface WorkspacePatch {
   title?: string;
   jobId?: string;
   reviewId?: string;
+  dashboard?: string;
   repository?: string;
   detail?: string;
   path?: string;
@@ -148,6 +152,9 @@ function parse(value: unknown): Workspace | null {
       kind: "thread",
       threadId: entry.threadId as string,
       reviewId: optional(entry.reviewId),
+      ...(typeof entry.dashboard === "string" && entry.dashboard.startsWith("/dashboards/")
+        ? { dashboard: entry.dashboard }
+        : {}),
       ...place,
     };
   // Lists from before sessions led: a review's workspace, or a found session's.
@@ -431,6 +438,7 @@ export function createWorkspaceStore(pathname: string, state?: unknown) {
                 "branch",
                 "worktree",
                 "reviewId",
+                "dashboard",
                 "viewingPath",
                 "viewingBranch",
                 "viewingRepository",

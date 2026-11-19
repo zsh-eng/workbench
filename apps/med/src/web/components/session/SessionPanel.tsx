@@ -2,6 +2,7 @@ import type { MentionSources } from "../../data/mentions";
 import * as stylex from "@stylexjs/stylex";
 import {
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -50,6 +51,13 @@ import {
   type ThreadLink,
 } from "./SessionSidePanel";
 import { TurnMark } from "./SessionNotice";
+import {
+  DashboardBeside,
+  dashboardLinksOf,
+  openDashboardPath,
+  publishThreadDashboards,
+  valuesInWords,
+} from "./DashboardLinkCard";
 import { ReplyActionsContext, SessionThread, type ReplyActions } from "./SessionThread";
 import { FileRefsContext, type FileRefs } from "../FileRefs";
 import type { TurnRecapProps } from "./TurnRecap";
@@ -705,6 +713,18 @@ export function SessionPanel({
   };
   // The first view has not come, and no earlier thread stays meanwhile.
   const loading = state.status === "connecting" && !snapshot.items.length;
+  // The dashboards that the replies link to, for the rail: each opens beside.
+  const beside = useContext(DashboardBeside);
+  const linked = useMemo(() => dashboardLinksOf(shown.items), [shown.items]);
+  useEffect(() => publishThreadDashboards(threadId, linked), [threadId, linked]);
+  const dashboards = linked.map(({ path, title }) => ({
+    id: path,
+    icon: "display" as const,
+    label: title,
+    hint: valuesInWords(path),
+    current: beside?.shown === path,
+    onOpen: () => openDashboardPath(path, beside),
+  }));
   // The session's own control at the title band's end: the session rail's
   // toggle. The band names the thread, and the thread its agent; context and
   // spend are under the message box, as in Claude Desktop.
@@ -838,6 +858,7 @@ export function SessionPanel({
             breakdown={breakdown}
             working={running}
             reviews={reviews}
+            dashboards={dashboards}
             pulls={pulls}
             place={sessionPlace}
             backgroundRef={setBackground}

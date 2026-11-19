@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useId,
@@ -24,6 +25,7 @@ import {
   type Dashboard,
   type DashboardEntry,
   type DashboardFile,
+  type DashboardHistoryEntry,
   type DashboardInput,
   type DashboardPanel,
 } from "../../../shared/dashboards";
@@ -42,14 +44,25 @@ import { tokens, ui } from "../../theme.stylex";
 import { createApi } from "../../data/api";
 import { readBrowserToken } from "../../data/auth";
 import { browserFetch } from "../../data/live";
-import { ChartBlock, ChartZoom } from "../chart/ChartBlock";
-import { ChoiceSelect, SearchSelect } from "../Controls";
+import { ChartBlock, ChartZoom, chartSourceName } from "../chart/ChartBlock";
+import { OnBoard } from "../chart/chart-board";
+import { SharedCursor } from "../chart/chart-cursor";
+import { ActionMenu, ChoiceSelect, SearchSelect } from "../Controls";
 import { AskSuperagent } from "./AskSuperagent";
+import { InputHistory } from "./InputHistory";
+import {
+  agentShowed,
+  keepInHistory,
+  noteAgentShow,
+  readHistory,
+} from "../../data/dashboard-history";
+import { useThreadDashboards, valuesInWords } from "../session/DashboardLinkCard";
 import { TimeRangePicker } from "./TimeRangePicker";
 import { Icon } from "../Icon";
 import { SessionMarkdown } from "../session/SessionMarkdown";
 import { settingStyles } from "../settings/SettingsParts";
 import { ToolButton } from "../ToolButton";
+import { PaneHeader } from "../PaneTree";
 
 // Dashboards: YAML files that open as pages, as Obsidian's Bases do
 // (shared/dashboards.ts has the format). The list shows each file Med found;
@@ -85,6 +98,81 @@ export function DashboardsPage() {
     <div {...stylex.props(styles.page)}>
       <div {...stylex.props(styles.scroller)}>
         {id ? <DashboardView key={id} id={id} /> : <DashboardList />}
+      </div>
+    </div>
+  );
+}
+
+/** A dashboard beside a thread, at the address that a reply linked to or
+ * that its agent showed; the reader's changes move the pane's own address.
+ * Its header lists the thread's other dashboards, as the thread's rail does. */
+export function DashboardPane({
+  path,
+  thread,
+  controls,
+  onPath,
+}: {
+  path: string;
+  thread: string;
+  controls: ReactNode;
+  /** `step`: a change that Back undoes. */
+  onPath(path: string, step: boolean): void;
+}) {
+  const query = path.indexOf("?");
+  const id = dashboardIdOf(query < 0 ? path : path.slice(0, query));
+  const values = useMemo(() => valuesOfSearch(query < 0 ? "" : path.slice(query)), [path, query]);
+  const linked = useThreadDashboards(thread);
+  const scroller = useRef<HTMLDivElement>(null);
+  return (
+    <div data-dashboard-pane="" {...stylex.props(styles.pane)}>
+      <PaneHeader
+        title="Dashboard"
+        detail={
+          linked.length > 0 ? (
+            <ActionMenu
+              label="This thread's dashboards"
+              align="start"
+              trigger={[ui.button, styles.paneMenu]}
+              sections={[
+                linked.map((link) => ({
+                  label: link.title,
+                  hint: valuesInWords(link.path),
+                  checked: link.path === path,
+                  choice: true,
+                  onClick: () => {
+                    if (link.path === path) return;
+                    noteAgentShow(link.path);
+                    scroller.current?.scrollTo({ top: 0 });
+                    onPath(link.path, true);
+                  },
+                })),
+              ]}
+            >
+              {linked.length === 1 ? "1 in this thread" : `${linked.length} in this thread`}
+              <Icon name="chevron" size={12} />
+            </ActionMenu>
+          ) : undefined
+        }
+        controls={
+          <>
+            <ToolButton
+              label="Open as a page"
+              icon="external"
+              onClick={() => {
+                history.pushState(null, "", path);
+                window.dispatchEvent(new PopStateEvent("popstate"));
+              }}
+            />
+            {controls}
+          </>
+        }
+      />
+      <div ref={scroller} {...stylex.props(styles.scroller)}>
+        <DashboardView
+          key={id}
+          id={id}
+          embedded={{ values, onValues: (next, step) => onPath(dashboardPath(id, next), step) }}
+        />
       </div>
     </div>
   );
@@ -238,13 +326,22 @@ function pageContext(
 /** The minute that every panel reads as of, so the panels agree. */
 const minute = () => Math.floor(Date.now() / 60_000) * 60_000;
 
-function DashboardView({ id }: { id: string }) {
+/** A dashboard in a pane beside a thread: its values are the pane's, not the
+ * address's, and the thread's message box is where to ask. */
+interface Embedded {
+  values: Record<string, string>;
+  /** `step`: a change that Back undoes, as an input's or the range's. */
+  onValues(values: Record<string, string>, step: boolean): void;
+}
+
+function DashboardView({ id, embedded }: { id: string; embedded?: Embedded }) {
   const [file, setFile] = useState<DashboardFile | undefined>(() => keptDashboard(id));
   const [error, setError] = useState("");
-  const [given, setGiven] = useState(() => valuesOfSearch(location.search));
+  const [ownGiven, setGiven] = useState(() => valuesOfSearch(location.search));
+  const given = embedded ? embedded.values : ownGiven;
   const [at, setAt] = useState(minute);
   const [source, setSource] = useState(false);
-  useDocumentTitle(file?.dashboard?.title ?? file?.entry.title ?? "Dashboard");
+  useDocumentTitle(file?.dashboard?.title ?? file?.entry.title ?? "Dashboard", 0, !embedded);
 
   // The file, again every few seconds while it shows: an agent's edit draws.
   useEffect(() => {
@@ -276,13 +373,15 @@ function DashboardView({ id }: { id: string }) {
   }, [id]);
   // Back and forward move between the values, as an agent's change does.
   useEffect(() => {
+    if (embedded) return;
     const follow = () => setGiven(valuesOfSearch(location.search));
     window.addEventListener("popstate", follow);
     return () => window.removeEventListener("popstate", follow);
-  }, []);
+  }, [embedded]);
   /** New values: an input or the range is a step that Back undoes; a view is not. */
   const change = (next: Record<string, string>, step = true) => {
     const merged = { ...given, ...next };
+    if (embedded) return embedded.onValues(merged, step);
     setGiven(merged);
     const address = dashboardPath(id, merged);
     if (step) history.pushState(null, "", address);
@@ -322,6 +421,27 @@ function DashboardView({ id }: { id: string }) {
     return () => window.removeEventListener("focus", tell);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, shownKey]);
+  // The values the page settles on, a second after the last change, for
+  // History. The host keeps them for every window.
+  const [past, setPast] = useState<DashboardHistoryEntry[]>([]);
+  const readPast = useCallback(() => {
+    readHistory(id).then(setPast, () => {});
+  }, [id]);
+  useEffect(() => {
+    readPast();
+    // Another window may have kept values meanwhile.
+    window.addEventListener("focus", readPast);
+    return () => window.removeEventListener("focus", readPast);
+  }, [readPast]);
+  useEffect(() => {
+    if (!shownValues) return;
+    const timer = setTimeout(() => {
+      const by = agentShowed(id, shownValues) ? "agent" : undefined;
+      keepInHistory(id, shownValues, by).then(setPast, () => {});
+    }, 1000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, shownKey]);
   const leftWith = useRef(shownValues);
   leftWith.current = shownValues;
   useEffect(
@@ -346,17 +466,41 @@ function DashboardView({ id }: { id: string }) {
   const folder = file?.entry.relative.split("/").slice(0, -1).join("/") ?? "";
   // A drag across a chart's time zooms the page to it; Back zooms out again.
   const zoomTo = (from: number, to: number) => change({ ...momentRange(from, to) });
+  // Where the view's panels read from, named once here rather than under each.
+  const sources = [
+    ...new Set(
+      (view?.panels ?? []).flatMap((panel) => {
+        if (panel.kind !== "chart") return [];
+        const name = chartSourceName(panelChartText(panel, values, live).text);
+        return name ? [name] : [];
+      }),
+    ),
+  ];
 
   return (
-    <div {...stylex.props(styles.boardColumn)}>
-      <button type="button" {...stylex.props(styles.back)} onClick={() => openDashboards()}>
-        <Icon name="arrowLeft" size={13} />
-        Dashboards
-      </button>
+    <div {...stylex.props(styles.boardColumn, embedded && styles.boardInPane)}>
+      {!embedded && (
+        <button type="button" {...stylex.props(styles.back)} onClick={() => openDashboards()}>
+          <Icon name="arrowLeft" size={13} />
+          Dashboards
+        </button>
+      )}
       <div {...stylex.props(styles.heading)}>
-        <h1 {...stylex.props(styles.pageTitle)}>
+        <h1 {...stylex.props(styles.pageTitle, embedded && styles.paneTitle)}>
           {dashboard?.title ?? file?.entry.title ?? "Dashboard"}
         </h1>
+        {sources.length > 0 && (
+          <span
+            data-dashboard-sources=""
+            {...(sources.length > 1 ? { title: sources.join("\n") } : {})}
+            {...stylex.props(styles.sources)}
+          >
+            {sources.length === 1 ? sources[0] : `${sources.length} sources`}
+            <span aria-hidden="true" {...stylex.props(styles.dot)}>
+              ·
+            </span>
+          </span>
+        )}
         <span role="status" {...stylex.props(styles.readAt)}>
           {live
             ? "Live"
@@ -367,6 +511,17 @@ function DashboardView({ id }: { id: string }) {
           icon="refresh"
           onClick={() => setAt(Date.now())}
         />
+        {/* The page's tools: its values' history sits with them, so the
+            inputs keep one row even in a pane. */}
+        {dashboard && shownValues && (dashboard.inputs.length > 0 || range) && (
+          <InputHistory
+            dashboard={dashboard}
+            entries={past}
+            current={shownValues}
+            onOpen={readPast}
+            onPick={(values) => change(values)}
+          />
+        )}
         <ToolButton
           label={source ? "Show the dashboard" : "Show the file"}
           icon={source ? "display" : "file"}
@@ -401,14 +556,7 @@ function DashboardView({ id }: { id: string }) {
               onChange={(value) => change({ [input.name]: value })}
             />
           ))}
-          {range && (
-            <div {...stylex.props(styles.field)}>
-              <span aria-hidden="true" {...stylex.props(styles.fieldLabel)}>
-                Range
-              </span>
-              <TimeRangePicker range={range} onChange={(next) => change({ ...next })} />
-            </div>
-          )}
+          {range && <TimeRangePicker range={range} onChange={(next) => change({ ...next })} />}
         </div>
       )}
       {dashboard && dashboard.views.length > 1 && (
@@ -440,26 +588,28 @@ function DashboardView({ id }: { id: string }) {
       ) : (
         view && (
           <ChartZoom value={range ? zoomTo : null}>
-            <Grid>
-              {view.panels.map((panel, index) => (
-                <PanelCell key={`${view.name}\0${index}`} panel={panel}>
-                  <Panel
-                    panel={panel}
-                    values={values}
-                    live={live}
-                    at={at}
-                    files={repoRoot ? { repo: repoRoot, folder } : undefined}
-                  />
-                </PanelCell>
-              ))}
-            </Grid>
+            <SharedCursor>
+              <Grid>
+                {view.panels.map((panel, index) => (
+                  <PanelCell key={`${view.name}\0${index}`} panel={panel}>
+                    <Panel
+                      panel={panel}
+                      values={values}
+                      live={live}
+                      at={at}
+                      files={repoRoot ? { repo: repoRoot, folder } : undefined}
+                    />
+                  </PanelCell>
+                ))}
+              </Grid>
+            </SharedCursor>
           </ChartZoom>
         )
       )}
       {dashboard && view && !view.panels.length && (
         <p {...stylex.props(styles.emptyNote)}>This view has no panels yet.</p>
       )}
-      {dashboard && (
+      {dashboard && !embedded && (
         <AskSuperagent
           context={() => ({ text: pageContext(id, dashboard, values, range, view?.name) })}
         />
@@ -494,37 +644,39 @@ function InputField({
       value: option,
       label: input.labels?.[option] ?? option,
     }));
-    return (
-      <div {...stylex.props(styles.field)}>
-        <span aria-hidden="true" {...stylex.props(styles.fieldLabel)}>
-          {input.label}
-        </span>
-        {choices.length > 2 ? (
-          // More than two: a menu to search, as Grafana's variables have.
-          <SearchSelect
-            trigger={settingStyles.select}
-            label={input.label}
-            value={value}
-            choices={choices}
-            onChange={onChange}
-          />
-        ) : (
-          <ChoiceSelect
-            trigger={settingStyles.select}
-            label={input.label}
-            value={value}
-            choices={choices}
-            onChange={onChange}
-          />
-        )}
-      </div>
+    // The input's name inside its control, before its value, as Grafana's
+    // variables have: one row of controls, no row of labels above it.
+    const name = (
+      <span aria-hidden="true" {...stylex.props(styles.fieldLabel)}>
+        {input.label}
+      </span>
+    );
+    return choices.length > 2 ? (
+      // More than two: a menu to search.
+      <SearchSelect
+        trigger={[settingStyles.select, styles.control]}
+        label={input.label}
+        icon={name}
+        value={value}
+        choices={choices}
+        onChange={onChange}
+      />
+    ) : (
+      <ChoiceSelect
+        trigger={[settingStyles.select, styles.control]}
+        label={input.label}
+        icon={name}
+        value={value}
+        choices={choices}
+        onChange={onChange}
+      />
     );
   }
   const commit = () => {
     if (draft !== value && valid) onChange(draft);
   };
   return (
-    <label {...stylex.props(styles.field)}>
+    <label {...stylex.props(styles.textField, !valid && styles.textInvalid)}>
       <span {...stylex.props(styles.fieldLabel)}>{input.label}</span>
       <input
         type="text"
@@ -533,8 +685,8 @@ function InputField({
         aria-invalid={!valid || undefined}
         // A text input's options are suggestions: any value it matches goes.
         list={options.length ? suggestions : undefined}
-        size={Math.max(8, Math.min(28, draft.length + 2))}
-        {...stylex.props(ui.input, styles.text, !valid && styles.textInvalid)}
+        size={Math.max(6, Math.min(28, draft.length + 1))}
+        {...stylex.props(styles.text)}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commit}
         onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
@@ -555,11 +707,13 @@ function InputField({
   );
 }
 
-/** How wide the grid is: on a narrow screen every panel is whole, and on a
- * middling one a quarter takes half. */
-const GridWidth = createContext<"wide" | "medium" | "narrow">("wide");
+/** How wide the grid is: on a middling screen a quarter takes half; on a
+ * narrow one, as a pane beside a thread is, two stats share a row and every
+ * other panel is whole; on a tiny one every panel is whole. */
+const GridWidth = createContext<"wide" | "medium" | "narrow" | "tiny">("wide");
 
-/** Twelve columns, or one on a narrow screen, where every panel is whole. */
+/** Twelve columns, or one on a tiny screen. Each row's panels are as tall as
+ * its tallest, as Grafana's and Linear's are. */
 function Grid({ children }: { children: ReactNode }) {
   const [element, setElement] = useState<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(1200);
@@ -569,23 +723,42 @@ function Grid({ children }: { children: ReactNode }) {
     observer.observe(element);
     return () => observer.disconnect();
   }, [element]);
-  const size = width < 720 ? "narrow" : width < 1080 ? "medium" : "wide";
+  const size = width < 400 ? "tiny" : width < 720 ? "narrow" : width < 1080 ? "medium" : "wide";
   return (
     <GridWidth value={size}>
-      <div
-        ref={setElement}
-        data-dashboard-grid={size}
-        {...stylex.props(styles.grid, size === "narrow" && styles.gridNarrow)}
-      >
-        {children}
-      </div>
+      <OnBoard value>
+        <div
+          ref={setElement}
+          data-dashboard-grid={size}
+          {...stylex.props(styles.grid, size === "tiny" && styles.gridTiny)}
+        >
+          {children}
+        </div>
+      </OnBoard>
     </GridWidth>
   );
 }
 
 function PanelCell({ panel, children }: { panel: DashboardPanel; children: ReactNode }) {
   const size = useContext(GridWidth);
-  const columns = size === "narrow" ? 1 : size === "medium" && panel.width <= 4 ? 6 : panel.width;
+  // On a middling grid a quarter or a third takes half, and a panel wider
+  // than half takes the row, so no row ends in a gap no panel fits. On a
+  // narrow one, two stats share a row.
+  const stat =
+    panel.kind === "chart" &&
+    panel.keys.some(([key, value]) => key === "type" && value.trim() === "stat");
+  const columns =
+    size === "tiny"
+      ? 1
+      : size === "narrow"
+        ? stat && panel.width <= 6
+          ? 6
+          : 12
+        : size === "medium" && panel.width <= 4
+          ? 6
+          : size === "medium" && panel.width > 6
+            ? 12
+            : panel.width;
   return (
     <div
       data-dashboard-panel=""
@@ -662,6 +835,29 @@ const styles = stylex.create({
     paddingTop: 28,
     paddingBottom: 96,
   },
+  boardInPane: { paddingInline: 22, paddingTop: 18, paddingBottom: 48 },
+  paneTitle: { fontSize: 20 },
+  paneMenu: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    height: 24,
+    paddingInline: 8,
+    color: tokens.muted,
+    fontSize: 12,
+  },
+  pane: {
+    flex: "1",
+    minWidth: 0,
+    minHeight: 0,
+    display: "flex",
+    flexDirection: "column",
+    backgroundColor: tokens.canvas,
+    color: tokens.text,
+    fontFamily: tokens.ui,
+    fontSize: 13,
+    WebkitFontSmoothing: "antialiased",
+  },
   heading: { display: "flex", alignItems: "center", gap: 8, minHeight: 32 },
   pageTitle: {
     flex: "1",
@@ -672,6 +868,17 @@ const styles = stylex.create({
     letterSpacing: "-0.022em",
   },
   readAt: { color: tokens.faint, fontSize: 12.5, fontVariantNumeric: "tabular-nums" },
+  sources: {
+    display: "inline-flex",
+    gap: 8,
+    minWidth: 0,
+    overflow: "hidden",
+    color: tokens.faint,
+    fontSize: 12.5,
+    whiteSpace: "nowrap",
+    textOverflow: "ellipsis",
+  },
+  dot: { color: tokens.faint },
   lead: {
     margin: 0,
     marginTop: 8,
@@ -723,13 +930,41 @@ const styles = stylex.create({
   inputs: {
     display: "flex",
     flexWrap: "wrap",
-    alignItems: "flex-end",
-    gap: 12,
-    marginTop: 20,
+    alignItems: "center",
+    gap: 8,
+    marginTop: 18,
   },
-  field: { display: "flex", flexDirection: "column", gap: 5 },
-  fieldLabel: { color: tokens.muted, fontSize: 11.5, fontWeight: 500 },
-  text: { height: 32, boxSizing: "border-box", fontFamily: tokens.code, fontSize: 12.5 },
+  // The value reads first; the name before it is quieter.
+  control: { gap: 6, fontWeight: 500 },
+  fieldLabel: { color: tokens.faint, fontSize: 12.5, fontWeight: 400 },
+  textField: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    height: 32,
+    boxSizing: "border-box",
+    paddingInline: 12,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: {
+      default: tokens.line,
+      ":hover": tokens.lineStrong,
+      ":focus-within": tokens.accentLine,
+    },
+    borderRadius: `calc(8px * ${tokens.round})`,
+    backgroundColor: tokens.canvas,
+    cursor: "text",
+  },
+  text: {
+    minWidth: 0,
+    padding: 0,
+    borderWidth: 0,
+    outline: "none",
+    backgroundColor: "transparent",
+    color: tokens.text,
+    fontFamily: tokens.code,
+    fontSize: 12.5,
+  },
   textInvalid: { borderColor: tokens.red },
   tabs: {
     display: "flex",
@@ -759,11 +994,11 @@ const styles = stylex.create({
   grid: {
     display: "grid",
     gridTemplateColumns: "repeat(12, minmax(0, 1fr))",
-    gap: 16,
-    alignItems: "start",
-    marginTop: 20,
+    gap: 12,
+    alignItems: "stretch",
+    marginTop: 18,
   },
-  gridNarrow: { gridTemplateColumns: "minmax(0, 1fr)" },
+  gridTiny: { gridTemplateColumns: "minmax(0, 1fr)" },
   cell: { minWidth: 0 },
   span: (columns: number) => ({ gridColumn: `span ${columns}` }),
   textPanel: {

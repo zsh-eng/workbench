@@ -134,6 +134,7 @@ import {
 import { loadShellEnvironment, shellEnvironment, withoutClaudeSession } from "./shell-environment";
 import { createChartSources, sourcesOf } from "./chart-sources";
 import { createDashboards } from "./dashboards";
+import { createDashboardHistory } from "./dashboard-history";
 import { createAgentStatus } from "./agent-status";
 import { createSessionIndex } from "./session-index";
 import { createThreadStore } from "./thread-store";
@@ -704,6 +705,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     readLink: (input, signal) => chartSources.read(input, signal),
     readGrafana: (input, signal) => grafana.panel(input, signal),
   });
+  // The values each dashboard showed, for its History menu, in every window.
+  const dashboardHistory = createDashboardHistory(
+    join(options.stateDir ?? temporaryState!, "dashboard-history.json"),
+  );
   const pullRequestLinks = createPullRequestLinks({
     gh: options.gh ?? { command: "gh", args: [] },
     refs: (checkout) => checkoutState(checkout, false),
@@ -1306,13 +1311,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       return {};
     }),
     route(dashboardRoutes.shown, async () => (shownDashboard ? { shown: shownDashboard } : {})),
-    route(dashboardRoutes.show, async (input) => {
+    route(dashboardRoutes.show, async ({ thread, ...input }) => {
       const path = dashboardPath(input.id, input.values);
       shownDashboard = { ...input, showing: windows.size > 0, at: Date.now() };
-      const event = { type: "show", path };
+      // A window that shows the agent's thread shows the dashboard beside it.
+      const event = { type: "show", path, ...(thread ? { thread } : {}) };
       for (const window of windows) window.write(`event: show\ndata: ${JSON.stringify(event)}\n\n`);
       return { windows: windows.size, path };
     }),
+    route(dashboardRoutes.history, async (input) => ({
+      entries: await dashboardHistory.list(input.id),
+    })),
+    route(dashboardRoutes.keep, async (input) => ({
+      entries: await dashboardHistory.keep(input.id, input.values, input.by),
+    })),
     route(chartRoutes.sites, async () => ({ sites: await grafanaSettings.list() })),
     route(chartRoutes.connect, (input, { signal }) =>
       grafanaSettings.connect(input, (address, token) => grafana.check(address, token, signal)),
