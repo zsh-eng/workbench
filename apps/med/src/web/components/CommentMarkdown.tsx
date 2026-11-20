@@ -1,6 +1,5 @@
 import { SessionMarkdown } from "./session/SessionMarkdown";
-// After the renderer's own styles, as in the thread.
-import "./session/SessionThread.css";
+import "./session/prose-styles";
 import "./CommentMarkdown.css";
 
 /**

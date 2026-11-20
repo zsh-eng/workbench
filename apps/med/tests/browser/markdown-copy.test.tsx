@@ -3,7 +3,7 @@ import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { SessionMarkdown } from "../../src/web/components/session/SessionMarkdown";
 // The thread's own rules for a reply's prose, as the thread loads them.
-import "../../src/web/components/session/SessionThread.css";
+import "../../src/web/components/session/prose-styles";
 import "../../src/web/pierre-theme";
 import { initializeTheme } from "../../src/web/themes";
 

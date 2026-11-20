@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import "../session/SessionThread.css";
+import "../session/prose-styles";
 import "./Guide.css";
 
 // The Markdown renderer loads with the first summary, not with the review.

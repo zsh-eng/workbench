@@ -6,7 +6,7 @@ import MarkdownPreview from "../../src/web/components/MarkdownPreview";
 import { createMarkdownModel } from "../../src/web/markdown/model";
 import type { FileRead } from "../../src/shared/local-file";
 // The thread's own rules for a reply's prose, as the thread loads them.
-import "../../src/web/components/session/SessionThread.css";
+import "../../src/web/components/session/prose-styles";
 import "../../src/web/pierre-theme";
 import { initializeTheme } from "../../src/web/themes";
 

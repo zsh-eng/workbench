@@ -4,7 +4,7 @@ import { relativeTime, useMinuteClock } from "../../data/relative-time";
 import { tokens } from "../../theme.stylex";
 import { Icon } from "../Icon";
 import { ContextNotes, type ShownContext } from "./ThreadUsage";
-import "./SessionThread.css";
+import "./prose-styles";
 
 // The side panel's Context card, as Claude Desktop's: the share in use, a bar
 // of what fills it, and, for an agent that Med runs, each part with its
