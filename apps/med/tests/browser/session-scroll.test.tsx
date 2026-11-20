@@ -453,9 +453,15 @@ test("a scroll event that comes before the units report a new height keeps the v
   root!.render(<SessionThread snapshot={store.getSnapshot()} />);
   await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r299");
   const scroller = threadScroller();
-  await userEvent.wheel(scroller, { delta: { y: -1500 } });
+  // The reader scrolls up, at once rather than with the wheel's glide.
+  scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -1500, bubbles: true }));
+  scroller.scrollTop -= 1500;
   await expect.poll(() => document.querySelector("[data-unit] .med-session-plain")).toBeNull();
-  await afterFrames(4);
+  // The view stands still before it is read.
+  for (let last = Number.NaN; scroller.scrollTop !== last;) {
+    last = scroller.scrollTop;
+    await afterFrames(3);
+  }
   const before = firstInView();
   // A unit above the view grows, as when its reply's Markdown renders, and a
   // scroll event comes before the units report it, as the event for a scroll

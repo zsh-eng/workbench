@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { AGENT_CAPABILITIES } from "../../src/shared/owned-session";
 import {
@@ -506,10 +506,13 @@ describe("agent session", () => {
     await frames(20);
     scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
     scroller.scrollTop = scroller.scrollHeight / 2;
-    await frames(10);
     // The view goes 900 pixels into a reply, so the reply's text above it
     // rewraps, and settles there: the replies in view show their Markdown.
-    const reply6 = scroller.querySelector<HTMLElement>('[data-unit="r6"]')!;
+    // The units at the middle render as soon as the machine gets to them.
+    const reply6 = await vi.waitUntil(
+      () => scroller.querySelector<HTMLElement>('[data-unit="r6"]'),
+      { timeout: 5000 },
+    );
     scroller.scrollTop +=
       reply6.getBoundingClientRect().top - scroller.getBoundingClientRect().top + 900;
     const settled = async () => {
