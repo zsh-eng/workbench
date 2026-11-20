@@ -62,7 +62,7 @@ import { atEnd, followEnd, HOLD_PLACE } from "./thread-follow";
 import { partAt, partMove, type PartPlace } from "./thread-place";
 import { glideContent } from "./thread-glide";
 import { whenIdle } from "../../data/idle";
-import "./SessionThread.css";
+import "./prose-styles";
 
 type AgentItem = Extract<SessionItem, { kind: "agent" }>;
 
@@ -1831,7 +1831,11 @@ export function SessionThread({
       // The place the next glide measures from.
       see();
       setAtBottom(stuck.current);
-      record();
+      // The event for a scroll that the view wrote itself keeps the anchor it
+      // kept. The page can have changed since, as when a reply above renders
+      // its Markdown, and the units report their heights only after this
+      // event: read from the page, the anchor would take that shift.
+      if (moved(node.scrollTop, recorded)) record();
       place(true);
       loadEarlier();
     };

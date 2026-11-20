@@ -446,6 +446,28 @@ test("a row keeps its state when it leaves the view and comes back", async () =>
   await expect.element(page.getByText("12 pass")).toBeVisible();
 });
 
+test("a scroll event that comes before the units report a new height keeps the view's place", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(300);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r299");
+  const scroller = threadScroller();
+  await userEvent.wheel(scroller, { delta: { y: -1500 } });
+  await expect.poll(() => document.querySelector("[data-unit] .med-session-plain")).toBeNull();
+  await afterFrames(4);
+  const before = firstInView();
+  // A unit above the view grows, as when its reply's Markdown renders, and a
+  // scroll event comes before the units report it, as the event for a scroll
+  // that the view wrote itself can.
+  const top = scroller.getBoundingClientRect().top;
+  const above = units().findLast((unit) => unit.getBoundingClientRect().bottom < top)!;
+  (above.firstElementChild as HTMLElement).style.paddingTop = "40px";
+  scroller.dispatchEvent(new Event("scroll"));
+  await afterFrames(4);
+  expect(Math.abs(topOf(before.key) - before.top)).toBeLessThan(2);
+});
+
 test("a turn from the index goes to the top of the view", async () => {
   await page.viewport(1280, 900);
   initializeTheme();
