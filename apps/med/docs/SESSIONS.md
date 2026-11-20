@@ -328,8 +328,10 @@ session; Med says "another app" for them. A record counts when its
 `sessionId` matches, its process is alive (`kill(pid, 0)`), and `ps` gives
 the same start time now, so a pid that the system gave to a newer process
 does not count. Med's own agents and `--fork-session` processes (questions)
-do not count. A process that names the session in its arguments, such as
-`claude --resume <id>`, also counts, in another app. When Med cannot tell, as
+do not count. A process that starts the session by its arguments
+(`--resume <id>`, `-r <id>` or `--session-id <id>`) also counts, in another
+app; one that only mentions the ID, as `med thread wait claude-<id>` does,
+does not. When Med cannot tell, as
 for a record that it cannot read, the session counts as running in another
 app: a shut message box is safe, and Fork in Med is still there; two
 writers on one transcript are not safe. Med does not use Claude Code's messaging socket: Claude treats

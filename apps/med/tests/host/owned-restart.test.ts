@@ -65,8 +65,8 @@ test("agents keep working through a host restart; after a reboot, Claude Code re
   expect((await acp.state()).status).toBe("exited");
 
   // While another Claude Code process runs the session, as in a terminal,
-  // Med does not start a second one, and sends nothing. A process that names
-  // the session in its arguments counts; without its record, Med does not
+  // Med does not start a second one, and sends nothing. A process that starts
+  // the session by its arguments counts; without its record, Med does not
   // know where it is open.
   const send = (text: string) =>
     api<{ message: { delivery: string; error?: string }; state: AgentInboxState }>(
@@ -74,7 +74,13 @@ test("agents keep working through a host restart; after a reboot, Claude Code re
       { text, noteIds: [] },
     );
   const inbox = async () => (await api<AgentInboxState>(`/api/sessions/${kept.thread}/agent`)).data;
-  const other = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)", "claude", kept.id]);
+  const other = spawn(process.execPath, [
+    "-e",
+    "setTimeout(() => {}, 30000)",
+    "claude",
+    "--resume",
+    kept.id,
+  ]);
   const exited = once(other, "exit");
   await once(other, "spawn");
   expect((await send("Are you there?")).status).toBe(409);

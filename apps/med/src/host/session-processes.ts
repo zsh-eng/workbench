@@ -17,13 +17,32 @@ import { userHome } from "./service/discover";
 // alive and starts at that time, so a record whose pid the system gave to a
 // new process does not count. A record that Med cannot read counts: a false
 // "runs elsewhere" only holds a message, while two writers on one transcript
-// break it. A session started with its ID in its arguments, such as
-// `claude --resume <id>`, also counts.
+// break it. A process started in a session by its arguments, such as
+// `claude --resume <id>`, also counts; one whose arguments only hold the ID,
+// as `med thread wait claude-<id>` does, does not.
 //
 // `entrypoint` is the CLAUDE_CODE_ENTRYPOINT of the process. Claude Code 2.1
 // sets `cli` for `claude` in a terminal, and the Claude app sets
 // `claude-desktop`, or `claude-desktop-3p` with another model provider. The
 // other values name an IDE, the SDK, an integration, or a remote session.
+
+/** The flags that start Claude Code in a session: `--resume <id>`. */
+const SESSION_FLAGS = new Set(["--resume", "-r", "--session-id"]);
+
+/**
+ * The sessions that a process's arguments start, by a session flag before
+ * the ID or joined to it by `=`. An ID elsewhere in them names no session it
+ * runs, as in `med thread wait claude-<id>`, which waits on one.
+ */
+export function sessionsNamed(args: string) {
+  const words = args.split(/\s+/);
+  return words.flatMap((word, at) => {
+    const equals = word.indexOf("=");
+    const flag = equals < 0 ? word : word.slice(0, equals);
+    const id = equals < 0 ? words[at + 1] : word.slice(equals + 1);
+    return SESSION_FLAGS.has(flag) && id ? [id] : [];
+  });
+}
 
 /** A record is a few hundred bytes; a larger file is not one. */
 const MAX_RECORD_BYTES = 64 * 1024;
@@ -140,7 +159,7 @@ export function createSessionProcesses(
       if (!match || own.has(Number(match[1])) || Number(match[1]) === process.pid) continue;
       const args = match[2]!;
       if (!/claude/i.test(args) || args.includes("--fork-session")) continue;
-      for (const id of wanted) if (args.includes(id)) found.add(id);
+      for (const id of sessionsNamed(args)) if (wanted.has(id)) found.add(id);
     }
     return found;
   };
@@ -202,9 +221,10 @@ export function createSessionProcesses(
     },
     async elsewhere(ids, maxAgeMs = 0) {
       const now = Date.now();
+      // No age reads anew, even after an answer from the same millisecond.
       const due = ids.filter((id) => {
         const answer = answers.get(id);
-        return !answer || now - answer.at > maxAgeMs;
+        return !answer || maxAgeMs <= 0 || now - answer.at > maxAgeMs;
       });
       if (due.length) {
         const found = await read(due);

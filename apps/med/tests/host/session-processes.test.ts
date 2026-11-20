@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "vitest";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSessionProcesses } from "../../src/host/session-processes";
+import { createSessionProcesses, sessionsNamed } from "../../src/host/session-processes";
 import {
   longProcess,
   openSession,
@@ -93,8 +93,20 @@ test("the record's entrypoint says where the session is open: a terminal, the Cl
   await Promise.all(kinds.map(([entrypoint], index) => terminal(entrypoint, ids[index])));
   expect(await Promise.all(ids.map((id) => where(id)))).toEqual(kinds.map(([, place]) => place));
 
-  // A process found only by the session ID in its arguments, without a record.
+  // A process found only by the session ID in its arguments, without a record:
+  // one that waits on the session runs no part of it.
+  const waits = await longProcess(["med", "thread", "wait", `claude-${session}`]);
+  ends.push(waits.end);
+  expect(await where()).toBeUndefined();
   const named = await longProcess(["claude", "--resume", session]);
   ends.push(named.end);
   expect(await where()).toBe("other-app");
+});
+
+test("a process's arguments start a session by a session flag before its ID or joined to it", () => {
+  expect(sessionsNamed(`claude --resume ${session} -p`)).toEqual([session]);
+  expect(sessionsNamed(`claude -r ${session}`)).toEqual([session]);
+  expect(sessionsNamed(`node cli.js --session-id=${session}`)).toEqual([session]);
+  expect(sessionsNamed(`med thread wait claude-${session}`)).toEqual([]);
+  expect(sessionsNamed(`claude --resume`)).toEqual([]);
 });
