@@ -22,7 +22,7 @@ defines the words (thread, session, hand-off, review), and the pages under
 2. The agent works, then runs `med review create`. The hand-off is a card in
    the conversation, and the review opens beside the session.
 3. Read it: **Review** has the agent's guide when it wrote one, **Changes**
-   the diff, **Commit** what is left to stage, commit, and push (`1`–`3`).
+   the diff, **Commit** what is left to stage, commit, and push (`⌥1`–`⌥3`).
    The header's **+/−** splits the totals by kind of file on hover.
 
 ![The session beside its review, with the hand-off card and a comment waiting to send](screenshots/flows/handoff.webp)
@@ -142,7 +142,7 @@ flowchart LR
    the top of the files picks branch, working, staged, or unstaged changes;
    **Base branch…** picks the base, and **Compare revisions…** in **⋯** picks
    a range of commits.
-3. **Files** (`4`), or **Show files sidebar** in `⌘K`, walks the whole tree;
+3. **Files** (`⌥4`), or **Show files sidebar** in `⌘K`, walks the whole tree;
    any file opens in a tab of that page, as above.
 4. In a review whose range has two or more commits, the rail's **All files**
    lists them; each opens alone, with its message, and **Whole range** goes

@@ -658,17 +658,22 @@ async function showThread(session, id) {
   return true;
 }
 
-/** The ⌥ key of the tab whose name starts with `name`: its place in the row, or 9 for the last. */
+/** The ⌥ key that shows `name`: a page's own place (⌥1–⌥4), else a tab's
+ * place under the file (⌥5–⌥8), or ⌥9 for the last. */
 async function tabKey(page, name) {
+  const pages = { Review: 1, Changes: 2, Commit: 3, "Pull request": 3, Files: 4 };
+  if (pages[name]) return `Alt+Digit${pages[name]}`;
   const { index, count } = await page.evaluate((wanted) => {
-    const tabs = window.__perf.tabs();
+    const tabs = [...document.querySelectorAll('[aria-label="Open files"] [role="tab"]')].filter(
+      (tab) => tab.checkVisibility(),
+    );
     return {
       index: tabs.findIndex((tab) => tab.textContent.trim().startsWith(wanted)),
       count: tabs.length,
     };
   }, name);
   if (index < 0) return undefined;
-  return index < 8 ? `Alt+Digit${index + 1}` : index === count - 1 ? "Alt+Digit9" : undefined;
+  return index < 4 ? `Alt+Digit${index + 5}` : index === count - 1 ? "Alt+Digit9" : undefined;
 }
 
 /**

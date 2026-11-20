@@ -59,6 +59,7 @@ import {
   ReviewHeader,
   ReviewTitle,
   ReviewTools,
+  PAGE_KEYS,
   type DisplayOptions,
   type ReviewPage,
 } from "./components/ReviewHeader";
@@ -3109,27 +3110,6 @@ export function App({
         toggleCommit();
         return;
       }
-      // 1, 2, and 3 show the pages, also while a file shows; in the session,
-      // a number answers the agent's question.
-      const pageAt = /^[1-9]$/.test(event.key) ? reviewPages[Number(event.key) - 1] : undefined;
-      if (
-        pageAt &&
-        !editing &&
-        !modal &&
-        !visibleElement('[role="dialog"]') &&
-        !(
-          event.target instanceof Element &&
-          event.target.closest('[data-file-pane="main"][tabindex="0"], [data-session-panel]')
-        ) &&
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !event.altKey
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-        if (!event.repeat) selectTab(pageAt.value);
-        return;
-      }
       const optionKey = event.code || `Key${event.key.toUpperCase()}`;
       // These Alt keys also work from the editor and the Search tab's query,
       // so ⌥W, ⌥Z, and ⌥1–9 do not type there.
@@ -3151,14 +3131,22 @@ export function App({
         !visibleElement('[role="dialog"]')
       ) {
         const key = optionKey;
-        // Alt+1–8 show that tab; Alt+9 shows the last, as in browsers.
-        const row = tabRow();
-        if (/^Digit[1-9]$/.test(key) && !event.shiftKey && row.order.length) {
+        // ⌥1–⌥4 show the pages, each always at its place, as the switch's
+        // tooltips say. ⌥5–⌥8 show the first four tabs under the file, and
+        // ⌥9 the last, as in browsers.
+        if (/^Digit[1-9]$/.test(key) && !event.shiftKey && reviewPages.length) {
           event.preventDefault();
           event.stopPropagation();
           const place = Number(key.slice(5));
-          const id = place === 9 ? row.order.at(-1) : row.order[place - 1];
-          if (id && id !== row.active) selectTab(id);
+          const { tabs, search } = fileWorkspace.getSnapshot();
+          const strip = [...(search !== undefined ? ["search"] : []), ...tabs.map((tab) => tab.id)];
+          const id =
+            place <= 4
+              ? reviewPages.find((page) => PAGE_KEYS[page.value] === place)?.value
+              : place === 9
+                ? strip.at(-1)
+                : strip[place - 5];
+          if (id && !event.repeat && id !== tabRow().active) selectTab(id);
           return;
         }
         if (["KeyW", "KeyO", "KeyB", "KeyR", "KeyZ"].includes(key)) {

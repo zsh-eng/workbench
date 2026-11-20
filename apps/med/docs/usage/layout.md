@@ -113,8 +113,8 @@ the band names it.
 - The pages are icons side by side, and a tooltip names each: **Review**, a
   signpost, as its Guide walks through the change; **Changes**, a plus and a
   minus; **Commit**, Git's mark, or **Pull request** for a thread with
-  one; and **Files**, a folder. The number keys `1` to `4` switch between
-  them while the focus is not in a text field, the diff, or the session.
+  one; and **Files**, a folder. `⌥1` to `⌥4` switch between them, each page
+  always on its own number, also from the editor.
 - **Files** is a page of its own: the tree of what the workspace shows, at
   its side, and a tab for each file that you open, with Search. The other
   pages have no tabs: a file that opens from a diff, a link, the tree, or

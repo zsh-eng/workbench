@@ -477,7 +477,7 @@ describe("graphical review", () => {
         .element(shown)
         .toHaveAttribute(isPage ? "aria-checked" : "aria-selected", "true");
     };
-    // From alpha.ts's editor too, where Option+3 would otherwise type £.
+    // From alpha.ts's editor too, where Option+5 would otherwise type ∞.
     const editor = page.getByRole("textbox", {
       name: "Edit src/alpha.ts",
       exact: true,
@@ -489,12 +489,18 @@ describe("graphical review", () => {
     await expect.element(page.getByRole("textbox", { name: "Edit src/alpha.ts" })).toBeVisible();
     await expect.poll(() => document.activeElement?.closest(".med-find-panel")).not.toBeNull();
     key({ key: "Escape", code: "Escape" }, document.activeElement!);
-    key({ key: "£", code: "Digit3", altKey: true }, editor.element());
+    // ⌥5–⌥8 are the tabs under the file; ⌥1–⌥4 the pages, each at its place.
+    key({ key: "∞", code: "Digit5", altKey: true }, editor.element());
     await selected("beta.ts");
-    key({ key: "¡", code: "Digit1", altKey: true });
+    key({ key: "™", code: "Digit2", altKey: true });
     await selected("Changes");
+    // A number alone is not a page's key.
+    expect(key({ key: "3", code: "Digit3" })).toBe(true);
     key({ key: "}", code: "BracketRight", metaKey: true, shiftKey: true });
     await selected("Commit");
+    // Files shows the file that showed last.
+    key({ key: "¢", code: "Digit4", altKey: true });
+    await selected("beta.ts");
     key({ key: "ª", code: "Digit9", altKey: true });
     await selected("alpha.ts");
     key({ key: "}", code: "BracketRight", metaKey: true, shiftKey: true });

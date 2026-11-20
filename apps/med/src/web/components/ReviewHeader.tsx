@@ -112,14 +112,14 @@ export function PageSwitch({ pages, page, onPage }: ReviewPages) {
   if (pages.length < 2) return null;
   return (
     <div role="radiogroup" aria-label="Page" {...stylex.props(styles.pages)}>
-      {pages.map((entry, index) => (
+      {pages.map((entry) => (
         <button
           key={entry.value}
           type="button"
           role="radio"
           aria-checked={page === entry.value}
           aria-label={entry.label}
-          {...tooltip(entry.label, String(index + 1))}
+          {...tooltip(entry.label, `⌥ ${PAGE_KEYS[entry.value]}`)}
           onClick={() => onPage(entry.value)}
           {...stylex.props(ui.button, styles.page, page === entry.value && styles.pageOn)}
         >
@@ -129,6 +129,16 @@ export function PageSwitch({ pages, page, onPage }: ReviewPages) {
     </div>
   );
 }
+
+/** Each page's place for ⌥1–⌥4, whichever pages the workspace has: a pull
+ * request's page takes Commit's place, as it does in the switch. */
+export const PAGE_KEYS: Record<string, number> = {
+  review: 1,
+  changes: 2,
+  commit: 3,
+  pull: 3,
+  files: 4,
+};
 
 /**
  * The review's title, with Med's mark when it is a saved review. A title

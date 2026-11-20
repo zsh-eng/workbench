@@ -67,7 +67,7 @@ sequenceDiagram
   Med-->>You: Opens on New since you looked
 ```
 
-The review has three pages, `1`–`3`:
+The review has three pages, `⌥1`–`⌥3`:
 
 - **Review**: the agent's guide, if it gave one, and its summary.
 - **Changes**: the diff, with your comments and the agent's answers.

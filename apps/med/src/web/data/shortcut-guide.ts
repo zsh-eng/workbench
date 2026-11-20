@@ -75,9 +75,9 @@ export const guideContexts: GuideContext[] = [
             command: "open-repository",
           },
           {
-            label: "Show the Review, Changes, or Commit page",
-            keys: ["{1–3}"],
-            note: "While the focus is not in text, the diff, or the session",
+            label: "Show the Review, Changes, Commit, or Files page",
+            keys: ["Alt+{1–4}"],
+            note: "Each page always on its number; a pull request's takes Commit's",
           },
           { label: "Show a tab by its place in the sidebar", keys: ["Mod+{1–9}"] },
           {
@@ -222,9 +222,9 @@ export const guideContexts: GuideContext[] = [
           { label: "Close all files", keys: ["Alt+Shift+W"], command: "close-files" },
           { label: "Close other files", keys: ["Alt+Shift+O"], command: "close-others" },
           {
-            label: "Show a tab by its place in the row",
-            keys: ["Alt+{1–9}"],
-            note: "Review, Notes, Changes, Commit, Search, then files; 9 shows the last",
+            label: "Show a tab under the file by its place",
+            keys: ["Alt+{5–9}"],
+            note: "Search, then files: ⌥5 is the first; ⌥9 shows the last",
           },
           {
             label: "Previous / next tab",

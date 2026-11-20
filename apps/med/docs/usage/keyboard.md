@@ -29,7 +29,7 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Move the focused pane                  | `⌘⌥⇧←`                       |
 | Expand the review (or session in use)  | `⌘E`                         |
 | Balance the panes                      | `⌘⌃=`                        |
-| Review / Changes / Commit / Files page | `1` / `2` / `3` / `4`        |
+| Review / Changes / Commit / Files page | `⌥1` / `⌥2` / `⌥3` / `⌥4`    |
 | Back / Forward                         | `⌃-` / `⌃⇧-`, or `⌘[` / `⌘]` |
 | Comment on selected lines              | `c`                          |
 | Comment on a file's lines, in Vim      | `gc`                         |
@@ -38,7 +38,7 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Next / previous excerpt or reply       | `]` / `[`                    |
 | Next / previous prompt, in the thread  | `}` / `{`                    |
 | Resume search                          | `⌥R`                         |
-| Show tab 1–8 / the last tab            | `⌥1`–`⌥9`                    |
+| Show tab 1–4 under the file / the last | `⌥5`–`⌥8` / `⌥9`             |
 | Previous / next tab                    | `⌘⇧[` / `⌘⇧]`                |
 | Toggle gutter blame                    | `⌥B`                         |
 | Close the file or Search               | `⌥W`                         |
@@ -48,8 +48,9 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 In a thread, `⌘O` and `⌘⇧G` show the repository, branch, or worktree inside
 the thread; `⌘↵` in the picker opens a new workspace.
 
-Close actions keep the Changes tab and other workspaces. Tab numbers count the
-Review, Changes, Commit, and Search tabs with the file tabs. A browser can take some
+Close actions keep the Changes tab and other workspaces. `⌥1`–`⌥4` are always
+the same pages; a pull request's page takes Commit's number. `⌥5`–`⌥8` count
+the tabs under the file, Search first. A browser can take some
 shortcuts first; the command palette has the same actions.
 
 ## Commit page

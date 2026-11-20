@@ -24,7 +24,7 @@ Every open shows the **Files** page, a page of the review beside Review,
 Changes, and Commit, and makes a tab there that stays until you close it:
 Find file, a click in the tree at the page's side, a link, a file name in a
 diff, a search result, and Go to definition. The other pages have no tabs, so
-a file does not stay over the review; **Files**, or `4`, shows it again. A file that is
+a file does not stay over the review; **Files**, or `⌥4`, shows it again. A file that is
 open already shows its tab, at the line when the open names one. In the tree,
 the arrow keys move without opening files, and `↵` opens the selected one.
 `⌘`-click opens a file in the background. A middle click on a tab closes
