@@ -81,23 +81,10 @@
   overflow: hidden;
   background: var(--med-canvas);
 }
-.med-vault-tabbar {
-  display: flex;
-  align-items: center;
-  flex: none;
-  min-width: 0;
-  height: 38px;
-  border-bottom: 1px solid color-mix(in srgb, var(--med-text) 8%, transparent);
-}
-.med-vault-tabbar > :not(.med-vault-actions) {
-  flex: 1;
-  min-width: 0;
-}
 .med-vault-actions {
   display: flex;
   align-items: center;
   flex: none;
-  padding-right: 4px;
 }
 .med-vault-surface {
   flex: 1;

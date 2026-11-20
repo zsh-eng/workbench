@@ -128,6 +128,14 @@ describe("graphical review", () => {
       );
     expect(items()).toHaveLength(2);
     expect(new Set(items()).size).toBe(1);
+    // The tabs sit under the file, at the pane's foot.
+    const row = page.getByRole("tablist", { name: "Open files" }).element();
+    const panel = document.getElementById(
+      row.querySelector('[role="tab"]')!.getAttribute("aria-controls")!,
+    )!;
+    expect(row.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      panel.getBoundingClientRect().bottom - 1,
+    );
     // The pointer on a tab's × fills the tab, as on the tab itself.
     const alpha = page.getByRole("tab", { name: "alpha.ts", exact: true });
     const fill = () => getComputedStyle(alpha.element()).backgroundColor;
@@ -504,9 +512,10 @@ describe("graphical review", () => {
     await expect
       .element(page.getByRole("region", { name: "File editor", exact: true }))
       .toBeVisible();
+    // The Files page's tree, under the still pointer, may read the file there too.
     await expect
-      .poll(() => fileRequests.at(-1))
-      .toEqual({
+      .poll(() => fileRequests)
+      .toContainEqual({
         source: { kind: "worktree", repo: "/test/repo" },
         path: "src/alpha.ts",
       });

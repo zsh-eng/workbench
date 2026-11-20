@@ -674,46 +674,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
               />
             )}
             <main className="med-vault-main">
-              <div className="med-vault-tabbar">
-                <FileViewTabs
-                  showChanges={false}
-                  tabs={currentTabs.map((tab) => ({
-                    id: tab.file.path,
-                    path: tab.file.vault!.path,
-                    dirty: drafts.get(tab.file.path)?.dirty,
-                  }))}
-                  active={currentFile?.path ?? ""}
-                  panelId="vault-file-panel"
-                  onSelect={(id) => {
-                    const tab = currentTabs.find((t) => t.file.path === id);
-                    if (tab) open(tab.file.vault!.path);
-                  }}
-                  onClose={(id) => closeTabs([id])}
-                  onCloseOthers={(id) =>
-                    closeTabs(
-                      currentTabs.map((tab) => tab.file.path).filter((path) => path !== id),
-                      id,
-                    )
-                  }
-                  onCloseAll={() => closeTabs(currentTabs.map((tab) => tab.file.path))}
-                />
-                <div className="med-vault-actions">
-                  <ToolButton
-                    label={sidebar ? "Hide files" : "Show files"}
-                    icon="folder"
-                    aria-label="Toggle files sidebar"
-                    aria-pressed={sidebar}
-                    onClick={() => setSidebar((value) => !value)}
-                  />
-                  <ToolButton
-                    label="Commands"
-                    shortcut="⌘ K"
-                    icon="search"
-                    aria-label="Open command palette"
-                    onClick={() => setCommandsOpen(true)}
-                  />
-                </div>
-              </div>
               <div
                 id="vault-file-panel"
                 ref={surface}
@@ -768,6 +728,47 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                   </div>
                 )}
               </div>
+              {/* The tabs and the window's tools sit under the file. */}
+              <FileViewTabs
+                showChanges={false}
+                trailing={
+                  <div className="med-vault-actions">
+                    <ToolButton
+                      label={sidebar ? "Hide files" : "Show files"}
+                      icon="folder"
+                      aria-label="Toggle files sidebar"
+                      aria-pressed={sidebar}
+                      onClick={() => setSidebar((value) => !value)}
+                    />
+                    <ToolButton
+                      label="Commands"
+                      shortcut="⌘ K"
+                      icon="search"
+                      aria-label="Open command palette"
+                      onClick={() => setCommandsOpen(true)}
+                    />
+                  </div>
+                }
+                tabs={currentTabs.map((tab) => ({
+                  id: tab.file.path,
+                  path: tab.file.vault!.path,
+                  dirty: drafts.get(tab.file.path)?.dirty,
+                }))}
+                active={currentFile?.path ?? ""}
+                panelId="vault-file-panel"
+                onSelect={(id) => {
+                  const tab = currentTabs.find((t) => t.file.path === id);
+                  if (tab) open(tab.file.vault!.path);
+                }}
+                onClose={(id) => closeTabs([id])}
+                onCloseOthers={(id) =>
+                  closeTabs(
+                    currentTabs.map((tab) => tab.file.path).filter((path) => path !== id),
+                    id,
+                  )
+                }
+                onCloseAll={() => closeTabs(currentTabs.map((tab) => tab.file.path))}
+              />
             </main>
           </div>
         )}

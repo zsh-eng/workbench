@@ -25,8 +25,9 @@ running; `status` and `stop` do not. Keep the state folder
 
 Open a vault from the **Sources** page or the workspace list. The title band
 names the vault, and the files sidebar has the file tree and backlinks. Click a
-file to open it in a tab of its own; the tab stays until you close it. A tab
-with unsaved changes does not close until you save or discard them.
+file to open it in a tab of its own, in the row under the file; the tab stays
+until you close it. A tab with unsaved changes does not close until you save or
+discard them.
 
 - `⌘K` opens the command palette, `⌘⇧K` finds a file with a preview, and the
   folder button shows or hides the files sidebar. `⌘B` shows or hides the

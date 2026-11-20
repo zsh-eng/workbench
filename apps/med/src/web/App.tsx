@@ -841,18 +841,21 @@ export function App({
     prefetch.invalidate();
     fileWorkspace.invalidate(rawBrowseApi.read);
   }, [fileWorkspace, prefetch, rawBrowseApi, state.sourceRevision]);
+  const activeFile = fileState.tabs.find((tab) => tab.id === fileState.active);
+  // The pointer on a file's name reads it ahead of a click. The file on screen
+  // is read already, and a copy kept for its next open could be older.
+  const shownFile = activeFile && JSON.stringify([sourceKey(activeFile.source), activeFile.path]);
   const prefetchFile = useCallback(
     (path: string) => {
-      if (browseSource)
+      if (browseSource && JSON.stringify([sourceKey(browseSource), path]) !== shownFile)
         prefetch.prefetch(
           browseSource,
           path,
           workerPool ? (file) => workerPool.primeFileHighlightCache(file) : undefined,
         );
     },
-    [browseSource, prefetch, workerPool],
+    [browseSource, prefetch, workerPool, shownFile],
   );
-  const activeFile = fileState.tabs.find((tab) => tab.id === fileState.active);
   // Registered vaults: Find file reaches their files, and their tabs name their folders.
   const vaultTab = fileState.tabs.some((tab) => tab.source.kind === "vault");
   // Each @ in a message to the agent lists the vaults' notes again.
@@ -6142,32 +6145,35 @@ export function App({
   );
   // The review's one row: its name, the page's own controls, and Expand at
   // its end. Without the title band, its end holds the pages too. On the
-  // Files page the band names the checkout, so the file tabs are the row.
+  // Files page the band names the checkout, so the file tabs at the pane's
+  // foot are the row and take its controls along: the file's own header is
+  // the pane's first row.
   const tabsAreRow = filesPage && bandShown;
   const mainHeader = (controls: ReactNode) =>
-    tabsAreRow && fileTabsShown ? (
-      fileTabs(
-        leading,
-        <>
-          {pageTools}
-          {rowMore}
-          {paneEnd(controls)}
-        </>,
-      )
-    ) : (
-      <>
-        <ReviewHeader
-          lead={leading}
-          name={tabsAreRow ? null : reviewName}
-          choice={!tabsAreRow && reviewSwitch}
-          tools={pageTools}
-          more={rowMore}
-          end={!bandShown && reviewTools}
-          controls={paneEnd(controls)}
-        />
-        {fileTabsShown && fileTabs()}
-      </>
+    tabsAreRow && fileTabsShown ? null : (
+      <ReviewHeader
+        lead={leading}
+        name={tabsAreRow ? null : reviewName}
+        choice={!tabsAreRow && reviewSwitch}
+        tools={pageTools}
+        more={rowMore}
+        end={!bandShown && reviewTools}
+        controls={paneEnd(controls)}
+      />
     );
+  // The Files page's tabs, under the file.
+  const mainFooter = (controls: ReactNode) =>
+    fileTabsShown &&
+    (tabsAreRow
+      ? fileTabs(
+          leading,
+          <>
+            {pageTools}
+            {rowMore}
+            {paneEnd(controls)}
+          </>,
+        )
+      : fileTabs());
   // The pane's own control, Expand, at the row's end. The review has no Hide
   // button: its page in the title band, clicked again, hides it, as ⌘K does.
   const paneEnd = (controls: ReactNode) => (
@@ -7146,8 +7152,13 @@ export function App({
               </div>
             </div>
           </div>
+          {mainFooter(controls)}
           {toast && (
-            <div key={toast.id} role="status" {...stylex.props(styles.toast)}>
+            <div
+              key={toast.id}
+              role="status"
+              {...stylex.props(styles.toast, fileTabsShown && styles.toastOverTabs)}
+            >
               {toast.text}
             </div>
           )}
@@ -7510,6 +7521,8 @@ const styles = stylex.create({
     animationDuration: "220ms",
     animationTimingFunction: tokens.easeOut,
   },
+  // Above the file tabs at the pane's foot.
+  toastOverTabs: { bottom: 58 },
   toastAction: {
     height: 24,
     paddingInline: 8,

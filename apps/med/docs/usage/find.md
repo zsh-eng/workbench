@@ -29,9 +29,11 @@ open already shows its tab, at the line when the open names one. In the tree,
 the arrow keys move without opening files, and `↵` opens the selected one.
 `⌘`-click opens a file in the background. A middle click on a tab closes
 it. A workspace holds 24 file tabs; when the row is full, a new file takes the
-place of the oldest tab without an unsaved draft. The tabs are the page's first
-row, as the title band names the checkout. A file's own row names its path and
-its tools; a file of a commit also names the commit.
+place of the oldest tab without an unsaved draft. The tabs are the page's last
+row, under the file, as the title band names the checkout. A tab's icon gives
+way to its × while the pointer is on it, and an unsaved file's dot sits on the
+icon. A file's own row, the page's first, names its path and its tools; a file
+of a commit also names the commit.
 
 Files come from what the workspace shows. On **Changes**, they are the
 checkout's working files, to edit. On a saved review, they are the reviewed

@@ -146,11 +146,13 @@ export function FileViewTabs({
               }}
               {...stylex.props(styles.tab, styles.fileTab, active === "search" && styles.active)}
             >
-              <Icon name="search" size={12} />
+              <span {...stylex.props(styles.chip)}>
+                <Icon name="search" size={12} />
+              </span>
               <span {...stylex.props(styles.name, styles.query)}>{searchLabel || "Search"}</span>
             </Tabs.Tab>
             <button
-              {...stylex.props(styles.close, active === "search" && styles.closeVisible)}
+              {...stylex.props(styles.close)}
               aria-label="Close search"
               title="Close search"
               onClick={() => onClose("search")}
@@ -195,10 +197,12 @@ export function FileViewTabs({
               }}
               {...stylex.props(styles.tab, styles.fileTab, active === tab.id && styles.active)}
             >
-              <FileIcon path={tab.path} />
+              <span {...stylex.props(styles.chip)}>
+                <FileIcon path={tab.path} size={12} />
+              </span>
               <span {...stylex.props(styles.name)}>{labels[index]}</span>
             </Tabs.Tab>
-            {/* An unsaved file's dot takes the close button's place, until hover. */}
+            {/* An unsaved file's dot marks its icon, until hover shows Close there. */}
             {tab.dirty && (
               <span
                 aria-label="Unsaved changes"
@@ -207,10 +211,7 @@ export function FileViewTabs({
               />
             )}
             <button
-              {...stylex.props(
-                styles.close,
-                active === tab.id && !tab.dirty && styles.closeVisible,
-              )}
+              {...stylex.props(styles.close)}
               aria-label={`Close ${tab.path}`}
               title={`Close ${tab.path}`}
               onClick={() => onClose(tab.id)}
@@ -229,9 +230,10 @@ const tabEnter = stylex.keyframes({
   to: { opacity: 1, transform: "none" },
 });
 const styles = stylex.create({
-  // Plain tabs: a name on the page's own background, filled while the pointer
-  // is on it and more firmly for the file on screen. Six pixels above and
-  // below a tab give the row room to breathe.
+  // The row at the pane's foot, under the file: round tabs on the page's own
+  // background, filled while the pointer is on one and more firmly, with a
+  // ring, for the file on screen. Six pixels above and below a tab give the
+  // row room to breathe.
   root: {
     display: "flex",
     alignItems: "center",
@@ -243,7 +245,7 @@ const styles = stylex.create({
     boxSizing: "border-box",
     paddingInline: 6,
     backgroundColor: tokens.canvas,
-    boxShadow: `inset 0 -1px 0 ${tokens.line}`,
+    boxShadow: `inset 0 1px 0 ${tokens.line}`,
   },
   // The tabs narrow as more open and never scroll.
   list: {
@@ -276,7 +278,7 @@ const styles = stylex.create({
     height: 28,
     minWidth: 0,
     borderWidth: 0,
-    borderRadius: `calc(6px * ${tokens.round})`,
+    borderRadius: `calc(14px * ${tokens.round})`,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     color: { default: tokens.muted, ":hover": tokens.text },
     paddingInline: 8,
@@ -295,10 +297,12 @@ const styles = stylex.create({
     animationTimingFunction: tokens.easeOut,
   },
   // The tab and its close button are one: the pointer on either fills the tab.
+  // The close button takes the icon's place under the pointer, so the tab
+  // keeps no room for it, and its name has that room.
   fileTab: {
     width: "100%",
-    paddingInlineStart: 8,
-    paddingInlineEnd: 26,
+    paddingInlineStart: 4,
+    paddingInlineEnd: 12,
     backgroundColor: {
       default: "transparent",
       ":hover": tokens.fill,
@@ -313,6 +317,18 @@ const styles = stylex.create({
   active: {
     color: { default: tokens.text, ":hover": tokens.text },
     backgroundColor: { default: tokens.fillStrong, ":hover": tokens.fillStrong },
+    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
+  },
+  // A file's icon on a small round tile, which the close button covers.
+  chip: {
+    display: "grid",
+    placeItems: "center",
+    flexShrink: 0,
+    width: 20,
+    height: 20,
+    borderRadius: `calc(10px * ${tokens.round})`,
+    backgroundColor: tokens.fill,
+    opacity: { default: 1, [stylex.when.ancestor(":hover")]: 0 },
   },
   // A long name ends in an ellipsis where the tab stops.
   name: {
@@ -337,11 +353,12 @@ const styles = stylex.create({
     fontStyle: "normal",
     fontVariantNumeric: "tabular-nums",
   },
+  // An unsaved file's dot sits on its icon's tile, at the corner.
   dirty: {
     position: "absolute",
     zIndex: 2,
-    insetInlineEnd: 10,
-    top: "calc(50% - 3px)",
+    insetInlineStart: 19,
+    top: "calc(50% - 10px)",
     width: 6,
     height: 6,
     borderRadius: "50%",
@@ -349,10 +366,11 @@ const styles = stylex.create({
     pointerEvents: "none",
     opacity: { default: 1, [stylex.when.ancestor(":hover")]: 0 },
   },
+  // In the icon's place, while the pointer is on the tab.
   close: {
     position: "absolute",
     zIndex: 2,
-    insetInlineEnd: 4,
+    insetInlineStart: 5,
     top: "calc(50% - 9px)",
     display: "flex",
     alignItems: "center",
@@ -361,12 +379,11 @@ const styles = stylex.create({
     height: 18,
     padding: 0,
     borderWidth: 0,
-    borderRadius: `calc(5px * ${tokens.round})`,
+    borderRadius: `calc(9px * ${tokens.round})`,
     cursor: "pointer",
-    backgroundColor: { default: "transparent", ":hover": tokens.pick },
-    color: { default: tokens.faint, ":hover": tokens.text },
+    backgroundColor: { default: tokens.fillStrong, ":hover": tokens.pick },
+    color: tokens.text,
     opacity: { default: 0, [stylex.when.ancestor(":hover")]: 1, ":focus-visible": 1 },
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
-  closeVisible: { opacity: 1 },
 });
