@@ -61,11 +61,9 @@ at once.
 
 Med's top row then takes the height of the strip that the system keeps for
 the window controls (38 pixels on macOS), so its controls and title sit on the
-same centre line as the traffic lights. A page that heads the window, such as
-Sources, puts its header in that strip, clear of the window controls. On a
-strip lower than 38 pixels, as on Windows and Linux, the header keeps 38
-pixels, so its controls sit a little below the window controls' centre line.
-In a browser tab the row is 36 pixels.
+same centre line as the traffic lights. Pages of their own, such as Sources,
+start below that row, as the panes do, with their title at the top of the
+page. In a browser tab the row is 36 pixels.
 
 ## Sources
 

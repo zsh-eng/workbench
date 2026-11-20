@@ -129,21 +129,27 @@ export function OpenInMenu({
 }
 
 const styles = stylex.create({
+  // A button, as the row's others: outlined, as tall as they are.
   trigger: {
     display: "inline-flex",
     alignItems: "center",
     flexShrink: 0,
-    height: 24,
-    paddingInline: 8,
+    boxSizing: "border-box",
+    height: 28,
+    paddingInline: 10,
     borderWidth: 0,
-    borderRadius: `calc(6px * ${tokens.round})`,
+    borderRadius: tokens.buttonRound,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
-    color: { default: tokens.muted, ":hover": tokens.text },
+    color: tokens.text,
     fontFamily: tokens.ui,
     fontSize: 12,
+    fontWeight: 450,
     cursor: "pointer",
     outline: "none",
-    boxShadow: { default: "none", ":focus-visible": `0 0 0 2px ${tokens.accentLine}` },
+    boxShadow: {
+      default: `inset 0 0 0 1px ${tokens.line}`,
+      ":focus-visible": `inset 0 0 0 1px ${tokens.line}, 0 0 0 2px ${tokens.accentLine}`,
+    },
   },
   text: { whiteSpace: "nowrap" },
 });

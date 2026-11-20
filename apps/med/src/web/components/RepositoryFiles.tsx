@@ -1,4 +1,6 @@
 import { ToolButton } from "./ToolButton";
+import { ActionMenu } from "./Controls";
+import { Icon } from "./Icon";
 import * as stylex from "@stylexjs/stylex";
 import { prepareFileTreeInput } from "@pierre/trees";
 import { StableFileTree, useStableFileTree } from "./StableFileTree";
@@ -112,10 +114,32 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
   return (
     <aside {...stylex.props(styles.panel)} aria-label={props.label ?? "Repository files"}>
       {controls !== undefined ? (
+        // One row, as tall as the file's own header beside it: what the tree
+        // shows (the title band names the checkout), and its tools.
         <div {...(!rail && paneHandle)} {...stylex.props(styles.paneHeading)}>
-          <span {...stylex.props(styles.paneTitle)}>Files</span>
+          <span title={sourceLabel} {...stylex.props(styles.paneTitle)}>
+            {sourceLabel?.split(" · ")[0] || "Files"}
+          </span>
           <span {...stylex.props(ui.grow)} />
-          <ToolButton label="Refresh files" icon="refresh" onClick={onRefresh} />
+          <ActionMenu
+            label="Files options"
+            sections={[
+              [
+                { label: "Refresh files", onClick: onRefresh },
+                ...(onIgnoredChange
+                  ? [
+                      {
+                        label: "Show ignored files",
+                        checked: ignored,
+                        onClick: () => onIgnoredChange(!ignored),
+                      },
+                    ]
+                  : []),
+              ],
+            ]}
+          >
+            <Icon name="more" size={15} />
+          </ActionMenu>
           {controls}
         </div>
       ) : (
@@ -126,12 +150,12 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
           <ToolButton label="Close files sidebar" icon="close" onClick={onClose} />
         </div>
       )}
-      {sourceLabel && (
+      {sourceLabel && controls === undefined && (
         <div {...stylex.props(styles.source)} title={sourceLabel}>
           {sourceLabel}
         </div>
       )}
-      {onIgnoredChange && (
+      {onIgnoredChange && controls === undefined && (
         <label {...stylex.props(styles.ignored)}>
           <input
             type="checkbox"
@@ -188,7 +212,7 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
                 // On the canvas, as every pane: apart from the app's sidebar.
                 "--trees-theme-sidebar-bg": tokens.canvas,
                 "--trees-theme-sidebar-fg": tokens.text,
-                "--trees-theme-list-active-selection-bg": tokens.selected,
+                "--trees-theme-list-active-selection-bg": tokens.pick,
                 "--trees-theme-list-active-selection-fg": tokens.selectedText,
                 "--trees-theme-list-hover-bg": tokens.hover,
                 "--trees-theme-focus-ring": tokens.accent,
@@ -225,10 +249,11 @@ const styles = stylex.create({
   paneHeading: {
     display: "flex",
     alignItems: "center",
-    gap: 8,
-    height: 38,
+    gap: 2,
+    boxSizing: "border-box",
+    height: tokens.bar,
     flexShrink: 0,
-    marginBottom: 8,
+    marginBottom: 6,
     paddingInlineStart: 14,
     paddingInlineEnd: 6,
     color: tokens.muted,
@@ -236,7 +261,16 @@ const styles = stylex.create({
     borderBottomStyle: "solid",
     borderBottomColor: tokens.line,
   },
-  paneTitle: { color: tokens.text, fontSize: 12.5, fontWeight: 500 },
+  paneTitle: {
+    flexShrink: 1,
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: tokens.text,
+    fontSize: 12.5,
+    fontWeight: 500,
+  },
   heading: {
     height: 32,
     minHeight: 32,

@@ -4,9 +4,8 @@ import * as stylex from "@stylexjs/stylex";
 import { picked, tokens, ui } from "../theme.stylex";
 import { openWelcome } from "../data/setup";
 import { visibleElement } from "../data/palette-focus";
-import { useTitleBarOverlay } from "../data/title-bar";
 import { Icon } from "./Icon";
-import { ToolButton } from "./ToolButton";
+import { page, PageHeading } from "./PageHeading";
 import { displayPath } from "./welcome/Welcome";
 import { byName, useWorkspaceActions } from "./Workspaces";
 
@@ -32,7 +31,6 @@ export function SourcesPage({
   notice,
   onOpenVault,
   onRequest,
-  onCommands,
 }: {
   sources: Source[];
   home?: string;
@@ -40,10 +38,8 @@ export function SourcesPage({
   notice?: ReactNode;
   onOpenVault(id: string): void;
   onRequest(action: "index" | "remove", body: object): Promise<void>;
-  onCommands(): void;
 }) {
   const actions = useWorkspaceActions();
-  const tab = useTitleBarOverlay();
   const back = () => {
     const active = actions?.getSnapshot().active;
     if (actions && active) actions.activate(active);
@@ -79,127 +75,96 @@ export function SourcesPage({
       sources={sources}
       home={home}
       loaded={loaded}
-      tab={tab}
       notice={notice}
-      onBack={back}
       onOpen={(source) =>
         source.kind === "vault" ? onOpenVault(source.id) : openRepository(source)
       }
       onAdd={openWelcome}
       onRequest={onRequest}
-      onCommands={onCommands}
     />
   );
 }
 
 /**
- * The Sources page without the app's wiring. It takes the review's frame: one
- * card on the window's panel, headed by a row that is the card's tab when the
- * title bar is hidden.
+ * The Sources page without the app's wiring: a page as Pull requests and
+ * Dashboards are, its title and actions on one line (PageHeading.tsx).
  */
 export function SourcesView({
   sources,
   home,
   loaded,
-  tab = false,
   notice,
-  onBack,
   onOpen,
   onAdd,
   onRequest,
-  onCommands,
 }: {
   sources: Source[];
   home?: string;
   loaded: boolean;
-  /** The installed app hides its title bar: the card rises between the window controls. */
-  tab?: boolean;
   notice?: ReactNode;
-  onBack(): void;
   onOpen(source: Source): void;
   onAdd(): void;
   onRequest(action: "index" | "remove", body: object): Promise<void>;
-  onCommands(): void;
 }) {
   const empty = loaded && !sources.length;
-  const group = (title: string, rows: Source[]) =>
-    rows.length > 0 && (
-      <section aria-label={title} {...stylex.props(styles.group)}>
-        <h2 {...stylex.props(styles.groupTitle)}>
-          <span {...stylex.props(ui.label)}>{title}</span>
-          <span {...stylex.props(styles.count)}>{rows.length}</span>
-        </h2>
-        <ul {...stylex.props(styles.rows)}>
-          {rows.map((source) => (
-            <SourceRow
-              key={source.id}
-              source={source}
-              home={home}
-              onOpen={() => onOpen(source)}
-              onRequest={onRequest}
-            />
-          ))}
-        </ul>
-      </section>
-    );
-  // In the title bar, the header moves the window (TitleRow.css).
-  const head = stylex.props(styles.header, tab && styles.headerInBar);
   return (
-    <div {...stylex.props(styles.page, tab && styles.pageTab)}>
-      <main aria-label="Sources" {...stylex.props(styles.card)}>
-        <header
-          className={`${tab ? "med-title-row " : ""}${head.className ?? ""}`}
-          style={head.style}
-        >
-          <ToolButton label="Back" shortcut="Esc" icon="arrowLeft" onClick={onBack} />
-          <h1 {...stylex.props(styles.title)}>Sources</h1>
-          <span {...stylex.props(ui.grow)} />
-          {!empty && (
-            <button
-              type="button"
-              onClick={onAdd}
-              {...stylex.props(ui.button, ui.pressable, styles.add)}
-            >
-              <Icon name="plus" size={13} />
-              Add sources…
-            </button>
-          )}
-          <ToolButton label="Commands" shortcut="⌘ K" icon="search" onClick={onCommands} />
-        </header>
-        <div {...stylex.props(styles.scroller)}>
-          <div {...stylex.props(styles.column, empty && styles.emptyColumn)}>
-            {notice}
-            {empty ? (
-              <div {...stylex.props(styles.empty)}>
-                <h2 {...stylex.props(styles.emptyTitle)}>No sources yet</h2>
-                <p {...stylex.props(styles.emptyText)}>
-                  Add the Git repositories and Obsidian vaults you work in. Med finds them for you.
-                </p>
+    <div {...stylex.props(styles.page)}>
+      <main aria-label="Sources" {...stylex.props(styles.scroller)}>
+        <div {...stylex.props(page.column, empty && styles.emptyColumn)}>
+          {notice}
+          {empty ? (
+            <div {...stylex.props(styles.empty)}>
+              <h1 {...stylex.props(styles.emptyTitle)}>No sources yet</h1>
+              <p {...stylex.props(styles.emptyText)}>
+                Add the Git repositories and Obsidian vaults you work in. Med finds them for you.
+              </p>
+              <button
+                type="button"
+                onClick={onAdd}
+                {...stylex.props(ui.button, ui.pressable, ui.primary, styles.emptyAdd)}
+              >
+                Add sources…
+              </button>
+              <p {...stylex.props(styles.note)}>
+                From a terminal: <code {...stylex.props(styles.code)}>med add ~/code/my-app</code>
+              </p>
+            </div>
+          ) : (
+            <>
+              <PageHeading
+                title="Sources"
+                lead={
+                  <>
+                    Med keeps a workspace ready for each repository and vault here. To add one from
+                    a terminal, run{" "}
+                    <code {...stylex.props(styles.code)}>med add &lt;folder&gt;</code>. Removing a
+                    source never changes its folder.
+                  </>
+                }
+              >
                 <button
                   type="button"
                   onClick={onAdd}
-                  {...stylex.props(ui.button, ui.pressable, ui.primary, styles.emptyAdd)}
+                  {...stylex.props(ui.button, ui.pressable, ui.outlined)}
                 >
+                  <Icon name="plus" size={13} />
                   Add sources…
                 </button>
-                <p {...stylex.props(styles.note)}>
-                  From a terminal: <code {...stylex.props(styles.code)}>med add ~/code/my-app</code>
-                </p>
-              </div>
-            ) : (
-              <>
-                {/* A vault is one more repository: one list, by name. */}
-                {group("Repositories", [...sources].sort(byName))}
-                {loaded && (
-                  <p {...stylex.props(styles.note, styles.footnote)}>
-                    Med keeps a workspace ready for each folder here. To add one from a terminal,
-                    run <code {...stylex.props(styles.code)}>med add &lt;folder&gt;</code>. Removing
-                    a source never changes its folder.
-                  </p>
-                )}
-              </>
-            )}
-          </div>
+              </PageHeading>
+              {/* A vault is one more source: one list, by name. */}
+              <ul aria-label="Sources" {...stylex.props(styles.rows, page.flush)}>
+                {[...sources].sort(byName).map((source) => (
+                  <SourceRow
+                    key={source.id}
+                    source={source}
+                    home={home}
+                    onOpen={() => onOpen(source)}
+                    onRequest={onRequest}
+                  />
+                ))}
+              </ul>
+            </>
+          )}
         </div>
       </main>
     </div>
@@ -389,61 +354,13 @@ const styles = stylex.create({
     fontSize: 12,
     WebkitFontSmoothing: "antialiased",
   },
-  // The view starts below the title bar; the page rises into it.
-  pageTab: { marginTop: "calc(-1 * var(--med-titlebar-height))" },
-  card: {
-    position: "relative",
-    flex: "1",
-    minWidth: 0,
-    display: "flex",
-    flexDirection: "column",
-    overflow: "hidden",
-    backgroundColor: tokens.canvas,
-  },
-  // As the review card's first row.
-  header: {
-    display: "flex",
-    alignItems: "center",
-    gap: 4,
-    flexShrink: 0,
-    height: 38,
-    paddingInline: 6,
-    boxSizing: "border-box",
-    // A line inside its foot, so its controls are centred in all of it.
-    boxShadow: `inset 0 -1px 0 ${tokens.line}`,
-  },
-  // With the title bar hidden, the header is the window's top strip: its
-  // controls on the window controls' centre line, clear of them at either
-  // side. A strip lower than macOS's 38 px keeps 38.
-  headerInBar: {
-    height: "max(var(--med-titlebar-height), 38px)",
-    paddingInlineStart: "max(calc(var(--med-titlebar-left) + 4px), 6px)",
-    paddingInlineEnd: "max(calc(var(--med-titlebar-right) + 4px), 6px)",
-  },
-  title: {
-    margin: 0,
-    marginInlineStart: 2,
-    fontSize: 13,
-    fontWeight: 500,
-    letterSpacing: "-0.005em",
-    whiteSpace: "nowrap",
-  },
-  add: { color: tokens.text },
   scroller: {
     flex: "1",
+    minWidth: 0,
     minHeight: 0,
     display: "flex",
     flexDirection: "column",
     overflowY: "auto",
-  },
-  column: {
-    boxSizing: "border-box",
-    width: "100%",
-    maxWidth: 880,
-    marginInline: "auto",
-    paddingTop: { default: 28, [narrow]: 16 },
-    paddingBottom: 40,
-    paddingInline: { default: 24, [narrow]: 8 },
   },
   emptyColumn: {
     flex: "1",
@@ -451,24 +368,12 @@ const styles = stylex.create({
     flexDirection: "column",
     justifyContent: "center",
   },
-  group: { marginBottom: 28 },
-  // Level with the rows' icons.
-  groupTitle: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: 8,
-    marginBlock: 0,
-    marginBottom: 6,
-    paddingInline: 10,
-    fontSize: "inherit",
-    fontWeight: "inherit",
-  },
-  count: { color: tokens.faint, fontSize: 11.5, fontVariantNumeric: "tabular-nums" },
   rows: {
     display: "flex",
     flexDirection: "column",
     gap: 1,
     margin: 0,
+    marginTop: 28,
     padding: 0,
     listStyle: "none",
   },
@@ -481,11 +386,13 @@ const styles = stylex.create({
     borderRadius: `calc(7px * ${tokens.round})`,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
   },
-  // The name column has one width, so every row's location starts at one edge.
+  // The name column has one width, so every row's location starts at one
+  // edge; the status follows its location, as part of one line.
   open: {
     display: "grid",
     gridTemplateColumns: {
-      default: "14px minmax(0, clamp(128px, 30%, 240px)) minmax(0, 1fr) auto",
+      default:
+        "14px minmax(0, clamp(128px, 30%, 240px)) minmax(0, max-content) minmax(max-content, 1fr)",
       [narrow]: "14px minmax(0, 1fr) auto",
     },
     alignItems: "center",
@@ -524,9 +431,11 @@ const styles = stylex.create({
   status: {
     display: "inline-flex",
     alignItems: "center",
+    justifySelf: { default: "start", [narrow]: "end" },
+    marginInlineStart: { default: 6, [narrow]: 0 },
     gap: 6,
-    color: tokens.faint,
-    fontSize: 12,
+    color: tokens.muted,
+    fontSize: 12.5,
     fontVariantNumeric: "tabular-nums",
     whiteSpace: "nowrap",
   },

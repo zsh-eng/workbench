@@ -81,11 +81,6 @@
   overflow: hidden;
   background: var(--med-canvas);
 }
-.med-vault-actions {
-  display: flex;
-  align-items: center;
-  flex: none;
-}
 .med-vault-surface {
   flex: 1;
   display: flex;

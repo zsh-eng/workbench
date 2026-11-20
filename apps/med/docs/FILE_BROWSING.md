@@ -61,7 +61,7 @@ The picker searches only the active workspace's file manifest. It uses filename-
 
 The line-length limits use JavaScript string length. Plain-text mode still loads and decodes the bounded file; it is not a streaming byte preview. File size alone is not a guarantee of rendering speed.
 
-Ignored paths are hidden by default. Show ignored files adds them to the worktree manifest; Git internals remain excluded. The host checks paths and file identity, rejects source changes during reads, and does not follow symlink ancestors.
+Ignored paths are hidden by default. Show ignored files, in the tree's ⋯ menu beside Refresh files, adds them to the worktree manifest; Git internals remain excluded. The host checks paths and file identity, rejects source changes during reads, and does not follow symlink ancestors.
 
 The manifest is bounded at 50,000 entries with a 16 MiB estimated-content budget. This is one bounded manifest, not a paged directory API. A partial manifest shows a limit message; a Git command that exceeds its output budget returns an error. Empty directories are not represented by Git-backed listings.
 

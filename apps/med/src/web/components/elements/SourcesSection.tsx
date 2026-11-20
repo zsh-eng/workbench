@@ -42,10 +42,8 @@ function Sample({ initial }: { initial: Source[] }) {
         sources={list}
         home={HOME}
         loaded
-        onBack={() => {}}
         onOpen={() => {}}
         onAdd={() => {}}
-        onCommands={() => {}}
         onRequest={async (action, body) => {
           const id = (body as { source: string }).source;
           if (action === "remove") setList((rows) => rows.filter((row) => row.id !== id));

@@ -109,7 +109,7 @@ try {
     sidebarBox.x + sidebarBox.width <= fileBox.x + 1,
     "The files' tree must stay left of the file",
   );
-  await filesSidebar.getByRole("button", { name: "Refresh files", exact: true }).focus();
+  await filesSidebar.getByRole("button", { name: "Files options", exact: true }).focus();
   await page.keyboard.press("Meta+Shift+v");
   await page.locator(".cm-content").waitFor();
   assert.equal(await page.locator(".med-markdown").count(), 0);

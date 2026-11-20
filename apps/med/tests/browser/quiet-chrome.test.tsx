@@ -762,53 +762,33 @@ test("the installed app's top row is the strip's height, so its controls sit on 
   }
 });
 
-test("a page's header in the title bar puts its controls on the window controls' centre line", async () => {
-  hideTitleBar(38);
+test("Sources is a page as the others are: its rows start at its title's edge, and Add sources is on the title's line", async () => {
   await page.viewport(1280, 800);
   initializeTheme();
   mount = document.createElement("div");
-  // As #root in the installed app: a view starts below the strip.
-  mount.style.cssText =
-    "position:fixed;inset:0;display:flex;flex-direction:column;box-sizing:border-box;padding-top:var(--med-titlebar-height)";
+  mount.style.cssText = "position:fixed;inset:0;display:flex;flex-direction:column";
   document.body.append(mount);
   root = createRoot(mount);
   root.render(
     <SourcesView
-      sources={[]}
-      loaded={false}
-      tab
-      onBack={() => {}}
+      sources={[{ id: "a", name: "tide", path: "/Users/me/code/tide", kind: "repo" }]}
+      home="/Users/me"
+      loaded
       onOpen={() => {}}
       onAdd={() => {}}
       onRequest={async () => {}}
-      onCommands={() => {}}
     />,
   );
-  const card = page.getByRole("main", { name: "Sources" });
-  const back = card.getByRole("button", { name: "Back" });
-  await expect.element(back).toBeVisible();
-  const parts = [
-    back,
-    card.getByRole("button", { name: "Add sources…" }),
-    card.getByRole("button", { name: "Commands" }),
-    card.getByRole("heading", { name: "Sources" }),
-  ];
-  // macOS's strip and a taller one: the strip's centre line. A strip lower
-  // than 38 px keeps a 38 px header: its controls sit at 19 px, below that
-  // strip's centre.
-  for (const [height, line] of [
-    [38, 19],
-    [44, 22],
-    [33, 19],
-  ] as const) {
-    hideTitleBar(height);
-    await frame();
-    for (const part of parts) expect(middle(part.element())).toBeCloseTo(line, 1);
-    // The header starts at the window's top, and its controls are inside it.
-    const edge = card.element().getBoundingClientRect().top;
-    for (const part of parts.slice(0, 3))
-      expect(part.element().getBoundingClientRect().top).toBeGreaterThanOrEqual(edge + 2);
-  }
+  const view = page.getByRole("main", { name: "Sources" });
+  const title = view.getByRole("heading", { name: "Sources", level: 1 });
+  await expect.element(title).toBeVisible();
+  const add = view.getByRole("button", { name: "Add sources…" });
+  const name = view.getByText("tide", { exact: true });
+  const left = (element: Element) => element.getBoundingClientRect().left;
+  // The row's icon sits at the title's edge; the name follows it.
+  const icon = name.element().previousElementSibling!;
+  expect(Math.abs(left(icon) - left(title.element()))).toBeLessThan(1.5);
+  expect(Math.abs(middle(add.element()) - middle(title.element()))).toBeLessThan(1.5);
 });
 
 test("the title band keeps clear of window controls at its right", async () => {

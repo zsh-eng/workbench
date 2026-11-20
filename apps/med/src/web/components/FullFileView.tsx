@@ -611,13 +611,13 @@ function ReadOnlyFileView({
           </span>
           {/* The title band names the checkout; a commit's file names its commit. */}
           {file?.source.kind === "commit" && (
-            <span {...stylex.props(styles.badge)} title={sourceLabel}>
+            <span {...stylex.props(ui.chip)} title={sourceLabel}>
               {sourceLabel}
             </span>
           )}
-          <span {...stylex.props(styles.badge)}>Read-only</span>
+          <span {...stylex.props(ui.chip)}>Read-only</span>
           {onEdit && (
-            <button {...stylex.props(ui.button)} onClick={onEdit}>
+            <button {...stylex.props(ui.button, ui.outlined)} onClick={onEdit}>
               Edit
             </button>
           )}
@@ -889,15 +889,18 @@ const styles = stylex.create({
     fontFamily: tokens.ui,
     fontSize: 12,
   },
+  // As tall as the row beside it, the file tree's heading, with the same
+  // inset: the pane's first row.
   header: {
     display: "flex",
     alignItems: "center",
-    gap: 8,
-    height: 32,
-    minHeight: 32,
+    gap: 6,
+    height: tokens.bar,
+    minHeight: tokens.bar,
     boxSizing: "border-box",
     flexShrink: 0,
-    paddingInline: 12,
+    paddingInlineStart: 14,
+    paddingInlineEnd: 6,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
     borderBottomColor: tokens.border,
@@ -909,14 +912,8 @@ const styles = stylex.create({
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
-  },
-  badge: {
-    color: tokens.muted,
-    fontSize: 11,
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    maxWidth: "35%",
+    fontSize: 12.5,
+    fontWeight: 500,
   },
   viewport: {
     position: "relative",

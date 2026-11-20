@@ -592,7 +592,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
             loaded={sourcesLoaded}
             notice={error && notice}
             onOpenVault={(id) => navigate(`/vault/${id}`)}
-            onCommands={() => setCommandsOpen(true)}
             onRequest={async (action, body) => {
               await request(action, body);
               setStatusTick((value) => value + 1);
@@ -731,23 +730,24 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
               {/* The tabs and the window's tools sit under the file. */}
               <FileViewTabs
                 showChanges={false}
+                // As on the Files page: the tree's button first, the window's tools last.
+                leading={
+                  <ToolButton
+                    label={sidebar ? "Hide files" : "Show files"}
+                    icon="folder"
+                    aria-label="Toggle files sidebar"
+                    aria-pressed={sidebar}
+                    onClick={() => setSidebar((value) => !value)}
+                  />
+                }
                 trailing={
-                  <div className="med-vault-actions">
-                    <ToolButton
-                      label={sidebar ? "Hide files" : "Show files"}
-                      icon="folder"
-                      aria-label="Toggle files sidebar"
-                      aria-pressed={sidebar}
-                      onClick={() => setSidebar((value) => !value)}
-                    />
-                    <ToolButton
-                      label="Commands"
-                      shortcut="⌘ K"
-                      icon="search"
-                      aria-label="Open command palette"
-                      onClick={() => setCommandsOpen(true)}
-                    />
-                  </div>
+                  <ToolButton
+                    label="Commands"
+                    shortcut="⌘ K"
+                    icon="search"
+                    aria-label="Open command palette"
+                    onClick={() => setCommandsOpen(true)}
+                  />
                 }
                 tabs={currentTabs.map((tab) => ({
                   id: tab.file.path,

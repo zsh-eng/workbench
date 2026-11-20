@@ -62,6 +62,7 @@ import { Icon } from "../Icon";
 import { SessionMarkdown } from "../session/SessionMarkdown";
 import { settingStyles } from "../settings/SettingsParts";
 import { ToolButton } from "../ToolButton";
+import { page, PageHeading } from "../PageHeading";
 import { PaneHeader } from "../PaneTree";
 
 // Dashboards: YAML files that open as pages, as Obsidian's Bases do
@@ -212,22 +213,25 @@ function DashboardList() {
   for (const entry of list?.dashboards ?? [])
     groups.set(entry.where, [...(groups.get(entry.where) ?? []), entry]);
   return (
-    <div {...stylex.props(styles.listColumn)}>
-      <div {...stylex.props(styles.heading)}>
-        <h1 {...stylex.props(styles.pageTitle)}>Dashboards</h1>
+    <div {...stylex.props(page.column)}>
+      <PageHeading
+        title="Dashboards"
+        lead={
+          <>
+            A dashboard is a <code {...stylex.props(styles.code)}>.dashboard.yaml</code> file that
+            opens as its own page, as an Obsidian Base does: inputs, views, and panels whose data a
+            chart source prints. Med finds them in your repositories and in{" "}
+            <code {...stylex.props(styles.code)}>{list?.folder ?? "its dashboards folder"}</code>.
+          </>
+        }
+      >
         <ToolButton
           label="Find dashboards again"
           icon="refresh"
           busy={busy}
           onClick={() => void read()}
         />
-      </div>
-      <p {...stylex.props(styles.lead)}>
-        A dashboard is a <code {...stylex.props(styles.code)}>.dashboard.yaml</code> file that opens
-        as its own page, as an Obsidian Base does: inputs, views, and panels whose data a chart
-        source prints. Med finds them in your repositories and in{" "}
-        <code {...stylex.props(styles.code)}>{list?.folder ?? "its dashboards folder"}</code>.
-      </p>
+      </PageHeading>
       {error && (
         <p role="alert" {...stylex.props(styles.problem)}>
           {error}
@@ -819,14 +823,6 @@ const styles = stylex.create({
     WebkitFontSmoothing: "antialiased",
   },
   scroller: { flex: "1", minWidth: 0, overflowY: "auto" },
-  listColumn: {
-    boxSizing: "content-box",
-    maxWidth: 720,
-    marginInline: "auto",
-    paddingInline: 44,
-    paddingTop: 56,
-    paddingBottom: "max(72px, 33vh)",
-  },
   boardColumn: {
     boxSizing: "border-box",
     maxWidth: 1560,

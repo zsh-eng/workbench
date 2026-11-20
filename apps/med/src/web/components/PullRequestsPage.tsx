@@ -8,6 +8,7 @@ import { ChoiceSelect } from "./Controls";
 import { Icon, type IconName } from "./Icon";
 import { settingStyles } from "./settings/SettingsParts";
 import { tooltip, ToolButton } from "./ToolButton";
+import { page, PageHeading } from "./PageHeading";
 
 // Every open pull request that involves you: what waits on you, then your
 // own. A page, laid out as Settings is: the title, the sections' headings and
@@ -301,9 +302,8 @@ export function PullRequestsPage({
   return (
     <div {...stylex.props(styles.page)}>
       <div {...stylex.props(styles.scroller)}>
-        <div {...stylex.props(styles.column)}>
-          <div {...stylex.props(styles.heading)}>
-            <h1 {...stylex.props(styles.pageTitle)}>Pull requests</h1>
+        <div {...stylex.props(page.column)}>
+          <PageHeading title="Pull requests">
             {/* The list's time changes only when GitHub answers; the refresh
                 button turns while its own read runs. */}
             <span role="status" {...stylex.props(styles.readAt)}>
@@ -336,7 +336,7 @@ export function PullRequestsPage({
                 setError("");
               }}
             />
-          </div>
+          </PageHeading>
           <div
             ref={list}
             role="listbox"
@@ -467,26 +467,7 @@ const styles = stylex.create({
     WebkitFontSmoothing: "antialiased",
   },
   scroller: { flex: "1", minWidth: 0, overflowY: "auto" },
-  // Settings' column, a little wider for a row's facts.
-  column: {
-    boxSizing: "content-box",
-    maxWidth: 720,
-    marginInline: "auto",
-    paddingInline: 44,
-    paddingTop: 56,
-    // Room below the end, so the last section scrolls up out of the bottom third.
-    paddingBottom: "max(72px, 33vh)",
-  },
-  heading: { display: "flex", alignItems: "center", gap: 8, minHeight: 32 },
-  pageTitle: {
-    flex: "1",
-    margin: 0,
-    fontSize: 26,
-    lineHeight: 1.2,
-    fontWeight: 550,
-    letterSpacing: "-0.022em",
-  },
-  readAt: { color: tokens.faint, fontSize: 12.5, fontVariantNumeric: "tabular-nums" },
+  readAt: { color: tokens.muted, fontSize: 12.5, fontVariantNumeric: "tabular-nums" },
   list: { outline: "none" },
   section: { marginTop: 44 },
   sectionTitle: {
