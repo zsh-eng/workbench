@@ -1,38 +1,13 @@
-import remarkGfm from "remark-gfm";
-import remarkParse from "remark-parse";
-import remarkRehype from "remark-rehype";
+import type { Element } from "hast";
 import rehypeStringify from "rehype-stringify";
 import { unified } from "unified";
 import { expect, test } from "vitest";
-import { details } from "../../src/web/markdown/details";
-import { htmlImages } from "../../src/web/markdown/html-images";
+import { wordsTree } from "../../src/web/markdown/words/tree";
 
-interface Node {
-  type: string;
-  value?: string;
-  children?: Node[];
-  position?: { start: { line: number }; end: { line: number } };
-}
-
-const parser = unified().use(remarkParse).use(remarkGfm);
-const toHtml = unified().use(remarkRehype).use(rehypeStringify);
-const inline = (markdown: string) => {
-  const [first, ...rest] = parser.parse(markdown).children;
-  return first?.type === "paragraph" && !rest.length
-    ? first.children
-    : [{ type: "text", value: markdown }];
-};
-const tree = (markdown: string, images = false) => {
-  const root = parser.parse(markdown);
-  details(root, inline);
-  if (images) htmlImages(root);
-  return root;
-};
-const html = (markdown: string, images = false) =>
-  toHtml
-    .stringify(toHtml.runSync(tree(markdown, images)))
-    .replace(/\n+/g, "")
-    .replace(/>\s+</g, "><");
+const stringify = unified().use(rehypeStringify);
+const tree = (markdown: string) => wordsTree(markdown, {});
+const html = (markdown: string) =>
+  stringify.stringify(tree(markdown)).replace(/\n+/g, "").replace(/>\s+</g, "><");
 
 test("a fold shows its summary and folds the Markdown up to its end", () => {
   expect(
@@ -102,15 +77,14 @@ test("a fold stands in a list item and a quote", () => {
 
 test("a fold covers the lines from its tag to its end, for the page's line map", () => {
   const [fold, after] = tree("<details>\n<summary>Why</summary>\n\nBody\n\n</details>\n\nAfter")
-    .children as Node[];
-  expect(fold!.type).toBe("details");
+    .children as Element[];
+  expect(fold!.tagName).toBe("details");
   expect([fold!.position!.start.line, fold!.position!.end.line]).toEqual([1, 6]);
   expect(after!.position!.start.line).toBe(8);
   // Summary words have no lines of their own.
-  expect(fold!.children![0]!.children![0]!.position).toBeUndefined();
+  expect((fold!.children[0] as Element).children[0]!.position).toBeUndefined();
 });
 
-test("other HTML stays as it was", () => {
-  const [node] = tree('<div align="center">\nHello\n</div>').children as Node[];
-  expect(node).toMatchObject({ type: "html", value: '<div align="center">\nHello\n</div>' });
+test("other HTML shows nothing", () => {
+  expect(html('<div align="center">\nHello\n</div>\n\nAfter')).toBe("<p>After</p>");
 });

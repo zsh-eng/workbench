@@ -76,7 +76,6 @@ export const FILE_SETTINGS = {
     flag("files.findPreview", "med:picker-preview", "on", "off"),
     word("session.followUp", "med:follow-up", ["now", "queue"]),
     flag("comments.sendNow", "med:comment-send-now", "on", "off"),
-    flag("markdown.words", "med:words-markdown", "on", "off"),
   ],
   sources: [flag("sources.pullBase", "med:pull-base", "on", "off")],
 } satisfies Record<string, Mirror[]>;

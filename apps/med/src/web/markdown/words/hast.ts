@@ -1,9 +1,9 @@
 import type { Element, ElementContent, Properties, Root, RootContent } from "hast";
 
-// Words' HTML as a hast tree, the tree that remark-rehype makes, so that the
-// worker's own steps (links, headings, code, tables, KaTeX) run on it as they
-// do for remark. Words writes well-formed tags and escapes `<`, `>`, `&`, and
-// `"` in text and attribute values, so a tag ends at the first `>`.
+// Words' HTML as a hast tree, for the worker's own steps (links, headings,
+// code, tables, KaTeX), in the markup that the page's styles expect. Words
+// writes well-formed tags and escapes `<`, `>`, `&`, and `"` in text and
+// attribute values, so a tag ends at the first `>`.
 
 const VOID = new Set(["br", "hr", "img", "input", "wbr"]);
 const TOKEN = /<(\/?)([a-zA-Z][\w-]*)([^>]*)>|[^<]+/g;
@@ -89,7 +89,7 @@ export function wordsRoot(html: string): Root {
       if (node.type === "element") {
         if (start) node.position = { start: point(start), end: point(end || start) };
         // The footnotes follow the last block, as the worker places them.
-        remarkMarkup(node, last + 1);
+        pageMarkup(node, last + 1);
       }
       children.push(node);
     }
@@ -102,16 +102,16 @@ const elements = (node: Element) =>
   node.children.filter((child): child is Element => child.type === "element");
 const isCheckbox = (node: Element | undefined) =>
   node?.tagName === "input" && node.properties.type === "checkbox";
-/** Words' `#fn-1` and `fnref-1` as GitHub's, which remark writes and the worker keeps. */
+/** Words' `#fn-1` and `fnref-1` as GitHub's, which the worker keeps. */
 const footnoteId = (value: unknown) =>
   String(value).replace(/^(#?)(fn|fnref)-/, "$1user-content-$2-");
 
 /**
- * remark-rehype's markup where Words' differs: task lists' classes, and
- * footnotes with GitHub's ids, as the page's styles and links expect.
+ * GitHub's markup where Words' differs: task lists' classes, and footnotes
+ * with GitHub's ids, as the page's styles and links expect.
  */
-function remarkMarkup(node: Element, line: number) {
-  for (const child of elements(node)) remarkMarkup(child, line);
+function pageMarkup(node: Element, line: number) {
+  for (const child of elements(node)) pageMarkup(child, line);
   const [first] = elements(node);
   if (node.tagName === "li") {
     const box = isCheckbox(first) ? first : first?.tagName === "p" ? elements(first)[0] : undefined;

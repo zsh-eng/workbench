@@ -1,9 +1,8 @@
 import type { Element, ElementContent, Root, RootContent } from "hast";
-import { FOLDS, pieces, summaryMarkdown, words } from "../details";
+import { htmlOf, isHtml } from "./raw-html";
 
-// details.ts for Words' tree: the same folds, built from the HTML blocks that
-// Words leaves as escaped text in a <template data-html>. Raw HTML never
-// renders, so every other HTML block goes.
+// GitHub's folds in Words' tree, built from the HTML blocks that Words leaves
+// as escaped text in a <template data-html>. Other HTML stays for raw-html.ts.
 
 type Node = Root | Element;
 type Position = NonNullable<Element["position"]>;
@@ -13,17 +12,70 @@ interface Fold {
   children: RootContent[];
   start?: Position["start"];
 }
+type Piece =
+  | { kind: "open"; open: boolean }
+  | { kind: "summary"; text: string }
+  | { kind: "close" }
+  | { kind: "rest"; text: string };
 
-const isHtml = (node: RootContent): node is Element =>
-  node.type === "element" && node.tagName === "template" && "dataHtml" in node.properties;
-const htmlOf = (node: Element) =>
-  node.children.map((child) => (child.type === "text" ? child.value : "")).join("");
+// <details …>, <summary …>…</summary> (or one that the HTML block ends), </details>.
+const TAG =
+  /<details\b([^>]*)>|<summary\b[^>]*>([\s\S]*?)(?:<\/summary\s*>|(?=<\/details)|$)|<\/details\s*>/gi;
+const FOLDS = /<\/?details\b|<summary\b/i;
+
+function pieces(html: string): Piece[] {
+  const found: Piece[] = [];
+  let last = 0;
+  for (const match of html.matchAll(TAG)) {
+    const rest = html.slice(last, match.index).trim();
+    if (rest) found.push({ kind: "rest", text: rest });
+    last = match.index + match[0].length;
+    if (/^<details/i.test(match[0]))
+      found.push({ kind: "open", open: /(?:^|\s)open(?:[\s=]|$)/i.test(match[1] ?? "") });
+    else if (/^<summary/i.test(match[0])) found.push({ kind: "summary", text: match[2] ?? "" });
+    else found.push({ kind: "close" });
+  }
+  const rest = html.slice(last).trim();
+  if (rest) found.push({ kind: "rest", text: rest });
+  return found;
+}
+
+const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" };
+const decode = (text: string) =>
+  text.replace(/&(amp|lt|gt|quot|#39);/g, (_, name: string) => ENTITIES[name]!);
+const words = (html: string) =>
+  decode(html.replace(/<[^>]*>/g, " "))
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** A summary's words, with its bold, italic, and code marks as Markdown. */
+const summaryMarkdown = (html: string) =>
+  html
+    .replace(/<\/?(?:b|strong)\b[^>]*>/gi, "**")
+    .replace(/<\/?(?:i|em)\b[^>]*>/gi, "_")
+    .replace(/<\/?code\b[^>]*>/gi, "`")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+/** HTML as an HTML block that Words leaves, for raw-html.ts. */
+const html = (text: string, position: Element["position"]): Element => ({
+  type: "element",
+  tagName: "template",
+  properties: { dataHtml: "" },
+  children: [{ type: "text", value: text }],
+  position,
+});
 // Blocks that hold no others.
 const LEAVES = new Set(["p", "h1", "h2", "h3", "h4", "h5", "h6", "pre", "table"]);
 
 /**
- * GitHub folds Markdown in <details> and shows its <summary> while it is
- * closed (details.ts). `summary` gives a summary's Markdown as inline nodes.
+ * GitHub folds Markdown in <details>, and shows its <summary> while it is
+ * closed. Raw HTML never renders here, so these tags become a fold of the
+ * Markdown between them: the blocks between `<details>` and `</details>` in a
+ * document, a list item, or a quote. A fold that does not close ends with its
+ * parent, as in a browser. Words in the same HTML block as the tags, with no
+ * blank line between, are plain text, as on GitHub. `summary` gives a
+ * summary's Markdown as inline nodes.
  */
 export function details(tree: Root, summary: (markdown: string) => ElementContent[]) {
   const summaryOf = (html: string): ElementContent[] => {
@@ -57,14 +109,11 @@ export function details(tree: Root, summary: (markdown: string) => ElementConten
     const open: Fold[] = [];
     const into = () => open.at(-1)?.children ?? root;
     for (const child of node.children) {
-      if (!isHtml(child)) {
+      if (!isHtml(child) || !FOLDS.test(htmlOf(child))) {
         into().push(child);
         continue;
       }
-      const html = htmlOf(child);
-      // Other raw HTML renders nothing.
-      if (!FOLDS.test(html)) continue;
-      for (const piece of pieces(html)) {
+      for (const piece of pieces(htmlOf(child))) {
         if (piece.kind === "open")
           open.push({ open: piece.open, children: [], start: child.position?.start });
         else if (piece.kind === "close") {
@@ -73,10 +122,9 @@ export function details(tree: Root, summary: (markdown: string) => ElementConten
         } else if (piece.kind === "summary") {
           const fold = open.at(-1);
           if (fold && !fold.summary) fold.summary = summaryOf(piece.text);
-        } else if (open.length) {
-          // Words in a fold's HTML block are text; its images need a pull
-          // request's description, which remark renders.
-          const text = /<img\b/i.test(piece.text) ? "" : words(piece.text);
+        } else if (open.length && !/<img\b/i.test(piece.text)) {
+          // Words in a fold's HTML block are text; an image is for raw-html.ts.
+          const text = words(piece.text);
           if (text)
             into().push({
               type: "element",
@@ -85,7 +133,7 @@ export function details(tree: Root, summary: (markdown: string) => ElementConten
               children: [{ type: "text", value: text }],
               position: child.position,
             });
-        }
+        } else into().push(html(piece.text, child.position));
       }
     }
     while (open.length) {

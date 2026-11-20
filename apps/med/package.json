@@ -66,10 +66,8 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "rehype-stringify": "10.0.1",
-    "remark-gfm": "4.0.1",
     "remark-math": "6.0.0",
     "remark-parse": "11.0.0",
-    "remark-rehype": "11.1.2",
     "unified": "11.0.5",
     "yaml": "2.8.1",
     "zod": "4.6.5"

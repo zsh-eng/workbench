@@ -197,7 +197,6 @@ function Files() {
   const preview = useViewSetting(viewSettings.filePreview);
   const followUp = useViewSetting(viewSettings.followUp);
   const sendNow = useViewSetting(viewSettings.commentsSendNow);
-  const words = useViewSetting(viewSettings.wordsMarkdown);
   const flip = (setting: typeof viewSettings.vim, value: "on" | "off") =>
     setting.set(value === "on" ? "off" : "on");
   return (
@@ -244,16 +243,6 @@ function Files() {
           label="Send a new comment at once"
           on={sendNow === "on"}
           toggle={() => flip(viewSettings.commentsSendNow, sendNow)}
-        />
-      </Row>
-      <Row
-        label="Render Markdown with Pierre Words"
-        note="Replies, guides, and files render several times faster. Off, they use the previous renderer, which pull request descriptions always use."
-      >
-        <Switch
-          label="Render Markdown with Pierre Words"
-          on={words === "on"}
-          toggle={() => flip(viewSettings.wordsMarkdown, words)}
         />
       </Row>
     </Section>

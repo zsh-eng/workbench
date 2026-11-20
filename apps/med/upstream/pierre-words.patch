@@ -16,7 +16,7 @@ index e5c87e7..287797b 100644
      this.dv.setUint32(2, inputLength, true);
      const format = options?.format;
 diff --git a/packages/words/lib/types.ts b/packages/words/lib/types.ts
-index 0e40267..135bfe9 100644
+index 0e40267..b5882a1 100644
 --- a/packages/words/lib/types.ts
 +++ b/packages/words/lib/types.ts
 @@ -1,6 +1,24 @@
@@ -27,9 +27,9 @@ index 0e40267..135bfe9 100644
 +   * Place the HTML in the source, for a host that maps output to lines. Each
 +   * top-level block ends with a NUL, its first and last source lines as
 +   * `first,last`, and a NUL. Headings, code blocks, and tables name their
-+   * lines in `data-source-line` and `data-source-end`. An HTML block is its
-+   * escaped text in a `<template data-html>`, which the browser does not
-+   * render. Lines count from 1.
++   * lines in `data-source-line` and `data-source-end`. Raw HTML, a block or
++   * an inline tag, is its escaped text in a `<template data-html>`, which the
++   * browser does not render. Lines count from 1.
 +   */
 +  sourceLines?: boolean;
 +  /** With `math`, only `$$` starts inline math, so `$HOME` and `$3` stay text. */
@@ -248,7 +248,7 @@ index 025734f..8965573 100644
      (if (i32.eqz (call $mathSvg (i32.sub (local.get $dst) (i32.const $mem.mathSrc)) (i32.const 1)))
        (then (return (i32.const 0))))
 diff --git a/packages/words/src/render.wat b/packages/words/src/render.wat
-index 9ec5ee5..03981fe 100644
+index 9ec5ee5..cfca459 100644
 --- a/packages/words/src/render.wat
 +++ b/packages/words/src/render.wat
 @@ -19,6 +19,121 @@
@@ -404,6 +404,21 @@ index 9ec5ee5..03981fe 100644
      (call $renderFootnotes)
      (if (global.get $mode)
        (then
+@@ -461,6 +590,14 @@
+             ;; raw HTML: dropped in ANSI, literal text in alt text
+             (br_if $text (global.get $plain))
+             (if (global.get $mode) (then (return)))
++            ;; with the source option, its escaped text in a template, as an
++            ;; HTML block's, for the host to read
++            (if (global.get $srcOn)
++              (then
++                (out.str "<template data-html>")
++                (call $outText (call $contentAt (local.get $b)) (call $contentAt (local.get $e)))
++                (out.str "</template>")
++                (return)))
+             (call $ensureOut (i32.add
+               (i32.mul (i32.sub (local.get $e) (local.get $b)) (i32.const 4)) (i32.const 64)))
+             (call $htmlFiltered2
 diff --git a/packages/words/src/types.wat b/packages/words/src/types.wat
 index 32b9b3d..ad74ad5 100644
 --- a/packages/words/src/types.wat
@@ -422,10 +437,10 @@ index 32b9b3d..ad74ad5 100644
    (const $R.labelBytes 32)
 diff --git a/packages/words/test/source_test.ts b/packages/words/test/source_test.ts
 new file mode 100644
-index 0000000..9655a3c
+index 0000000..7b2e960
 --- /dev/null
 +++ b/packages/words/test/source_test.ts
-@@ -0,0 +1,96 @@
+@@ -0,0 +1,106 @@
 +import { test } from 'node:test';
 +import assert from 'node:assert/strict';
 +
@@ -494,6 +509,16 @@ index 0000000..9655a3c
 +    '<template data-html data-source-line="1" data-source-end="2">&lt;details&gt;\n&lt;summary&gt;S&lt;/summary&gt;</template>'
 +  );
 +  assert.equal(found[2].html, '<template data-html data-source-line="6" data-source-end="6">&lt;/details&gt;</template>');
++});
++
++test('inline HTML is escaped text in a template', () => {
++  const { found } = blocks('a <img src="x.png" alt="b&c">\nd <b>e</b>\n', { skipHtml: true });
++  assert.equal(
++    found[0].html,
++    '<p>a <template data-html>&lt;img src=&quot;x.png&quot; alt=&quot;b&amp;c&quot;&gt;</template>\nd <template data-html>&lt;b&gt;</template>e<template data-html>&lt;/b&gt;</template></p>'
++  );
++  // An image's alt text keeps the tag as its text, as without the option.
++  assert.match(html('![a <b>c</b>](x.png)'), /alt="a &lt;b&gt;c&lt;\/b&gt;"/);
 +});
 +
 +test('line ends count at each LF, with CRLF input', () => {

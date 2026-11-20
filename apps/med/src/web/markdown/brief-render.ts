@@ -1,4 +1,3 @@
-import { viewSettings } from "../data/view-settings";
 import { resolveSyntaxTheme } from "../pierre-theme";
 import type { MarkdownResult } from "./model";
 import RenderWorker from "./render.worker?worker";
@@ -27,8 +26,6 @@ interface Task {
   text: string;
   theme: string;
   cache: RenderCache;
-  /** Rendered by Pierre Words, not remark. */
-  words: boolean;
   keep: boolean;
   urgent: boolean;
   resolve(result: MarkdownResult): void;
@@ -47,16 +44,10 @@ const resolved = new Map<string, Awaited<ReturnType<typeof resolveSyntaxTheme>>>
 let sequence = 0;
 const replies = new Map<number, (data: MarkdownResult & { error?: string }) => void>();
 
-/** Whether a cache's texts render in Pierre Words, as the reader chose. A
- * description's images need remark (render.worker.ts). */
-export const rendersWithWords = (cache: RenderCache) =>
-  cache !== "description" && viewSettings.wordsMarkdown.get() === "on";
-// A result is kept by its renderer too, so a change of the setting renders again.
-const keyOf = (theme: string, text: string, words: boolean) =>
-  `${words ? "words" : "remark"}\0${theme}\0${text}`;
+const keyOf = (theme: string, text: string) => `${theme}\0${text}`;
 
 export function renderedBrief(theme: string, text: string, cache: RenderCache = "brief") {
-  return results[cache].get(keyOf(theme, text, rendersWithWords(cache)));
+  return results[cache].get(keyOf(theme, text));
 }
 
 /**
@@ -101,16 +92,15 @@ function enqueue(
   urgent: boolean,
   { cache = "brief", keep = true }: { cache?: RenderCache; keep?: boolean },
 ) {
-  const words = rendersWithWords(cache);
-  const done = results[cache].get(keyOf(theme, text, words));
+  const done = results[cache].get(keyOf(theme, text));
   if (done) return Promise.resolve(done);
-  const key = `${cache}\0${keep}\0${keyOf(theme, text, words)}`;
+  const key = `${cache}\0${keep}\0${keyOf(theme, text)}`;
   const queued = queue.findIndex((task) => task.key === key);
   if (queued > 0 && urgent) queue.unshift({ ...queue.splice(queued, 1)[0]!, urgent });
   const existing = waiting.get(key);
   if (existing) return existing;
   const promise = new Promise<MarkdownResult>((resolve, reject) => {
-    const task = { key, text, theme, cache, words, keep, urgent, resolve, reject };
+    const task = { key, text, theme, cache, keep, urgent, resolve, reject };
     if (urgent) queue.unshift(task);
     else queue.push(task);
   });
@@ -163,7 +153,7 @@ async function send(tasks: Task[]) {
             milliseconds: data.milliseconds,
           };
           if (task.keep) {
-            const key = keyOf(task.theme, task.text, task.words);
+            const key = keyOf(task.theme, task.text);
             const kept = results[task.cache];
             kept.delete(key);
             kept.set(key, result);
@@ -187,7 +177,6 @@ async function send(tasks: Task[]) {
         webLinks: task.cache === "session",
         plainDollars: task.cache !== "brief",
         htmlImages: task.cache === "description",
-        words: task.words,
       };
     }),
   });

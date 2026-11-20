@@ -5,7 +5,6 @@ import { SessionMarkdown } from "../../src/web/components/session/SessionMarkdow
 import MarkdownPreview from "../../src/web/components/MarkdownPreview";
 import { createMarkdownModel } from "../../src/web/markdown/model";
 import type { FileRead } from "../../src/shared/local-file";
-import { viewSettings } from "../../src/web/data/view-settings";
 // The thread's own rules for a reply's prose, as the thread loads them.
 import "../../src/web/components/session/SessionThread.css";
 import "../../src/web/pierre-theme";
@@ -18,13 +17,6 @@ afterEach(() => {
   frame?.remove();
   root = undefined;
   frame = undefined;
-  // Back to the default, as a reader who never chose.
-  localStorage.removeItem(viewSettings.wordsMarkdown.key);
-});
-
-test("Markdown renders in Pierre Words unless the reader turns it off", () => {
-  localStorage.removeItem(viewSettings.wordsMarkdown.key);
-  expect(viewSettings.wordsMarkdown.get()).toBe("on");
 });
 
 const REPLY = [
@@ -64,11 +56,10 @@ async function show(text = REPLY) {
   await expect.element(page.getByText("Done.")).toBeVisible();
 }
 
-test("with the setting on, a reply renders in Pierre Words as it would in remark, and again in remark once it is off", async () => {
-  viewSettings.wordsMarkdown.set("on");
+test("a reply renders in Pierre Words, with GitHub's markup and Med's steps", async () => {
   await show();
   const note = () => frame!.querySelector<HTMLAnchorElement>("a[data-footnote-ref]");
-  // Words numbers a footnote where remark names it by its label.
+  // Words numbers a footnote, where GitHub names it by its label.
   await expect.poll(() => note()?.getAttribute("href")).toBe("#user-content-fn-1");
   expect(document.getElementById("user-content-fn-1")).not.toBeNull();
 
@@ -89,9 +80,6 @@ test("with the setting on, a reply renders in Pierre Words as it would in remark
   await expect.element(page.getByText("Hidden until opened.")).not.toBeVisible();
   await userEvent.click(summary);
   await expect.element(page.getByText("Hidden until opened.")).toBeVisible();
-
-  viewSettings.wordsMarkdown.set("off");
-  await expect.poll(() => note()?.getAttribute("href")).toBe("#user-content-fn-why");
 });
 
 const NOTE = [
@@ -116,8 +104,7 @@ const NOTE = [
   "[^1]: Up to a minute.",
 ].join("\n");
 
-test("with the setting on, a note's preview renders in Pierre Words: its blocks' lines, its outline, and its wiki links", async () => {
-  viewSettings.wordsMarkdown.set("on");
+test("a note's preview renders in Pierre Words: its blocks' lines, its outline, and its wiki links", async () => {
   await page.viewport(1600, 900);
   initializeTheme();
   frame = document.createElement("div");

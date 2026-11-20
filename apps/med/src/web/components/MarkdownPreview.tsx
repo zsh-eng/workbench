@@ -32,7 +32,6 @@ import { copyDiagram, copyDiagramSvg, copyImage, diagramSource } from "../markdo
 import { PointMenu, type PointMenuState } from "./PointMenu";
 import { useTableCopy } from "./TableCopy";
 import { useCodeCopy } from "./CodeCopy";
-import { useViewSetting, viewSettings } from "../data/view-settings";
 import { copyFailure, useCopyNote } from "./DiagramCopy";
 
 const Block = memo(
@@ -187,9 +186,7 @@ export default function MarkdownPreview({
   const { active } = useTheme();
   const text = useSyncExternalStore(model.subscribe, model.getText);
   const vault = "vault" in file && !!file.vault;
-  // The renderer that the reader chose (render.worker.ts).
-  const words = useViewSetting(viewSettings.wordsMarkdown) === "on";
-  const key = `${active.pierreTheme}\0${vault}\0${canOpenFiles}\0${words}\0${text}`;
+  const key = `${active.pierreTheme}\0${vault}\0${canOpenFiles}\0${text}`;
   const [latest, setResult] = useState<MarkdownResult>();
   const result = rendered.get(key) ?? latest;
   const [error, setError] = useState("");
@@ -241,7 +238,7 @@ export default function MarkdownPreview({
           .then((theme) => {
             if (id !== sequence.current) return;
             asked.current = key;
-            worker.current?.postMessage({ id, text, theme, vault, fileLinks: canOpenFiles, words });
+            worker.current?.postMessage({ id, text, theme, vault, fileLinks: canOpenFiles });
           })
           .catch(() => setError("Preview theme could not load."));
       },
@@ -250,7 +247,7 @@ export default function MarkdownPreview({
     return () => clearTimeout(timer);
     // A result must not schedule another parse. Only source or theme changes do.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text, active.pierreTheme, canOpenFiles, words]);
+  }, [text, active.pierreTheme, canOpenFiles]);
 
   useLayoutEffect(() => {
     const pane = scroller.current;

@@ -80,7 +80,7 @@ flowchart TB
 | Editing                                      | CodeMirror 6 and `@replit/codemirror-vim`, loaded on demand                            |
 | Selectors, menus, dialogs, tooltips          | `@base-ui/react`                                                                       |
 | Layout, themes, focus, density               | StyleX and a small CSS reset                                                           |
-| Markdown                                     | Pierre Words or remark in a worker, and rehype; KaTeX and Pele on demand               |
+| Markdown                                     | Pierre Words in a worker, and rehype-stringify; KaTeX and Pele on demand               |
 | Separators and status elements               | Local React, HTML, and SVG                                                             |
 | Browser state                                | Local controllers and React external-store subscriptions                               |
 | Review semantics                             | Pinned Hunk source ([Hunk provenance](#hunk-provenance))                               |
@@ -739,26 +739,25 @@ no checkout file. Blame reads 1,000-line chunks, keeps 32, and shares one
 
 The preview worker parses with Pierre Words (words/), a WebAssembly renderer
 that Med builds with a patch ([provenance](upstream/PIERRE-WORDS.md)): Words
-places each top-level block, heading, code block, and table in the source,
-leaves each HTML block as escaped text for the folds, and its HTML becomes the
-hast tree that remark would make. A pull request's description, for its images,
-and every document when the `markdown.words` setting is off, take remark-parse,
-remark-gfm, remark-math, and remark-rehype instead. The steps after the tree
-are the same, and rehype-stringify writes the HTML. The worker keeps top-level
-source ranges for scroll mapping and heading IDs for navigation. **Raw HTML is
-disabled and link schemes are limited.** `<details>` and `<summary>` tags
-become a fold of the Markdown between them (details.ts, words/details.ts), so
-no HTML passes through. KaTeX loads only for math, with trust disabled and
-expansion limits. Pele draws Mermaid diagrams near the viewport, and each
-diagram type loads on demand. Diagram links and images are off. Diagram colors
-are CSS variables that MarkdownPreview.css maps to theme tokens, so a theme
-change does not draw again. Code fences use Pierre's highlighter. The worker
-keeps the HTML of its last 32 highlighted code blocks and 256 formulas, and a
-block takes it in place of a slot, so a streaming reply, which renders again
-for each update, writes only what changed. MarkdownPreview keeps its last 12
-results by theme, options, and text, so a page that shows again has its blocks
-in its first frame; while a file reads again, FullFileView renders its open
-draft in its place, never its source.
+places each top-level block, heading, code block, and table in the source, and
+leaves raw HTML, a block or a tag, as escaped text. Its HTML becomes a hast
+tree for the worker's steps, and rehype-stringify writes the HTML. The worker
+keeps top-level source ranges for scroll mapping and heading IDs for
+navigation. **Raw HTML is disabled and link schemes are limited.** `<details>`
+and `<summary>` tags become a fold of the Markdown between them
+(words/details.ts), and other HTML goes (words/raw-html.ts), so no HTML passes
+through. A pull request's description keeps the images of its `<img>` tags,
+which GitHub writes for a dropped screenshot. KaTeX loads only for math, with
+trust disabled and expansion limits. Pele draws Mermaid diagrams near the
+viewport, and each diagram type loads on demand. Diagram links and images are
+off. Diagram colors are CSS variables that MarkdownPreview.css maps to theme
+tokens, so a theme change does not draw again. Code fences use Pierre's
+highlighter. The worker keeps the HTML of its last 32 highlighted code blocks
+and 256 formulas, and a block takes it in place of a slot, so a streaming
+reply, which renders again for each update, writes only what changed.
+MarkdownPreview keeps its last 12 results by theme, options, and text, so a
+page that shows again has its blocks in its first frame; while a file reads
+again, FullFileView renders its open draft in its place, never its source.
 
 Image requests accept only supported image types up to 8 MiB, with exact
 document grants or registered repository access. Standalone images stay in the

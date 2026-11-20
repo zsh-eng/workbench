@@ -19,12 +19,12 @@ const find = (tree: Root | Element, name: string): Element[] =>
       : [],
   );
 
-test("Words ends each top-level block with its lines and renders no raw HTML", () => {
+test("Words ends each top-level block with its lines and leaves raw HTML as escaped text", () => {
   const html = renderWords("# Title\n\nSome <b>bold</b> text\nover two lines\n\n<div>gone</div>\n");
   expect(html.split("\0")).toEqual([
     '<h1 data-source-line="1" data-source-end="1">Title</h1>\n',
     "1,1",
-    "\n<p>Some bold text\nover two lines</p>\n",
+    "\n<p>Some <template data-html>&lt;b&gt;</template>bold<template data-html>&lt;/b&gt;</template> text\nover two lines</p>\n",
     "3,4",
     '\n<template data-html data-source-line="6" data-source-end="6">&lt;div&gt;gone&lt;/div&gt;</template>\n',
     "6,6",
@@ -42,7 +42,7 @@ test("a reply's $HOME and $3 are text, and $$ is math; a file's single dollar is
   );
 });
 
-test("Words' HTML parses as remark-rehype's tree: properties, text, and positions", () => {
+test("Words' HTML parses as a hast tree: properties, text, and positions", () => {
   const [list] = parseWords(
     '<ol start="3">\n<li><input checked="" disabled="" type="checkbox"> a &amp; b</li>\n</ol>',
   ) as Element[];

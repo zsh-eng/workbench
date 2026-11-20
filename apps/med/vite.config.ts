@@ -36,10 +36,6 @@ export default defineConfig({
       // The Markdown worker's; the scan does not follow a worker's imports.
       "katex",
       "rehype-stringify",
-      "remark-gfm",
-      "remark-math",
-      "remark-parse",
-      "remark-rehype",
       "unified",
     ],
   },

@@ -1,25 +1,12 @@
-import { wikiLinks } from "./wiki";
-import { htmlImages } from "./html-images";
-import { details } from "./details";
 import { breakPieces } from "./breaks";
 import { unified } from "unified";
-import remarkParse from "remark-parse";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import remarkRehype from "remark-rehype";
 import rehypeStringify from "rehype-stringify";
-import type { Root, Element, ElementContent, RootContent } from "hast";
+import type { Element, ElementContent, RootContent } from "hast";
 import { loadTheme, tokenLines, type SyntaxThemeData } from "../highlighting/highlighter";
 import { codeHtml } from "./code-html";
 import type { MarkdownBlock, MarkdownHeading } from "./model";
 import { siteIcon } from "./site-icons";
-const parser = unified().use(remarkParse).use(remarkGfm).use(remarkMath).use(remarkRehype);
-// Replies and comments: a single dollar is text, as in $HOME or $3; $$ is math.
-const replyParser = unified()
-  .use(remarkParse)
-  .use(remarkGfm)
-  .use(remarkMath, { singleDollarTextMath: false })
-  .use(remarkRehype);
+import { wordsTree } from "./words/tree";
 const stringify = unified().use(rehypeStringify);
 const toHtml = (children: ElementContent[]) => stringify.stringify({ type: "root", children });
 
@@ -128,24 +115,7 @@ type Task = {
   plainDollars?: boolean;
   /** A pull request's description: its <img> tags are images. */
   htmlImages?: boolean;
-  /** Parse with Pierre Words (words/tree.ts), not remark. A description's
-   * images need remark. */
-  words?: boolean;
 };
-/** The document as hast, from remark, with Med's Markdown steps. */
-async function remarkTree(task: Task) {
-  const markdownParser = task.plainDollars ? replyParser : parser;
-  const markdown = markdownParser.parse(task.text);
-  if (task.vault) wikiLinks(markdown, task.text);
-  details(markdown, (summary) => {
-    const [first, ...rest] = markdownParser.parse(summary).children;
-    return first?.type === "paragraph" && !rest.length
-      ? first.children
-      : [{ type: "text", value: summary }];
-  });
-  if (task.htmlImages) htmlImages(markdown);
-  return (await markdownParser.run(markdown)) as Root;
-}
 // A preview keeps only its latest task. A batch, as of a thread's replies,
 // renders each task in order and replies to each.
 let latest: Task | undefined;
@@ -167,11 +137,7 @@ async function drain() {
       const started = performance.now();
       if (task.text.length > 512 * 1024)
         throw new Error("Markdown preview supports up to 512 KiB. The source remains available.");
-      // Words and its WebAssembly load once a task asks for them.
-      const tree =
-        task.words && !task.htmlImages
-          ? (await import("./words/tree")).wordsTree(task.text, task)
-          : await remarkTree(task);
+      const tree = wordsTree(task.text, task);
       const headings: MarkdownHeading[] = [];
       const slugs = new Map<string, number>();
       const slots: string[] = [];

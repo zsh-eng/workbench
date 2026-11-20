@@ -61,6 +61,7 @@ Record these numbers in the change description or in the owning app's docs:
 | In-house JSON and JSONC scanner             | No differences from Shiki in 4,149 random and repository files; 1.5–5.2× faster than the Twinkleplop grammar.                              |
 | In-house Go, Rust, and Swift scanners       | Shiki scope stacks in 1,148 of 1,150 files; 24–33× faster than Shiki. Go is 1.6× slower than the Twinkleplop grammar.                      |
 | Pele replaces Mermaid                       | A repository diagram draws in under 1 ms, not 7–60 ms. A flowchart loads 136 kB, not 733 kB. Theme colors are CSS variables.               |
-| Keep KaTeX, CodeMirror, and remark          | Engines and large specifications. They load lazily.                                                                                        |
+| Pierre Words replaces remark in the page    | A long document renders up to 15× faster, and a long reply streams about 7× faster. Med's patch places Words' HTML in the source.          |
+| Keep KaTeX and CodeMirror                   | Engines and large specifications. They load lazily.                                                                                        |
 | Keep Base UI in the first load              | Accessible menus, dialogs, and comboboxes need focus and keyboard rules that are expensive to own.                                         |
 | Own WebSocket server, no `ws` package       | About 130 lines for Node. Bun's `node:http` drops raw writes to an upgraded socket, so under Bun the host uses Bun's built-in `ws`.        |

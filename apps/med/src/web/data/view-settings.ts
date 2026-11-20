@@ -113,10 +113,6 @@ export const viewSettings = {
   /** "Send to the agent now" under a new comment: it goes to the agent that
    * Med runs as you save it, or waits in the message box until you send. */
   commentsSendNow: viewSetting("med:comment-send-now", "on", ["on", "off"]),
-  /** Markdown in Pierre Words (render.worker.ts): replies, comments, guides,
-   * and files. Off, they render in remark, as a pull request's description
-   * always does. */
-  wordsMarkdown: viewSetting("med:words-markdown", "on", ["on", "off"]),
   /** Whether the host pulls each repository's base branch now and then. */
   pullBase: viewSetting("med:pull-base", "on", ["on", "off"]),
   /** The background tasks dock under a session. */

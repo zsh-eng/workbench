@@ -1,18 +1,23 @@
 import type { ElementContent, Root } from "hast";
 import { details } from "./details";
 import { parseWords, wordsRoot } from "./hast";
+import { rawHtml } from "./raw-html";
 import { escapeWiki, wikiLinks } from "./wiki";
 import { renderWords } from "./words";
 
 /**
- * A document as hast, from Pierre Words: the tree that remark makes in
- * render.worker.ts, with the same folds and wiki links, so that the rest of
- * the worker's work is the same for both. Words places each top-level block
- * and each heading, code block, and table in the source.
+ * A document as hast, from Pierre Words, with Med's steps: wiki links in a
+ * vault, GitHub's folds, and a description's images (raw-html.ts). Words
+ * places each top-level block and each heading, code block, and table in the
+ * source, for the worker (render.worker.ts) to map the page to its lines.
  */
 export function wordsTree(
   text: string,
-  { vault = false, plainDollars = false }: { vault?: boolean; plainDollars?: boolean },
+  {
+    vault = false,
+    plainDollars = false,
+    htmlImages = false,
+  }: { vault?: boolean; plainDollars?: boolean; htmlImages?: boolean },
 ): Root {
   const singleDollarMath = !plainDollars;
   const tree = wordsRoot(renderWords(vault ? escapeWiki(text) : text, { singleDollarMath }));
@@ -26,5 +31,6 @@ export function wordsTree(
       ? first.children
       : ([{ type: "text", value: markdown }] satisfies ElementContent[]);
   });
+  rawHtml(tree, htmlImages);
   return tree;
 }

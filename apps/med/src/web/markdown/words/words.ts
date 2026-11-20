@@ -39,15 +39,16 @@ export interface WordsOptions {
   /**
    * The source option of Med's patch: each top-level block ends with a NUL,
    * its first and last lines as "first,last", and a NUL; headings, code
-   * blocks, and tables name their lines; an HTML block is escaped text in a
-   * `<template data-html>`. Without it, a summary renders as plain HTML.
+   * blocks, and tables name their lines; raw HTML, a block or a tag, is
+   * escaped text in a `<template data-html>`. Without it, a summary renders
+   * as plain HTML.
    */
   sourceLines?: boolean;
 }
 
 /**
- * GitHub's Markdown as HTML, with math as remark-math writes it for KaTeX and
- * raw HTML left out, as in Med's other renderer.
+ * GitHub's Markdown as HTML, with math as TeX for KaTeX, and raw HTML as
+ * escaped text that renders nothing (raw-html.ts).
  */
 export function renderWords(
   text: string,
