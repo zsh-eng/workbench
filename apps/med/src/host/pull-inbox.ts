@@ -441,7 +441,7 @@ export class PullInboxReader {
     if (!all && !repositories.length)
       return {
         ...empty,
-        unavailable: "No registered repository has a GitHub remote. Show all of GitHub instead.",
+        unavailable: "No registered repository has a GitHub remote.",
       };
     const base = "is:pr is:open archived:false";
     const read = async (host: string, names: string[]) => {

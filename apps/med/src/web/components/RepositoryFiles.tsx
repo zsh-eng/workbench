@@ -1,4 +1,3 @@
-import { ToolButton } from "./ToolButton";
 import { ActionMenu } from "./Controls";
 import { Icon } from "./Icon";
 import * as stylex from "@stylexjs/stylex";
@@ -8,7 +7,6 @@ import { memo, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } 
 import type { BrowseEntry } from "../../shared/browse";
 import { tokens, ui } from "../theme.stylex";
 import { treeIcons } from "./tree-icons";
-import { paneHandle } from "./PaneTree";
 import { PathContextMenu, treeRowPath, type PathActions } from "./PathMenu";
 
 export interface RepositoryFilesProps {
@@ -29,11 +27,8 @@ export interface RepositoryFilesProps {
   onIgnoredChange?(value: boolean): void;
   label?: string;
   onRefresh(): void;
-  onClose(): void;
-  /** The column's pane controls, in place of the close button. */
+  /** The column's controls, at the heading's end. */
   controls?: ReactNode;
-  /** The Files page's sidebar (FilesRail): its heading is not a pane's. */
-  rail?: boolean;
 }
 
 /** Memoized: the review renders again for unrelated state, such as a palette. */
@@ -52,9 +47,7 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
     ignored,
     onIgnoredChange,
     onRefresh,
-    onClose,
     controls,
-    rail = false,
   } = props;
   // Parse and sort once per manifest, not on sidebar toggles or file selection.
   const preparedInput = useMemo(
@@ -113,58 +106,34 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
     )?.dataset.itemPath;
   return (
     <aside {...stylex.props(styles.panel)} aria-label={props.label ?? "Repository files"}>
-      {controls !== undefined ? (
-        // One row, as tall as the file's own header beside it: what the tree
-        // shows (the title band names the checkout), and its tools.
-        <div {...(!rail && paneHandle)} {...stylex.props(styles.paneHeading)}>
-          <span title={sourceLabel} {...stylex.props(styles.paneTitle)}>
-            {sourceLabel?.split(" · ")[0] || "Files"}
-          </span>
-          <span {...stylex.props(ui.grow)} />
-          <ActionMenu
-            label="Files options"
-            sections={[
-              [
-                { label: "Refresh files", onClick: onRefresh },
-                ...(onIgnoredChange
-                  ? [
-                      {
-                        label: "Show ignored files",
-                        checked: ignored,
-                        onClick: () => onIgnoredChange(!ignored),
-                      },
-                    ]
-                  : []),
-              ],
-            ]}
-          >
-            <Icon name="more" size={15} />
-          </ActionMenu>
-          {controls}
-        </div>
-      ) : (
-        <div {...stylex.props(styles.heading)}>
-          <span {...stylex.props(ui.label)}>Files</span>
-          <span {...stylex.props(ui.grow)} />
-          <ToolButton label="Refresh files" icon="refresh" onClick={onRefresh} />
-          <ToolButton label="Close files sidebar" icon="close" onClick={onClose} />
-        </div>
-      )}
-      {sourceLabel && controls === undefined && (
-        <div {...stylex.props(styles.source)} title={sourceLabel}>
-          {sourceLabel}
-        </div>
-      )}
-      {onIgnoredChange && controls === undefined && (
-        <label {...stylex.props(styles.ignored)}>
-          <input
-            type="checkbox"
-            checked={ignored}
-            onChange={(event) => onIgnoredChange(event.target.checked)}
-          />
-          Show ignored files
-        </label>
-      )}
+      {/* One row, as tall as the file's own header beside it: what the tree
+          shows, and its tools. */}
+      <div {...stylex.props(styles.paneHeading)}>
+        <span title={sourceLabel} {...stylex.props(styles.paneTitle)}>
+          {sourceLabel?.split(" · ")[0] || "Files"}
+        </span>
+        <span {...stylex.props(ui.grow)} />
+        <ActionMenu
+          label="Files options"
+          sections={[
+            [
+              { label: "Refresh files", onClick: onRefresh },
+              ...(onIgnoredChange
+                ? [
+                    {
+                      label: "Show ignored files",
+                      checked: ignored,
+                      onClick: () => onIgnoredChange(!ignored),
+                    },
+                  ]
+                : []),
+            ],
+          ]}
+        >
+          <Icon name="more" size={15} />
+        </ActionMenu>
+        {controls}
+      </div>
       {loading && (
         <p role="status" {...stylex.props(styles.message)}>
           Loading files…
@@ -270,35 +239,6 @@ const styles = stylex.create({
     color: tokens.text,
     fontSize: 12.5,
     fontWeight: 500,
-  },
-  heading: {
-    height: 32,
-    minHeight: 32,
-    display: "flex",
-    alignItems: "center",
-    gap: 3,
-    paddingInline: 12,
-    fontSize: 11,
-    fontWeight: 600,
-    color: tokens.muted,
-  },
-  source: {
-    paddingInline: 14,
-    paddingBottom: 9,
-    fontSize: 11,
-    color: tokens.muted,
-    overflow: "hidden",
-    whiteSpace: "nowrap",
-    textOverflow: "ellipsis",
-  },
-  ignored: {
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    paddingInline: 11,
-    paddingBottom: 8,
-    fontSize: 11,
-    color: tokens.muted,
   },
   treeFrame: { flex: "1", minHeight: 0, display: "flex", flexDirection: "column" },
   tree: { flex: "1", minHeight: 0, width: "100%", overflow: "hidden" },

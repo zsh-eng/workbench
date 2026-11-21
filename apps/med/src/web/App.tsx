@@ -1,4 +1,5 @@
 import { useDocumentTitle } from "./data/document-title";
+import { EmptyState } from "./components/EmptyState";
 import { DiffImages } from "./components/MediaView";
 import { mediaType } from "../shared/media";
 import { ToolButton } from "./components/ToolButton";
@@ -7056,17 +7057,14 @@ export function App({
                   onOpen={openWorkingFile}
                   onIgnoredChange={repositoryFiles.setIgnored}
                   onRefresh={repositoryFiles.refresh}
-                  onClose={toggleRail}
                 />
               )}
               <div {...stylex.props(styles.reviewSurface)}>
                 {fileState.active === "files" && (
-                  <div {...stylex.props(styles.filesEmpty)}>
-                    <p {...stylex.props(styles.filesEmptyTitle)}>No file open</p>
-                    <p {...stylex.props(styles.filesEmptyNote)}>
-                      Choose a file in the tree, or find one with ⌘⇧K.
-                    </p>
-                  </div>
+                  <EmptyState
+                    title="No file open"
+                    note="Choose a file in the tree, or find one with ⌘⇧K."
+                  />
                 )}
                 {fileState.search !== undefined && browseSource && searchRepository && (
                   <div
@@ -7463,17 +7461,6 @@ const styles = stylex.create({
   },
   hiddenSurface: { display: "none" },
   // The Files page with no file open.
-  filesEmpty: {
-    display: "grid",
-    alignContent: "center",
-    justifyItems: "center",
-    gap: 6,
-    flex: "1",
-    padding: 24,
-    textAlign: "center",
-  },
-  filesEmptyTitle: { margin: 0, color: tokens.muted, fontSize: 13.5 },
-  filesEmptyNote: { margin: 0, color: tokens.faint, fontSize: 12.5 },
   // The Guide's rail beside the stream, or beside its Overview.
   guideRow: {
     display: "flex",

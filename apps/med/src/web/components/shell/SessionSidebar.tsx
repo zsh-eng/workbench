@@ -858,7 +858,7 @@ const styles = stylex.create({
     fontSize: 12.5,
     fontWeight: 500,
   },
-  empty: { marginInline: 10, color: tokens.faint, fontSize: 12.5, lineHeight: 1.5 },
+  empty: { marginInline: 10, color: tokens.muted, fontSize: 12.5, lineHeight: 1.5 },
   rowBox: { position: "relative" },
   // Where a dragged row would land.
   slotRow: {
@@ -877,7 +877,7 @@ const styles = stylex.create({
     marginInlineEnd: -6,
     borderWidth: 0,
     borderRadius: 6,
-    color: { default: tokens.faint, ":hover": tokens.muted },
+    color: { default: tokens.muted, ":hover": tokens.text },
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     fontFamily: tokens.ui,
     fontSize: 12,

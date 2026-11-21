@@ -1,4 +1,5 @@
 import { ToolButton } from "./ToolButton";
+import { OpenInMenu } from "./OpenInMenu";
 import {
   useLayoutEffect,
   useMemo,
@@ -1035,6 +1036,17 @@ export default function FileEditor({
             onClick={() => {
               setLocalBlame(!blameOpen);
               context.onBlameEnabledChange?.(!blameOpen);
+            }}
+          />
+        )}
+        {/* As the file's view has it, so the header keeps its shape as editing starts. */}
+        {context.openIn && (
+          <OpenInMenu
+            actions={context.openIn.actions}
+            target={context.openIn.target}
+            line={() => {
+              const state = view.current?.state;
+              return state ? state.doc.lineAt(state.selection.main.head).number : 1;
             }}
           />
         )}

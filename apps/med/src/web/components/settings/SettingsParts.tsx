@@ -23,7 +23,7 @@ export function Section({
 }: {
   id?: SettingsSection;
   title: string;
-  note?: string;
+  note?: ReactNode;
   /** Its children are Groups, each a card of its own under a small heading. */
   grouped?: boolean;
   children: ReactNode;

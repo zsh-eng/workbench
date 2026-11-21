@@ -195,7 +195,7 @@ try {
   await until(() =>
     page.locator(".med-markdown img").evaluate((img) => img.complete && img.naturalWidth === 1),
   );
-  await tree.getByRole("button", { name: "Refresh files", exact: true }).focus();
+  await tree.getByRole("button", { name: "Files options", exact: true }).focus();
   await page.keyboard.press("Meta+Shift+v");
   assert.equal(await page.locator(".med-markdown").count(), 0);
   await page.keyboard.press("Meta+Shift+v");

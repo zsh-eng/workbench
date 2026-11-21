@@ -179,7 +179,6 @@ test("a click or Enter opens a file, the arrow keys only move, and folders open 
         ignored={false}
         onIgnoredChange={() => {}}
         onRefresh={() => {}}
-        onClose={() => {}}
       />
     </div>,
   );
@@ -224,7 +223,6 @@ test("a hidden tree retains its scroll position when shown again", async () => {
             ignored={false}
             onIgnoredChange={() => {}}
             onRefresh={() => {}}
-            onClose={() => {}}
           />
         </div>
       </>
@@ -268,7 +266,6 @@ test("the active source prepares its file tree before the sidebar is first opene
             onOpen={() => {}}
             onIgnoredChange={state.setIgnored}
             onRefresh={state.refresh}
-            onClose={() => setVisible(false)}
           />
         </div>
       </>
@@ -481,7 +478,6 @@ test("an externally opened deep file expands its parent folders and becomes visi
           ignored={false}
           onIgnoredChange={() => {}}
           onRefresh={() => {}}
-          onClose={() => {}}
         />
       </div>
     );

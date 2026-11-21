@@ -610,6 +610,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                 <RepositoryFiles
                   key={locationState.id}
                   label="Vault files"
+                  sourceLabel={source?.name}
                   entries={entries}
                   loading={false}
                   error={null}
@@ -617,7 +618,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                   selectedPath={locationState.file || null}
                   onOpen={(path) => open(path)}
                   onRefresh={refreshFiles}
-                  onClose={() => setSidebar(false)}
                 />
                 {locationState.file && (
                   <details className="med-vault-backlinks" open>

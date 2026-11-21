@@ -59,4 +59,17 @@ export const page = stylex.create({
   },
   // A list whose rows have their own inset: its text starts at the title's edge.
   flush: { marginInline: -10 },
+  // A section of the page: its name, then its count in the secondary color.
+  section: { marginTop: 44 },
+  sectionTitle: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 8,
+    margin: 0,
+    marginBottom: 14,
+    fontSize: 17,
+    fontWeight: 550,
+    letterSpacing: "-0.012em",
+  },
+  count: { color: tokens.muted, fontSize: 14, fontWeight: 400 },
 });

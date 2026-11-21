@@ -19,6 +19,7 @@ import { diffSurfaceStyle } from "../diff-surface";
 import { OpenInSettings } from "./OpenInSettings";
 import { GrafanaSettings } from "./GrafanaSettings";
 import { Icon } from "../Icon";
+import { PageHeading, page } from "../PageHeading";
 import { Row, Section, settingStyles, Switch, type SettingsSection } from "./SettingsParts";
 
 export type { SettingsSection };
@@ -58,19 +59,15 @@ export function SettingsPage({
   return (
     <div {...stylex.props(styles.page)}>
       <div ref={scroller} {...stylex.props(styles.card)}>
-        <div {...stylex.props(styles.column)}>
-          <h1 {...stylex.props(styles.title)}>Settings</h1>
-          <p {...stylex.props(styles.intro)}>
-            {file ? (
-              <>
-                Each setting is also a key in{" "}
-                <code {...stylex.props(styles.path)}>{file.path}</code>, so an agent can change it;
-                Med applies a saved change at once.
-              </>
-            ) : (
-              "How Med looks, and how it shows code."
-            )}
-          </p>
+        <div {...stylex.props(page.column)}>
+          <PageHeading
+            title="Settings"
+            lead={
+              file
+                ? "Each setting is also a key in Med's settings file, so an agent can change it; Med applies a saved change at once."
+                : "How Med looks, and how it shows code."
+            }
+          />
           <Appearance />
           <Code />
           <OpenInSettings />
@@ -279,7 +276,12 @@ function FileSection({ file }: { file: NonNullable<ReturnType<typeof useSettings
     <Section
       id="file"
       title="Settings file"
-      note="What the file holds now. Keys left out keep their defaults."
+      note={
+        <>
+          What <code {...stylex.props(styles.path)}>{file.path}</code> holds now. Keys left out keep
+          their defaults.
+        </>
+      }
     >
       <div aria-label="Settings file" role="region">
         {file.error && (
@@ -395,25 +397,7 @@ const styles = stylex.create({
     overflowY: "auto",
     backgroundColor: tokens.canvas,
   },
-  // The text's column; the cards reach 20 pixels past it on each side.
-  column: {
-    boxSizing: "content-box",
-    maxWidth: 640,
-    marginInline: "auto",
-    paddingInline: 44,
-    paddingTop: 56,
-    // Room below the end, so the last section scrolls up out of the bottom third.
-    paddingBottom: "max(72px, 33vh)",
-  },
-  title: {
-    margin: 0,
-    fontSize: 26,
-    lineHeight: 1.2,
-    fontWeight: 550,
-    letterSpacing: "-0.022em",
-  },
-  intro: { margin: 0, marginTop: 8, color: tokens.muted, fontSize: 15, lineHeight: 1.5 },
-  path: { fontFamily: tokens.code, fontSize: 13, color: tokens.text },
+  path: { fontFamily: tokens.code, fontSize: 12.5, color: tokens.text, wordBreak: "break-all" },
   fileError: { margin: 0, paddingTop: 14, color: tokens.red, fontSize: 13 },
   fileText: {
     margin: 0,

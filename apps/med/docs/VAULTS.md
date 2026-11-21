@@ -24,7 +24,9 @@ running; `status` and `stop` do not. Keep the state folder
 ## Read and write
 
 Open a vault from the **Sources** page or the workspace list. The title band
-names the vault, and the files sidebar has the file tree and backlinks. Click a
+names the vault, and the files sidebar has the file tree and backlinks. The
+tree's heading names the vault too, with **Refresh files** in its ⋯ menu, as
+on a repository's Files page. Click a
 file to open it in a tab of its own, in the row under the file; the tab stays
 until you close it. A tab with unsaved changes does not close until you save or
 discard them.

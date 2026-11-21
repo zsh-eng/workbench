@@ -23,7 +23,7 @@ export function FilesRail({
       hidden={hidden}
       {...stylex.props(styles.rail, styles.width(width), hidden && styles.hidden)}
     >
-      <RepositoryFiles {...files} rail />
+      <RepositoryFiles {...files} />
       <ColumnHandle kind="files" width={width} pane={pane} label="the files" />
     </nav>
   );

@@ -4,6 +4,7 @@ import type { PullInbox, PullInboxRow, PullInboxWant } from "../../shared/pull-i
 import { useDocumentTitle } from "../data/document-title";
 import { relativeTime } from "../data/relative-time";
 import { picked, tokens, ui } from "../theme.stylex";
+import { EmptyState } from "./EmptyState";
 import { ChoiceSelect } from "./Controls";
 import { Icon, type IconName } from "./Icon";
 import { settingStyles } from "./settings/SettingsParts";
@@ -182,10 +183,10 @@ export function PullRequestsPage({
   // A read that fails behind a list on screen says so quietly.
   const failure = shown && (error || shown.failed?.reason);
   const section = (title: string, entries: PullInboxRow[], offset: number, empty: string) => (
-    <section role="group" aria-label={title} {...stylex.props(styles.section)}>
-      <h2 {...stylex.props(styles.sectionTitle)}>
+    <section role="group" aria-label={title} {...stylex.props(page.section)}>
+      <h2 {...stylex.props(page.sectionTitle)}>
         {title}
-        <span {...stylex.props(styles.count)}>{entries.length}</span>
+        <span {...stylex.props(page.count)}>{entries.length}</span>
       </h2>
       <div {...stylex.props(styles.card)}>
         {entries.map((row, at) => {
@@ -303,12 +304,20 @@ export function PullRequestsPage({
     <div {...stylex.props(styles.page)}>
       <div {...stylex.props(styles.scroller)}>
         <div {...stylex.props(page.column)}>
-          <PageHeading title="Pull requests">
-            {/* The list's time changes only when GitHub answers; the refresh
-                button turns while its own read runs. */}
-            <span role="status" {...stylex.props(styles.readAt)}>
-              {shown ? `Updated ${relativeTime(Date.parse(shown.readAt), now)}` : ""}
-            </span>
+          <PageHeading
+            title="Pull requests"
+            lead={
+              <>
+                Those that wait on your review, and your own.{" "}
+                {/* The list's time changes only when GitHub answers; the
+                    refresh button turns while its own read runs. */}
+                <span role="status" {...stylex.props(styles.readAt)}>
+                  {shown ? `Updated ${relativeTime(Date.parse(shown.readAt), now)}` : ""}
+                </span>
+                {shown && "."}
+              </>
+            }
+          >
             <ToolButton
               label="Refresh pull requests"
               icon="refresh"
@@ -375,7 +384,26 @@ export function PullRequestsPage({
               </p>
             )}
             {shown?.unavailable ? (
-              <p {...stylex.props(styles.notice)}>{shown.unavailable}</p>
+              <EmptyState
+                page
+                title="No pull requests to show"
+                note={shown.unavailable}
+                action={
+                  !all && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAll(true);
+                        setActive(0);
+                        setError("");
+                      }}
+                      {...stylex.props(ui.button, ui.outlined, ui.pressable)}
+                    >
+                      Show all of GitHub
+                    </button>
+                  )
+                }
+              />
             ) : shown ? (
               <>
                 {/* A GitHub host that gh could not read, while the others listed. */}
@@ -426,8 +454,8 @@ function PullSkeleton() {
     // The list says it is busy; its shape is for the eye only.
     <div aria-hidden="true" {...stylex.props(styles.skeleton)}>
       {sections.map(([title, rows]) => (
-        <section key={title} {...stylex.props(styles.section)}>
-          <h2 {...stylex.props(styles.sectionTitle)}>{title}</h2>
+        <section key={title} {...stylex.props(page.section)}>
+          <h2 {...stylex.props(page.sectionTitle)}>{title}</h2>
           <div {...stylex.props(styles.card)}>
             {rows.map(([line, facts], at) => (
               <div
@@ -467,20 +495,8 @@ const styles = stylex.create({
     WebkitFontSmoothing: "antialiased",
   },
   scroller: { flex: "1", minWidth: 0, overflowY: "auto" },
-  readAt: { color: tokens.muted, fontSize: 12.5, fontVariantNumeric: "tabular-nums" },
+  readAt: { fontVariantNumeric: "tabular-nums" },
   list: { outline: "none" },
-  section: { marginTop: 44 },
-  sectionTitle: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: 8,
-    margin: 0,
-    marginBottom: 14,
-    fontSize: 17,
-    fontWeight: 550,
-    letterSpacing: "-0.012em",
-  },
-  count: { color: tokens.faint, fontSize: 14, fontWeight: 400 },
   // Settings' card: 20 pixels past the column on each side.
   card: {
     marginInline: -20,

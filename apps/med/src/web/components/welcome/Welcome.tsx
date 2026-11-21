@@ -354,18 +354,21 @@ export default function Welcome({
               empty="No Git repositories found in your home folder."
               footer={
                 discovery?.skipped.length ? (
-                  <p {...stylex.props(styles.note)}>
-                    Not searched:{" "}
-                    {new Intl.ListFormat("en", { type: "conjunction" }).format(discovery.skipped)}.{" "}
+                  <div {...stylex.props(styles.note)}>
+                    <span>
+                      Not searched:{" "}
+                      {new Intl.ListFormat("en", { type: "conjunction" }).format(discovery.skipped)}
+                      .
+                    </span>
                     <button
                       type="button"
                       disabled={scanning}
                       onClick={() => void setup.scan(true)}
-                      {...stylex.props(styles.link)}
+                      {...stylex.props(ui.button, ui.outlined, ui.pressable)}
                     >
                       {scanning ? "Searching…" : "Search them too"}
                     </button>
-                  </p>
+                  </div>
                 ) : null
               }
             />
@@ -457,7 +460,6 @@ function SourceGroup({
   const searching = setup.scanning && !setup.discovery;
   const open = rows.filter((row) => row.state === "idle");
   const picked = open.filter((row) => setup.selected.has(row.path));
-  const added = rows.length - open.length;
   // Selected and added rows always show; the rest wait behind "Show more".
   const shown = all
     ? rows
@@ -470,17 +472,7 @@ function SourceGroup({
     <div {...stylex.props(styles.group)} data-sources={kind}>
       <div {...stylex.props(styles.groupHead)}>
         <h2 {...stylex.props(styles.groupTitle)}>{title}</h2>
-        <span {...stylex.props(styles.count)}>
-          {searching
-            ? "Searching…"
-            : [
-                rows.length ? `${rows.length} found` : "",
-                added ? `${added} added` : "",
-                picked.length ? `${picked.length} selected` : "",
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-        </span>
+        <span {...stylex.props(styles.count)}>{searching ? "Searching…" : rows.length || ""}</span>
         <span {...stylex.props(ui.grow)} />
         {open.length > 1 && (
           <button
@@ -492,7 +484,7 @@ function SourceGroup({
                 picked.length < open.length,
               )
             }
-            {...stylex.props(styles.link, styles.quietLink)}
+            {...stylex.props(ui.button, styles.headButton)}
           >
             {picked.length < open.length ? "Select all" : "Clear"}
           </button>
@@ -531,11 +523,7 @@ function SourceGroup({
                   />
                   <span
                     aria-hidden="true"
-                    {...stylex.props(
-                      styles.check,
-                      checked && styles.checkOn,
-                      row.state === "added" && styles.checkAdded,
-                    )}
+                    {...stylex.props(styles.check, checked && styles.checkOn)}
                   >
                     <Icon name="check" size={11} />
                   </span>
@@ -557,7 +545,7 @@ function SourceGroup({
                   </span>
                   <span {...stylex.props(styles.rowMeta)}>
                     {row.state === "added" ? (
-                      <span {...stylex.props(styles.added)}>Added</span>
+                      <span {...stylex.props(ui.chip, styles.chip)}>Added</span>
                     ) : row.state === "adding" ? (
                       <span role="img" aria-label="Adding" {...stylex.props(styles.spinner)} />
                     ) : row.state === "failed" ? (
@@ -578,7 +566,7 @@ function SourceGroup({
         <button
           type="button"
           onClick={() => setAll(!all)}
-          {...stylex.props(styles.link, styles.more)}
+          {...stylex.props(ui.button, styles.more)}
         >
           {all ? "Show fewer" : `Show ${hidden} more`}
         </button>
@@ -774,7 +762,9 @@ const styles = stylex.create({
     fontWeight: 600,
     letterSpacing: "-0.005em",
   },
-  count: { color: tokens.faint, fontSize: 12, fontVariantNumeric: "tabular-nums" },
+  count: { color: tokens.muted, fontSize: 12.5, fontVariantNumeric: "tabular-nums" },
+  // Select all and Clear, at the heading's end without moving its line.
+  headButton: { marginBlock: -6, marginInlineEnd: -8 },
   rows: {
     display: "flex",
     flexDirection: "column",
@@ -829,7 +819,6 @@ const styles = stylex.create({
     boxShadow: `0 0 12px -2px color-mix(in srgb, ${tokens.accent} 70%, transparent)`,
     color: tokens.canvas,
   },
-  checkAdded: { backgroundColor: tokens.green, boxShadow: "none" },
   rowText: { display: "flex", flexDirection: "column", gap: 2, minWidth: 0, flexGrow: 1 },
   rowName: {
     overflow: "hidden",
@@ -865,7 +854,8 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
     textAlign: "right",
   },
-  added: { color: tokens.green, fontWeight: 500 },
+  // The row's end holds only the chip, so the chip needs no cap on its width.
+  chip: { maxWidth: "none" },
   failed: { color: tokens.red, fontWeight: 500 },
   spinner: {
     display: "inline-block",
@@ -905,29 +895,19 @@ const styles = stylex.create({
   },
   skeletonWidth: (width: number) => ({ width: `${Math.round(width * 100)}%` }),
   note: {
-    marginBlock: 0,
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    columnGap: 10,
+    rowGap: 6,
     paddingTop: 6,
     paddingInline: 10,
-    color: tokens.faint,
-    fontSize: 12,
+    color: tokens.muted,
+    fontSize: 12.5,
     lineHeight: 1.5,
   },
   empty: { paddingBlock: 8 },
-  link: {
-    paddingBlock: 0,
-    paddingInline: 0,
-    borderWidth: 0,
-    backgroundColor: "transparent",
-    color: { default: tokens.accent, ":hover": tokens.text },
-    fontFamily: tokens.ui,
-    fontSize: 12,
-    cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
-    outlineOffset: 2,
-    borderRadius: `calc(3px * ${tokens.round})`,
-  },
-  quietLink: { color: { default: tokens.muted, ":hover": tokens.text } },
-  more: { alignSelf: "flex-start", marginTop: 4, marginInline: 10 },
+  more: { alignSelf: "flex-start", marginTop: 4, marginInline: 2 },
   addFolder: { display: "flex", flexDirection: "column", paddingBottom: 4 },
   addRow: {
     display: "flex",

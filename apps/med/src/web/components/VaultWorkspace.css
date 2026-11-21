@@ -28,11 +28,6 @@
   flex: 1;
   min-height: 0;
 }
-/* The files heading is level with the file tabs. */
-.med-vault-sidebar > aside > :first-child {
-  height: 38px;
-  min-height: 38px;
-}
 /* The line between the files and the note; on hover, the accent's. Its hit
    area reaches into both sides. */
 .med-vault-resizer {
@@ -94,23 +89,23 @@
   overflow: auto;
   border-top: 1px solid color-mix(in srgb, var(--med-text) 8%, transparent);
 }
+/* A pane's section: its name, then its count, as Recent and Changes are. */
 .med-vault-backlinks summary {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px;
   height: 34px;
   padding: 0 14px;
   list-style: none;
   cursor: pointer;
   color: var(--med-muted);
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 500;
 }
 .med-vault-backlinks summary::-webkit-details-marker {
   display: none;
 }
 .med-vault-backlinks summary span {
-  color: var(--med-faint);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
@@ -120,7 +115,8 @@
 .med-vault-backlinks p {
   margin: 0;
   padding: 2px 8px 6px;
-  color: var(--med-faint);
+  color: var(--med-muted);
+  font-size: 12.5px;
 }
 .med-vault-backlinks button {
   width: 100%;

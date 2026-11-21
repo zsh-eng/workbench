@@ -35,6 +35,7 @@ import { visibleElement } from "../data/palette-focus";
 import { useTheme } from "../themes";
 import { picked, tokens, ui } from "../theme.stylex";
 import { createPatchParser } from "../workers/client";
+import { EmptyState } from "./EmptyState";
 import { ColumnHandle, useColumnWidth } from "./ColumnResize";
 import { diffSurfaceStyle } from "./diff-surface";
 import { Icon } from "./Icon";
@@ -1195,9 +1196,6 @@ export default function CommitView({
                 {loadError}
               </p>
             )}
-            {status && !files.length && (
-              <p {...stylex.props(styles.empty)}>No changes to commit.</p>
-            )}
             {status && !!files.length && !shown.length && (
               <p {...stylex.props(styles.empty)}>No file matches “{filter}”.</p>
             )}
@@ -1473,10 +1471,7 @@ export default function CommitView({
             ) : (
               status &&
               !files.length && (
-                <div {...stylex.props(styles.clean)}>
-                  <Icon name="check" size={18} />
-                  Nothing to commit. The working files match HEAD.
-                </div>
+                <EmptyState title="Nothing to commit" note="The working files match HEAD." />
               )
             )}
           </section>
@@ -2152,14 +2147,5 @@ const styles = stylex.create({
     fontFamily: tokens.ui,
     fontSize: "inherit",
     cursor: { default: "pointer", ":disabled": "default" },
-  },
-  clean: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    flex: "1",
-    color: tokens.faint,
-    fontSize: 13,
   },
 });

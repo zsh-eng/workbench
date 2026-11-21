@@ -29,6 +29,7 @@ import {
   type DashboardInput,
   type DashboardPanel,
 } from "../../../shared/dashboards";
+import { EmptyState } from "../EmptyState";
 import { isRelative, momentRange, rangeLabel, type TimeRange } from "../../../shared/time-range";
 import { useDocumentTitle } from "../../data/document-title";
 import {
@@ -221,7 +222,7 @@ function DashboardList() {
             A dashboard is a <code {...stylex.props(styles.code)}>.dashboard.yaml</code> file that
             opens as its own page, as an Obsidian Base does: inputs, views, and panels whose data a
             chart source prints. Med finds them in your repositories and in{" "}
-            <code {...stylex.props(styles.code)}>{list?.folder ?? "its dashboards folder"}</code>.
+            <span title={list?.folder}>its own dashboards folder</span>.
           </>
         }
       >
@@ -238,20 +239,23 @@ function DashboardList() {
         </p>
       )}
       {list && !list.dashboards.length && (
-        <div {...stylex.props(styles.empty)}>
-          <p {...stylex.props(styles.emptyTitle)}>No dashboards yet</p>
-          <p {...stylex.props(styles.emptyNote)}>
-            Ask an agent for one: it writes the file, checks it with{" "}
-            <code {...stylex.props(styles.code)}>med dashboard check</code>, and it shows here.{" "}
-            <code {...stylex.props(styles.code)}>med docs dashboards</code> has the format.
-          </p>
-        </div>
+        <EmptyState
+          page
+          title="No dashboards yet"
+          note={
+            <>
+              Ask an agent for one: it writes the file, checks it with{" "}
+              <code {...stylex.props(styles.code)}>med dashboard check</code>, and it shows here.{" "}
+              <code {...stylex.props(styles.code)}>med docs dashboards</code> has the format.
+            </>
+          }
+        />
       )}
       {[...groups].map(([where, entries]) => (
-        <section key={where} aria-label={where} {...stylex.props(styles.section)}>
-          <h2 {...stylex.props(styles.sectionTitle)}>
+        <section key={where} aria-label={where} {...stylex.props(page.section)}>
+          <h2 {...stylex.props(page.sectionTitle)}>
             {where}
-            <span {...stylex.props(styles.count)}>{entries.length}</span>
+            <span {...stylex.props(page.count)}>{entries.length}</span>
           </h2>
           <div {...stylex.props(styles.card)}>
             {entries.map((entry, index) => (
@@ -1035,18 +1039,6 @@ const styles = stylex.create({
     textAlign: "right",
     userSelect: "none",
   },
-  section: { marginTop: 40 },
-  sectionTitle: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: 8,
-    margin: 0,
-    marginBottom: 14,
-    fontSize: 17,
-    fontWeight: 550,
-    letterSpacing: "-0.012em",
-  },
-  count: { color: tokens.faint, fontSize: 14, fontWeight: 400 },
   card: {
     marginInline: -20,
     overflow: "hidden",
@@ -1101,13 +1093,5 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
   },
   rowWhen: { color: tokens.faint },
-  empty: {
-    marginTop: 32,
-    padding: 24,
-    marginInline: -20,
-    borderRadius: `calc(12px * ${tokens.round})`,
-    backgroundColor: `color-mix(in srgb, ${tokens.text} 3.5%, transparent)`,
-  },
-  emptyTitle: { margin: 0, fontSize: 15, fontWeight: 550 },
   emptyNote: { margin: 0, marginTop: 6, color: tokens.muted, fontSize: 13.5, lineHeight: 1.55 },
 });
