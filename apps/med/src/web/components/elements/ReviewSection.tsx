@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import { tokens, ui } from "../../theme.stylex";
 import { ChangeTotals } from "../ChangeTotals";
 import { CommitCard } from "../CommitCard";
-import { DiffStat } from "../DiffStat";
+import { LineCounts } from "../DiffStat";
 import { NoteCard } from "../NoteCard";
 import { CodexFindingCard, CodexPanelContent, PullRequestThreadCard } from "../PullRequestComments";
 import PullRequestView from "../PullRequestView";
@@ -186,9 +186,9 @@ export function ReviewSection() {
       </Specimen>
       <Specimen title="Line counts" note="File rows and headers" span="half">
         <div {...stylex.props(styles.row)}>
-          <DiffStat additions={184} deletions={22} />
-          <DiffStat additions={12} deletions={0} />
-          <DiffStat additions={0} deletions={41} />
+          <LineCounts additions={184} deletions={22} />
+          <LineCounts additions={12} deletions={0} />
+          <LineCounts additions={0} deletions={41} />
         </div>
       </Specimen>
     </Section>

@@ -433,8 +433,11 @@ describe("agent session", () => {
       .element(page.getByRole("radio", { name: "Pull request" }))
       .toHaveAttribute("aria-checked", "true");
     await expect.element(side.getByRole("region", { name: "Agent" })).toMatchTextContent(/Claude/);
-    // Context and spend stay under the message box beside the rail too.
-    await expect.element(pane.getByRole("button", { name: /^Context \d+% full/ })).toBeVisible();
+    // The rail says context and spend, so no chip under the message box
+    // says them again.
+    await expect
+      .element(pane.getByRole("button", { name: /^Context \d+% full/ }))
+      .not.toBeInTheDocument();
 
     await pane.getByRole("button", { name: "Hide session rail" }).click();
     await expect.element(side).not.toBeInTheDocument();

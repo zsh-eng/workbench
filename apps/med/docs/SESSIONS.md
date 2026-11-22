@@ -566,7 +566,8 @@ the replay do not change.
 Under the message box, at its end as in Claude Desktop, a chip has the context
 in use and the thread's spend; a click shows the gist: a bar, the tokens in
 use and where compaction starts, and each model's cost. The session rail's
-Context and Spend cards have the rest. `GET /api/thread-usage` reads them
+Context and Spend cards have the rest, and while the rail shows, the chip
+does not: one window says the figures once. `GET /api/thread-usage` reads them
 from the transcripts (`src/host/session-usage.ts`) and keeps its place in each
 file, so the next call reads only the new lines.
 
@@ -617,10 +618,11 @@ sections with a line between each: no cards. The sections, in order:
   thread: its Changes, files, and search are that branch's (a branch that
   no worktree has shows its newest commit, from Git). Med reads the
   branch; it does not switch the branch of any checkout.
-- **Agent**: the agent with its model and what runs it, and the branch where
-  the agent works, with its repository when that is not the one that the
-  thread shows. While the thread shows another place, the branch's row shows
-  the agent's branch in the thread.
+- **Agent**: the agent with its model and what runs it. The branch where the
+  agent works has a row here only while it is not the branch that the thread
+  shows, with its repository when that is not the thread's either: the rail
+  names one branch once. While the thread shows another place, the branch's
+  row shows the agent's branch in the thread.
 - **Reviews**: what the session handed off to read, newest first, with the
   one on screen marked. A row shows that review. A dot marks a review whose
   latest version you have not opened; it goes once the review shows. A review
@@ -640,8 +642,9 @@ The thread's column has Claude Desktop's 768 pixel text measure
 its sides, and the rail's 300: beside the rail the column narrows to the room
 that is left, as Claude Desktop's transcript narrows beside its session rail.
 In a narrower pane, the rail and its button are gone, the subagents are tabs
-over the thread again. The chip under the message box shows the context and
-spend either way. The
+over the thread again, and a chip under the message box shows the context
+and spend. Beside the rail there is no chip: the rail's Spend and Context say
+both. The
 header's list button, `⌘⌥⇧B`, or **Hide session rail** in `⌘K` closes it, and
 Med keeps that choice (`med:session-panel`).
 

@@ -43,7 +43,8 @@ export interface ThreadLink {
 }
 
 /** What the thread shows, and the agent with where it works. The two are
- * apart: the agent can work on one branch while the thread shows another. */
+ * apart: the agent can work on one branch while the thread shows another.
+ * While they are the same branch, the rail names it once, under Thread. */
 export interface SessionEnvironment {
   /** The repository that the thread shows, by its name. A worktree goes by
    * its repository's, not by its folder's. */
@@ -278,6 +279,11 @@ export function SessionSidePanel({
   /** Where the thread puts its list of subagents, in place of the tabs over it. */
   agentsRef?: Ref<HTMLDivElement>;
 }) {
+  // The agent's branch has a row of its own only while it is not the branch
+  // that the thread shows, or while a click on it would show another place.
+  const agentApart =
+    !!place.agentBranch &&
+    (place.agentBranch !== place.branch || !!place.agentRepository || !!place.onAgentBranch);
   return (
     <aside aria-label="Session rail" {...slim(stylex.props(styles.panel))}>
       {(place.repository || place.branch) && (
@@ -314,10 +320,10 @@ export function SessionSidePanel({
             label={place.model ? `${place.agent} ${modelName(place.model)}` : place.agent}
             detail={place.runs}
           />
-          {place.agentBranch && (
+          {agentApart && (
             <Row
               icon="gitBranch"
-              label={place.agentBranch}
+              label={place.agentBranch!}
               detail={place.agentRepository}
               onOpen={place.onAgentBranch}
               tip={place.onAgentBranch && { label: "Show the agent's branch" }}

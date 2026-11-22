@@ -727,7 +727,7 @@ export function SessionPanel({
   }));
   // The session's own control at the title band's end: the session rail's
   // toggle. The band names the thread, and the thread its agent; context and
-  // spend are under the message box, as in Claude Desktop.
+  // spend are in the rail, or under the message box while the rail hides.
   const sessionTools = roomy && (
     <ToolButton
       icon="sessionRail"
@@ -738,7 +738,9 @@ export function SessionPanel({
       onClick={() => viewSettings.sessionPanel.set(side ? "closed" : "auto")}
     />
   );
-  const usageChip = <UsageChip usage={usage} context={shownContext} />;
+  // The rail has Spend and Context with their detail, so the chip under the
+  // message box would say both a second time.
+  const usageChip = side ? null : <UsageChip usage={usage} context={shownContext} />;
 
   // The message box, or what stands in its place, at the pane's foot: over
   // the thread's foot while the thread shows (SessionThread's footer).
@@ -789,7 +791,7 @@ export function SessionPanel({
         )
       )}
       {!inbox && footer}
-      {!inbox && (usage || shownContext) && <ComposerMeta>{usageChip}</ComposerMeta>}
+      {!inbox && usageChip && (usage || shownContext) && <ComposerMeta>{usageChip}</ComposerMeta>}
     </>
   );
   return (

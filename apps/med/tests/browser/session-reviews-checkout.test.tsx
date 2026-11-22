@@ -231,8 +231,10 @@ test("a branch picked in a thread shows in the thread, and the Agent row leads b
   const place = page.getByRole("region", { name: "Thread" });
   const agent = page.getByRole("region", { name: "Agent" });
   const back = agent.getByRole("button", { name: "main. Show the agent's branch" });
-  // The review is in the agent's checkout: nothing to lead back from.
-  await expect.element(agent).toMatchTextContent("main");
+  // The review is in the agent's checkout: nothing to lead back from, and
+  // the rail names the branch once, under Thread.
+  await expect.element(place).toMatchTextContent("main");
+  await expect.element(agent).not.toMatchTextContent("main");
   expect(back.elements()).toHaveLength(0);
   const pick = async (name: string) => {
     await place.getByRole("button", { name: /\. Show another branch or worktree$/ }).click();

@@ -55,7 +55,6 @@ import {
   type ReviewCommand,
 } from "./components/Controls";
 import { ChangeTotals } from "./components/ChangeTotals";
-import { DiffStat } from "./components/DiffStat";
 import {
   ReviewHeader,
   ReviewTitle,
@@ -5395,7 +5394,6 @@ export function App({
             <span {...stylex.props(styles.headerStats)}>
               <span {...stylex.props(ui.added)}>+{info.additions}</span>
               <span {...stylex.props(ui.removed)}>−{info.deletions}</span>
-              <DiffStat additions={info.additions} deletions={info.deletions} />
             </span>
           )}
         </div>
