@@ -47,6 +47,46 @@ test("a row is the thread's name, without the agent's mark; the Superagent's thr
   await expect.poll(() => superagent.getAttribute("aria-current")).toBe("page");
 });
 
+test("a row says what waits in its message box: comments that are not sent, or a draft; the thread on screen does not", async () => {
+  const draft = "med:draft:typed/claude-typed";
+  localStorage.setItem(draft, JSON.stringify({ text: "Could this take a locale?", mentions: [] }));
+  onTestFinished(() => localStorage.removeItem(draft));
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  const now = Date.now();
+  const session = (id: string) => ({
+    agent: "claude" as const,
+    id: `claude-${id}`,
+    cwd: "/test/repo",
+  });
+  host.setThreads([
+    thread("waits", { title: "Two comments", unsent: 2, updatedAt: now - 1000 }),
+    thread("one", { title: "One comment", unsent: 1, updatedAt: now - 2000 }),
+    thread("typed", { title: "A draft", session: session("typed"), updatedAt: now - 3000 }),
+    thread("plain", { title: "Nothing waits", session: session("plain"), updatedAt: now - 4000 }),
+  ]);
+  const says = (id: string) =>
+    document.querySelector(`[data-session-row="${id}"] [data-unsent]`)?.textContent ?? null;
+  await expect.poll(() => says("waits")).toBe("2 comments");
+  expect(says("one")).toBe("1 comment");
+  expect(says("typed")).toBe("Draft");
+  expect(says("plain")).toBeNull();
+  // Another window ends the draft: the row follows.
+  localStorage.removeItem(draft);
+  dispatchEvent(new StorageEvent("storage", { key: draft }));
+  await expect.poll(() => says("typed")).toBeNull();
+  // On screen, the thread's own message box says it.
+  await userEvent.click(document.querySelector<HTMLElement>('[data-session-row="waits"] button')!);
+  await expect
+    .poll(() =>
+      document.querySelector('[data-session-row="waits"] button')?.getAttribute("aria-current"),
+    )
+    .toBe("page");
+  expect(says("waits")).toBeNull();
+  expect(says("one")).toBe("1 comment");
+});
+
 test("as in Claude's desktop app, the sidebar's top row holds its toggle and Back and Forward, which stay in place as it hides; New is the first row", async () => {
   const host = createHost();
   render(host);

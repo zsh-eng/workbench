@@ -26,6 +26,8 @@ export class AgentInbox {
   private newest = new Map<string, AgentMessage | null>();
   /** Sends with a client's message ID that run now, as `review:id`. */
   private sending = new Map<string, Promise<void>>();
+  /** How many times each review's messages changed, since the host started. */
+  private revisions = new Map<string, number>();
 
   constructor(
     private readonly directory: string,
@@ -73,8 +75,15 @@ export class AgentInbox {
     return next.finally(() => {
       if (this.writes.get(reviewId) === next) this.writes.delete(reviewId);
       this.newest.delete(reviewId);
+      this.revisions.set(reviewId, this.revision(reviewId) + 1);
       this.notify(reviewId);
     });
+  }
+
+  /** A number that grows with each change to the review's messages: what
+   * was read at one revision is still true at the same one. */
+  revision(reviewId: string) {
+    return this.revisions.get(reviewId) ?? 0;
   }
 
   /** Tells listeners that the review's comments changed, so drafts change. */

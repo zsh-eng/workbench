@@ -145,7 +145,7 @@ export const PAGE_KEYS: Record<string, number> = {
  * that the row cuts fades out at its end, and a tooltip has all of it.
  *
  * With `viewed`, the mark is the review's meter: it fills as the reader
- * marks files viewed, and its name says how many.
+ * marks files viewed, and its tooltip says how many.
  */
 export function ReviewTitle({
   title,
@@ -161,9 +161,9 @@ export function ReviewTitle({
     <h2 {...clippedTooltip(title)} {...stylex.props(styles.title, reviewed && styles.marked)}>
       {reviewed &&
         (viewed ? (
+          // The heading's name stays the title: each file's Viewed says its
+          // state, and the row has the count in words.
           <span
-            role="img"
-            aria-label={viewed.label}
             data-viewed-meter={viewed.share}
             {...tooltip(viewed.label)}
             {...stylex.props(styles.meter)}

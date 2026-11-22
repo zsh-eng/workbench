@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentInboxState, AgentMessage } from "../../src/shared/agent-inbox";
+import type { ThreadList } from "../../src/shared/threads";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { removeFolder } from "./remove-folder";
 
@@ -187,6 +188,31 @@ test("an edit while Med sends a comment keeps the comment a draft, and the threa
   ]);
   // The edit has not reached the agent, so the comment is still a draft.
   expect(state.drafts).toMatchObject([{ id: commentId, text: "Round to hours." }]);
+});
+
+test("the thread list counts the comments that wait, and none once they are sent", async () => {
+  const { api, commentId, mutate, inbox } = await fixture();
+  await expect.poll(async () => (await inbox()).resumable).toEqual([session]);
+  const unsent = async () =>
+    (await api<ThreadList>("/api/threads")).data.threads.find(
+      (thread) => thread.id === `claude-${session}`,
+    )?.unsent;
+  // The comment of the fixture waits in the message box.
+  await expect.poll(unsent).toBe(1);
+  // A second comment counts at once, without a wait for the list's next read.
+  await mutate({
+    type: "add",
+    note: { path: "summary.ts", side: "new", line: 1, text: "And name the unit." },
+  });
+  await expect.poll(unsent).toBe(2);
+  // Sent, the first one no longer waits; the other does.
+  const sent = await api(`/api/sessions/claude-${session}/agent/messages`, {
+    text: "",
+    noteIds: [commentId],
+  });
+  expect(sent.status).toBe(200);
+  await expect.poll(unsent).toBe(1);
+  expect((await inbox()).drafts).toHaveLength(1);
 });
 
 test("the agent answers a comment in its thread; the comment stays sent, and the next message shows the answer as the agent's", async () => {

@@ -14,6 +14,7 @@ import type { Thread } from "../../../shared/threads";
 import { resumeCommand } from "../../data/workspaces";
 import type { ReadState } from "../../data/tabs";
 import { needsYou, tabOrder } from "../../data/threads";
+import { draftKeyOf, useDraftedBoxes } from "../../data/outbox";
 import { tokens, ui } from "../../theme.stylex";
 import { useViewSetting, viewSettings } from "../../data/view-settings";
 import { Icon } from "../Icon";
@@ -56,8 +57,10 @@ const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
  * is the session's name and at most one dot, by what it asks of the
  * reader, as ⌘0 ranks it: an accent dot in a ring when it needs them, a plain
  * accent dot when its work finished since they looked, amber when the work
- * stopped. A session at work dims its name under a passing light. Archived,
- * Pull requests, Dashboards, and Settings are at the foot.
+ * stopped. A session at work dims its name under a passing light. A session
+ * whose comments wait to be sent says how many before its dot, and one whose
+ * message the reader started says "Draft". Archived, Pull requests,
+ * Dashboards, and Settings are at the foot.
  *
  * Later, under Recent, holds the sessions that the reader put off; it folds
  * to one row. Recent's Archive all archives its sessions but those at work
@@ -166,6 +169,8 @@ export function SessionSidebar({
     .filter((thread) => !pins.includes(thread.id) && !laters.includes(thread.id))
     .toSorted((a, b) => b.updatedAt - a.updatedAt);
   const folded = useViewSetting(viewSettings.laterSection) === "folded";
+  // The message boxes with a draft, in any window.
+  const drafted = useDraftedBoxes();
 
   const [drag, setDrag] = useState<Drag | null>(null);
   // The drag as the last move left it, for the release.
@@ -373,6 +378,7 @@ export function SessionSidebar({
       menuBoundary={nav}
       current={!newThread && thread.id === current}
       unread={read.isUnread(thread)}
+      draft={!!thread.session && drafted.has(draftKeyOf(thread.id, thread.session.id))}
       editing={renaming === thread.id}
       actions={{
         open: () => onOpen(thread),
@@ -561,6 +567,17 @@ function dotOf(thread: Thread, current: boolean, unread: boolean) {
   return needsYou(thread) ? "needs" : unread ? "new" : null;
 }
 
+/**
+ * What waits in the session's message box, in words: its comments that are
+ * not sent, else a message that the reader started. None on the session on
+ * screen, whose message box says it.
+ */
+export function unsentOf(thread: Thread, current: boolean, draft: boolean) {
+  if (current) return null;
+  if (thread.unsent) return `${thread.unsent} ${thread.unsent === 1 ? "comment" : "comments"}`;
+  return draft ? "Draft" : null;
+}
+
 function RowDot({ dot }: { dot: ReturnType<typeof dotOf> }) {
   if (!dot) return null;
   return (
@@ -637,6 +654,7 @@ const SessionRow = memo(function SessionRow({
   thread,
   current,
   unread,
+  draft = false,
   editing,
   placeholder = false,
   menuBoundary,
@@ -645,6 +663,8 @@ const SessionRow = memo(function SessionRow({
   thread: Thread;
   current: boolean;
   unread: boolean;
+  /** The reader started a message to the session and did not send it. */
+  draft?: boolean;
   editing: boolean;
   /** The row drags: its place in the list is where it would land. */
   placeholder?: boolean;
@@ -657,6 +677,7 @@ const SessionRow = memo(function SessionRow({
   const rest = useRef<ReturnType<typeof setTimeout>>(undefined);
   const working = thread.state === "working" && !thread.halt;
   const dot = dotOf(thread, current, unread);
+  const unsent = unsentOf(thread, current, draft);
   const menuOpen = menu !== null;
   // Where the dragged row would land: an empty place, as tall as the row.
   if (placeholder)
@@ -700,6 +721,11 @@ const SessionRow = memo(function SessionRow({
           <Shimmer on={working} quiet style={styles.name}>
             {thread.title}
           </Shimmer>
+          {unsent && (
+            <span data-unsent="" {...stylex.props(styles.unsent, menuOpen && styles.unsentHidden)}>
+              {unsent}
+            </span>
+          )}
           <RowDot dot={dot} />
         </button>
       )}
@@ -973,6 +999,17 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
     textOverflow: "ellipsis",
   },
+  // What waits in the session's message box, in words, before the dot. The
+  // menu's button takes its place while the pointer is on the row.
+  unsent: {
+    flex: "none",
+    color: tokens.muted,
+    fontSize: 12,
+    fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap",
+    opacity: { default: 1, [stylex.when.ancestor(":hover")]: 0 },
+  },
+  unsentHidden: { opacity: 0 },
   dot: { flex: "none", width: 7, height: 7, marginInlineEnd: 3, borderRadius: "50%" },
   fresh: { backgroundColor: tokens.accent },
   // Louder than news: the work waits on the reader.
@@ -1036,9 +1073,12 @@ const noActions: RowActions = {
 export function SessionRowsPreview({
   threads,
   unread = [],
+  drafts = [],
 }: {
   threads: readonly Thread[];
   unread?: readonly string[];
+  /** The sessions with a message that the reader started. */
+  drafts?: readonly string[];
 }) {
   return (
     <div>
@@ -1048,6 +1088,7 @@ export function SessionRowsPreview({
           thread={thread}
           current={false}
           unread={unread.includes(thread.id)}
+          draft={drafts.includes(thread.id)}
           editing={false}
           actions={noActions}
         />

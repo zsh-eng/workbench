@@ -197,6 +197,8 @@ import {
 import {
   agentMessageInputSchema,
   type AgentInboxState,
+  type AgentMessage,
+  type DraftComment,
   type SentComment,
   type SessionPlace,
 } from "../shared/agent-inbox";
@@ -739,6 +741,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     repositories: visibleRepositories,
     status: reviewStatus,
     lastMessage: (threadId) => inbox.last(threadId),
+    unsent: (threadId) => unsentCount(threadId),
     owned: () => ownedSessions.sessions(),
     checkoutWork,
     pullRequestLinks,
@@ -836,10 +839,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     if (shown) parts.push(replyHelp(shown, files.example).join("\n"));
     return { text: parts.join("\n"), count, threads: out };
   };
-  /** What a thread's message box shows: its messages, its comments that wait
-   * to be sent, and where its session is open. */
-  const threadInbox = async (threadId: string): Promise<AgentInboxState> => {
-    const messages = await inbox.messages(threadId);
+  /** The thread's comments that wait to be sent, and what its revision
+   * counts: its reviews' revisions and its comments on files. */
+  const threadDrafts = async (
+    threadId: string,
+    messages: readonly AgentMessage[],
+  ): Promise<{ drafts: DraftComment[]; revision: number }> => {
     // A comment is sent when a message holds its version. A message from
     // before versions holds the comments as they were when it was made.
     const versions = new Map<string, Set<string>>();
@@ -858,11 +863,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       await Promise.all(reviews.map((review) => savedReviews.comments(review.id).catch(() => [])))
     ).flat();
     const fileComments = await threadComments.list(threadId);
-    const session = await threadSession(threadId).catch(() => undefined);
     return {
-      messages,
-      ...(await sessionPlaces(session ? [session] : [])),
-      owned: session && ownedSessions.get(session.id) ? [session.id] : [],
       revision:
         reviews.reduce((sum, review) => sum + review.revision, 0) +
         fileComments.reduce((sum, comment) => sum + 1 + comment.replies.length, 0),
@@ -887,6 +888,40 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           })),
       ],
     };
+  };
+  /** What a thread's message box shows: its messages, its comments that wait
+   * to be sent, and where its session is open. */
+  const threadInbox = async (threadId: string): Promise<AgentInboxState> => {
+    const messages = await inbox.messages(threadId);
+    const session = await threadSession(threadId).catch(() => undefined);
+    return {
+      messages,
+      ...(await sessionPlaces(session ? [session] : [])),
+      owned: session && ownedSessions.get(session.id) ? [session.id] : [],
+      ...(await threadDrafts(threadId, messages)),
+    };
+  };
+  // How many comments wait in each thread's message box, for its row in the
+  // sidebar. The thread list asks at each read, so the count is kept while
+  // nothing that it reads changed: the reviews, the thread's messages, and
+  // the comments on files.
+  let fileCommentChanges = 0;
+  const unsentCounts = new Map<string, { at: string; count: Promise<number> }>();
+  const unsentCount = (threadId: string) => {
+    const at = `${savedReviews.changes}:${inbox.revision(threadId)}:${fileCommentChanges}`;
+    const kept = unsentCounts.get(threadId);
+    if (kept?.at === at) return kept.count;
+    if (unsentCounts.size > 512) unsentCounts.clear();
+    const count = inbox
+      .messages(threadId)
+      .then((messages) => threadDrafts(threadId, messages))
+      .then(({ drafts }) => drafts.length);
+    unsentCounts.set(threadId, { at, count });
+    // A read that failed is read again.
+    count.catch(() => {
+      if (unsentCounts.get(threadId)?.count === count) unsentCounts.delete(threadId);
+    });
+    return count;
   };
 
   const watchers = new Map<string, Promise<() => Promise<void>>>();
@@ -926,7 +961,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   });
   store.subscribe(() => threadFeed.changed());
   savedReviews.subscribe(() => threadFeed.changed());
-  threadComments.subscribe((threadId) => inbox.touch(threadId));
+  threadComments.subscribe((threadId) => {
+    inbox.touch(threadId);
+    // The thread's row counts its comments that wait.
+    fileCommentChanges++;
+    threadFeed.changed();
+  });
   // An agent lives as long as its thread's tab: the sessions of closed tabs
   // go to OwnedSessions.release, which stops their agents when idle.
   let releasing: Promise<void> | undefined;

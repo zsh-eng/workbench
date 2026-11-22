@@ -57,6 +57,8 @@ export interface ThreadServiceOptions {
   /** The state of a thread's session: Med's runner, else its transcript. */
   status(threadId: string, sessions: AgentSession[]): Promise<AgentStatus | undefined>;
   lastMessage(threadId: string): Promise<AgentMessage | undefined>;
+  /** How many of the thread's comments wait to be sent to its agent. */
+  unsent?(threadId: string): Promise<number>;
   /** The sessions that Med runs, with the agent's own ID of one that runs
    * through ACP, such as a Codex rollout's: that transcript is the same
    * session, not a thread of its own. */
@@ -336,6 +338,7 @@ export function createThreadService(options: ThreadServiceOptions) {
     if (onBranch && place.checkout && place.branch && base)
       options.pullRequestLinks?.check(onBranch.id, place.checkout, place.branch);
     const reply = await options.lastMessage(id).catch(() => undefined);
+    const unsent = (await options.unsent?.(id).catch(() => 0)) ?? 0;
     const thread: Thread = {
       id,
       kind: "session",
@@ -375,6 +378,7 @@ export function createThreadService(options: ThreadServiceOptions) {
           delivery: reply.delivery,
         },
       }),
+      ...(unsent > 0 && { unsent }),
       open: true,
     };
     store.remember(id, {

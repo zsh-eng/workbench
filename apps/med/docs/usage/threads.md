@@ -44,7 +44,12 @@ place in the list, with the Superagent first.
 A row shows the session's name and at most one dot: blue
 in a ring when the agent needs you, blue when its work finished since you
 looked, amber when the work stopped. While the agent works, its name dims
-under a passing light. **New**, the first row, above the Superagent, starts a
+under a passing light. A thread with comments that you wrote and have not
+sent says how many before the dot, such as "2 comments", and one with a
+message that you started says "Draft", so neither is forgotten in a thread
+that you left. The thread on screen says neither: its message box does. The
+count comes from the host (`unsent` in the thread list); a draft is in this
+browser, and shows in each of its windows. **New**, the first row, above the Superagent, starts a
 thread. The top row holds the sidebar's toggle and **Back** and **Forward**,
 as in Claude's desktop app.
 **Archived**, **Pull requests**, and **Settings** are at the foot.

@@ -23,7 +23,7 @@ import {
 } from "../../data/agent-inbox";
 import { useOwnedSession } from "../../data/owned-session";
 import { useThreadUsage } from "../../data/thread-usage";
-import { useOutbox, type Outgoing } from "../../data/outbox";
+import { draftKeyOf, useOutbox, type Outgoing } from "../../data/outbox";
 import {
   followSession,
   keptPages,
@@ -755,7 +755,7 @@ export function SessionPanel({
         inbox && (
           <SessionComposer
             key={session.id}
-            draftKey={`${threadId}/${session.id}`}
+            draftKey={draftKeyOf(threadId, session.id)}
             agent={session.agent}
             name={agent}
             presence={presence}

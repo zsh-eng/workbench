@@ -189,6 +189,9 @@ export const threadSchema = z.object({
       delivery: z.enum(["pending", "delivered", "queued", "failed"]),
     })
     .optional(),
+  /** The comments that wait in the thread's message box: written, and not
+   * sent to the agent since their last change. The sidebar says how many. */
+  unsent: z.number().int().positive().optional(),
   /** The checkout's work that its base branch does not have yet
    * (src/host/checkout-work.ts): commits ahead of the base, and uncommitted
    * changes. */

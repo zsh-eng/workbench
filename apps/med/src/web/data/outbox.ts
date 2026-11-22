@@ -46,13 +46,65 @@ export function readDraft(key: string): Draft | undefined {
 
 /** Keeps the draft; an empty one is removed. */
 export function writeDraft(key: string, draft: Draft) {
+  const kept = !!draft.text.trim();
   try {
-    if (draft.text.trim()) localStorage.setItem(DRAFT + key, JSON.stringify(draft));
+    if (kept) localStorage.setItem(DRAFT + key, JSON.stringify(draft));
     else localStorage.removeItem(DRAFT + key);
   } catch {
     /* The draft lasts for this page. */
   }
+  noteDraft(key, kept);
 }
+
+// Which message boxes have a draft, for the sidebar: a thread whose message
+// the reader started and did not send says "Draft". The set changes only when
+// a box starts or ends a draft, not at each key.
+
+/** The message boxes with a draft, by their keys. An editor's unsaved file
+ * has the same prefix (editor-drafts.ts), with a JSON list after it. */
+function storedDrafts(): ReadonlySet<string> {
+  const keys = new Set<string>();
+  try {
+    for (let index = 0; index < localStorage.length; index++) {
+      const name = localStorage.key(index);
+      if (name?.startsWith(DRAFT) && !name.startsWith(`${DRAFT}[`))
+        keys.add(name.slice(DRAFT.length));
+    }
+  } catch {
+    // Without storage, the page knows only the drafts it wrote.
+  }
+  return keys;
+}
+let drafted: ReadonlySet<string> | undefined;
+const draftListeners = new Set<() => void>();
+const draftedNow = () => (drafted ??= storedDrafts());
+function noteDraft(key: string, kept: boolean) {
+  const before = draftedNow();
+  if (before.has(key) === kept) return;
+  const next = new Set(before);
+  if (kept) next.add(key);
+  else next.delete(key);
+  drafted = next;
+  for (const listener of draftListeners) listener();
+}
+/** Another window started or ended a draft. */
+function followDrafts(event: StorageEvent) {
+  if (event.key !== null && !event.key.startsWith(DRAFT)) return;
+  drafted = storedDrafts();
+  for (const listener of draftListeners) listener();
+}
+function subscribeDrafts(listener: () => void) {
+  draftListeners.add(listener);
+  if (draftListeners.size === 1) addEventListener("storage", followDrafts);
+  return () => {
+    draftListeners.delete(listener);
+    if (!draftListeners.size) removeEventListener("storage", followDrafts);
+  };
+}
+/** The keys of the message boxes with a draft, in any window of this address. */
+export const useDraftedBoxes = () => useSyncExternalStore(subscribeDrafts, draftedNow, draftedNow);
+/** A thread's message box, by its session: the key of its draft. */
+export const draftKeyOf = (threadId: string, sessionId: string) => `${threadId}/${sessionId}`;
 
 /** A message that the browser sent, until the host has it. */
 export interface Outgoing {

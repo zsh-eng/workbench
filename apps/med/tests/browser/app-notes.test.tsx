@@ -415,7 +415,7 @@ describe("graphical review", () => {
     const shown = <T extends Element>(selector: string) =>
       [...document.querySelectorAll<T>(selector)].filter((node) => node.getClientRects().length);
     const end = () => shown("[data-stream-end]")[0]?.textContent;
-    const meter = () => shown("[data-viewed-meter]")[0]?.getAttribute("aria-label");
+    const meter = () => shown("[data-viewed-meter]")[0]?.getAttribute("data-tooltip");
     await expect.poll(end).toBe("2 changed files");
     await expect.poll(meter).toBe("0 of 2 files viewed");
     expect(shown("[data-viewed-count]")).toHaveLength(0);
