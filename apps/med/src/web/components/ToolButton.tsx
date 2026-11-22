@@ -11,6 +11,11 @@ type TooltipSide = "bottom" | "inline-start";
  * The attributes that give a control the app's tooltip. One popup,
  * `AppTooltip`, serves all controls, so a control renders no tooltip parts
  * and a toolbar renders again as fast as its buttons.
+ *
+ * A control takes these, not a `title`: the browser's own tooltip comes late,
+ * in another look, and cannot show keys. Keys go in `shortcut`, not in the
+ * label's words. A long text evens its own lines (`TipText`); write "\n" in
+ * it only where a phrase should stay whole.
  */
 export function tooltip(
   label: string | undefined,

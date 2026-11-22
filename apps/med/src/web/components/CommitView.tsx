@@ -1134,7 +1134,8 @@ export default function CommitView({
       {...tooltip("Stage or unstage every file shown", "a")}
       {...stylex.props(ui.button, inRow ? ui.pressable : styles.small)}
     >
-      {`${stageShown ? "Stage" : "Unstage"} ${filter ? `${shown.length} shown` : "all"}`}
+      {/* With no file shown there is nothing to unstage: the control rests on its first word. */}
+      {`${stageShown || !shown.length ? "Stage" : "Unstage"} ${filter ? `${shown.length} shown` : "all"}`}
     </button>
   );
   return (

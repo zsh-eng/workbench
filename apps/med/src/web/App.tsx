@@ -79,7 +79,7 @@ import { GENERATED_LABELS } from "../shared/generated";
 import { NoteCard, NoteComposer, type NoteTarget } from "./components/NoteCard";
 import { Icon, type IconName } from "./components/Icon";
 import "./pierre-theme";
-import { DEFAULT_CODE_VIEW_FILE_METRICS, hydratePartialDiff } from "@pierre/diffs";
+import { hydratePartialDiff } from "@pierre/diffs";
 import { useTheme } from "./themes";
 import { ThemePicker } from "./components/ThemePicker";
 import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTabs";
@@ -302,8 +302,13 @@ const NO_SECTIONS: GuideSection[] = [];
 const NO_GUIDE_NOTES: GuideNote[] = [];
 // Pierre's view renders its file headers and comments again whenever it renders.
 const ReviewCodeView = memo(CodeView) as typeof CodeView;
-/** The review stream's file header, which sticks at its top. */
-const STICKY_FILE_HEADER = DEFAULT_CODE_VIEW_FILE_METRICS.diffHeaderHeight;
+/**
+ * The height of the review stream's file header (`styles.diffHeader`), which
+ * sticks at its top. Pierre's view counts a folded file as this tall: with
+ * its own 44 pixels, the stream was 8 pixels too tall for each folded file,
+ * and a stream of only folded files stood that far under the title.
+ */
+const STICKY_FILE_HEADER = 36;
 /** A full commit ID (SHA-1 or SHA-256), not a name such as `worktree`. */
 const FULL_OID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 
@@ -2740,6 +2745,7 @@ export function App({
       diffIndicators: "bars",
       lineDiffType: "word-alt",
       stickyHeaders: true,
+      itemMetrics: { diffHeaderHeight: STICKY_FILE_HEADER },
       enableLineSelection: true,
       // Keep hover and gutter dragging active immediately after keyboard scrolling.
       pointerEventsOnScroll: true,

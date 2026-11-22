@@ -433,6 +433,18 @@ describe("graphical review", () => {
     await page.getByRole("button", { name: "Viewed src/beta.ts" }).click();
     await expect.poll(meter).toBe("All 2 files viewed");
     await expect.poll(end).toBe("All 2 files viewed");
+    // Folded files stand at the stream's top, one under the other: the view
+    // counts each as tall as its header, so no gap opens above them.
+    const headers = () =>
+      shown<HTMLElement>("[data-stream-file]").map((header) => header.getBoundingClientRect());
+    const streamTop = () => {
+      let scroller = shown<HTMLElement>("[data-stream-file]")[0]?.parentElement;
+      while (scroller && !/auto|scroll/.test(getComputedStyle(scroller).overflowY))
+        scroller = scroller.parentElement;
+      return scroller?.getBoundingClientRect().top ?? NaN;
+    };
+    await expect.poll(() => Math.abs(headers()[0]!.top - streamTop())).toBeLessThan(1.5);
+    expect(Math.abs(headers()[1]!.top - headers()[0]!.bottom)).toBeLessThan(1.5);
     // The mark off again opens the file.
     await alpha.click();
     await expect.element(alpha).toHaveAttribute("aria-pressed", "false");
