@@ -95,7 +95,11 @@ function followDrafts(event: StorageEvent) {
 }
 function subscribeDrafts(listener: () => void) {
   draftListeners.add(listener);
-  if (draftListeners.size === 1) addEventListener("storage", followDrafts);
+  if (draftListeners.size === 1) {
+    addEventListener("storage", followDrafts);
+    // While no one listened, another window could have changed the drafts.
+    drafted = undefined;
+  }
   return () => {
     draftListeners.delete(listener);
     if (!draftListeners.size) removeEventListener("storage", followDrafts);

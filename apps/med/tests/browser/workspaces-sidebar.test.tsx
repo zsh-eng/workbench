@@ -49,8 +49,13 @@ test("a row is the thread's name, without the agent's mark; the Superagent's thr
 
 test("a row says what waits in its message box: comments that are not sent, or a draft; the thread on screen does not", async () => {
   const draft = "med:draft:typed/claude-typed";
+  // A message that another window started: storage tells this one.
   localStorage.setItem(draft, JSON.stringify({ text: "Could this take a locale?", mentions: [] }));
-  onTestFinished(() => localStorage.removeItem(draft));
+  dispatchEvent(new StorageEvent("storage", { key: draft }));
+  onTestFinished(() => {
+    localStorage.removeItem(draft);
+    dispatchEvent(new StorageEvent("storage", { key: draft }));
+  });
   const host = createHost();
   render(host);
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");

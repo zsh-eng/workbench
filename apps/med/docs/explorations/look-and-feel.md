@@ -184,25 +184,30 @@ The design review of 2026-11-22 showed these as mock-ups. In short:
 **Remove (done).** The dawn colours and the sun at the end of Changes. The
 welcome page: Sources finds repositories and vaults itself.
 
-**Refine (proposed, not built).**
+**Refine.**
 
-- Things that one window says twice or three times: the branch (the band, and
-  twice in the session rail), spend and context (the rail and under the
-  message box), a file's change (numbers and five squares).
-- Hover styles on touch screens, which stay after a tap.
-- The phone's band, which holds nine controls and cuts the title to
-  "Forgivin…".
+- Built: things that one window said twice or three times. The session rail
+  names the agent's branch only while it is not the thread's; the chip under
+  the message box hides beside the rail, which has Spend and Context; a
+  file's header keeps its numbers and loses the five squares.
+- Not built, as the phone's layout waits: hover styles on touch screens,
+  which stay after a tap, and the phone's band, which holds nine controls and
+  cuts the title to "Forgivin…".
 
-**Add (proposed, not built).**
+**Add (built, but the pane bar).**
 
-- **Peek:** hold Space on a thread, a file or a commit to see it without
-  leaving.
+- **Peek:** hold Space on a thread in the sidebar to see its state, its last
+  words and its change without leaving (`ThreadPeek.tsx`). A file and a
+  commit do not peek yet.
 - **The place pill:** while a long thread scrolls, a pill names the request
-  that the reader is in.
-- **Drafts in the sidebar:** a thread with comments or a message not yet sent
-  says so.
-- **A pane bar on the phone,** under the thumb.
-- **The mark as the meter:** the review's sun fills as files are viewed.
+  that the reader is in, and lists the requests to go to (`PlacePill.tsx`).
+- **Unsent, in the sidebar:** a thread with comments that are not sent says
+  how many, and one with a message that the reader started says "Draft". The
+  message box already had **Send 2 comments**.
+- **The mark as the meter:** a saved review's files mark **Viewed**, and the
+  review's mark fills by their share (`viewed-files.ts`). Med had no Viewed
+  marks before.
+- **A pane bar on the phone,** under the thumb: not built.
 
 Left out: glass and blur, a serif for the agent's prose, swipe to comment on a
 code line (long lines scroll sideways under the same gesture), and an
