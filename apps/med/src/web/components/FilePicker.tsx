@@ -31,6 +31,7 @@ import {
   parsePickerFilters,
 } from "../data/file-filters";
 import { checkoutName, repositoryLocation } from "../data/checkout-names";
+import { tooltip } from "./ToolButton";
 
 /** A registered worktree, or a vault. Only a worktree's source holds its
  * absolute path: the picker shows and matches the short name and the
@@ -613,7 +614,9 @@ function PickerContents({
                 <button
                   type="button"
                   {...stylex.props(styles.token)}
-                  title={`${scopeLabel(scopedRepository)}\nBackspace in an empty query returns to the current repository`}
+                  {...tooltip(
+                    `${scopeLabel(scopedRepository)}\nBackspace in an empty query returns to the current repository`,
+                  )}
                   aria-label="Back to current repository"
                   onClick={() => {
                     selectRepository();
@@ -708,7 +711,7 @@ function PickerContents({
                 <button
                   type="button"
                   {...stylex.props(ui.button, ui.paletteScope, repositoryMode && styles.scopeOpen)}
-                  title="Search another registered repository or vault"
+                  {...tooltip("Search another registered repository or vault")}
                   aria-label="Choose repository"
                   aria-pressed={repositoryMode}
                   onClick={() => {
@@ -732,7 +735,7 @@ function PickerContents({
                   type="button"
                   aria-pressed={previewShown}
                   aria-label="Show preview"
-                  title={previewShown ? "Hide the file preview" : "Show the file preview"}
+                  {...tooltip(previewShown ? "Hide the file preview" : "Show the file preview")}
                   // Keep focus and the caret in the query.
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
@@ -781,7 +784,7 @@ function PickerContents({
                       key={vault.id}
                       type="button"
                       {...stylex.props(ui.button, ui.paletteChip)}
-                      title={`Find notes in ${vault.name} only`}
+                      {...tooltip(`Find notes in ${vault.name} only`)}
                       onClick={() => {
                         selectRepository(vault);
                         inputRef.current?.focus();

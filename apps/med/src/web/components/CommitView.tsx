@@ -1131,7 +1131,7 @@ export default function CommitView({
       type="button"
       disabled={!shown.length}
       onClick={() => void toggleShown()}
-      title="Stage or unstage every file shown (a)"
+      {...tooltip("Stage or unstage every file shown", "a")}
       {...stylex.props(ui.button, inRow ? ui.pressable : styles.small)}
     >
       {`${stageShown ? "Stage" : "Unstage"} ${filter ? `${shown.length} shown` : "all"}`}
@@ -1147,7 +1147,10 @@ export default function CommitView({
               <Icon name="gitBranch" size={14} />
               <span {...stylex.props(styles.branch)}>{status?.branch || "Detached HEAD"}</span>
               {status?.upstream && (
-                <span {...stylex.props(ui.faint)} title="Commits ahead and behind the upstream">
+                <span
+                  {...stylex.props(ui.faint)}
+                  {...tooltip("Commits ahead and behind the upstream")}
+                >
                   {status.ahead > 0 && `↑${status.ahead}`}
                   {status.behind > 0 && ` ↓${status.behind}`}
                 </span>
@@ -1422,7 +1425,9 @@ export default function CommitView({
                       <button
                         type="button"
                         aria-label={`${state === "staged" ? "Unstage" : "Stage"} ${entry.file.path}`}
-                        title={`${marks[state].label}; click to ${state === "staged" ? "unstage" : "stage"}`}
+                        {...tooltip(
+                          `${marks[state].label}; click to ${state === "staged" ? "unstage" : "stage"}`,
+                        )}
                         onClick={() => {
                           setFocused(entry.file.path);
                           void toggle(entry.file);
@@ -1436,7 +1441,7 @@ export default function CommitView({
                           type="button"
                           role="link"
                           aria-label={entry.file.path}
-                          title={`Open full file · ${entry.file.path}`}
+                          {...tooltip(`Open full file · ${entry.file.path}`)}
                           onClick={(event) =>
                             onOpenFile(entry.file.path, event.metaKey || event.ctrlKey)
                           }
@@ -1537,7 +1542,7 @@ export default function CommitView({
                 />
                 {summaryLength > 50 && (
                   <span
-                    title="Characters in the summary. Git tools cut summaries after 72."
+                    {...tooltip("Characters in the summary.\nGit tools cut summaries after 72.")}
                     {...stylex.props(styles.count, summaryLength > 72 && styles.countLong)}
                   >
                     {summaryLength}

@@ -1,6 +1,6 @@
 import { useDocumentTitle } from "../data/document-title";
 import { mediaType, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "../../shared/media";
-import { ToolButton } from "./ToolButton";
+import { ToolButton, tooltip } from "./ToolButton";
 import {
   useCallback,
   useEffect,
@@ -397,7 +397,7 @@ export function LocalFiles({ children }: { children: ReactNode }) {
                     setCopied(false);
                     navigate(tab.file.source.kind === "local" ? fileUrl(tab.file.path) : "/files");
                   }}
-                  title={tab.file.path}
+                  {...tooltip(tab.file.path)}
                 >
                   {drafts.get(tab.id)?.dirty && <span aria-label="Unsaved changes">● </span>}
                   {tab.file.path.split("/").at(-1)}

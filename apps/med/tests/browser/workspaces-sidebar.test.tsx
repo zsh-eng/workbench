@@ -47,6 +47,28 @@ test("a row is the thread's name, without the agent's mark; the Superagent's thr
   await expect.poll(() => superagent.getAttribute("aria-current")).toBe("page");
 });
 
+test("a row gives its name to the app's tooltip, which shows it only while the row cuts it", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  const long =
+    "Move the refresh token rotation into its own handler so that the session store can retry it";
+  host.setThreads([thread("agent"), thread("second", { title: long })]);
+  await expect.poll(() => threadRows().length).toBe(2);
+  const row = (id: string) =>
+    document.querySelector<HTMLElement>(`[data-session-row="${id}"] button`)!;
+  // The name is the part that the tooltip measures (ToolButton's isClipped).
+  const cut = (id: string) => {
+    const name = row(id).querySelector<HTMLElement>("[data-clip]")!;
+    return name.scrollWidth > name.clientWidth;
+  };
+  expect(row("second").getAttribute("data-tooltip-clipped")).toBe(long);
+  // No tooltip of the browser's own, which would show for a whole name too.
+  expect(row("second").hasAttribute("title")).toBe(false);
+  expect(cut("second")).toBe(true);
+  expect(cut("agent")).toBe(false);
+});
+
 test("a row says what waits in its message box: comments that are not sent, or a draft; the thread on screen does not", async () => {
   const draft = "med:draft:typed/claude-typed";
   // A message that another window started: storage tells this one.
@@ -227,9 +249,11 @@ test("a row drags into Pinned, to a place among the pins, and out again; its men
   const section = (name: string) =>
     [
       ...document.querySelectorAll<HTMLElement>(`section[aria-label="${name}"] [data-session-row]`),
-    ].map((row) => row.querySelector("button")?.title);
+    ].map((row) => row.querySelector("button")?.getAttribute("data-tooltip-clipped"));
   const button = (title: string) =>
-    document.querySelector<HTMLElement>(`[data-session-row] button[title="${title}"]`)!;
+    document.querySelector<HTMLElement>(
+      `[data-session-row] button[data-tooltip-clipped="${title}"]`,
+    )!;
   const middle = (element: Element) => {
     const rect = element.getBoundingClientRect();
     return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
@@ -323,9 +347,11 @@ test("Later folds away under Recent; rows go there by their menu or a drag; Arch
   const section = (name: string) =>
     [
       ...document.querySelectorAll<HTMLElement>(`section[aria-label="${name}"] [data-session-row]`),
-    ].map((row) => row.querySelector("button")?.title);
+    ].map((row) => row.querySelector("button")?.getAttribute("data-tooltip-clipped"));
   const button = (title: string) =>
-    document.querySelector<HTMLElement>(`[data-session-row] button[title="${title}"]`)!;
+    document.querySelector<HTMLElement>(
+      `[data-session-row] button[data-tooltip-clipped="${title}"]`,
+    )!;
   const menu = async (title: string, item: string) => {
     button(title).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
     // An item's name ends with its key.
@@ -415,7 +441,7 @@ test("a quick drag moves each row once, the row in the hand stays under the poin
   const pinned = () =>
     [
       ...document.querySelectorAll<HTMLElement>('section[aria-label="Pinned"] [data-session-row]'),
-    ].map((row) => row.querySelector("button")?.title);
+    ].map((row) => row.querySelector("button")?.getAttribute("data-tooltip-clipped"));
   await expect.poll(pinned).toEqual(names);
   const top = (id: string) =>
     document.querySelector(`[data-session-row="${id}"]`)!.getBoundingClientRect().top;
@@ -874,7 +900,7 @@ test("⌘⇧F opens the workspace's Search tab; a match opens in a file tab, and
   await expect.poll(() => shown()?.dataset.activeFile).toBe("src/alpha.ts");
   await expect.element(tab("Search: after")).toHaveAttribute("aria-selected", "false");
   expect(
-    document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute("title"),
+    document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute("data-tooltip"),
   ).toMatch(/^src\/alpha\.ts · Working files/);
   expect(location.pathname).toBe("/");
 

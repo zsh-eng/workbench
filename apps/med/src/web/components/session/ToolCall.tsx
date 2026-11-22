@@ -14,6 +14,7 @@ import { ScheduleCard } from "./ScheduleCard";
 import { HandoffCard } from "./HandoffCard";
 import { isMedHandoff, isMedWait } from "./thread-model";
 import { HIGHLIGHTER } from "../../pierre-theme";
+import { tooltip } from "../ToolButton";
 
 type ToolItem = Extract<SessionItem, { kind: "tool" }>;
 type DiffContent = Extract<ToolCallContent, { type: "diff" }>;
@@ -228,7 +229,7 @@ function ToolRow({
           <button
             type="button"
             aria-label={`Open ${call.title}`}
-            title="Open the subagent's thread"
+            {...tooltip("Open the subagent's thread")}
             onClick={() => openAgent(item.id)}
             {...stylex.props(styles.openAgent)}
           >

@@ -332,10 +332,10 @@ test("tabs switch between the session and its subagents, and Escape goes back", 
   await expect.element(tab("Main")).toHaveAttribute("aria-selected", "true");
   await expect
     .element(tab("Find every place that fetches"))
-    .toHaveAttribute("title", "Find every place that fetches · Working");
+    .toHaveAttribute("data-tooltip", "Find every place that fetches · Working");
   await expect
     .element(tab("Check the cache tests"))
-    .toHaveAttribute("title", "Check the cache tests · Done");
+    .toHaveAttribute("data-tooltip", "Check the cache tests · Done");
 
   await userEvent.click(tab("Find every place that fetches"));
   await expect.element(view.getByText("List each fetch path.")).toBeVisible();

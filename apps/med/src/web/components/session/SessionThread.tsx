@@ -577,7 +577,7 @@ function Delivery({ message }: { message: SentMessage }) {
       {message.sendNow && (
         <button
           type="button"
-          title={`${agent} takes it at its next step, in the turn that runs`}
+          {...tooltip(`${agent} takes it at its next step, in the turn that runs`)}
           onClick={message.sendNow}
           {...stylex.props(styles.deliveryAction)}
         >
@@ -958,7 +958,7 @@ function AgentTabs({
             role="tab"
             aria-selected={open === agent.id}
             tabIndex={open === agent.id ? 0 : -1}
-            title={`${agent.call.title} · ${state}`}
+            {...tooltip(`${agent.call.title} · ${state}`)}
             onClick={() => onOpen(agent.id)}
             {...stylex.props(
               styles.tab,

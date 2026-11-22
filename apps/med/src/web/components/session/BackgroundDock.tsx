@@ -7,6 +7,7 @@ import { Elapsed } from "./Elapsed";
 import { useViewSwitch, viewSettings } from "../../data/view-settings";
 import { column, motion, rowStyles } from "./session-styles";
 import { isMedWait } from "./thread-model";
+import { tooltip } from "../ToolButton";
 
 type ToolItem = Extract<SessionItem, { kind: "tool" }>;
 
@@ -198,7 +199,7 @@ export function BackgroundDock({
         <button
           type="button"
           aria-label="Hide background tasks"
-          title="Hide until a new task starts"
+          {...tooltip("Hide until a new task starts")}
           onClick={hide}
           {...stylex.props(styles.hide)}
         >

@@ -90,7 +90,7 @@ import {
 import type { ReviewCommand } from "./Controls";
 import { barContext, WorkspaceBar } from "./shell/WorkspaceBar";
 import { HistoryArrows, useHistoryKeys } from "./shell/HistoryArrows";
-import { ToolButton } from "./ToolButton";
+import { ToolButton, tooltip } from "./ToolButton";
 import { newThreadKeys, useTitleBarOverlay } from "../data/title-bar";
 import { NoticeBar, type TabNotice } from "./shell/NoticeBar";
 import { SessionSidebar } from "./shell/SessionSidebar";
@@ -3348,7 +3348,7 @@ function WorkspaceSwitcher({
                   <button
                     type="button"
                     aria-label={`Delete ${thread.title}`}
-                    title="Delete (⌘⌫)"
+                    {...tooltip("Delete", "⌘⌫")}
                     onClick={(event) => {
                       event.stopPropagation();
                       setConfirming(thread.id);

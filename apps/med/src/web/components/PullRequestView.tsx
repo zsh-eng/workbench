@@ -41,6 +41,7 @@ import {
 import { useWorkspaceShown } from "./Workspaces";
 import "./MarkdownPreview.css";
 import "./PullRequestView.css";
+import { clippedTooltip, tooltip } from "./ToolButton";
 
 /** Passed and skipped checks fold behind one line beyond this many. */
 
@@ -300,11 +301,11 @@ function CheckRow({
         >
           <Icon name={icon} size={12} />
         </span>
-        <span {...stylex.props(ui.truncate, styles.checkName)} title={check.name}>
+        <span {...stylex.props(ui.truncate, styles.checkName)} {...clippedTooltip(check.name)}>
           {check.name}
         </span>
         {source && (
-          <span {...stylex.props(ui.truncate, styles.checkWorkflow)} title={source}>
+          <span {...stylex.props(ui.truncate, styles.checkWorkflow)} {...clippedTooltip(source)}>
             {source}
           </span>
         )}
@@ -318,7 +319,7 @@ function CheckRow({
             href={check.url}
             target="_blank"
             rel="noopener noreferrer"
-            title={`Open ${label}`}
+            {...tooltip(`Open ${label}`)}
             aria-label={`Open ${label}`}
             {...stylex.props(ui.button, ui.iconButton, styles.tool, styles.onHover)}
           >
@@ -410,7 +411,7 @@ function Reviewers({ pull }: { pull: LivePullRequest }) {
         <ul {...stylex.props(styles.list)}>
           {pull.reviewers.map((reviewer) => (
             <li key={reviewer.name} {...stylex.props(styles.reviewer)}>
-              <span {...stylex.props(ui.truncate)} title={reviewer.name}>
+              <span {...stylex.props(ui.truncate)} {...clippedTooltip(reviewer.name)}>
                 {reviewer.name}
               </span>
               <span {...stylex.props(ui.grow)} />
@@ -493,7 +494,7 @@ export default function PullRequestView({
                     href={url}
                     target="_blank"
                     rel="noreferrer"
-                    title="Open on GitHub"
+                    {...tooltip("Open on GitHub")}
                     className="med-pull-number"
                   >
                     #{number}

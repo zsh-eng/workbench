@@ -9,6 +9,7 @@ import { relativeTime } from "../data/relative-time";
 import { tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
 import { SendNow } from "./SendNow";
+import { tooltip } from "./ToolButton";
 
 // The thread's Markdown renderer loads with the first comment, not with the review.
 const CommentMarkdown = lazy(() => import("./CommentMarkdown"));
@@ -452,7 +453,7 @@ function ThreadMessage({
               {toAgent && !handed && (
                 <button
                   type="button"
-                  title={`Send to ${toAgent.name}`}
+                  {...tooltip(`Send to ${toAgent.name}`)}
                   aria-label={`Send to ${toAgent.name}`}
                   aria-busy={handing}
                   {...stylex.props(ui.button, ui.iconButton, styles.tool)}
@@ -464,11 +465,11 @@ function ThreadMessage({
               {postToGitHub && (
                 <button
                   type="button"
-                  title={
+                  {...tooltip(
                     posted === "posted"
                       ? "In your pending review on GitHub"
-                      : "Add to your pending review on GitHub"
-                  }
+                      : "Add to your pending review on GitHub",
+                  )}
                   aria-label={
                     posted === "posted"
                       ? "In your pending review on GitHub"
@@ -494,7 +495,7 @@ function ThreadMessage({
               {!note.author && (
                 <button
                   type="button"
-                  title="Edit"
+                  {...tooltip("Edit")}
                   {...stylex.props(ui.button, ui.iconButton, styles.tool)}
                   aria-label={reply ? "Edit reply" : "Edit"}
                   onClick={() => {
@@ -508,13 +509,13 @@ function ThreadMessage({
               )}
               <button
                 type="button"
-                title={
+                {...tooltip(
                   !thread
                     ? "Delete"
                     : asking
                       ? `Delete the comment and its ${replies === 1 ? "reply" : `${replies} replies`}`
-                      : "Delete thread"
-                }
+                      : "Delete thread",
+                )}
                 {...stylex.props(
                   ui.button,
                   !asking && ui.iconButton,

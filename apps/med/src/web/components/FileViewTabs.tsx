@@ -7,6 +7,7 @@ import { FileIcon } from "./FileIcon";
 import { Icon } from "./Icon";
 import { paneHandle } from "./PaneTree";
 import { PathContextMenu, type PathActions } from "./PathMenu";
+import { tooltip } from "./ToolButton";
 
 export interface FileViewTab {
   id: string;
@@ -94,7 +95,7 @@ export function FileViewTabs({
             value="review"
             aria-controls={panelId}
             aria-label="Review"
-            title="What the agent handed off"
+            {...tooltip("What the agent handed off")}
             {...stylex.props(
               styles.tab,
               styles.changes,
@@ -123,7 +124,7 @@ export function FileViewTabs({
             value="commit"
             aria-controls={panelId}
             aria-label="Commit"
-            title="Stage, commit, and push (q)"
+            {...tooltip("Stage, commit, and push", "q")}
             {...stylex.props(styles.tab, styles.changes, active === "commit" && styles.active)}
           >
             Commit
@@ -135,7 +136,7 @@ export function FileViewTabs({
               value="search"
               aria-controls={panelId}
               aria-label={searchLabel ? `Search: ${searchLabel}` : "Search"}
-              title={searchLabel ? `Search: ${searchLabel} (⌘⇧F)` : "Search (⌘⇧F)"}
+              {...tooltip(searchLabel ? `Search: ${searchLabel}` : "Search", "⌘⇧F")}
               onAuxClick={(event) => {
                 if (event.button !== 1) return;
                 event.preventDefault();
@@ -154,7 +155,7 @@ export function FileViewTabs({
             <button
               {...stylex.props(styles.close)}
               aria-label="Close search"
-              title="Close search"
+              {...tooltip("Close search")}
               onClick={() => onClose("search")}
             >
               <Icon name="close" size={12} />
@@ -185,7 +186,7 @@ export function FileViewTabs({
             <Tabs.Tab
               value={tab.id}
               aria-controls={panelId}
-              title={`${tab.path}${tab.sourceLabel ? ` · ${tab.sourceLabel}` : ""}`}
+              {...tooltip(`${tab.path}${tab.sourceLabel ? ` · ${tab.sourceLabel}` : ""}`)}
               // A middle click closes the tab, as in a browser.
               onAuxClick={(event) => {
                 if (event.button !== 1) return;
@@ -206,14 +207,14 @@ export function FileViewTabs({
             {tab.dirty && (
               <span
                 aria-label="Unsaved changes"
-                title="Unsaved changes"
+                {...tooltip("Unsaved changes")}
                 {...stylex.props(styles.dirty)}
               />
             )}
             <button
               {...stylex.props(styles.close)}
               aria-label={`Close ${tab.path}`}
-              title={`Close ${tab.path}`}
+              {...tooltip(`Close ${tab.path}`)}
               onClick={() => onClose(tab.id)}
             >
               <Icon name="close" size={12} />

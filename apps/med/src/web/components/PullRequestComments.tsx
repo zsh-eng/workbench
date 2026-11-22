@@ -23,6 +23,7 @@ import { Icon, type IconName } from "./Icon";
 import { PendingReviewContext, type PendingReviewInput } from "../data/pending-review";
 import { CommentEditor, CommentText } from "./NoteCard";
 import { Fold } from "./Fold";
+import { tooltip, clippedTooltip } from "./ToolButton";
 
 // Review comments that Med reads but does not write: GitHub pull request
 // comments, and the findings of Codex reviews. Med shows them beside its own
@@ -222,7 +223,7 @@ export function CopyButton({ text, label }: { text: () => string; label: string 
   return (
     <button
       type="button"
-      title={title}
+      {...tooltip(title)}
       aria-label={title}
       {...stylex.props(ui.button, ui.iconButton, styles.tool)}
       onClick={() =>
@@ -261,7 +262,7 @@ export function AddToReplyButton({ label, text }: { label: string; text: () => s
   return (
     <button
       type="button"
-      title={title}
+      {...tooltip(title)}
       aria-label={title}
       {...stylex.props(ui.button, ui.iconButton, styles.tool)}
       onClick={() => {
@@ -297,7 +298,7 @@ function OpenButton({ url }: { url: string }) {
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      title="Open on GitHub to reply"
+      {...tooltip("Open on GitHub to reply")}
       aria-label="Open on GitHub"
       {...stylex.props(ui.button, ui.iconButton, styles.tool)}
     >
@@ -567,7 +568,7 @@ function ThreadItem({
   return (
     <div {...stylex.props(styles.item)}>
       <div {...stylex.props(styles.where)}>
-        <span {...stylex.props(ui.truncate)} title={thread.path}>
+        <span {...stylex.props(ui.truncate)} {...clippedTooltip(thread.path)}>
           {thread.path}
         </span>
         <span {...stylex.props(styles.line)}>{lineLabel(thread)}</span>
@@ -987,7 +988,7 @@ export function CodexReviewPanel({
       <Popover.Trigger
         {...stylex.props(ui.button, ui.pressable, styles.trigger)}
         aria-label={label}
-        title={label}
+        {...tooltip(label)}
       >
         <Icon name="codex" size={14} />
         <span {...stylex.props(styles.count, state.error ? styles.bad : null)}>
@@ -1080,7 +1081,7 @@ export function CodexPanelContent({
             {others.map((finding) => (
               <div key={finding.id} {...stylex.props(styles.item)}>
                 <div {...stylex.props(styles.where)}>
-                  <span {...stylex.props(ui.truncate)} title={finding.path}>
+                  <span {...stylex.props(ui.truncate)} {...clippedTooltip(finding.path)}>
                     {finding.path}
                   </span>
                   <span {...stylex.props(styles.line)}>{findingLines(finding)}</span>

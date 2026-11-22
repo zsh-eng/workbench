@@ -746,7 +746,7 @@ export function SessionComposer({
               <button
                 type="button"
                 aria-label="Stop"
-                title="Stop (Esc)"
+                {...tooltip("Stop", "Esc")}
                 onClick={() => void act({ action: "interrupt" })}
                 {...stylex.props(
                   ui.button,
@@ -764,15 +764,22 @@ export function SessionComposer({
               <button
                 type="submit"
                 aria-label={working ? (queues() || !steers ? "Queue" : "Send now") : "Send"}
-                title={
+                {...tooltip(
                   !working
-                    ? "Send (⌘↩)"
+                    ? "Send"
+                    : queues() || !steers
+                      ? `Queue for the end of ${name}'s turn`
+                      : `Send now: ${name} reads it at its next step`,
+                  "⌘↵",
+                  undefined,
+                  !working
+                    ? undefined
                     : !steers
-                      ? `Queue for the end of ${name}'s turn (⌘↩); ↑ takes it back`
+                      ? "↑ takes it back"
                       : queues()
-                        ? `Queue for the end of ${name}'s turn (⌘↩); ⇧⌘↩ sends it now; ↑ takes it back`
-                        : `Send now: ${name} reads it at its next step (⌘↩); ⇧⌘↩ queues it for the turn's end; ↑ takes it back`
-                }
+                        ? "⇧⌘↵ sends it now; ↑ takes it back"
+                        : "⇧⌘↵ queues it for the turn's end;\n↑ takes it back",
+                )}
                 disabled={empty || stopped}
                 {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.send)}
               >

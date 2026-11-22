@@ -2,6 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { Popover } from "@base-ui/react/popover";
 import { canonicalModel, type ThreadUsage } from "../../../shared/model-usage";
 import { tokens, ui } from "../../theme.stylex";
+import { tooltip } from "../ToolButton";
 
 // A thread's context and spend (docs/SESSIONS.md#spend-and-context): a chip
 // under the message box, whose popover has the gist, and the side panel's
@@ -219,7 +220,7 @@ export function SpendBlock({ usage, table = true }: { usage: ThreadUsage; table?
               <th {...stylex.props(styles.th, styles.start)}>Model</th>
               <th {...stylex.props(styles.th)}>Input</th>
               <th {...stylex.props(styles.th)}>Output</th>
-              <th {...stylex.props(styles.th)} title="Cache writes, 5-minute and 1-hour">
+              <th {...stylex.props(styles.th)} {...tooltip("Cache writes, 5-minute and 1-hour")}>
                 Cache write
               </th>
               <th {...stylex.props(styles.th)}>Cache read</th>

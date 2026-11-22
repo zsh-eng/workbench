@@ -13,6 +13,7 @@ import { tokens } from "../../theme.stylex";
 import { Icon } from "../Icon";
 import { Shimmer } from "../Shimmer";
 import { motion, rowStyles } from "./session-styles";
+import { tooltip } from "../ToolButton";
 
 type ToolItem = Extract<SessionItem, { kind: "tool" }>;
 type CronCall = Extract<ScheduleCall, { kind: "cron" }>;
@@ -200,7 +201,9 @@ export function ScheduleCard({ item }: { item: ToolItem }) {
             {note && (
               <span
                 {...stylex.props(styles.note)}
-                title="Claude Code keeps this job in its session only: it fires while the session's process runs, and stops when the process ends."
+                {...tooltip(
+                  "Claude Code keeps this job in its session only: it fires while the session's process runs, and stops when the process ends.",
+                )}
               >
                 {meta.length > 0 ? " · " : ""}
                 {note}

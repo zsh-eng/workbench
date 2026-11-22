@@ -753,7 +753,7 @@ try {
           event: "click",
           perform: () =>
             page
-              .locator(`[role="tab"][title^="${treeFiles[1]}"]`)
+              .locator(`[role="tab"][data-tooltip^="${treeFiles[1]}"]`)
               .filter({ visible: true })
               .click(),
           ready: "fileShown",

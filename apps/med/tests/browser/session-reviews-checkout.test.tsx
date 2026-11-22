@@ -107,7 +107,7 @@ test("Changes are the checkout of the review on screen: a pull request's worktre
   expect(host.reviews.slice(asked).map((request) => request.repo)).not.toContain("/test/repo");
   // Search reads the same checkout, and its match opens that checkout's file.
   const openTab = () =>
-    document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute("title");
+    document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute("data-tooltip");
   await userEvent.keyboard("{Control>}{Shift>}f{/Shift}{/Control}");
   await userEvent.keyboard("after");
   await expect.poll(() => host.searches).toContain(`${PULL_TREE} after`);

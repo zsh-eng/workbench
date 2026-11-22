@@ -4,7 +4,7 @@ import type { Thread } from "../../../shared/threads";
 import { basename, type BarContext } from "../../data/bar-context";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon } from "../Icon";
-import { ToolButton } from "../ToolButton";
+import { ToolButton, tooltip } from "../ToolButton";
 import { HistoryArrows } from "./HistoryArrows";
 import { RenameField } from "./RenameField";
 
@@ -87,7 +87,7 @@ export function WorkspaceBar({
         title && (
           <span
             data-thread-title=""
-            title="Double-click to rename"
+            {...tooltip("Double-click to rename")}
             onDoubleClick={rename?.start}
             {...stylex.props(styles.title)}
           >

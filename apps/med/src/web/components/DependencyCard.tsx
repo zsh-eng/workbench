@@ -9,6 +9,7 @@ import {
 import { relativeTime, useMinuteClock } from "../data/relative-time";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
+import { tooltip } from "./ToolButton";
 
 const SECTION_TAGS: Record<DependencySection, string | null> = {
   dependencies: null,
@@ -50,11 +51,11 @@ export function DependencyCard({
         <button
           type="button"
           aria-pressed={lookups}
-          title={
+          {...tooltip(
             lookups
               ? "Stop looking up licences and release dates"
-              : "Sends each package's name and version to deps.dev; the host keeps the answers"
-          }
+              : "Sends each package's name and version to deps.dev; the host keeps the answers",
+          )}
           onClick={() => onLookups(!lookups)}
           {...stylex.props(styles.lookups)}
         >
@@ -171,7 +172,7 @@ function DependencyRow({
         {!!next?.advisories && (
           <span
             {...stylex.props(styles.tag, styles.removed)}
-            title="Security advisories on deps.dev"
+            {...tooltip("Security advisories on deps.dev")}
           >
             {next.advisories} {next.advisories === 1 ? "advisory" : "advisories"}
           </span>

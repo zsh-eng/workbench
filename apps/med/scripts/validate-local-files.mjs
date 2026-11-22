@@ -293,7 +293,7 @@ try {
   );
   await page.evaluate(() => localStorage.setItem("med:theme:v1", "graphite-light"));
   await page.goto(`${origin}/review/${review.id}`);
-  await page.getByTitle("Open full file · ReadingQueue.java", { exact: true }).click();
+  await page.locator('[data-tooltip="Open full file · ReadingQueue.java"]').click();
   // The file's header has no Open before or after; ⌘K does, once the file is
   // in the editor.
   await page

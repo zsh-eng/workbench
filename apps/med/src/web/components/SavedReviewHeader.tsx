@@ -11,7 +11,7 @@ import type { ListedComment } from "../data/listed-comments";
 import { markCommentsRead } from "../data/comment-reads";
 import { Icon, IconShapes } from "./Icon";
 import { FadingName } from "./ReviewHeader";
-import { clippedTooltip } from "./ToolButton";
+import { clippedTooltip, tooltip } from "./ToolButton";
 import {
   CodexReviewPanel,
   type CodexReviewState,
@@ -123,7 +123,7 @@ export function SavedReviewHeader({
           target="_blank"
           rel="noopener noreferrer"
           aria-label={`Open pull request: ${heading}`}
-          title={details}
+          {...tooltip(details)}
           {...stylex.props(styles.reviewTitle, styles.prLink)}
         >
           <Icon name="github" size={14} />

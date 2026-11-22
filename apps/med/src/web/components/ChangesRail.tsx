@@ -4,7 +4,7 @@ import type { SavedCommit } from "../../shared/review-guide";
 import { picked, tokens, ui } from "../theme.stylex";
 import { ColumnHandle, useColumnWidth } from "./ColumnResize";
 import { FileSidebar } from "./FileSidebar";
-import { clippedTooltip } from "./ToolButton";
+import { clippedTooltip, tooltip } from "./ToolButton";
 
 /** As wide as the Guide's rail. */
 const RAIL_WIDTH = 268;
@@ -173,7 +173,7 @@ function RailCommits({
                 </span>
                 {fresh?.has(commit.id) && (
                   <span
-                    title="New since your last review"
+                    {...tooltip("New since your last review")}
                     aria-label="new"
                     {...stylex.props(commitStyles.fresh)}
                   />

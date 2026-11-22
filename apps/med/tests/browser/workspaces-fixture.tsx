@@ -654,7 +654,7 @@ export const threadRows = () =>
     const button = row.querySelector<HTMLElement>("button")!;
     const dot = button.querySelector('[role="img"]')?.getAttribute("aria-label");
     return [
-      button.title,
+      button.getAttribute("data-tooltip-clipped") ?? "",
       dot === "New since you looked" && ", new",
       dot === "Needs you" && ", needs you",
       dot === "Stopped" && ", stopped",

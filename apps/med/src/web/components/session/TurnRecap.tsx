@@ -3,6 +3,7 @@ import type { TurnCheck } from "../../../shared/agent-status";
 import { platform } from "../../data/keys";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon } from "../Icon";
+import { tooltip } from "../ToolButton";
 
 // The end of a turn that the reader did not see end (data/turn-recap.ts):
 // one quiet line of facts, then Review and Reply. The reply itself is right
@@ -117,7 +118,7 @@ export function TurnRecap({ facts, hidden, onReview, onReply, onDismiss }: TurnR
         <button
           type="button"
           aria-label="Hide the recap"
-          title="Hide until the next turn (Esc)"
+          {...tooltip("Hide until the next turn", "Esc")}
           onClick={onDismiss}
           {...stylex.props(ui.button, ui.pressable, ui.iconButton, styles.button, styles.close)}
         >

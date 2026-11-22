@@ -55,12 +55,15 @@ const backQuiet = stylex.keyframes({
 export function Shimmer({
   on,
   quiet,
+  clip,
   style,
   ref,
   children,
 }: {
   on: boolean;
   quiet?: boolean;
+  /** The text is a name that its column can cut: `clippedTooltip` on a parent shows it whole. */
+  clip?: boolean;
   style?: StyleXStyles;
   ref?: Ref<HTMLSpanElement>;
   children: ReactNode;
@@ -68,6 +71,7 @@ export function Shimmer({
   return (
     <span
       ref={ref}
+      data-clip={clip ? "" : undefined}
       {...stylex.props(styles.root, style, on && (quiet ? styles.faint : styles.muted))}
     >
       {children}

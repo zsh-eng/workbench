@@ -2,7 +2,7 @@ import { useDocumentTitle } from "./data/document-title";
 import { EmptyState } from "./components/EmptyState";
 import { DiffImages } from "./components/MediaView";
 import { mediaType } from "../shared/media";
-import { ToolButton } from "./components/ToolButton";
+import { ToolButton, tooltip } from "./components/ToolButton";
 import { settingsCommands } from "./components/settings/settings-commands";
 import { openDashboards } from "./data/dashboards";
 import * as stylex from "@stylexjs/stylex";
@@ -5392,7 +5392,7 @@ export function App({
             onPointerEnter={() => prefetchFile(path)}
             onFocus={() => prefetchFile(path)}
             onClick={(event) => openDiffFile(path, event.metaKey || event.ctrlKey)}
-            title={`Open full file · ${path}`}
+            {...tooltip(`Open full file · ${path}`)}
           >
             <span {...stylex.props(styles.fileDirectory)}>{path.slice(0, slash)}</span>
             <span {...stylex.props(styles.fileName)}>{path.slice(slash)}</span>
@@ -5422,7 +5422,7 @@ export function App({
           )}
           {written?.edited && (
             <span
-              title="An agent edited this generated file with an edit tool"
+              {...tooltip("An agent edited this generated file with an edit tool")}
               {...stylex.props(styles.statusBadge, styles.statusEdited)}
             >
               Edited by hand

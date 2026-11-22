@@ -22,7 +22,7 @@ import { Icon } from "../Icon";
 import { Shimmer } from "../Shimmer";
 import { RenameField } from "./RenameField";
 import { newThreadKeys } from "../../data/title-bar";
-import { ToolButton, tooltip } from "../ToolButton";
+import { ToolButton, clippedTooltip, tooltip } from "../ToolButton";
 import { HistoryArrows } from "./HistoryArrows";
 import { ThreadPeek } from "./ThreadPeek";
 
@@ -843,7 +843,7 @@ const SessionRow = memo(function SessionRow({
           data-thread={thread.id}
           aria-current={current ? "page" : undefined}
           aria-busy={working || undefined}
-          title={thread.title}
+          {...clippedTooltip(thread.title)}
           onPointerDown={actions.press}
           onClick={() => {
             if (!actions.dragged()) actions.open();
@@ -858,7 +858,7 @@ const SessionRow = memo(function SessionRow({
             (menuOpen || peeked) && !current && styles.held,
           )}
         >
-          <Shimmer on={working} quiet style={styles.name}>
+          <Shimmer on={working} quiet clip style={styles.name}>
             {thread.title}
           </Shimmer>
           {unsent && (

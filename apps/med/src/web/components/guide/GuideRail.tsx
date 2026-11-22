@@ -7,7 +7,7 @@ import { ColumnHandle, useColumnWidth } from "../ColumnResize";
 import { LineCounts } from "../DiffStat";
 import { Icon } from "../Icon";
 import { PathLabel } from "../PathLabel";
-import { clippedTooltip } from "../ToolButton";
+import { clippedTooltip, tooltip } from "../ToolButton";
 
 export interface GuideRailProps {
   sections: readonly GuideSection[];
@@ -112,7 +112,12 @@ export const GuideRail = memo(function GuideRail({
                       </span>
                       <span {...stylex.props(styles.meta)}>
                         {section.critical && (
-                          <span {...stylex.props(styles.critical)} title="Needs care">
+                          <span
+                            role="img"
+                            aria-label="Needs care"
+                            {...stylex.props(styles.critical)}
+                            {...tooltip("Needs care")}
+                          >
                             <Icon name="alert" size={11} />
                           </span>
                         )}

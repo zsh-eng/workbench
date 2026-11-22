@@ -299,7 +299,7 @@ export function BranchPicker({
             <Icon name="search" />
             {scoped && (
               <span
-                title="Shift-Tab or Backspace goes back to the repositories"
+                {...tooltip("Shift-Tab or Backspace goes back to the repositories")}
                 {...stylex.props(styles.chip)}
               >
                 <Icon name="repository" size={13} />

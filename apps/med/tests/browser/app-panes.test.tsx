@@ -248,7 +248,7 @@ describe("graphical review", () => {
     // The page has no bar; its tab names the note and its vault.
     await expect
       .element(page.getByRole("tab", { name: /Plan\.md/ }))
-      .toHaveAttribute("title", "Projects/Plan.md · notes");
+      .toHaveAttribute("data-tooltip", "Projects/Plan.md · notes");
     await reading.getByRole("link", { name: "Target" }).click();
     await expect.element(page.getByRole("tab", { name: /Target.md/ })).toBeVisible();
     await expect.element(reading.getByRole("heading", { name: "Target" })).toBeVisible();
@@ -288,7 +288,7 @@ describe("graphical review", () => {
     // The page has no bar; its tab names the note and its vault.
     await expect
       .element(page.getByRole("tab", { name: /Plan\.md/ }))
-      .toHaveAttribute("title", "Projects/Plan.md · notes");
+      .toHaveAttribute("data-tooltip", "Projects/Plan.md · notes");
 
     // The chip under the field scopes the search to the vault.
     open();

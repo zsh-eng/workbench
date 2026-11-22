@@ -1,4 +1,4 @@
-import { ToolButton } from "./ToolButton";
+import { ToolButton, tooltip } from "./ToolButton";
 import { OpenInMenu } from "./OpenInMenu";
 import {
   useLayoutEffect,
@@ -1020,7 +1020,7 @@ export default function FileEditor({
           data-dirty={draft.dirty}
           role="img"
           aria-label={draft.dirty ? "Unsaved changes" : "Saved"}
-          title={draft.dirty ? "Unsaved changes" : "Saved"}
+          {...tooltip(draft.dirty ? "Unsaved changes" : "Saved")}
           style={{ color: draft.dirty ? active.palette.warning : active.palette.muted }}
         />
         <span className="med-editor-path" title={fileTitle(draft.file.path, draft.file.size)}>

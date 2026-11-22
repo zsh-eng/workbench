@@ -8,6 +8,7 @@ import {
 import { tokens, ui } from "../../theme.stylex";
 import { Icon } from "../Icon";
 import { ImageViewer, imageSource } from "./ImageThumbs";
+import { tooltip } from "../ToolButton";
 
 // The images a prompt takes, pasted, dropped, or chosen, as a thread's message
 // box and the New thread page both take them.
@@ -157,7 +158,7 @@ export function AddImagesButton({
       <button
         type="button"
         aria-label="Add images"
-        title="Add images, or paste them"
+        {...tooltip("Add images, or paste them")}
         disabled={disabled}
         onClick={() => input.current?.click()}
         {...stylex.props(ui.button, ui.iconButton, styles.attach)}

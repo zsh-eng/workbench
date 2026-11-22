@@ -3,6 +3,7 @@ import { GENERATED_LABELS, type GeneratedKind } from "../../shared/generated";
 import { tokens } from "../theme.stylex";
 import { PathLabel } from "./PathLabel";
 import { Icon } from "./Icon";
+import { tooltip } from "./ToolButton";
 
 /** One generated file of the group (docs/GENERATED.md). */
 export interface GeneratedRow {
@@ -74,7 +75,7 @@ export function GeneratedGroup({
                   type="button"
                   role="link"
                   aria-label={row.path}
-                  title={`Show ${row.path}`}
+                  {...tooltip(`Show ${row.path}`)}
                   onClick={() => onReveal(row.id)}
                   {...stylex.props(styles.path)}
                 >
@@ -93,7 +94,7 @@ export function GeneratedGroup({
                       type="button"
                       role="link"
                       onClick={() => onReveal(row.source!.id)}
-                      title={`Show ${row.source.path}`}
+                      {...tooltip(`Show ${row.source.path}`)}
                       {...stylex.props(styles.source)}
                     >
                       from {row.source.path.slice(row.source.path.lastIndexOf("/") + 1)}

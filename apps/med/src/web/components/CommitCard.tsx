@@ -4,6 +4,7 @@ import type { Commit, CommitDetails } from "../../shared/protocol";
 import { relativeTime } from "../data/relative-time";
 import { tokens } from "../theme.stylex";
 import { Icon } from "./Icon";
+import { tooltip } from "./ToolButton";
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
@@ -134,7 +135,7 @@ function CopyHash({ id }: { id: string }) {
   return (
     <button
       type="button"
-      title={title}
+      {...tooltip(title)}
       aria-label={title}
       {...stylex.props(styles.hash, styles.copy)}
       onClick={() =>

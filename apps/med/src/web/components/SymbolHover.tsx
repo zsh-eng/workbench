@@ -11,6 +11,7 @@ import {
 import { createPortal } from "react-dom";
 import type { SymbolDefinition, SymbolHover } from "../../shared/symbols";
 import { tokens } from "../theme.stylex";
+import { tooltip } from "./ToolButton";
 
 // A card under a name in a file, as an editor's hover: where the name is
 // defined, the lines that declare it, and its doc comment. It comes from
@@ -251,7 +252,7 @@ function SymbolHoverCard({
             {definition.scope && <span {...stylex.props(styles.scope)}>in {definition.scope}</span>}
             <button
               type="button"
-              title="Go to definition"
+              {...tooltip("Go to definition")}
               onClick={() => onOpen(definition)}
               {...stylex.props(styles.location)}
             >

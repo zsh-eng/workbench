@@ -30,6 +30,7 @@ import { matchRepositories, parseSearchQuery } from "../data/search-query";
 import { picked, tokens, ui } from "../theme.stylex";
 import { useTheme } from "../themes";
 import { Icon } from "./Icon";
+import { tooltip } from "./ToolButton";
 
 export interface SearchRepository {
   id: string;
@@ -536,7 +537,7 @@ export function SearchView({
           type="button"
           aria-label="Match case"
           aria-pressed={matchCase}
-          title="Match case (⌥C)"
+          {...tooltip("Match case", "⌥C")}
           onClick={() => {
             onMatchCaseChange(!matchCase);
             input.current?.focus({ preventScroll: true });

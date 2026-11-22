@@ -10,6 +10,7 @@ import { LineCounts } from "../DiffStat";
 import { Icon, type IconName } from "../Icon";
 import { GuideMarkdown } from "./GuideMarkdown";
 import { GuideThread } from "./GuideThread";
+import { tooltip } from "../ToolButton";
 
 const pad = (value: number) => String(value).padStart(2, "0");
 
@@ -269,7 +270,7 @@ export function GuideFooter({
         {next ? (
           <button
             type="button"
-            title="Next part (j)"
+            {...tooltip("Next part", "j")}
             onClick={onNext}
             {...stylex.props(
               ui.button,

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiErrorMessage } from "../../shared/protocol";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
+import { tooltip } from "./ToolButton";
 
 interface BuildStatus {
   /** The server runs older code than the build on disk. */
@@ -177,7 +178,7 @@ export function UpdateNotice({ interval = 60_000 }: { interval?: number }) {
       {notice.kind !== "restarting" && (
         <button
           aria-label="Dismiss"
-          title="Dismiss"
+          {...tooltip("Dismiss")}
           onClick={() => setDismissed(key)}
           {...stylex.props(styles.dismiss)}
         >
