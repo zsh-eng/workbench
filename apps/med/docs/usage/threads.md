@@ -406,6 +406,13 @@ background shells and agents. It follows the session live.
 - With focus in the thread, `[` and `]` step through prompts and replies, and
   `{` and `}` through the prompts alone. A task in **Background** goes to its
   call.
+- While you scroll a thread with more than one request, a pill at its top
+  names the request that you are in: the last one whose message has left the
+  top of the view, with its place, such as "3 of 7". It fades a second after
+  you stop. Click it for the list of the thread's requests; a choice goes to
+  that request and marks it, and one on a page that has not loaded loads that
+  page first. The pill does not show at the thread's end, which the view
+  follows.
 - A turn that ended while you did not see its session ends with a recap,
   under the last reply. The recap is one line of facts that Med knows, such as
   `2 files · +14 −3 · bun test 5 pass · tsc fail`, then **Review** and

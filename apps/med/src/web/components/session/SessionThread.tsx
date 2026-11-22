@@ -60,6 +60,7 @@ import {
 } from "./thread-heights";
 import { atEnd, followEnd, HOLD_PLACE } from "./thread-follow";
 import { partAt, partMove, type PartPlace } from "./thread-place";
+import { PlacePill, type ThreadPlace } from "./PlacePill";
 import { glideContent } from "./thread-glide";
 import { whenIdle } from "../../data/idle";
 import "./prose-styles";
@@ -355,6 +356,14 @@ function useCopy() {
     );
   return [copied, copy] as const;
 }
+
+/** A request's first line, as the place pill names it. */
+const firstLine = (text: string) =>
+  text
+    .split("\n")
+    .find((line) => line.trim())
+    ?.trim()
+    .slice(0, 160) || "Message";
 
 /** A prompt's text as the user wrote it, for Copy. */
 const promptText = (item: Extract<SessionItem, { kind: "user" }>) =>
@@ -1930,6 +1939,51 @@ export function SessionThread({
       node.removeEventListener("pointerdown", pointerdown);
     };
   }, [step]);
+  // The thread's requests, for the place pill: those on pages that have not
+  // loaded, from the index, then the loaded ones. A choice goes to the
+  // request and marks it, as { and } do.
+  const places = useMemo<ThreadPlace[]>(
+    () => [
+      ...earlierTurns.map((turn) => ({
+        key: `turn:${turn.at}`,
+        text: firstLine(turn.text),
+        go: () => latestTurns.current.onTurn?.(turn),
+      })),
+      ...all.flatMap((unit) =>
+        isMessage(unit) && isPrompt(unit) && unit.item.kind === "user"
+          ? [
+              {
+                key: unit.key,
+                text: firstLine(promptText(unit.item)),
+                go: () => {
+                  // The mark shows while the thread has focus.
+                  scroller.current?.focus({ preventScroll: true });
+                  setCurrent(unit.key);
+                  list.current?.go(unit.key);
+                },
+              },
+            ]
+          : [],
+      ),
+    ],
+    [earlierTurns, all],
+  );
+  // The request that the view is in: the last one whose message ended above
+  // the view's top. None at the thread's end, which the view follows.
+  const placeAt = useCallback(() => {
+    const node = scroller.current;
+    const { all, offsets } = latest.current.model;
+    if (!node || stuck.current || !latest.current.metrics) return -1;
+    const y = node.scrollTop - (head.current?.offsetTop ?? 0);
+    let passed = 0;
+    for (let at = 0; at < all.length; at++) {
+      if (!isPrompt(all[at]!)) continue;
+      if (offsets[at + 1]! > y + 4) break;
+      passed++;
+    }
+    // Before the first loaded request, the view is in the one before it.
+    return latestTurns.current.earlierTurns.length + passed - 1;
+  }, []);
   const holdUnit = useCallback((key: string) => list.current?.hold(key), []);
   const toggleWork = (key: string) => {
     list.current?.hold(key);
@@ -2227,6 +2281,9 @@ export function SessionThread({
                   </div>
                 </div>
               </div>
+              {!agent && places.length > 1 && (
+                <PlacePill scroller={scroller} places={places} at={placeAt} />
+              )}
               {!atBottom && (
                 <button
                   type="button"

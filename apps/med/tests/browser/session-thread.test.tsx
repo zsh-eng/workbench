@@ -599,6 +599,71 @@ test("{ and } step through the prompts, and { goes on to one on a page not yet l
   await expect.poll(() => asked).toEqual([0]);
 });
 
+test("the place pill names the request that the view is in, fades at rest, and goes to another", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  // The thread holds turns 5 to 44; the session's index also lists turn 4.
+  const store = longThread(40, 5);
+  const asked: number[] = [];
+  root!.render(
+    <SessionThread
+      snapshot={store.getSnapshot()}
+      turns={[
+        { offset: 0, at: 4000, text: "Prompt 4" },
+        { offset: 900, at: 5000, text: "Prompt 5" },
+      ]}
+      onTurn={(turn) => asked.push(turn.offset)}
+    />,
+  );
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r44");
+  const pill = () => document.querySelector<HTMLElement>("[data-place-pill]");
+  const shows = () => (pill() ? getComputedStyle(pill()!).opacity !== "0" : false);
+  // At the end, which the view follows, the reader knows the place.
+  expect(pill()).toBeNull();
+  // The request that the view is in: the last one that ended above its top.
+  const above = () => {
+    const top = threadScroller().getBoundingClientRect().top;
+    const passed = [...document.querySelectorAll<HTMLElement>('[data-message="user"]')].filter(
+      (message) => message.getBoundingClientRect().bottom <= top + 4,
+    );
+    return Number(/Prompt (\d+)/.exec(passed.at(-1)?.textContent ?? "")?.[1]);
+  };
+  // Up in the thread, under a request that has left the view's top. The
+  // wheel is the reader's own move, which lets go of the end.
+  const wheel = (by: number) => {
+    threadScroller().dispatchEvent(new WheelEvent("wheel", { deltaY: by, bubbles: true }));
+    threadScroller().scrollTop += by;
+  };
+  wheel(-1500);
+  await expect.poll(() => pill()?.textContent).toMatch(/^\d+ of 41Prompt \d+$/);
+  await expect.poll(() => pill()?.textContent).toBe(`${above() - 3} of 41Prompt ${above()}`);
+  expect(shows()).toBe(true);
+  expect(pill()!.getAttribute("aria-label")).toContain(`of 41: Prompt ${above()}`);
+  // A second after the scrolling stops, it fades.
+  await expect.poll(shows, { timeout: 3000 }).toBe(false);
+  // The next scroll shows it again, with the request there.
+  wheel(-300);
+  await expect.poll(shows).toBe(true);
+  await expect.poll(() => pill()?.textContent).toBe(`${above() - 3} of 41Prompt ${above()}`);
+  // A click lists every request, the one in view marked; a choice goes there.
+  await userEvent.click(pill()!);
+  const list = page.getByRole("menu", { name: "The thread's requests" });
+  await expect.element(list).toBeVisible();
+  expect(list.element().querySelectorAll("button")).toHaveLength(41);
+  expect(list.element().querySelector('[aria-current="true"]')?.textContent).toBe(
+    pill()!.textContent!.replace(/ of 41/, ""),
+  );
+  await userEvent.click(list.getByRole("menuitem", { name: "22 Prompt 25" }));
+  await expect.element(list).not.toBeInTheDocument();
+  await expect
+    .poll(() => document.querySelector<HTMLElement>("[data-current]")?.textContent)
+    .toContain("Prompt 25");
+  // The first of the list is on a page that has not loaded: the thread asks for it.
+  await userEvent.click(pill()!);
+  await userEvent.click(list.getByRole("menuitem", { name: "1 Prompt 4" }));
+  expect(asked).toEqual([0]);
+});
+
 test("a prompt shows its quotes as Claude does, without reply markers", async () => {
   await page.viewport(1280, 900);
   initializeTheme();
