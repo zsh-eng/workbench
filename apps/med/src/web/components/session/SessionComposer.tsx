@@ -430,7 +430,7 @@ export function SessionComposer({
             <button
               type="button"
               disabled={continuing}
-              {...tooltip("Fork this session into one that Med runs; the open one stays as it is")}
+              {...tooltip("Fork this session into one that Med runs;\nthe open one stays as it is")}
               onClick={() => {
                 setContinuing(true);
                 setError(null);

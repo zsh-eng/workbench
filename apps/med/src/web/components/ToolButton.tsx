@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ComponentProps } from "react";
 import { Tooltip } from "@base-ui/react/tooltip";
 import * as stylex from "@stylexjs/stylex";
 import { tokens, ui } from "../theme.stylex";
@@ -286,19 +286,81 @@ export function AppTooltip() {
             data-instant={tip?.instant}
             {...stylex.props(styles.popup, ui.pop)}
           >
-            {tip?.detail ? (
-              <span {...stylex.props(styles.lines)}>
-                <span>{tip.label}</span>
-                <span {...stylex.props(styles.detail)}>{tip.detail}</span>
-              </span>
-            ) : (
-              <span>{tip?.label}</span>
-            )}
+            {tip && <TipText label={tip.label} detail={tip.detail} shortcut={tip.shortcut} />}
             <ShortcutKeys value={tip?.shortcut} />
           </Tooltip.Popup>
         </Tooltip.Positioner>
       </Tooltip.Portal>
     </Tooltip.Root>
+  );
+}
+
+/**
+ * A text's lines, as blocks: each line that the text names with "\n" evens
+ * its own wraps, as a browser evens no text with a break in it. A path can
+ * wrap after a slash, before it is cut inside a name.
+ */
+const lined = (text: string) => {
+  const lines = text.split("\n");
+  return lines.map((line, at) => (
+    <span key={at} {...stylex.props(styles.line)}>
+      {line.split(/(?<=\/)(?=[^\s/])/).map((part, index) => (
+        <Fragment key={index}>
+          {index > 0 && <wbr />}
+          {part}
+        </Fragment>
+      ))}
+      {/* The lines stay apart where the text is read as a string. */}
+      {at < lines.length - 1 && " "}
+    </span>
+  ));
+};
+
+/**
+ * A tooltip's words. A text that takes more than one line wraps into lines
+ * of even length, with no last word alone, in a box as wide as its longest
+ * line. CSS evens the lines but keeps the box at its full width, so the box
+ * is measured and set here. A text names its own breaks with "\n" where a
+ * phrase should stay whole.
+ */
+function TipText({
+  label,
+  detail,
+  shortcut,
+}: {
+  label: string;
+  detail?: string;
+  shortcut?: string;
+}) {
+  const box = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const element = box.current;
+    if (!element) return;
+    element.style.width = "";
+    // The boxes of the words, a line's part at a time; a range over the
+    // whole text would count its blocks' own boxes too.
+    const range = document.createRange();
+    const texts = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    const lines: DOMRect[] = [];
+    for (let text = texts.nextNode(); text; text = texts.nextNode()) {
+      range.selectNodeContents(text);
+      for (const line of range.getClientRects()) if (line.width > 0) lines.push(line);
+    }
+    if (lines.length < 2 || !element.offsetWidth) return;
+    // The popup opens from a smaller scale: measure in its own pixels.
+    const scale = element.getBoundingClientRect().width / element.offsetWidth;
+    const widest =
+      (Math.max(...lines.map((line) => line.right)) - Math.min(...lines.map((line) => line.left))) /
+      scale;
+    if (widest < element.offsetWidth - 1) element.style.width = `${Math.ceil(widest)}px`;
+  }, [label, detail, shortcut]);
+  return detail ? (
+    <span ref={box} {...stylex.props(styles.lines)}>
+      <span>{lined(label)}</span>
+      <span {...stylex.props(styles.detail)}>{lined(detail)}</span>
+    </span>
+  ) : (
+    <span ref={box}>{lined(label)}</span>
   );
 }
 
@@ -364,6 +426,7 @@ const styles = stylex.create({
   // A label with a line under it, as Claude Desktop's tooltips say what a
   // control does.
   lines: { display: "flex", flexDirection: "column", gap: 2, maxWidth: 240 },
+  line: { display: "block", textWrap: "balance" },
   detail: { color: tokens.muted },
   popup: {
     display: "flex",

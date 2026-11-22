@@ -572,7 +572,7 @@ export function SessionSidebar({
                     `Archive ${archivable.length === 1 ? "1 session" : `${archivable.length} sessions`}`,
                     undefined,
                     undefined,
-                    "Sessions at work, and those that need you, stay.",
+                    "Sessions at work, and\nthose that need you, stay.",
                   )}
                   {...stylex.props(styles.headAction)}
                 >

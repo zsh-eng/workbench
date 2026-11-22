@@ -1285,7 +1285,7 @@ test("a reply's actions show on hover and focus, the latest reply's stay, and a 
     .element(fork)
     .toHaveAttribute(
       "data-tooltip-detail",
-      "Starts a new session from this point. This one stays as it is.",
+      "Starts a new session from\nthis point. This one stays as it is.",
     );
   await userEvent.click(fork);
   expect(forks).toEqual(["r0"]);

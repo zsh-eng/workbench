@@ -433,7 +433,7 @@ function ReplyBar({ item, final }: { item: AgentItem; final: boolean }) {
             forking ? "Forking…" : "Fork from here",
             undefined,
             undefined,
-            "Starts a new session from this point. This one stays as it is.",
+            "Starts a new session from\nthis point. This one stays as it is.",
           )}
           onClick={() => {
             setForking(true);
