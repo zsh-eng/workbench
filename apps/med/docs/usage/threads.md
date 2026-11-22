@@ -49,7 +49,15 @@ sent says how many before the dot, such as "2 comments", and one with a
 message that you started says "Draft", so neither is forgotten in a thread
 that you left. The thread on screen says neither: its message box does. The
 count comes from the host (`unsent` in the thread list); a draft is in this
-browser, and shows in each of its windows. **New**, the first row, above the Superagent, starts a
+browser, and shows in each of its windows. Hold Space with the pointer on a
+row, or with a row in focus, to peek at that thread without opening it: a
+card beside the row says what its dot says, in words, with its age, the last
+thing the agent said or what it does now, and the branch with the size of
+its change. While Space is down, `↑` and `↓` go to the other rows and `↵`
+opens the one shown; let go and the card is gone. A peek marks nothing read.
+Space keeps its own use where it has one: in a message that you have started,
+in any other field, and in a thread in focus, where it scrolls. In a
+session's empty message box it peeks. **New**, the first row, above the Superagent, starts a
 thread. The top row holds the sidebar's toggle and **Back** and **Forward**,
 as in Claude's desktop app.
 **Archived**, **Pull requests**, and **Settings** are at the foot.

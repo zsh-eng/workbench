@@ -3,6 +3,7 @@ import * as stylex from "@stylexjs/stylex";
 import {
   memo,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -23,6 +24,7 @@ import { RenameField } from "./RenameField";
 import { newThreadKeys } from "../../data/title-bar";
 import { ToolButton, tooltip } from "../ToolButton";
 import { HistoryArrows } from "./HistoryArrows";
+import { ThreadPeek } from "./ThreadPeek";
 
 /** The lists that keep the reader's order: Pinned, and Later. */
 type Shelf = "pinned" | "later";
@@ -70,6 +72,11 @@ const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
  * While it drags, the list shows where it would land: the other rows slide
  * aside to make room for it there, and it follows the pointer above them.
  * On release it settles into that place.
+ *
+ * Space, held, peeks at a session without opening it: a card beside its row
+ * says what it does and said last (ThreadPeek). The row is the one under the
+ * pointer, else the one with focus. While Space is down, the arrow keys move
+ * to the other rows and Enter opens the one shown; letting go closes it.
  */
 export function SessionSidebar({
   threads,
@@ -379,6 +386,7 @@ export function SessionSidebar({
       current={!newThread && thread.id === current}
       unread={read.isUnread(thread)}
       draft={!!thread.session && drafted.has(draftKeyOf(thread.id, thread.session.id))}
+      peeked={peek?.id === thread.id}
       editing={renaming === thread.id}
       actions={{
         open: () => onOpen(thread),
@@ -399,6 +407,10 @@ export function SessionSidebar({
         delete: () => onDelete(thread),
         press: (event) => press(thread, event),
         dragged: () => dragged.current,
+        point: (over) => {
+          if (over) pointed.current = thread.id;
+          else if (pointed.current === thread.id) pointed.current = null;
+        },
         ...(list === pinnedShown || list === laterShown
           ? {
               ...(index > 0 && { up: () => move(thread, -1) }),
@@ -408,6 +420,93 @@ export function SessionSidebar({
       }}
     />
   );
+  // The peek: the session whose card shows while Space is down, and where
+  // its row is.
+  const [peek, setPeek] = useState<{ id: string; top: number; right: number } | null>(null);
+  // The row under the pointer, which Space peeks at first.
+  const pointed = useRef<string | null>(null);
+  const peekNow = useRef({ byId, onOpen, onPrefetch, peek });
+  useLayoutEffect(() => {
+    peekNow.current = { byId, onOpen, onPrefetch, peek };
+  });
+  useEffect(() => {
+    // Space is down for a peek; and until it is up, it presses nothing.
+    let held = false;
+    let started = false;
+    const rows = () => [
+      ...(nav.current?.querySelectorAll<HTMLElement>("[data-session-row]:not([aria-hidden])") ??
+        []),
+    ];
+    const show = (id: string) => {
+      const row = rows().find((entry) => entry.dataset.sessionRow === id);
+      const thread = peekNow.current.byId.get(id);
+      if (!row || !thread) return false;
+      const box = row.getBoundingClientRect();
+      setPeek({ id, top: box.top, right: box.right });
+      // Enter opens it without a wait.
+      peekNow.current.onPrefetch(thread);
+      return true;
+    };
+    const hide = () => {
+      held = false;
+      setPeek(null);
+    };
+    const keydown = (event: globalThis.KeyboardEvent) => {
+      if (event.code === "Space") {
+        if (held || started) return event.preventDefault();
+        if (event.repeat || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)
+          return;
+        if (dragRef.current) return;
+        const id = peekTarget(nav.current, pointed.current);
+        if (!id || !show(id)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        held = true;
+        started = true;
+        return;
+      }
+      if (!held) return;
+      const shown = peekNow.current.peek;
+      const down = event.key === "ArrowDown" || event.key === "j";
+      if (down || event.key === "ArrowUp" || event.key === "k") {
+        const list = rows();
+        const at = list.findIndex((entry) => entry.dataset.sessionRow === shown?.id);
+        const next = list[Math.max(0, Math.min(list.length - 1, at + (down ? 1 : -1)))];
+        if (next) {
+          next.scrollIntoView({ block: "nearest" });
+          show(next.dataset.sessionRow!);
+        }
+      } else if (event.key === "Enter") {
+        const thread = shown && peekNow.current.byId.get(shown.id);
+        hide();
+        if (thread) peekNow.current.onOpen(thread);
+      } else if (event.key === "Escape") hide();
+      else return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const keyup = (event: globalThis.KeyboardEvent) => {
+      if (event.code !== "Space" || !started) return;
+      // The key that peeked does not also press the row it was on.
+      event.preventDefault();
+      event.stopPropagation();
+      started = false;
+      hide();
+    };
+    const blur = () => {
+      started = false;
+      hide();
+    };
+    document.addEventListener("keydown", keydown, true);
+    document.addEventListener("keyup", keyup, true);
+    addEventListener("blur", blur);
+    return () => {
+      document.removeEventListener("keydown", keydown, true);
+      document.removeEventListener("keyup", keyup, true);
+      removeEventListener("blur", blur);
+    };
+  }, []);
+  const peeked = peek ? byId.get(peek.id) : undefined;
   // What Archive all takes: Recent, but the sessions at work and those that
   // need the reader.
   const archivable = recent.filter((thread) => thread.state !== "working" && !needsYou(thread));
@@ -528,6 +627,7 @@ export function SessionSidebar({
           <span {...stylex.props(styles.name)}>{dragging.title}</span>
         </div>
       )}
+      {peek && peeked && <ThreadPeek thread={peeked} unread={read.isUnread(peeked)} at={peek} />}
       {notice}
       {onHistory && (
         <button type="button" onClick={onHistory} {...stylex.props(styles.row, styles.settings)}>
@@ -557,6 +657,32 @@ export function SessionSidebar({
       </button>
     </nav>
   );
+}
+
+const isTextField = (node: Element) =>
+  (node as HTMLElement).isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(node.tagName);
+
+/**
+ * The session that Space peeks at now, or null where Space has another use.
+ * With focus in the sidebar, it is the row under the pointer, else the row
+ * with focus; a control that is not a row keeps its Space. With focus
+ * elsewhere, it is the row under the pointer, and only where Space would do
+ * nothing: with nothing in focus, or in a session's empty message box, where
+ * a first space is no text. A message that the reader has started keeps its
+ * spaces, and a thread in focus keeps Space to scroll.
+ */
+function peekTarget(nav: HTMLElement | null, pointed: string | null) {
+  const active = document.activeElement;
+  if (active && nav?.contains(active)) {
+    if (isTextField(active)) return null;
+    const row = active.closest<HTMLElement>("[data-session-row]")?.dataset.sessionRow;
+    return row ? (pointed ?? row) : null;
+  }
+  if (!pointed) return null;
+  if (!active || active === document.body) return pointed;
+  if (active instanceof HTMLTextAreaElement && active.closest("[data-session-panel]"))
+    return active.value === "" ? pointed : null;
+  return null;
 }
 
 /** At most one dot, by what the session asks of the reader; none on the
@@ -645,6 +771,9 @@ interface RowActions {
   press(event: ReactPointerEvent<HTMLElement>): void;
   /** The press was a drag, so its click opens nothing. */
   dragged(): boolean;
+  /** The pointer came onto the row, or left it: Space peeks at the row
+   * under the pointer. */
+  point(over: boolean): void;
   /** A pinned session's place, one up or down; absent at the ends. */
   up?(): void;
   down?(): void;
@@ -655,6 +784,7 @@ const SessionRow = memo(function SessionRow({
   current,
   unread,
   draft = false,
+  peeked = false,
   editing,
   placeholder = false,
   menuBoundary,
@@ -665,6 +795,8 @@ const SessionRow = memo(function SessionRow({
   unread: boolean;
   /** The reader started a message to the session and did not send it. */
   draft?: boolean;
+  /** Its peek shows: the row looks held, as under its menu. */
+  peeked?: boolean;
   editing: boolean;
   /** The row drags: its place in the list is where it would land. */
   placeholder?: boolean;
@@ -691,10 +823,14 @@ const SessionRow = memo(function SessionRow({
         event.preventDefault();
         setMenu({ x: event.clientX, y: event.clientY });
       }}
-      onPointerEnter={() => {
+      onPointerEnter={(event) => {
         rest.current = setTimeout(actions.prefetch, 120);
+        if (event.pointerType === "mouse") actions.point(true);
       }}
-      onPointerLeave={() => clearTimeout(rest.current)}
+      onPointerLeave={() => {
+        clearTimeout(rest.current);
+        actions.point(false);
+      }}
       {...stylex.props(styles.rowBox, stylex.defaultMarker())}
     >
       {editing ? (
@@ -716,7 +852,11 @@ const SessionRow = memo(function SessionRow({
             event.preventDefault();
             actions.rename();
           }}
-          {...stylex.props(styles.row, current && styles.current, menuOpen && styles.held)}
+          {...stylex.props(
+            styles.row,
+            current && styles.current,
+            (menuOpen || peeked) && !current && styles.held,
+          )}
         >
           <Shimmer on={working} quiet style={styles.name}>
             {thread.title}
@@ -1067,6 +1207,7 @@ const noActions: RowActions = {
   delete() {},
   press() {},
   dragged: () => false,
+  point() {},
 };
 
 /** Rows without their list, for the elements page. */

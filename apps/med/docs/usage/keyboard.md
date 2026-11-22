@@ -37,6 +37,7 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Next / previous guide segment          | `j` / `k`                    |
 | Next / previous excerpt or reply       | `]` / `[`                    |
 | Next / previous prompt, in the thread  | `}` / `{`                    |
+| Peek at a thread in the sidebar        | Hold `Space`                 |
 | Resume search                          | `⌥R`                         |
 | Show tab 1–4 under the file / the last | `⌥5`–`⌥8` / `⌥9`             |
 | Previous / next tab                    | `⌘⇧[` / `⌘⇧]`                |

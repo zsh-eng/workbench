@@ -87,6 +87,80 @@ test("a row says what waits in its message box: comments that are not sent, or a
   expect(says("one")).toBe("1 comment");
 });
 
+test("Space, held, peeks at a thread: its card says its state and last words; arrows move, Enter opens, and letting go closes", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  const now = Date.now();
+  host.setThreads([
+    thread("asks", {
+      title: "Daylight saving times",
+      state: "idle",
+      updatedAt: now - 1000,
+      branch: "fix-dst",
+      changes: { files: 2, additions: 14, deletions: 3 },
+      turn: { asks: true, said: "Should the table show each station's own time?" },
+    }),
+    thread("works", {
+      title: "Week view",
+      state: "working",
+      updatedAt: now - 2000,
+      turn: { activity: "Running bun test" },
+    }),
+    thread("quiet", { title: "Heights in feet", updatedAt: now - 3000 }),
+  ]);
+  await expect.poll(threadRows).toHaveLength(3);
+  const row = (id: string) =>
+    document.querySelector<HTMLElement>(`[data-session-row="${id}"] button`)!;
+  const card = () => document.querySelector<HTMLElement>("[data-thread-peek]");
+  const opened = () =>
+    document.querySelector('nav[aria-label="Sessions"] [aria-current="page"]')?.textContent;
+  const before = opened();
+  // On a row with focus, Space peeks; it does not open the row.
+  row("asks").focus();
+  await userEvent.keyboard("{Space>}");
+  await expect.poll(() => card()?.dataset.threadPeek).toBe("asks");
+  expect(card()!.textContent).toContain("Needs you");
+  expect(card()!.textContent).toContain("Should the table show each station's own time?");
+  expect(card()!.textContent).toContain("fix-dst");
+  expect(card()!.textContent).toContain("+14");
+  expect(card()!.textContent).toContain("2 files");
+  // Beside the row, at its end.
+  expect(card()!.getBoundingClientRect().left).toBeGreaterThanOrEqual(
+    row("asks").getBoundingClientRect().right,
+  );
+  // While Space is down, the arrows go to the other rows.
+  await userEvent.keyboard("{ArrowDown}");
+  await expect.poll(() => card()?.dataset.threadPeek).toBe("works");
+  expect(card()!.textContent).toContain("Working");
+  expect(card()!.textContent).toContain("Running bun test");
+  await userEvent.keyboard("{ArrowUp}");
+  await expect.poll(() => card()?.dataset.threadPeek).toBe("asks");
+  // Letting go closes it, and nothing opened.
+  await userEvent.keyboard("{/Space}");
+  await expect.poll(card).toBeNull();
+  expect(opened()).toBe(before);
+  // The row under the pointer comes before the one with focus.
+  await userEvent.hover(row("quiet"));
+  await userEvent.keyboard("{Space>}");
+  await expect.poll(() => card()?.dataset.threadPeek).toBe("quiet");
+  expect(card()!.textContent).toContain("Nothing said yet.");
+  // Enter opens the thread shown, and the card goes.
+  await userEvent.keyboard("{ArrowUp}{Enter}");
+  await expect.poll(card).toBeNull();
+  await expect.poll(() => row("works").getAttribute("aria-current")).toBe("page");
+  await userEvent.keyboard("{/Space}");
+  // In a text field outside the sidebar, Space types: no peek.
+  const field = document.createElement("input");
+  document.body.append(field);
+  onTestFinished(() => field.remove());
+  field.focus();
+  await userEvent.keyboard("{Space>}");
+  expect(card()).toBeNull();
+  expect(field.value).toBe(" ");
+  await userEvent.keyboard("{/Space}");
+});
+
 test("as in Claude's desktop app, the sidebar's top row holds its toggle and Back and Forward, which stay in place as it hides; New is the first row", async () => {
   const host = createHost();
   render(host);
