@@ -5,6 +5,7 @@ import { ChangeTotals } from "../ChangeTotals";
 import { CommitCard } from "../CommitCard";
 import { LineCounts } from "../DiffStat";
 import { NoteCard } from "../NoteCard";
+import { MedMark } from "../ReviewHeader";
 import { CodexFindingCard, CodexPanelContent, PullRequestThreadCard } from "../PullRequestComments";
 import PullRequestView from "../PullRequestView";
 import type { CodexFinding } from "../../../shared/codex-review";
@@ -182,6 +183,17 @@ export function ReviewSection() {
       <Specimen title="Change totals" note="Hover for the split by kind of file" span="half">
         <div {...stylex.props(styles.row)}>
           <ChangeTotals files={changedFiles} range="ab41597 → working" />
+        </div>
+      </Specimen>
+      <Specimen
+        title="The mark as a meter"
+        note="None, one, and three of four files viewed, then all of them"
+        span="half"
+      >
+        <div {...stylex.props(styles.row)}>
+          {[0, 0.25, 0.75, 1].map((share) => (
+            <MedMark key={share} size={22} fill={share} />
+          ))}
         </div>
       </Specimen>
       <Specimen title="Line counts" note="File rows and headers" span="half">

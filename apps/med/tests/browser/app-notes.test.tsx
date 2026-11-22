@@ -409,6 +409,62 @@ describe("graphical review", () => {
     await expect.poll(end).toBe("3 changed files");
   });
 
+  test("a saved review's files mark viewed: each folds, the mark fills, and the end says when all are", async () => {
+    localStorage.removeItem("med:viewed:v1");
+    await mountApp({ savedReview: true });
+    const shown = <T extends Element>(selector: string) =>
+      [...document.querySelectorAll<T>(selector)].filter((node) => node.getClientRects().length);
+    const end = () => shown("[data-stream-end]")[0]?.textContent;
+    const meter = () => shown("[data-viewed-meter]")[0]?.getAttribute("aria-label");
+    await expect.poll(end).toBe("2 changed files");
+    await expect.poll(meter).toBe("0 of 2 files viewed");
+    expect(shown("[data-viewed-count]")).toHaveLength(0);
+    // The first file: it folds to its header, and the row counts it.
+    const alpha = page.getByRole("button", { name: "Viewed src/alpha.ts" });
+    await alpha.click();
+    await expect.element(alpha).toHaveAttribute("aria-pressed", "true");
+    await expect
+      .element(page.getByRole("button", { name: "Expand src/alpha.ts" }))
+      .toBeInTheDocument();
+    await expect.poll(meter).toBe("1 of 2 files viewed");
+    await expect.poll(() => shown("[data-viewed-count]")[0]?.textContent).toBe("1 of 2 viewed");
+    await expect.poll(end).toBe("2 changed files");
+    // The last one: the mark is whole, and the end says so.
+    await page.getByRole("button", { name: "Viewed src/beta.ts" }).click();
+    await expect.poll(meter).toBe("All 2 files viewed");
+    await expect.poll(end).toBe("All 2 files viewed");
+    // The mark off again opens the file.
+    await alpha.click();
+    await expect.element(alpha).toHaveAttribute("aria-pressed", "false");
+    await expect
+      .element(page.getByRole("button", { name: "Collapse src/alpha.ts" }))
+      .toBeInTheDocument();
+    await expect.poll(meter).toBe("1 of 2 files viewed");
+    // The marks outlast the page: the review opens with its viewed file folded.
+    root?.unmount();
+    mount?.remove();
+    await mountApp({ savedReview: true });
+    await expect.poll(meter).toBe("1 of 2 files viewed");
+    await expect
+      .element(page.getByRole("button", { name: "Expand src/beta.ts" }))
+      .toBeInTheDocument();
+    localStorage.removeItem("med:viewed:v1");
+  });
+
+  test("changes that are not a saved review have no Viewed marks", async () => {
+    await mountApp();
+    await expect
+      .poll(
+        () =>
+          [...document.querySelectorAll("[data-stream-end]")].find(
+            (node) => node.getClientRects().length,
+          )?.textContent,
+      )
+      .toBe("2 changed files");
+    expect(document.querySelector("[data-viewed]")).toBeNull();
+    expect(document.querySelector("[data-viewed-meter]")).toBeNull();
+  });
+
   test("ends a saved review's stream, and a one-file change, with the same words", async () => {
     await mountApp({ savedReview: true });
     const end = () =>

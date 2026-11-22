@@ -65,6 +65,7 @@ import {
 } from "./components/ReviewHeader";
 import { GeneratedGroup, type GeneratedRow } from "./components/GeneratedGroup";
 import { StreamEnd } from "./components/StreamEnd";
+import { setFileViewed, useViewedFiles, viewedLabel } from "./data/viewed-files";
 import { generatedIndex, splitGenerated, useProvenance } from "./data/generated";
 import { DependencyCard } from "./components/DependencyCard";
 import {
@@ -1383,6 +1384,44 @@ export function App({
     () => new Map(state.files.map((file) => [file.id, file.info])),
     [state.files],
   );
+  // The files of a saved review that the reader marked viewed: each folds,
+  // and the review's mark fills by their share. Changes of a place that the
+  // reader chose are not the review's, and have no marks.
+  const viewedReview = state.savedReview && !state.apart ? state.savedReview.id : undefined;
+  const viewedFiles = useViewedFiles(viewedReview, state.files);
+  // Files that a tool writes do not count: the reader need not open them.
+  const viewedOf = useMemo(() => {
+    if (!viewedReview || !state.files.length) return undefined;
+    const written = state.files.filter((file) => !generatedFiles.marks.has(file.id));
+    const counted = written.length ? written : state.files;
+    const viewed = counted.filter((file) => viewedFiles.has(file.id)).length;
+    return { viewed, total: counted.length };
+  }, [viewedReview, state.files, generatedFiles, viewedFiles]);
+  const allViewed = !!viewedOf && viewedOf.viewed >= viewedOf.total;
+  const toggleViewed = useCallback(
+    (id: string) => {
+      const file = state.files.find((entry) => entry.id === id);
+      if (!viewedReview || !file) return;
+      const viewed = !viewedFiles.has(id);
+      setFileViewed(viewedReview, file, viewed);
+      // A viewed file folds to its header, and opens again with its mark.
+      setCollapsed((current) => {
+        if (current.has(id) === viewed) return current;
+        const next = new Set(current);
+        if (viewed) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+    },
+    [state.files, viewedReview, viewedFiles],
+  );
+  // A review opens with its viewed files folded, once for each comparison.
+  const [viewedFolded, setViewedFolded] = useState<string | null>(null);
+  const viewedScope = viewedReview && state.files.length ? `${viewedReview}:${reviewScope}` : null;
+  if (viewedScope && viewedFolded !== viewedScope) {
+    setViewedFolded(viewedScope);
+    if (viewedFiles.size) setCollapsed((current) => new Set([...current, ...viewedFiles]));
+  }
   const notes = state.notes?.notes ?? emptyNotes;
   // The thread's agent session: one, for a session's thread; none for a lone
   // review. A review that opens without its thread, as a link does until the
@@ -5396,10 +5435,37 @@ export function App({
               <span {...stylex.props(ui.removed)}>−{info.deletions}</span>
             </span>
           )}
+          {viewedReview && (
+            <button
+              type="button"
+              aria-pressed={viewedFiles.has(item.id)}
+              aria-label={`Viewed ${path}`}
+              data-viewed={item.id}
+              onClick={() => toggleViewed(item.id)}
+              {...stylex.props(styles.viewed, viewedFiles.has(item.id) && styles.viewedOn)}
+            >
+              <span
+                {...stylex.props(styles.viewedBox, viewedFiles.has(item.id) && styles.viewedTick)}
+              >
+                {viewedFiles.has(item.id) && <Icon name="check" size={10} />}
+              </span>
+              Viewed
+            </button>
+          )}
         </div>
       );
     },
-    [fileInfoById, collapsed, prefetchFile, openDiffFile, generatedFiles, provenance],
+    [
+      fileInfoById,
+      collapsed,
+      prefetchFile,
+      openDiffFile,
+      generatedFiles,
+      provenance,
+      viewedReview,
+      viewedFiles,
+      toggleViewed,
+    ],
   );
   // A link to a file in a comment opens the file at its line.
   const openCommentLink = useCallback(
@@ -5776,7 +5842,7 @@ export function App({
           {generatedGroup}
           {/* The same end for a saved review, a branch, working changes, a
               commit, or a range, so it names none of them. */}
-          <StreamEnd shown={files.length} total={state.files.length} />
+          <StreamEnd shown={files.length} total={state.files.length} viewed={allViewed} />
         </>
       ),
     [
@@ -5786,6 +5852,7 @@ export function App({
       generatedGroup,
       files.length,
       state.files.length,
+      allViewed,
       nextGuideLabel,
       stepGuide,
       openGuide,
@@ -6022,6 +6089,12 @@ export function App({
         </span>
       )}
       {totals}
+      {/* How far the reader is through the review, once they mark a file. */}
+      {totals && viewedOf && viewedOf.viewed > 0 && (
+        <span data-viewed-count="" {...stylex.props(styles.viewedCount)}>
+          {viewedOf.viewed} of {viewedOf.total} viewed
+        </span>
+      )}
       {/* The Commit tab's Stage all; its header would repeat the band's branch. */}
       {fileState.active === "commit" && commitApi && (
         <span ref={setStageSlot} {...stylex.props(styles.rowStage)} />
@@ -6066,6 +6139,12 @@ export function App({
     ) : (
       <ReviewTitle
         reviewed={!!state.savedReview}
+        viewed={
+          viewedOf && {
+            share: viewedOf.viewed / viewedOf.total,
+            label: viewedLabel(viewedOf.viewed, viewedOf.total),
+          }
+        }
         title={
           state.savedReview
             ? (threadName ?? state.savedReview.title)
@@ -7845,6 +7924,46 @@ const styles = stylex.create({
     overflow: "hidden",
     fontFamily: tokens.code,
     fontSize: 11,
+  },
+  // A file's Viewed mark, at its header's end: a box and the word, quiet
+  // until it is set.
+  viewed: {
+    position: "relative",
+    pointerEvents: "auto",
+    display: "inline-flex",
+    alignItems: "center",
+    flexShrink: 0,
+    gap: 6,
+    height: 24,
+    marginInlineEnd: -6,
+    paddingInline: 6,
+    borderWidth: 0,
+    borderRadius: `calc(6px * ${tokens.round})`,
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
+    color: tokens.muted,
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    cursor: "default",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
+  viewedOn: { color: tokens.text },
+  viewedBox: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 13,
+    height: 13,
+    borderRadius: `calc(4px * ${tokens.round})`,
+    boxShadow: `inset 0 0 0 1.25px ${tokens.faint}`,
+    color: tokens.canvas,
+  },
+  viewedTick: { backgroundColor: tokens.text, boxShadow: "none" },
+  viewedCount: {
+    flexShrink: 0,
+    color: tokens.muted,
+    fontSize: 12,
+    fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap",
   },
   skipped: {
     paddingBlock: 6,

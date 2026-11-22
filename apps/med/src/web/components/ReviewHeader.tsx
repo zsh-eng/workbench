@@ -1,6 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { Popover } from "@base-ui/react/popover";
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { CODE_SIZES, type CodeSize } from "../data/view-settings";
 import { themeController, useTheme, type ThemeMode } from "../themes";
 import { openSettings } from "./settings/settings-commands";
@@ -143,11 +143,36 @@ export const PAGE_KEYS: Record<string, number> = {
 /**
  * The review's title, with Med's mark when it is a saved review. A title
  * that the row cuts fades out at its end, and a tooltip has all of it.
+ *
+ * With `viewed`, the mark is the review's meter: it fills as the reader
+ * marks files viewed, and its name says how many.
  */
-export function ReviewTitle({ title, reviewed }: { title: string; reviewed: boolean }) {
+export function ReviewTitle({
+  title,
+  reviewed,
+  viewed,
+}: {
+  title: string;
+  reviewed: boolean;
+  /** The share of the review's files that are viewed, from 0 to 1, in words. */
+  viewed?: { share: number; label: string };
+}) {
   return (
     <h2 {...clippedTooltip(title)} {...stylex.props(styles.title, reviewed && styles.marked)}>
-      {reviewed && <MedMark />}
+      {reviewed &&
+        (viewed ? (
+          <span
+            role="img"
+            aria-label={viewed.label}
+            data-viewed-meter={viewed.share}
+            {...tooltip(viewed.label)}
+            {...stylex.props(styles.meter)}
+          >
+            <MedMark fill={viewed.share} />
+          </span>
+        ) : (
+          <MedMark />
+        ))}
       <FadingName text={title} />
     </h2>
   );
@@ -186,8 +211,45 @@ export function ReviewActions({
   );
 }
 
-/** Med's mark: two offset half-discs in the accent. */
-export function MedMark({ size = 15 }: { size?: number }) {
+/**
+ * Med's mark: two offset half-discs in the accent. With `fill`, a meter: the
+ * upper disc fills from its left by that share, and the lower one, its
+ * reflection, settles in once the share is whole.
+ */
+export function MedMark({ size = 15, fill }: { size?: number; fill?: number }) {
+  const clip = useId();
+  if (fill !== undefined) {
+    const share = Math.max(0, Math.min(1, fill));
+    const whole = share >= 1;
+    return (
+      <svg
+        aria-hidden="true"
+        width={size}
+        height={size}
+        viewBox="12 12 40 40"
+        style={{ flex: "none" }}
+      >
+        <defs>
+          <clipPath id={clip}>
+            <rect
+              x="14"
+              y="12"
+              width="30"
+              height="20"
+              {...stylex.props(styles.wipe, styles.wipeAt(-30 * (1 - share)))}
+            />
+          </clipPath>
+        </defs>
+        <path d="M14 30A15 15 0 0 1 44 30Z" fill="var(--med-accent)" fillOpacity="0.2" />
+        <path d="M14 30A15 15 0 0 1 44 30Z" fill="var(--med-accent)" clipPath={`url(#${clip})`} />
+        <path
+          d="M20 34A15 15 0 0 0 50 34Z"
+          fill="var(--med-accent)"
+          {...stylex.props(styles.reflection, whole && styles.reflectionWhole)}
+        />
+      </svg>
+    );
+  }
   return (
     <svg
       aria-hidden="true"
@@ -384,6 +446,8 @@ function Toggle({
   );
 }
 
+const reduced = "@media (prefers-reduced-motion: reduce)";
+
 const styles = stylex.create({
   header: {
     display: "flex",
@@ -420,6 +484,22 @@ const styles = stylex.create({
   },
   // The title keeps Med's mark.
   marked: { minWidth: 34 },
+  // The mark as the review's meter.
+  meter: { display: "inline-flex", flex: "none" },
+  wipe: {
+    transitionProperty: "transform",
+    transitionDuration: { default: "260ms", [reduced]: "0ms" },
+    transitionTimingFunction: tokens.easeOut,
+  },
+  wipeAt: (x: number) => ({ transform: `translateX(${x}px)` }),
+  reflection: {
+    opacity: 0.14,
+    transform: "translateY(-3px)",
+    transitionProperty: "opacity, transform",
+    transitionDuration: { default: "400ms", [reduced]: "0ms" },
+    transitionTimingFunction: tokens.easeOut,
+  },
+  reflectionWhole: { opacity: 0.5, transform: "none" },
   name: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   grow: { flex: "1", minWidth: 0 },
   display: { width: 28, height: 28, marginInlineEnd: 6, color: tokens.muted },

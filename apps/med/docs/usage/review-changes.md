@@ -81,6 +81,14 @@ History and files stay available, and the **Review** tab brings back the saved
 comparison. The saved diff and its context are captured; files that you open
 from the file tree, and **Changes**, are live.
 
+- **Mark a file viewed.** Each file of a saved review has **Viewed** at its
+  header's end. A viewed file folds to its header. Med's mark before the
+  review's title fills from the left by the share of files you have viewed,
+  and the row says the count ("2 of 4 viewed"). When every file is viewed, the
+  mark is whole and the diff ends with "All 4 files viewed". The marks stay in
+  this browser, by review: a file whose change differs in the next version is
+  not viewed any more. Generated files do not count. Changes that are not a
+  saved review have no marks.
 - **Comment.** Select lines in the diff. The card shows the lines, **L** for
   the old side and **R** for the new. Write, then press **Comment** or `⌘↵`;
   **Cancel** or Escape closes the draft. Saved comments have **Reply**,
