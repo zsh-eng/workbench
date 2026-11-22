@@ -774,8 +774,9 @@ test("Sources is a page as the others are: its rows start at its title's edge, a
       sources={[{ id: "a", name: "tide", path: "/Users/me/code/tide", kind: "repo" }]}
       home="/Users/me"
       loaded
+      found={null}
       onOpen={() => {}}
-      onAdd={() => {}}
+      onFinding={() => {}}
       onRequest={async () => {}}
     />,
   );

@@ -278,7 +278,6 @@ export const overlayAddress = (pathname: string) =>
   pathname === "/history" ||
   pathname === "/settings" ||
   pathname.startsWith("/settings/") ||
-  pathname === "/welcome" ||
   pathname === "/files" ||
   pathname === "/file" ||
   pathname === "/search";

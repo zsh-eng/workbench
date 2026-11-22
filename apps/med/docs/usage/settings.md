@@ -66,7 +66,10 @@ other).
 **Open Sources** opens the registered repositories and notes vaults
 (`/sources`). **Pull base branches** keeps each repository's base branch up
 to date with its remote, every 15 minutes, where nothing of yours would
-change (see [Run Med](run-med.md#base-branches-stay-up-to-date)).
+change (see [Run Med](run-med.md#base-branches-stay-up-to-date)). **Open at
+login** opens Med when you log in, so review links keep working after a
+restart; it shows where the server can set a login item, and is not a key in
+the settings file (see [Run Med](run-med.md#start-at-login)).
 
 ## Grafana
 

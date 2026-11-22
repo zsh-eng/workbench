@@ -108,6 +108,7 @@ import {
 } from "../data/signals";
 import { reconnectPause } from "../data/reconnect";
 import { viewSettings } from "../data/view-settings";
+import { SOURCES_CHANGED } from "../data/setup";
 
 /** Workspaces kept mounted besides the tabs, such as branches, most recently
  * shown first. Older ones reload. */
@@ -2317,6 +2318,15 @@ function createControllerPool(
         else controller.suspend();
       }
     },
+    /** A review that found no repository reads the list again, and opens the
+     * first one: Sources registered it while the review waited beneath. */
+    readRepositories() {
+      for (const { controller } of live.values()) {
+        const state = controller.getSnapshot();
+        if (!state.session && !state.repositories.length && state.status === "idle")
+          void controller.refreshRepositories().catch(() => {});
+      }
+    },
     dispose() {
       for (const id of [...live.keys()]) end(id);
     },
@@ -2380,6 +2390,10 @@ export function WorkspaceViews({
   );
   useEffect(() => pool.retain(mounted), [pool, mounted]);
   useEffect(() => pool.focus(onScreen), [pool, onScreen, mounted]);
+  useEffect(() => {
+    window.addEventListener(SOURCES_CHANGED, pool.readRepositories);
+    return () => window.removeEventListener(SOURCES_CHANGED, pool.readRepositories);
+  }, [pool]);
 
   // A workspace that has not shown yet renders out of sight while the last
   // one stays on screen, and takes its place in one frame when nothing in it

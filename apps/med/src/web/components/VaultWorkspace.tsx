@@ -33,7 +33,7 @@ import { useAgentPresets } from "../data/owned-session";
 import { ui } from "../theme.stylex";
 import "./VaultWorkspace.css";
 import { visibleElement } from "../data/palette-focus";
-import { openWelcome } from "../data/setup";
+import { findSources, SOURCES_CHANGED } from "../data/setup";
 import { whenIdle } from "../data/idle";
 const api = createApi(globalThis.fetch.bind(globalThis), "");
 const request = async (action: string, body: object = {}, signal?: AbortSignal) =>
@@ -214,6 +214,21 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
     window.addEventListener("beforeunload", guard);
     return () => window.removeEventListener("beforeunload", guard);
   }, [drafts]);
+  const registered = useRef<string>(undefined);
+  /** Reads the registered sources now, as after Sources adds one. */
+  const readSources = useCallback(async () => {
+    const result = await request("status");
+    setSources(result.sources);
+    setHome(typeof result.home === "string" ? result.home : undefined);
+    setSourcesLoaded(true);
+    // The reviews beneath started with the sources of the first read.
+    const ids = result.sources.map((source: Source) => source.id).join(" ");
+    if (registered.current !== undefined && registered.current !== ids)
+      window.dispatchEvent(new Event(SOURCES_CHANGED));
+    registered.current = ids;
+  }, []);
+  // A later visit shows what it reads then: sources may come or go meanwhile.
+  if (!locationState.visible && sourcesLoaded) setSourcesLoaded(false);
   useEffect(() => {
     if (!locationState.visible) return;
     let cancelled = false,
@@ -222,12 +237,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       if (busy) return;
       busy = true;
       try {
-        const result = await request("status");
-        if (!cancelled) {
-          setSources(result.sources);
-          setHome(typeof result.home === "string" ? result.home : undefined);
-          setSourcesLoaded(true);
-        }
+        await readSources();
       } catch (e) {
         if (!cancelled) setError(String(e));
       } finally {
@@ -242,7 +252,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [locationState.visible, statusTick]);
+  }, [locationState.visible, statusTick, readSources]);
   useEffect(() => {
     if (!locationState.id) return;
     const abort = new AbortController();
@@ -519,7 +529,16 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       label: "Open registered sources",
       run: () => navigate("/sources"),
     },
-    { id: "welcome", icon: "brief", group: "Settings", label: "Set up Med…", run: openWelcome },
+    {
+      id: "add-sources",
+      icon: "plus",
+      group: "Go to",
+      label: "Add sources…",
+      keywords: "set up med find repositories vaults folders",
+      // Sources gives its Found section the focus.
+      managesFocus: true,
+      run: findSources,
+    },
     {
       id: "repositories",
       icon: "repository",
@@ -596,6 +615,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
               await request(action, body);
               setStatusTick((value) => value + 1);
             }}
+            onRefresh={readSources}
           />
         ) : (
           // The review's frame: workspaces and files on the left at the same

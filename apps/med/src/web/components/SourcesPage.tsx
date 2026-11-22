@@ -1,12 +1,13 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode, type Ref } from "react";
 import { Menu } from "@base-ui/react/menu";
 import * as stylex from "@stylexjs/stylex";
 import { picked, tokens, ui } from "../theme.stylex";
-import { openWelcome } from "../data/setup";
+import { createSetupApi, displayPath, since, takeFindSources, type SetupApi } from "../data/setup";
 import { visibleElement } from "../data/palette-focus";
+import { EmptyState } from "./EmptyState";
+import { useFoundSources, type FoundRow, type FoundSources } from "./found-sources";
 import { Icon } from "./Icon";
 import { page, PageHeading } from "./PageHeading";
-import { displayPath } from "./welcome/Welcome";
 import { byName, useWorkspaceActions } from "./Workspaces";
 
 export interface Source {
@@ -22,22 +23,32 @@ export interface Source {
   };
 }
 
+/** Rows of what Med found, before Show more. */
+const SHOWN = 6;
+
 /** The registered repositories and vaults: open one, index a vault again, or
- * remove a registration. Removing never touches the folder. */
+ * remove a registration. Removing never touches the folder. Add sources…
+ * shows what Med found on this computer, and adds one at a click. */
 export function SourcesPage({
   sources,
   home,
   loaded,
   notice,
+  setup,
   onOpenVault,
   onRequest,
+  onRefresh,
 }: {
   sources: Source[];
   home?: string;
   loaded: boolean;
   notice?: ReactNode;
+  /** The server's setup actions; a test gives its own. */
+  setup?: SetupApi;
   onOpenVault(id: string): void;
   onRequest(action: "index" | "remove", body: object): Promise<void>;
+  /** Reads the registered sources again, as after an add. */
+  onRefresh(): Promise<void>;
 }) {
   const actions = useWorkspaceActions();
   const back = () => {
@@ -56,6 +67,12 @@ export function SourcesPage({
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   });
+  // A source added elsewhere, as with `med add`, shows when the window gets focus.
+  useEffect(() => {
+    const read = () => void onRefresh().catch(() => {});
+    window.addEventListener("focus", read);
+    return () => window.removeEventListener("focus", read);
+  });
   const openRepository = (source: Source) => {
     if (!actions) return location.assign("/");
     const open = actions
@@ -70,6 +87,39 @@ export function SourcesPage({
         repository: source.name,
       });
   };
+
+  const [api] = useState(() => setup ?? createSetupApi());
+  const found = useFoundSources({ api, registered: sources, home, refresh: onRefresh });
+  // The reader's choice. With nothing registered, the page opens on what Med
+  // found: those rows are its call to action.
+  const [choice, setChoice] = useState<boolean | null>(null);
+  if (choice === null && loaded && !sources.length) setChoice(true);
+  const finding = choice ?? false;
+  const section = useRef<HTMLElement>(null);
+  const focusFound = useRef(false);
+  const find = useCallback((open: boolean) => {
+    // Focus goes to the section when the reader opens it, not on first run.
+    if (open && section.current) section.current.focus();
+    else focusFound.current = open;
+    setChoice(open);
+  }, []);
+  const { start } = found;
+  useEffect(() => {
+    if (!finding) return;
+    start();
+    if (focusFound.current) section.current?.focus();
+    focusFound.current = false;
+  }, [finding, start]);
+  // ⌘K's Add sources… and New thread's Add a folder… ask for the section.
+  useEffect(() => {
+    const take = () => {
+      if (takeFindSources()) find(true);
+    };
+    take();
+    window.addEventListener("popstate", take);
+    return () => window.removeEventListener("popstate", take);
+  }, [find]);
+
   return (
     <SourcesView
       sources={sources}
@@ -79,7 +129,9 @@ export function SourcesPage({
       onOpen={(source) =>
         source.kind === "vault" ? onOpenVault(source.id) : openRepository(source)
       }
-      onAdd={openWelcome}
+      found={finding ? found : null}
+      onFinding={find}
+      foundRef={section}
       onRequest={onRequest}
     />
   );
@@ -87,83 +139,80 @@ export function SourcesPage({
 
 /**
  * The Sources page without the app's wiring: a page as Pull requests and
- * Dashboards are, its title and actions on one line (PageHeading.tsx).
+ * Dashboards are, its title and actions on one line (PageHeading.tsx). Under
+ * the registered sources, Add sources… shows what Med found on this computer.
  */
 export function SourcesView({
   sources,
   home,
   loaded,
   notice,
+  found,
+  foundRef,
   onOpen,
-  onAdd,
+  onFinding,
   onRequest,
 }: {
   sources: Source[];
   home?: string;
   loaded: boolean;
   notice?: ReactNode;
+  /** What Med found on this computer, while that section shows. */
+  found: FoundSources | null;
+  foundRef?: Ref<HTMLElement>;
   onOpen(source: Source): void;
-  onAdd(): void;
+  onFinding(open: boolean): void;
   onRequest(action: "index" | "remove", body: object): Promise<void>;
 }) {
-  const empty = loaded && !sources.length;
+  const foundId = useId();
   return (
     <div {...stylex.props(styles.page)}>
       <main aria-label="Sources" {...stylex.props(styles.scroller)}>
-        <div {...stylex.props(page.column, empty && styles.emptyColumn)}>
+        <div {...stylex.props(page.column)}>
           {notice}
-          {empty ? (
-            <div {...stylex.props(styles.empty)}>
-              <h1 {...stylex.props(styles.emptyTitle)}>No sources yet</h1>
-              <p {...stylex.props(styles.emptyText)}>
-                Add the Git repositories and Obsidian vaults you work in. Med finds them for you.
-              </p>
-              <button
-                type="button"
-                onClick={onAdd}
-                {...stylex.props(ui.button, ui.pressable, ui.primary, styles.emptyAdd)}
-              >
-                Add sources…
-              </button>
-              <p {...stylex.props(styles.note)}>
-                From a terminal: <code {...stylex.props(styles.code)}>med add ~/code/my-app</code>
-              </p>
-            </div>
-          ) : (
-            <>
-              <PageHeading
-                title="Sources"
-                lead={
-                  <>
-                    Med keeps a workspace ready for each repository and vault here. To add one from
-                    a terminal, run{" "}
-                    <code {...stylex.props(styles.code)}>med add &lt;folder&gt;</code>. Removing a
-                    source never changes its folder.
-                  </>
-                }
-              >
-                <button
-                  type="button"
-                  onClick={onAdd}
-                  {...stylex.props(ui.button, ui.pressable, ui.outlined)}
-                >
-                  <Icon name="plus" size={13} />
-                  Add sources…
-                </button>
-              </PageHeading>
-              {/* A vault is one more source: one list, by name. */}
-              <ul aria-label="Sources" {...stylex.props(styles.rows, page.flush)}>
-                {[...sources].sort(byName).map((source) => (
-                  <SourceRow
-                    key={source.id}
-                    source={source}
-                    home={home}
-                    onOpen={() => onOpen(source)}
-                    onRequest={onRequest}
-                  />
-                ))}
-              </ul>
-            </>
+          <PageHeading
+            title="Sources"
+            lead={
+              <>
+                Med keeps a workspace ready for each repository and vault here. To add one from a
+                terminal, run <code {...stylex.props(styles.code)}>med add &lt;folder&gt;</code>.
+                Removing a source never changes its folder.
+              </>
+            }
+          >
+            <button
+              type="button"
+              aria-expanded={found !== null}
+              aria-controls={found ? foundId : undefined}
+              onClick={() => onFinding(!found)}
+              {...stylex.props(ui.button, ui.pressable, ui.outlined)}
+            >
+              <Icon name="plus" size={13} />
+              Add sources…
+            </button>
+          </PageHeading>
+          {sources.length > 0 && (
+            // A vault is one more source: one list, by name.
+            <ul aria-label="Sources" {...stylex.props(styles.rows, styles.registered, page.flush)}>
+              {[...sources].sort(byName).map((source) => (
+                <SourceRow
+                  key={source.id}
+                  source={source}
+                  home={home}
+                  onOpen={() => onOpen(source)}
+                  onRequest={onRequest}
+                />
+              ))}
+            </ul>
+          )}
+          {found && (
+            <FoundSection
+              id={foundId}
+              found={found}
+              home={found.home ?? home}
+              first={loaded && !sources.length}
+              sectionRef={foundRef}
+            />
           )}
         </div>
       </main>
@@ -171,9 +220,271 @@ export function SourcesView({
   );
 }
 
+/**
+ * Found on this computer: the repositories and vaults under the home folder
+ * that Med does not have, most recently active first. A row is a registered
+ * row with Add at its end; an added row leaves for the list above.
+ */
+function FoundSection({
+  id,
+  found,
+  home,
+  first,
+  sectionRef,
+}: {
+  id: string;
+  found: FoundSources;
+  home?: string;
+  /** Nothing is registered yet. */
+  first: boolean;
+  sectionRef?: Ref<HTMLElement>;
+}) {
+  const [all, setAll] = useState(false);
+  const [now] = useState(Date.now);
+  const { rows } = found;
+  // A row that is being added, or failed, stays in view.
+  const shown = all ? rows : rows.filter((row, at) => at < SHOWN || row.state !== "idle");
+  const hidden = rows.length - shown.length;
+  const recent = rows.filter((row) => row.recent).length;
+  // The row that the reader adds leaves with the focus. The section takes
+  // it, so the keyboard stays in the list.
+  const added = useRef(false);
+  useEffect(() => {
+    if (!added.current) return;
+    if (document.activeElement === document.body)
+      document.getElementById(id)?.focus({ preventScroll: true });
+    added.current = rows.some((row) => row.state === "adding");
+  }, [rows, id]);
+  // Until the first search answers, the section is one line.
+  const looking = !found.searched && !found.error;
+  const nothing = found.searched && !rows.length;
+  return (
+    <section
+      id={id}
+      ref={sectionRef}
+      tabIndex={-1}
+      aria-labelledby={`${id}-title`}
+      {...stylex.props(page.section, styles.found)}
+    >
+      <div {...stylex.props(styles.foundHead, nothing && first && styles.foundHeadAlone)}>
+        <h2 id={`${id}-title`} {...stylex.props(page.sectionTitle, styles.foundTitle)}>
+          Found on this computer
+        </h2>
+        {recent > 1 && (
+          <button
+            type="button"
+            disabled={found.addingRecent}
+            onClick={found.addRecent}
+            {...stylex.props(ui.button, ui.pressable, styles.headButton)}
+          >
+            Add the {recent} recent
+          </button>
+        )}
+      </div>
+      {found.unavailable ? (
+        <p {...stylex.props(styles.line)}>
+          This server cannot add sources. From a terminal:{" "}
+          <code {...stylex.props(styles.code)}>med add &lt;folder&gt;</code>
+        </p>
+      ) : looking ? (
+        <p role="status" {...stylex.props(styles.line, styles.lineParts)}>
+          <span aria-hidden="true" {...stylex.props(styles.spinner)} />
+          Looking in your home folder…
+        </p>
+      ) : (
+        <>
+          {rows.length > 0 ? (
+            <ul aria-label="Found on this computer" {...stylex.props(styles.rows, page.flush)}>
+              {shown.map((row) => (
+                <FoundSourceRow
+                  key={row.path}
+                  row={row}
+                  home={home}
+                  now={now}
+                  onAdd={() => {
+                    added.current = true;
+                    found.add(row);
+                  }}
+                />
+              ))}
+            </ul>
+          ) : !found.searched ? null : first ? (
+            <EmptyState
+              page
+              title="No repositories or vaults found in your home folder"
+              note={
+                <>
+                  From a terminal: <code {...stylex.props(styles.code)}>med add ~/code/my-app</code>
+                </>
+              }
+            />
+          ) : (
+            <p {...stylex.props(styles.line)}>
+              No other repositories or vaults found in your home folder.
+            </p>
+          )}
+          {rows.length > SHOWN && (hidden > 0 || all) && (
+            <button
+              type="button"
+              onClick={() => setAll(!all)}
+              {...stylex.props(ui.button, ui.pressable, styles.showMore)}
+            >
+              {all ? "Show fewer" : `Show ${hidden} more`}
+            </button>
+          )}
+          {found.error && (
+            <p role="alert" {...stylex.props(styles.line, styles.failed, styles.under)}>
+              {found.error}
+            </p>
+          )}
+          {found.skipped.length > 0 && (
+            <p {...stylex.props(styles.line, styles.lineParts, styles.under)}>
+              <span>
+                Not searched:{" "}
+                {new Intl.ListFormat("en", { type: "conjunction" }).format(found.skipped)}.
+              </span>
+              <button
+                type="button"
+                disabled={found.searching}
+                onClick={found.searchAll}
+                {...stylex.props(ui.button, ui.outlined, ui.pressable)}
+              >
+                {found.searching ? "Searching…" : "Search them too"}
+              </button>
+            </p>
+          )}
+          <AddFolder onAdd={found.addPath} home={home} />
+        </>
+      )}
+    </section>
+  );
+}
+
+function FoundSourceRow({
+  row,
+  home,
+  now,
+  onAdd,
+}: {
+  row: FoundRow;
+  home?: string;
+  now: number;
+  onAdd(): void;
+}) {
+  const adding = row.state === "adding";
+  const label = adding ? "Adding…" : row.state === "failed" ? "Retry" : "Add";
+  const age = since(row.activity, now);
+  return (
+    <li data-state={row.state} {...stylex.props(styles.row, styles.foundRow)}>
+      <div title={row.path} {...stylex.props(styles.open, styles.foundText)}>
+        <span aria-hidden="true" {...stylex.props(styles.icon)}>
+          <Icon name={row.kind === "vault" ? "vault" : "gitBranch"} size={14} />
+        </span>
+        <span data-row="name" {...stylex.props(styles.name)}>
+          {row.name}
+        </span>
+        <span data-row="path" {...stylex.props(styles.where)}>
+          {folderPlace(row, home)}
+        </span>
+        <span {...stylex.props(styles.facts)}>
+          {row.branch && (
+            <span data-row="branch" {...stylex.props(styles.branch)}>
+              {row.branch}
+            </span>
+          )}
+          {age && (
+            <span data-row="age" {...stylex.props(styles.age)}>
+              {age}
+            </span>
+          )}
+        </span>
+      </div>
+      <span {...stylex.props(styles.end)}>
+        <button
+          type="button"
+          disabled={adding}
+          aria-label={`${label} ${row.name}`}
+          onClick={onAdd}
+          {...stylex.props(
+            ui.button,
+            ui.outlined,
+            ui.pressable,
+            styles.add,
+            adding && styles.addBusy,
+          )}
+        >
+          {adding && <span aria-hidden="true" {...stylex.props(styles.spinner)} />}
+          {label}
+        </button>
+      </span>
+    </li>
+  );
+}
+
+/** A folder that the search missed, by its path. Enter adds it. */
+function AddFolder({ onAdd, home }: { onAdd(path: string): Promise<void>; home?: string }) {
+  const [path, setPath] = useState("");
+  const [state, setState] = useState({ busy: false, error: "" });
+  return (
+    <form
+      {...stylex.props(styles.addFolder)}
+      onSubmit={(event) => {
+        event.preventDefault();
+        const value = path.trim();
+        if (!value || state.busy) return;
+        setState({ busy: true, error: "" });
+        onAdd(value).then(
+          () => {
+            setPath("");
+            setState({ busy: false, error: "" });
+          },
+          (reason) =>
+            setState({
+              busy: false,
+              error: reason instanceof Error ? reason.message : String(reason),
+            }),
+        );
+      }}
+    >
+      <div {...stylex.props(styles.row, styles.folderRow)}>
+        <span aria-hidden="true" {...stylex.props(styles.icon)}>
+          <Icon name="folder" size={14} />
+        </span>
+        <input
+          aria-label="Add a folder by path"
+          value={path}
+          placeholder={`Add a folder by path, such as ${home ? "~/" : "/"}code/project`}
+          spellCheck={false}
+          autoComplete="off"
+          autoCapitalize="off"
+          onChange={(event) => {
+            setPath(event.target.value);
+            if (state.error) setState({ busy: false, error: "" });
+          }}
+          {...stylex.props(styles.folderInput)}
+        />
+        {path.trim() && (
+          <button
+            type="submit"
+            disabled={state.busy}
+            {...stylex.props(ui.button, ui.outlined, ui.pressable, styles.add)}
+          >
+            {state.busy ? "Adding…" : "Add"}
+          </button>
+        )}
+      </div>
+      {state.error && (
+        <p role="alert" {...stylex.props(styles.line, styles.failed, styles.folderError)}>
+          {state.error}
+        </p>
+      )}
+    </form>
+  );
+}
+
 /** Where the folder is. The row shows its name, so the folder's parent is
  * enough when the name is the folder's own, unless the parent is home. */
-function folderPlace(source: Source, home?: string) {
+function folderPlace(source: { name: string; path: string }, home?: string) {
   const shown = displayPath(source.path, home);
   const separator = shown.includes(" › ") ? " › " : "/";
   const cut = shown.lastIndexOf(separator);
@@ -354,29 +665,16 @@ const styles = stylex.create({
     fontSize: 12,
     WebkitFontSmoothing: "antialiased",
   },
-  scroller: {
-    flex: "1",
-    minWidth: 0,
-    minHeight: 0,
-    display: "flex",
-    flexDirection: "column",
-    overflowY: "auto",
-  },
-  emptyColumn: {
-    flex: "1",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-  },
+  scroller: { flex: "1", minWidth: 0, overflowY: "auto" },
   rows: {
     display: "flex",
     flexDirection: "column",
     gap: 1,
     margin: 0,
-    marginTop: 28,
     padding: 0,
     listStyle: "none",
   },
+  registered: { marginTop: 28 },
   // As the sidebar's workspace rows: a rounded highlight, no rules.
   row: {
     display: "flex",
@@ -491,26 +789,107 @@ const styles = stylex.create({
       ":hover:not(:disabled)": `color-mix(in srgb, ${tokens.red} 18%, transparent)`,
     },
   },
-  empty: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    alignSelf: "center",
-    maxWidth: 360,
-    paddingBottom: 48,
-    textAlign: "center",
+  // The section takes focus when the reader opens it; it shows no ring.
+  found: { outline: "none" },
+  foundHead: { display: "flex", alignItems: "baseline", gap: 8, marginBottom: 14 },
+  // The empty state brings its own space above.
+  foundHeadAlone: { marginBottom: 0 },
+  foundTitle: { flex: "1", minWidth: 0, marginBottom: 0 },
+  // At the heading's end without moving its line; its label ends at the column's edge.
+  headButton: { flexShrink: 0, marginBlock: -6, marginInlineEnd: -8 },
+  // One line of the section: a state, a note, or an error.
+  line: { margin: 0, color: tokens.muted, fontSize: 12.5, lineHeight: 1.5 },
+  // A line with a spinner before it, or a button after it.
+  lineParts: { display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: 10, rowGap: 6 },
+  under: { marginTop: 14 },
+  // A found row is not a link, so it has no highlight.
+  foundRow: {
+    paddingInlineEnd: { default: 4, [narrow]: 0 },
+    backgroundColor: { default: "transparent", ":hover": "transparent" },
   },
-  emptyTitle: { margin: 0, fontSize: 15, fontWeight: 500, letterSpacing: "-0.01em" },
-  emptyText: {
-    marginBlock: 6,
-    marginBottom: 18,
+  // A registered row's columns. The branch and the age give way first.
+  foundText: {
+    gridTemplateColumns: {
+      default: "14px minmax(0, clamp(128px, 30%, 240px)) minmax(0, max-content) minmax(0, 1fr)",
+      [narrow]: "14px minmax(0, 1fr)",
+    },
+  },
+  // The reserve at its end keeps the facts clear of the widest button.
+  facts: {
+    display: { default: "flex", [narrow]: "none" },
+    alignItems: "baseline",
+    gap: 10,
+    minWidth: 0,
+    marginInlineStart: 6,
+    marginInlineEnd: 72,
+    overflow: "hidden",
     color: tokens.muted,
-    fontSize: 13,
-    lineHeight: 1.5,
-    textWrap: "balance",
+    whiteSpace: "nowrap",
   },
-  emptyAdd: { paddingInline: 14 },
-  note: { marginBlock: 0, marginTop: 16, color: tokens.faint, fontSize: 12, lineHeight: 1.6 },
-  footnote: { maxWidth: "62ch", marginTop: 4, paddingInline: 10 },
+  branch: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    fontFamily: tokens.code,
+    fontSize: 11.5,
+  },
+  age: { flexShrink: 0, color: tokens.faint, fontSize: 12.5, fontVariantNumeric: "tabular-nums" },
+  // As wide as a registered row's actions, so both lists' columns start at
+  // the same edges: the button reaches over the row's free end, and ends at
+  // the column's edge. A narrow row has no columns to keep, so it gives the
+  // button its width.
+  end: {
+    display: "flex",
+    justifyContent: "flex-end",
+    flexShrink: 0,
+    width: { default: 20, [narrow]: "auto" },
+    marginInlineEnd: { default: 6, [narrow]: 10 },
+  },
+  add: {
+    position: "relative",
+    flexShrink: 0,
+    minHeight: { default: 28, [narrow]: 32 },
+    paddingInline: { default: 10, [narrow]: 12 },
+    // A finger's target, 44 pixels tall, around the button that shows.
+    "::after": {
+      content: { default: "none", [narrow]: '""' },
+      position: "absolute",
+      insetBlock: -6,
+      insetInline: -6,
+    },
+  },
+  // Adding…: disabled, but as legible as the row.
+  addBusy: { color: tokens.muted, opacity: 1, cursor: "default" },
+  // Its label starts at the column's edge.
+  showMore: { marginTop: 4, marginInlineStart: -8 },
+  addFolder: { marginTop: 14 },
+  // A row's height and corners, with an edge: its box ends at the column's
+  // edges, as the buttons do.
+  folderRow: {
+    gap: 10,
+    minHeight: { default: 34, [narrow]: 44 },
+    paddingInlineStart: 10,
+    paddingInlineEnd: { default: 3, [narrow]: 6 },
+    backgroundColor: { default: "transparent", ":hover": "transparent" },
+    boxShadow: {
+      default: `inset 0 0 0 1px ${tokens.line}`,
+      ":focus-within": `inset 0 0 0 1px ${tokens.accentLine}`,
+    },
+  },
+  folderInput: {
+    flex: "1",
+    minWidth: 0,
+    alignSelf: "stretch",
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    color: tokens.text,
+    fontFamily: tokens.ui,
+    fontSize: 13,
+    textOverflow: "ellipsis",
+    outline: "none",
+    "::placeholder": { color: tokens.faint },
+  },
+  folderError: { marginTop: 8 },
   code: { fontFamily: tokens.code, fontSize: 11.5, color: tokens.muted },
 });

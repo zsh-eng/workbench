@@ -2,7 +2,6 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { watch, type FSWatcher } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { realpath, stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { z } from "zod";
 import { SourceCatalogue, type SavedSource } from "../vault/sources";
 import { VaultIndex } from "../vault/index";
@@ -14,7 +13,7 @@ import { selfCommand } from "./self";
 import { HostError } from "../runtime/errors";
 import { DEFAULT_PORT } from "../runtime/connection";
 import { medCommand } from "../runtime/med-command";
-import { discoverSources } from "./discover";
+import { discoverSources, userHome } from "./discover";
 import { loginItem, setLoginItem } from "./login-item";
 
 interface Job {
@@ -173,7 +172,9 @@ export class ServiceManager {
         service: "med",
         version: 1,
         pid: process.pid,
-        home: homedir(),
+        // The home that discovery searches, as real as the sources' paths, so
+        // the page shortens every path alike.
+        home: await realpath(userHome()).catch(() => userHome()),
         sources: this.snapshot(),
       };
     // First-run setup: what is registered, where to find more, and the login item.
@@ -209,7 +210,11 @@ export class ServiceManager {
               kind: z.enum(["repo", "vault"]).optional(),
             })
             .parse(body);
-          const path = await realpath(resolve(input.path));
+          const path = await realpath(resolve(input.path)).catch((error) => {
+            if (!["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? ""))
+              throw error;
+            throw new HostError("folder-not-found", "This folder does not exist.");
+          });
           let kind = input.kind;
           if (!kind) {
             try {

@@ -3857,7 +3857,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         path === "/settings" ||
         path.startsWith("/settings/") ||
         path === "/sessions" ||
-        path === "/welcome" ||
         path === "/elements" ||
         path.startsWith("/vault/") ||
         path === "/file" ||

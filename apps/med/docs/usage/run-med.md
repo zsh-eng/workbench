@@ -23,9 +23,9 @@ to restart it in its terminal.
 
 ## Start at login
 
-- **Open at login** on the setup page, or `med service login on`, opens Med at
-  your next login. It does not change the running server.
-  `med service login off` removes it.
+- **Open at login** in [Settings](settings.md#sources), or
+  `med service login on`, opens Med at your next login. It does not change the
+  running server. `med service login off` removes it.
 - `med service install` installs a per-user LaunchAgent that starts the server
   at login and restarts it after a crash. Run `med stop` first, and keep the
   executable at the same path. `med service uninstall` removes it.
@@ -67,18 +67,23 @@ page. In a browser tab the row is 36 pixels.
 
 ## Sources
 
-The first time `med web` runs with nothing registered, Med shows a setup page:
+The **Sources** page lists your registered repositories and vaults. **Add
+sources…** shows **Found on this computer** under them: the repositories and
+Obsidian vaults in your home folder that Med does not have yet, most recently
+used first. The first time `med web` runs with nothing registered, Med opens on
+this page with that section open.
 
-- **Repositories** and **Obsidian vaults** list what Med finds in your home
-  folder, most recent first. Ones used in the last three weeks (vaults: two
-  months) start selected. Linked worktrees, dependency folders, and hidden
-  folders are left out. Med searches Desktop, Documents, and Downloads only
-  when you choose **Search them too**, because macOS asks permission first.
+- **Add** registers one source, and its row moves to the list above. **Add the
+  N recent** registers those used in the last three weeks (vaults: two months).
+- Linked worktrees, dependency folders, and hidden folders are left out. Med
+  searches Desktop, Documents, and Downloads only when you choose **Search
+  them too**, because macOS asks permission first.
 - **Add a folder by path** adds a repository or vault that the search missed.
-- **Open at login** starts Med when you log in.
+  Press Enter to add it; `~/` is your home folder.
 
-Setup reads folder names and Git metadata only. To open it again, choose **Add
-sources…** on the Sources page, or **Set up Med…** in the command palette.
+The search reads folder names and Git metadata only, and starts when the
+section opens. **Add sources…** in the command palette opens the page with the
+section open.
 
 From a terminal, `med add` registers a folder, `med list` lists your sources,
 and `med remove` removes one. Registration persists across restarts. A linked

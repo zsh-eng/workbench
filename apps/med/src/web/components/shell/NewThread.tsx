@@ -17,6 +17,7 @@ import { Icon, type IconName } from "../Icon";
 import { useMentions } from "../Mentions";
 import { createBrowseApi, useBrowseFiles, useVaults } from "../../data/browse";
 import { useMentionSources } from "../../data/mentions";
+import { findSources } from "../../data/setup";
 import type { BrowseSource } from "../../../shared/browse";
 import { readHistory } from "../../data/tabs";
 import { AddImagesButton, PromptImageList, usePromptImages } from "../session/PromptImages";
@@ -263,8 +264,7 @@ export function NewThread({
   const branch = prompt.trim() ? threadSlug(threadTitle(prompt)) : "a-new-branch";
   const addFolder = () => {
     onCancel();
-    history.pushState(null, "", "/sources");
-    window.dispatchEvent(new PopStateEvent("popstate"));
+    findSources();
   };
   const modelName = options?.model?.options.find((option) => option.value === model);
   const effortName = efforts.find((option) => option.value === effort);

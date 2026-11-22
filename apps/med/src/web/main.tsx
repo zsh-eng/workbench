@@ -1,5 +1,5 @@
 import { Tooltip } from "@base-ui/react/tooltip";
-import { lazy, memo, Suspense, useEffect, useState } from "react";
+import { lazy, memo, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
 import PierreWorker from "@pierre/diffs/worker/worker.js?worker";
@@ -14,7 +14,7 @@ import { WorkspaceHost, WorkspaceViews } from "./components/Workspaces";
 import { authorizeBrowser } from "./data/auth";
 import { startSettingsFile } from "./data/settings-file";
 import { watchTitleBar } from "./data/title-bar";
-import { rememberWelcome, routeFirstRun, WELCOME_PATH } from "./data/setup";
+import { routeFirstRun } from "./data/setup";
 import { createPatchParser } from "./workers/client";
 import "./reset.css";
 import "./components/TitleRow.css";
@@ -46,7 +46,6 @@ const highlighterOptions = {
   // on can show its definition (SymbolHover.tsx).
   useTokenTransformer: true,
 };
-const Welcome = lazy(() => import("./components/welcome/Welcome"));
 // The workspace list renders its views again on every switch. A review renders
 // again only for its own state, so showing a hidden one does not render it.
 const WorkspaceApp = memo(App);
@@ -54,14 +53,7 @@ const ElementsPage = lazy(() => import("./components/elements/ElementsPage"));
 const ScreensPage = lazy(() => import("./components/screens/ScreensPage"));
 const Prototype = lazy(() => import("./components/screens/prototypes/Prototype"));
 
-/** The welcome replaces the app while it shows; leaving it starts the app. */
 function Root() {
-  const [welcome, setWelcome] = useState(() => location.pathname === WELCOME_PATH);
-  useEffect(() => {
-    const follow = () => setWelcome(location.pathname === WELCOME_PATH);
-    addEventListener("popstate", follow);
-    return () => removeEventListener("popstate", follow);
-  }, []);
   if (location.pathname === "/elements")
     return (
       <Suspense fallback={null}>
@@ -79,18 +71,6 @@ function Root() {
     return (
       <Suspense fallback={null}>
         <Prototype />
-      </Suspense>
-    );
-  if (welcome)
-    return (
-      <Suspense fallback={null}>
-        <Welcome
-          onFinish={(url) => {
-            rememberWelcome();
-            history.replaceState(null, "", url);
-            setWelcome(false);
-          }}
-        />
       </Suspense>
     );
   return (

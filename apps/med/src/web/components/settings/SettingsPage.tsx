@@ -1,9 +1,10 @@
 import * as stylex from "@stylexjs/stylex";
 import { MultiFileDiff } from "@pierre/diffs/react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CODE_SIZES, useViewSetting, viewSettings } from "../../data/view-settings";
 import { useDocumentTitle } from "../../data/document-title";
 import { useSettingsFile } from "../../data/settings-file";
+import { createSetupApi, type SetupApi, type SetupStatus } from "../../data/setup";
 import { HIGHLIGHTER } from "../../pierre-theme";
 import { tokens } from "../../theme.stylex";
 import {
@@ -39,9 +40,12 @@ const MODE_LABELS: Record<ThemeMode, string> = {
  */
 export function SettingsPage({
   section,
+  setup,
   onSources,
 }: {
   section?: SettingsSection;
+  /** The server's setup actions, for Open at login; a test gives its own. */
+  setup?: SetupApi;
   onSources(): void;
 }) {
   // Above a vault's or a file's title, which the page covers.
@@ -72,7 +76,7 @@ export function SettingsPage({
           <Code />
           <OpenInSettings />
           <Files />
-          <Sources onSources={onSources} />
+          <Sources setup={setup} onSources={onSources} />
           {file && <GrafanaSettings />}
           {file && <FileSection file={file} />}
         </div>
@@ -246,8 +250,37 @@ function Files() {
   );
 }
 
-function Sources({ onSources }: { onSources(): void }) {
+/** The login item of a server that can have one: `med web`'s, and the login
+ * service's. Null on other servers, and until the server answers. */
+function useLoginItem(setup?: SetupApi) {
+  const [api] = useState(() => setup ?? createSetupApi());
+  const [login, setLogin] = useState<SetupStatus["login"] | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let current = true;
+    api.status().then(
+      (status) => current && setLogin(status.login),
+      // A foreground review server has no setup.
+      () => {},
+    );
+    return () => {
+      current = false;
+    };
+  }, [api]);
+  const set = (enabled: boolean) => {
+    setError("");
+    api
+      .login(enabled)
+      .then(setLogin, (reason) =>
+        setError(reason instanceof Error ? reason.message : String(reason)),
+      );
+  };
+  return { login, error, set };
+}
+
+function Sources({ setup, onSources }: { setup?: SetupApi; onSources(): void }) {
   const pull = useViewSetting(viewSettings.pullBase);
+  const { login, error, set } = useLoginItem(setup);
   return (
     <Section id="sources" title="Sources" note="The repositories and folders that Med shows.">
       <Row label="Repositories and folders">
@@ -265,6 +298,11 @@ function Sources({ onSources }: { onSources(): void }) {
           toggle={() => viewSettings.pullBase.set(pull === "on" ? "off" : "on")}
         />
       </Row>
+      {login?.available && (
+        <Row label="Open at login" note={error || "Review links keep working after a restart."}>
+          <Switch label="Open at login" on={login.enabled} toggle={() => set(!login.enabled)} />
+        </Row>
+      )}
     </Section>
   );
 }

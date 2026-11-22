@@ -27,8 +27,8 @@ med web
 
 `med add` registers a Git repository or an Obsidian vault. `med web` starts
 one background server and opens Med in your browser. With nothing registered,
-Med opens a welcome page that finds your repositories and vaults for you and
-can open Med at login.
+Med opens on its **Sources** page, which finds the repositories and vaults on
+your computer: **Add** takes one. **Open at login** is in Settings.
 
 The server keeps running when you close the browser. `med status` shows it,
 and `med stop` stops it. Med keeps your sources and saved reviews in

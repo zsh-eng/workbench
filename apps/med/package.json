@@ -38,7 +38,7 @@
     "start": "node dist/cli.js",
     "lint:fix": "oxlint --fix --max-warnings 0",
     "test:integration": "vitest run --project integration",
-    "test:e2e": "bun run build && node scripts/validate-review-links.mjs && node scripts/validate-multi-repo.mjs && node scripts/validate-welcome.mjs && node scripts/validate-view-settings.mjs && node scripts/validate-pull-request-live.mjs",
+    "test:e2e": "bun run build && node scripts/validate-review-links.mjs && node scripts/validate-multi-repo.mjs && node scripts/validate-setup.mjs && node scripts/validate-view-settings.mjs && node scripts/validate-pull-request-live.mjs",
     "build:executable": "bun run build && bun scripts/build-executable.ts",
     "test:service": "node scripts/validate-service.mjs",
     "test:restart": "node scripts/validate-restart.mjs",

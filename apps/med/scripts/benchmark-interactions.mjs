@@ -107,6 +107,7 @@ const url = await new Promise((resolveUrl, reject) => {
 // ── Page instrumentation ─────────────────────────────────────────────────
 function instrument({ workspaces }) {
   try {
+    // This browser knows that Med has sources, so "/" skips the first-run check.
     localStorage.setItem("med:welcomed", "1");
     if (!localStorage.getItem("med:workspaces:v1"))
       localStorage.setItem("med:workspaces:v1", JSON.stringify(workspaces));
