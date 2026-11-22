@@ -58,6 +58,8 @@ the place of the Inbox.
   2026-10-14, and what Med can adopt from it. Next from it: state by type in
   the tabs, subagents under their thread, a turn recap that opens the review,
   questions about selected lines, and quiet signals.
+- [look-and-feel.md](look-and-feel.md): the look and feel of Linear, Claude and
+  Telegram on 2026-11-22, and what Med removes, refines and adds from it.
 
 ## Watch and try
 
