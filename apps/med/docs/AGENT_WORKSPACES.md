@@ -88,18 +88,22 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   policy and sandbox, sent with each turn. Shapes are Codex 0.160's, from
   `codex app-server generate-ts` and a recorded session
   (`tests/fixtures/agents/codex-app-server.jsonl`).
-- **Antigravity** (`src/host/agy-runner.ts`, off unless `MED_AGY=1`; see
-  [Antigravity is off](#antigravity-is-off)): `agy --input-format stream-json
---output-format stream-json -p=`, with `--model`, `--mode` (or
-  `--dangerously-skip-permissions`), and `--conversation <id>` to resume.
-  One process keeps the conversation and runs a turn per input line; Med logs
-  its `step_update` events as for an ACP agent, and follows a subagent's
-  transcript (`subagent_info.log_uri`) into its call. Headless agy cannot
-  ask: what needs approval it refuses, and Med shows each refused action with
-  what to change (a mode, or an allow rule from `/permissions` in agy). Stop
-  ends the process, as agy takes no stop on its input; the next message
-  resumes the conversation. Shapes are agy 1.4.10's
-  (`tests/fixtures/agents/agy-stream.jsonl`).
+- **Antigravity** (`startAcp` with `kind: "agy"` in
+  `src/host/owned-sessions.ts`): `agy acp`, agy's ACP server, which needs
+  agy 1.5 or later. It runs as any ACP agent does, below, with three
+  differences. Med starts it in agy's accept-edits mode, where it edits
+  files without asking and asks before a command; agy's default mode asks
+  before an edit too. Its session goes on in a new process
+  (`session/resume`, with agy's conversation ID from `owned-sessions.json`),
+  so a session whose process ended waits and starts agy again with the next
+  message; the new process forgets the model, thinking level, and mode, and
+  Med sets them again. And a conversation from agy's own app or terminal
+  continues in Med with its history ([Running now](#running-now)). Med does
+  not use agy's print mode (`--output-format stream-json -p=`): from agy
+  1.5 it runs edits and commands without asking. A subagent shows as one
+  tool call (`invoke_subagent`), since agy's ACP server names no transcript
+  for it. Shapes are agy 1.5.14's; the tests use a stand-in
+  (`tests/fixtures/agents/fake-agy.mjs`).
 - **ACP agents** (`src/host/json-rpc.ts`): `initialize`, `session/new`,
   `session/prompt`, `session/cancel`, and `session/set_config_option`. Med
   answers `session/request_permission` with the user's choice and appends the
@@ -127,9 +131,12 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   does not resume a session that another Claude Code process runs, such as
   one that the user resumed in a terminal; the message waits until that
   process ends ([messages to adopted sessions](SESSIONS.md#messages-to-adopted-sessions)).
-  A session that the user stopped stays stopped, and an ACP session without a
-  holder shows as stopped, with its log, so the prompt box offers a new
-  session.
+  An Antigravity session comes back the same way: idle, with the model and
+  effort it had, and its next prompt starts `agy acp` and resumes agy's
+  conversation.
+  A session that the user stopped stays stopped, and any other ACP session
+  without a holder shows as stopped, with its log, so the prompt box offers a
+  new session.
 - **Cut turns and exits**: a holder that ends without the agent's exit, as in
   a reboot or a kill, cuts the turn that ran. That session comes back as
   **Interrupted**, with Continue and Dismiss at the end of its thread; Med
@@ -184,10 +191,15 @@ Codex's guardian reviews and subagents stay out of the session list. A found
 session with a thread opens it;
 **Keep in Med** saves a Claude Code or Codex session as a thread
 (`POST /api/sessions/adopt`), and **Fork in Med** makes an agy
-conversation a thread whose agent Med runs, from its transcript's history
-(`{ agent: "agy", session, repo }`). agy has one writer: until the other
-process ends, a message to the thread fails and says to end it there. Turns
-that the other process adds after that do not show in Med's thread.
+conversation a thread whose agent Med runs, with its history
+(`{ agent: "agy", session, repo }`). agy has one writer. While another
+process has the conversation open, Med starts none: the thread shows the
+history from agy's transcript (`src/host/agy-transcript.ts`), and a message
+fails and says to end it there, until that process ends; the next message
+then starts agy (`session/resume`). Turns that the other process adds
+meanwhile do not show in Med's thread. A conversation that no process has
+open starts in Med at once, and agy replays it as the thread's history
+(`session/load`).
 
 ### What each agent can do
 
@@ -198,11 +210,11 @@ the page shows only the controls that work:
 | Capability | Claude Code     | Codex                      | agy                   | Other ACP |
 | ---------- | --------------- | -------------------------- | --------------------- | --------- |
 | Send now   | After its tools | In the turn (`turn/steer`) | No                    | No        |
-| Stop       | Yes             | Yes                        | Ends the process      | Yes       |
-| Approvals  | Cards           | Cards                      | Mode and allow rules  | Cards     |
-| Images     | Yes             | Yes                        | No                    | When set  |
+| Stop       | Yes             | Yes                        | Yes                   | Yes       |
+| Approvals  | Cards           | Cards                      | Cards                 | Cards     |
+| Images     | Yes             | Yes                        | Yes                   | When set  |
 | Resume     | Yes             | Yes                        | Yes                   | No        |
-| Subagents  | Yes             | Yes                        | Yes                   | No        |
+| Subagents  | Yes             | Yes                        | No (one tool call)    | No        |
 | Spend      | Yes             | Yes                        | No (no Gemini prices) | No        |
 
 ### Queued messages
@@ -249,15 +261,13 @@ The inbox keeps it as `pending` with `queued: true` (`queued-messages.ts`):
   still shows it as sent. And a host that stops between that write and the
   inbox's own write gives the message again when it starts.
 
-### Antigravity is off
+### Turning Antigravity off
 
-Med's Antigravity support is off by default, while the user does not use it:
-Med offers no agy agent, lists no running agy sessions, and refuses
-Fork in Med for an agy conversation. The code and its tests stay
-(`agy-runner.ts`, `tests/fixtures/agents/agy-stream.jsonl`, `fake-agy.mjs`).
-Start the server with `MED_AGY=1` (or `startHost({ agy: true })`) to turn it
-on. An agy session that Med started while it was on shows as stopped, with
-its log, until agy is on again.
+Med offers Antigravity where `agy` is installed. Start the server with
+`MED_AGY=0` (or `startHost({ agy: false })`) to turn it off: Med then offers
+no agy agent, lists no running agy sessions, and refuses Fork in Med for an
+agy conversation. An agy session that Med started before shows as stopped,
+with its log, until agy is on again.
 
 ### What a thread's agent knows
 
@@ -404,9 +414,9 @@ the `/` menu lists only skills and custom commands. Attached sessions show
 model and effort as text, with a divider when they change.
 
 Med talks to agents, not models. A Claude Code or Codex session with another
-provider still writes Claude Code's or Codex's format. ACP covers OpenCode
-and other ACP agents; Claude Code and agy use `stream-json`, and Codex its
-app-server.
+provider still writes Claude Code's or Codex's format. ACP covers OpenCode,
+Antigravity, and other ACP agents; Claude Code uses `stream-json`, and Codex
+its app-server.
 Attaching to another agent needs a reader for its transcript format.
 
 ### Review and Changes

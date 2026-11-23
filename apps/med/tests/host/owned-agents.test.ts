@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, readFile, utimes, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentMessage } from "../../src/shared/agent-inbox";
 import type { SessionEvent } from "../../src/shared/agent-session";
@@ -280,91 +280,191 @@ test("Med runs Codex through its app-server: a card asks, Send now steers, a sub
   );
 });
 
-test("Med runs agy in stream-json: refused actions say why, queued messages wait for the turn, a subagent nests, and Stop ends the process until the next message resumes it", async () => {
-  // The fake replays a recorded agy 1.4.10 session (agy-stream.jsonl).
-  const { api, home, thread, start } = await fixture();
+test("Med runs Antigravity through its ACP server: it asks before an edit, Stop keeps its process, and its session goes on in a new process after a reboot", async () => {
+  const { api, home, thread, start, restart } = await fixture();
+  // As any ACP agent, agy tells its models only in a session.
+  expect((await api<AgentOptions>("/api/agents/agy/choices")).data).toEqual({});
   const session = await start("agy");
   expect(session.review.session).toMatchObject({
     agent: "acp",
     name: "Antigravity",
     id: session.id,
   });
-  const ready = await session.until((state) => state.status === "idle");
-  expect(ready.capabilities).toMatchObject({ steer: false, approvals: "rules" });
-  expect(ready.settings.find((setting) => setting.id === "mode")?.value).toBe("accept-edits");
-  const replies = await thread(session.id);
-  const notices = () =>
-    replies.events.flatMap((event) =>
-      event.update.sessionUpdate === "notice" ? [event.update.title] : [],
-    );
-  const send = (text: string) =>
-    api<{ message: AgentMessage }>(`/api/sessions/${session.thread}/agent/messages`, {
-      text,
-      noteIds: [],
-    });
+  const ready = await session.until(
+    (state) => state.status === "idle" && state.commands.length > 0,
+  );
+  expect(ready.capabilities).toMatchObject({
+    steer: false,
+    approvals: "ask",
+    images: true,
+    resume: true,
+  });
+  expect(ready.settings.map((setting) => [setting.id, setting.category, setting.value])).toEqual([
+    ["model", "model", "gemini-4-neon"],
+    ["thought_level", "effort", "high"],
+    ["mode", "mode", "accept-edits"],
+  ]);
+  expect((await api<AgentOptions>("/api/agents/agy/choices")).data).toMatchObject({
+    model: {
+      value: "gemini-4-neon",
+      options: [{ value: "gemini-4-neon" }, { value: "gemini-4-hydrogen" }],
+    },
+    effort: { value: "high" },
+  });
   const runs = async () =>
     (await readFile(join(home, "agy-runs.jsonl"), "utf8"))
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line) as { args: string[] });
+      .map((line) => JSON.parse(line) as { args?: string[]; method?: string; sessionId?: string });
+  const processes = async () => (await runs()).filter((run) => run.args);
+  // Med starts agy's ACP server, not its print mode, which runs edits unasked.
+  expect((await processes()).map((run) => run.args)).toEqual([["acp"]]);
+  const conversation = (await runs()).find((run) => run.method === "session/new")!.sessionId!;
+  const replies = await thread(session.id);
+  const notices = (events: SessionEvent[]) =>
+    events.flatMap((event) =>
+      event.update.sessionUpdate === "notice" ? [event.update.title] : [],
+    );
 
-  // agy cannot ask: what it refused shows as a notice that says what to do.
-  await send("Run ls -1, then name the files.");
-  await vi.waitFor(() =>
-    expect(notices()).toEqual(["Antigravity refused RunCommand: it cannot ask in Med"]),
-  );
-  expect((await runs())[0]!.args).toEqual(
-    expect.arrayContaining(["--input-format", "stream-json", "--mode", "accept-edits", "-p="]),
-  );
+  // Med starts agy in its accept-edits mode: an edit goes through, and agy
+  // asks before a command.
+  await session.act({ action: "prompt", text: "Edit summary.ts." });
+  await vi.waitFor(() => expect(replies().at(-1)).toBe("Edited summary.ts."));
   await session.until((state) => state.status === "idle");
-
-  // A message during the turn waits for it; agy takes no message mid-turn.
-  await send("Start a subagent that says pong.");
-  await session.until((state) => state.status === "working");
-  const queued = await send("After that, also say the word queued.");
-  expect(queued.data.message).toMatchObject({ queued: true, delivery: "pending" });
-  expect(
-    (await api(`/api/sessions/${session.thread}/agent/send-now`, { id: queued.data.message.id }))
-      .status,
-  ).toBe(409);
-  await vi.waitFor(() => expect(replies()).toContain("queued"), { timeout: 5000 });
-  // The subagent's transcript nests in its call.
-  const call = replies.events.find(
-    (event) =>
-      event.update.sessionUpdate === "tool_call" &&
-      event.update._meta?.med?.tool === "invoke_subagent",
-  );
-  expect(call?.update).toMatchObject({ title: "Echo Responder" });
+  await session.act({ action: "prompt", text: "Run ls -1, then name the files." });
+  const command = await session.until((state) => state.permission !== undefined);
+  expect(command.permission).toMatchObject({
+    title: "Antigravity wants to run ls -1",
+    options: [
+      { id: "allow", kind: "allow_once" },
+      { id: "deny", kind: "reject_once" },
+    ],
+  });
+  await session.act({ action: "permission", id: command.permission!.id, option: "allow" });
+  await vi.waitFor(() => expect(replies().at(-1)).toBe("Ran ls -1."));
+  await session.until((state) => state.status === "idle");
+  // In agy's default mode it asks before an edit too: the card names the
+  // file. A refusal fails the call and ends the turn; agy says nothing more.
+  await session.act({ action: "setting", id: "mode", value: "default" });
+  await session.act({ action: "prompt", text: "Edit summary.ts again." });
+  const asked = await session.until((state) => state.permission !== undefined);
+  expect(asked.permission).toMatchObject({ title: "Antigravity wants to edit summary.ts" });
+  await session.act({ action: "permission", id: asked.permission!.id, option: "deny" });
+  await session.until((state) => state.status === "idle" && !state.permission);
   await vi.waitFor(() =>
     expect(
       replies.events.some(
         (event) =>
-          event.update._meta?.med?.parentToolCallId ===
-            (call!.update as { toolCallId: string }).toolCallId &&
-          event.update.sessionUpdate === "agent_message_chunk" &&
-          event.update.content.type === "text" &&
-          event.update.content.text === "pong",
+          event.update.sessionUpdate === "tool_call_update" &&
+          event.update.toolCallId === "call_3" &&
+          event.update.status === "failed",
       ),
     ).toBe(true),
   );
+  expect(replies().at(-1)).toBe("Ran ls -1.");
 
-  // Stop ends agy's process; the next message resumes the conversation.
+  // It takes images.
+  await api(`/api/sessions/${session.thread}/agent/messages`, {
+    text: "Look.",
+    noteIds: [],
+    images: [{ mimeType: "image/png", data: PNG }],
+  });
+  await vi.waitFor(() => expect(replies().at(-1)).toBe("Saw image/png: Look."));
   await session.until((state) => state.status === "idle");
-  await send("Run sleep 30, then say done.");
-  await session.until((state) => state.status === "working");
-  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  // Stop interrupts the turn; agy's process stays for the next message.
+  await session.act({ action: "prompt", text: "Run sleep 30, then say done." });
+  const sleep = await session.until((state) => state.permission !== undefined);
+  await session.act({ action: "permission", id: sleep.permission!.id, option: "allow" });
+  await session.until((state) => state.status === "working" && !state.permission);
   await session.act({ action: "interrupt" });
-  const stopped = await session.until((state) => state.status === "idle");
-  expect(stopped.halt).toBeUndefined();
-  expect(notices()).toContain("Interrupted");
-  await send("Say ok.");
-  await vi.waitFor(async () => expect(await runs()).toHaveLength(2), { timeout: 5000 });
-  expect((await runs())[1]!.args).toEqual(
-    expect.arrayContaining(["--conversation", "1f892c8e-f601-4c2f-b28c-e5f7d7b6e969"]),
+  await session.until((state) => state.status === "idle");
+  await vi.waitFor(() => expect(notices(replies.events)).toContain("Interrupted"));
+  await session.act({ action: "setting", id: "model", value: "gemini-4-hydrogen" });
+  await session.act({ action: "setting", id: "thought_level", value: "low" });
+  await session.act({ action: "setting", id: "mode", value: "accept-edits" });
+  await session.act({ action: "prompt", text: "Say ok." });
+  await vi.waitFor(() =>
+    expect(replies().at(-1)).toBe("(gemini-4-hydrogen, low, accept-edits) turn 6: Say ok."),
   );
+  await session.until((state) => state.status === "idle");
+  expect(await processes()).toHaveLength(1);
+
+  // A host restart leaves agy in its holder.
+  await restart();
+  const after = await thread(session.id);
+  await session.act({ action: "prompt", text: "Still here?" });
+  await vi.waitFor(() =>
+    expect(after().at(-1)).toBe("(gemini-4-hydrogen, low, accept-edits) turn 7: Still here?"),
+  );
+  await session.until((state) => state.status === "idle");
+  expect(await processes()).toHaveLength(1);
+
+  // After a reboot no process runs. The session waits with the choices it
+  // had, and takes a new one; the next message goes on with agy's
+  // conversation in a new process, which Med tells the choices again.
+  await restart({ reboot: true });
+  const back = await session.until((state) => state.settings.length > 0);
+  expect(back.status).toBe("idle");
+  expect(back.settings.map((setting) => [setting.id, setting.value])).toEqual([
+    ["model", "gemini-4-hydrogen"],
+    ["thought_level", "low"],
+  ]);
+  await session.act({ action: "setting", id: "thought_level", value: "medium" });
+  expect(await processes()).toHaveLength(1);
+  const resumed = await thread(session.id);
+  await session.act({ action: "prompt", text: "And now?" });
+  await vi.waitFor(
+    () =>
+      expect(resumed().at(-1)).toBe("(gemini-4-hydrogen, medium, accept-edits) turn 8: And now?"),
+    { timeout: 5000 },
+  );
+  expect(await processes()).toHaveLength(2);
+  expect((await runs()).at(-1)).toEqual({ method: "session/resume", sessionId: conversation });
+  // The thread has each turn once: agy replays nothing.
+  expect(resumed().filter((reply) => reply.includes("Still here?"))).toHaveLength(1);
+
+  // A turn that a reboot cuts waits as Interrupted; Continue asks agy to go
+  // on, in a new process.
+  await session.until((state) => state.status === "idle");
+  await session.act({ action: "setting", id: "mode", value: "auto" });
+  await session.act({ action: "prompt", text: "Run sleep 30, then say done." });
+  await session.until((state) => state.status === "working");
+  await restart({ reboot: true });
+  const cut = await session.until((state) => state.halt !== undefined);
+  expect(cut).toMatchObject({ status: "idle", halt: { kind: "interrupted" } });
+  const continued = await thread(session.id);
+  await session.act({ action: "continue" });
+  await vi.waitFor(
+    () => expect(continued().at(-1)).toMatch(/^\(gemini-4-hydrogen, medium, auto\) turn 10: /),
+    {
+      timeout: 5000,
+    },
+  );
+  expect((await session.state()).halt).toBeUndefined();
+  expect(await processes()).toHaveLength(3);
+
+  // A conversation that agy no longer has says so, and each message tries again.
+  await session.act({ action: "interrupt" });
+  await session.until((state) => state.status === "idle");
+  await restart({ reboot: true });
+  await rm(join(home, ".gemini", "antigravity-cli", "brain", conversation), { recursive: true });
+  const send = () =>
+    api<{ message: AgentMessage }>(`/api/sessions/${session.thread}/agent/messages`, {
+      text: "Are you there?",
+      noteIds: [],
+    });
+  for (const count of [4, 5]) {
+    expect((await send()).data.message).toMatchObject({
+      delivery: "failed",
+      error: expect.stringContaining("conversation not found"),
+    });
+    await vi.waitFor(async () => expect(await processes()).toHaveLength(count));
+    await session.until((state) => state.status === "idle");
+  }
 });
 
-test("an agy conversation continues in Med once its process ends, from its history", async () => {
+test("an agy conversation from elsewhere continues in Med, from its history: at once, or once the process that has it open ends", async () => {
   const { api, home, repo, start, thread } = await fixture();
   const lines = (entries: object[]) =>
     entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
@@ -454,35 +554,38 @@ test("an agy conversation continues in Med once its process ends, from its histo
     ends.push(codexApp.end);
     // agy in a terminal, in the repository.
     const agy = "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d";
-    const brain = join(
-      home,
-      ".gemini",
-      "antigravity-cli",
-      "brain",
-      agy,
-      ".system_generated",
-      "logs",
-    );
-    await mkdir(brain, { recursive: true });
-    await writeFile(
-      join(brain, "transcript.jsonl"),
-      lines([
-        {
-          step_index: 0,
-          source: "USER",
-          type: "USER_INPUT",
-          status: "DONE",
-          content: "<USER_REQUEST>\nName the files.\n</USER_REQUEST>",
-        },
-        {
-          step_index: 1,
-          source: "MODEL",
-          type: "PLANNER_RESPONSE",
-          status: "DONE",
-          content: "There is one: summary.ts.",
-        },
-      ]),
-    );
+    const transcript = async (id: string) => {
+      const brain = join(
+        home,
+        ".gemini",
+        "antigravity-cli",
+        "brain",
+        id,
+        ".system_generated",
+        "logs",
+      );
+      await mkdir(brain, { recursive: true });
+      await writeFile(
+        join(brain, "transcript.jsonl"),
+        lines([
+          {
+            step_index: 0,
+            source: "USER",
+            type: "USER_INPUT",
+            status: "DONE",
+            content: "<USER_REQUEST>\nName the files.\n</USER_REQUEST>",
+          },
+          {
+            step_index: 1,
+            source: "MODEL",
+            type: "PLANNER_RESPONSE",
+            status: "DONE",
+            content: "There is one: summary.ts.",
+          },
+        ]),
+      );
+    };
+    await transcript(agy);
     const agyTerminal = await holdOpen(repo, [
       join(home, ".gemini", "antigravity-cli", "presence", `${agy}.lock`),
     ]);
@@ -523,22 +626,54 @@ test("an agy conversation continues in Med once its process ends, from its histo
       delivery: "failed",
       error: expect.stringContaining("Close it there"),
     });
-    // Once agy ends there, the next message resumes the conversation in Med.
+    // Once agy ends there, the next message goes on with the conversation in
+    // Med: agy's ACP server resumes it, and the history shows once.
     await agyTerminal.end();
     expect((await send("Say ok.")).data.message).toMatchObject({ delivery: "delivered" });
-    await vi.waitFor(async () => {
-      const runs = (await readFile(join(home, "agy-runs.jsonl"), "utf8"))
+    await vi.waitFor(
+      () =>
+        expect(replies()).toEqual([
+          "There is one: summary.ts.",
+          "(gemini-4-neon, high, accept-edits) turn 2: Say ok.",
+        ]),
+      { timeout: 5000 },
+    );
+    const runs = async () =>
+      (await readFile(join(home, "agy-runs.jsonl"), "utf8"))
         .trim()
         .split("\n")
-        .map((line) => (JSON.parse(line) as { args: string[] }).args);
-      expect(runs.at(-1)).toEqual(expect.arrayContaining(["--conversation", agy]));
+        .map(
+          (line) => JSON.parse(line) as { args?: string[]; method?: string; sessionId?: string },
+        );
+    expect((await runs()).at(-1)).toEqual({ method: "session/resume", sessionId: agy });
+
+    // A conversation that no process has open starts in Med at once: agy
+    // replays it, and the replay is the thread's history.
+    const closed = "3b4c5d6e-7f8a-4b9c-8d0e-2f3a4b5c6d7e";
+    await transcript(closed);
+    const second = await api<{ id: string; created: boolean }>("/api/sessions/adopt", {
+      agent: "agy",
+      session: closed,
+      repo,
+      title: "Name the files again",
     });
+    expect(second.data).toMatchObject({ created: true });
+    const replayed = await thread(second.data.id);
+    await vi.waitFor(() => expect(replayed()).toEqual(["There is one: summary.ts."]));
+    expect((await runs()).at(-1)).toEqual({ method: "session/load", sessionId: closed });
+    await api(`/api/sessions/${second.data.id}/agent/messages`, { text: "Say ok.", noteIds: [] });
+    await vi.waitFor(() =>
+      expect(replayed()).toEqual([
+        "There is one: summary.ts.",
+        "(gemini-4-neon, high, accept-edits) turn 2: Say ok.",
+      ]),
+    );
   } finally {
     for (const end of ends) await end().catch(() => {});
   }
 });
 
-test("Antigravity is off until the user turns it on: Med does not offer it or continue its conversations", async () => {
+test("with Antigravity turned off (MED_AGY=0), Med does not offer it or continue its conversations", async () => {
   const { api, home, repo, review } = await fixture({ agy: false });
   const agy = "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d";
   const terminal = await holdOpen(repo, [

@@ -263,7 +263,7 @@ export interface StartHostOptions {
    * reader chooses (default true). The CLI turns it off for a state folder
    * other than Med's own, so that a second Med lists only its own threads. */
   foundSessions?: boolean;
-  /** Offer Antigravity (`agy`): off unless `MED_AGY=1` (default false). */
+  /** Offer Antigravity (`agy`), where it is installed: on unless `MED_AGY=0`. */
   agy?: boolean;
   /** Pull each repository's base branch now and then (`BasePulls`): on for
    * Med's own service and review, off for tests and another state folder.
@@ -516,7 +516,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     offersFile: join(options.stateDir ?? temporaryState!, "agent-offers.json"),
     recordsFile: join(options.stateDir ?? temporaryState!, "owned-sessions.json"),
     environment: agentEnvironment,
-    agy: options.agy ?? process.env.MED_AGY === "1",
+    agy: options.agy ?? process.env.MED_AGY !== "0",
   });
   await ownedSessions.restore();
   /** The history of a fork before its first prompt, which has no transcript

@@ -18,8 +18,8 @@ export const agentCapabilitiesSchema = z.object({
   /** Stops a turn: **Stop** and Esc. */
   interrupt: z.boolean(),
   /** How a tool that needs approval gets it: a card in Med ("ask"), or the
-   * mode and allow rules chosen before the turn ("rules"), as Antigravity's
-   * headless mode refuses what they do not allow. */
+   * mode and allow rules chosen before the turn ("rules"), for an agent
+   * that cannot ask. Every agent that Med runs now asks. */
   approvals: z.enum(["ask", "rules"]),
   /** Takes images in a prompt. */
   images: z.boolean(),
@@ -54,13 +54,16 @@ export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {
     usage: true,
   },
   agy: {
+    // Antigravity's ACP server (`agy acp`): it asks, takes images and a
+    // stop, and its session goes on in a new process (`session/resume`).
     steer: false,
     interrupt: true,
-    approvals: "rules",
-    images: false,
+    approvals: "ask",
+    images: true,
     resume: true,
-    subagents: true,
-    // agy reports tokens, but Med has no Gemini prices or context windows.
+    // A subagent is one tool call; agy's ACP server names no transcript.
+    subagents: false,
+    // agy reports tokens, but Med has no Gemini prices.
     usage: false,
   },
   acp: {
@@ -283,7 +286,8 @@ export type AgentChoices = z.infer<typeof agentChoicesSchema>;
 
 /** Med's choices for a new session, where the agent offers them. Claude Code
  * starts in Auto, where a classifier allows safe actions and asks about risky
- * ones. */
+ * ones. Antigravity starts in its accept-edits mode: it edits without asking,
+ * and asks before a command. */
 export const AGENT_DEFAULTS: Record<string, AgentChoices> = {
   claude: { model: "opus", effort: "medium", mode: "auto" },
   codex: { model: "gpt-6-astra" },

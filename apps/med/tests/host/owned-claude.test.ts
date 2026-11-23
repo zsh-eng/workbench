@@ -45,7 +45,7 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
       name: "Antigravity",
       kind: "agy",
       available: true,
-      capabilities: expect.objectContaining({ steer: false, approvals: "rules" }),
+      capabilities: expect.objectContaining({ steer: false, approvals: "ask" }),
     },
     expect.objectContaining({ id: "missing", available: false }),
   ]);

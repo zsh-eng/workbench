@@ -467,10 +467,11 @@ background shells and agents. It follows the session live.
   globe. Med fetches no icons.
 
 A Session pane without a session lists the agents that Med found, and its **+**
-menu starts one. Med starts Claude Code, Codex, OpenCode, or Gemini CLI in
-the review's repository, with your own sign-in; it does not install them.
-Antigravity (`agy`) is off unless the server starts with `MED_AGY=1`
-([agent workspaces](../AGENT_WORKSPACES.md#antigravity-is-off)). To have a thread's agent hand off its work with a guide, add the
+menu starts one. Med starts Claude Code, Codex, Antigravity, OpenCode, or
+Gemini CLI in the review's repository, with your own sign-in; it does not
+install them. Antigravity needs `agy` 1.5 or later. It starts in its
+accept-edits mode: it edits files without asking, and asks in Med before it
+runs a command. To have a thread's agent hand off its work with a guide, add the
 lines from `med skills instructions` to your CLAUDE.md or AGENTS.md. The agent
 gets your messages from Med as new turns. The message box has `/` commands
 and **Stop** (or `Esc`); the model, effort, and mode pickers are under it, with

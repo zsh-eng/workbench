@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { constants, existsSync } from "node:fs";
 import { access, appendFile, mkdir, readFile } from "node:fs/promises";
-import { delimiter, dirname, isAbsolute, join, relative } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, relative } from "node:path";
 import { createInterface } from "node:readline";
 import { z } from "zod";
 import type { SessionEvent, SessionUpdate } from "../shared/agent-session";
@@ -25,7 +25,7 @@ import {
 import type { AgentSession } from "../shared/saved-review";
 import { compactUpdate, findTranscript, transcriptPoint } from "./agent-transcripts";
 import { heldLocks, lockFolders, processCwd } from "./agent-locks";
-import { agyHistory, agyTitle, probeAgy, startAgy } from "./agy-runner";
+import { agyHistory, agyTitle } from "./agy-transcript";
 import { probeCodex, startCodex, type CodexModel } from "./codex-runner";
 import {
   attachHeld,
@@ -1331,11 +1331,18 @@ export function startAcp(
     onOffer,
     onAgentSession,
     attach,
+    kind = "acp",
+    sleeping,
+    agentSession,
+    history = false,
+    elsewhere,
   }: {
     /** The folder of the agents' holders and their logs. */
     holders: string;
     logDirectory?: string;
-    env?: Record<string, string>;
+    /** Read when the agent's process starts: a session that sleeps starts
+     * it later, when the host may listen on another port. */
+    env?: Record<string, string> | (() => Record<string, string>);
     /** The model and effort to set, where the agent offers them. */
     choices?: AgentChoices;
     /** The settings of the new session, before Med sets its choices. */
@@ -1346,13 +1353,32 @@ export function startAcp(
     /** A session from before the host restarted, whose holder runs, with
      * the updates that its thread has. */
     attach?: { sessionId: string; earlier: LoggedEvent[] };
+    /** Antigravity, whose session goes on in a new process after its own
+     * ends (`session/resume`): Stop, a closed tab, and a restart keep it. */
+    kind?: "acp" | "agy";
+    /** A session without a process, such as one from before the host
+     * restarted: its agent starts with the next prompt. `settings` are the
+     * choices it shows until then, and `halt` says that its turn was cut. */
+    sleeping?: {
+      sessionId: string;
+      earlier: LoggedEvent[];
+      settings?: OwnedSetting[];
+      halt?: OwnedState["halt"];
+    };
+    /** The agent's own session to go on with, in place of a new one. */
+    agentSession?: string;
+    /** The agent's session ran outside Med: show what it said before, as the
+     * agent replays it (`session/load`). */
+    history?: boolean;
+    /** Whether another process has the agent's session open. */
+    elsewhere?(agentSession: string): Promise<boolean>;
   },
 ): OwnedRunner {
-  const sessionId = attach?.sessionId ?? randomUUID();
+  const sessionId = attach?.sessionId ?? sleeping?.sessionId ?? randomUUID();
   const session: AgentSession = { agent: "acp", name: agent.name, id: sessionId, cwd };
   const log = new SessionLog(
     logDirectory ? join(logDirectory, `${sessionId}.jsonl`) : undefined,
-    attach?.earlier,
+    attach?.earlier ?? sleeping?.earlier,
   );
   if (logDirectory) void mkdir(logDirectory, { recursive: true }).catch(() => {});
   const store = createState({
@@ -1360,12 +1386,18 @@ export function startAcp(
     preset: agent.id,
     name: agent.name,
     status: "starting",
-    settings: [],
+    settings: sleeping?.settings ?? [],
     commands: [],
     turns: 0,
-    capabilities: AGENT_CAPABILITIES.acp,
+    capabilities: AGENT_CAPABILITIES[kind],
   });
-  let acpSession: string | undefined;
+  let acpSession: string | undefined = agentSession;
+  // The agent's session goes on in a new process: only Antigravity's is
+  // tried (agy 1.5.14), though other agents declare `session/resume` too.
+  let resumable = kind === "agy" && !!agentSession;
+  // The agent replays a session that it loads; the thread has those updates.
+  let loading = false;
+  let showHistory = history;
   // Settings that came as older `models` and `modes`, not as config options.
   const legacy = new Set<string>();
   let answer: ((option: string | null) => void) | undefined;
@@ -1375,6 +1407,8 @@ export function startAcp(
   let turn: { text: string; answered: boolean } | undefined;
   let held: HeldAgent | undefined;
   let active: object | undefined;
+  /** Called when the agent's process has ended, by a prompt that waits for it. */
+  let ended: (() => void) | undefined;
   let replaying = false;
   // The log entry that Med reads now: the thread's updates keep its number.
   let entryNumber: number | undefined;
@@ -1395,7 +1429,13 @@ export function startAcp(
         if (method !== "session/request_permission")
           throw new RpcError(`Med does not offer ${method}.`, -32601);
         const { toolCall, options } = params as {
-          toolCall?: { toolCallId?: string; title?: string; rawInput?: Record<string, unknown> };
+          toolCall?: {
+            toolCallId?: string;
+            title?: string;
+            kind?: string;
+            locations?: { path?: string }[];
+            rawInput?: Record<string, unknown>;
+          };
           options?: {
             optionId: string;
             name: string;
@@ -1404,9 +1444,17 @@ export function startAcp(
         };
         const id = toolCall?.toolCallId ?? randomUUID();
         const detail = inputSummary(toolCall?.rawInput);
+        const edited = toolCall?.locations?.[0]?.path;
         const permission: OwnedPermission = {
           id,
-          title: `${agent.name} wants to ${toolCall?.title ? `run ${toolCall.title}` : "use a tool"}`,
+          title: `${agent.name} wants to ${
+            // An edit names its file; Antigravity titles one "File g.txt".
+            toolCall?.kind === "edit" && edited
+              ? `edit ${basename(edited)}`
+              : toolCall?.title
+                ? `run ${toolCall.title}`
+                : "use a tool"
+          }`,
           ...(detail ? { detail } : {}),
           options: (options ?? []).map((option) => ({
             id: option.optionId,
@@ -1425,7 +1473,7 @@ export function startAcp(
         };
       },
       notify(method, params) {
-        if (method !== "session/update") return;
+        if (method !== "session/update" || loading) return;
         const update = (params as { update?: Record<string, unknown> })?.update;
         if (!update || typeof update.sessionUpdate !== "string") return;
         switch (update.sessionUpdate) {
@@ -1520,10 +1568,17 @@ export function startAcp(
     }
     if (error) return;
     if (method === "initialize") {
-      if (result?.agentCapabilities?.promptCapabilities?.image === true)
-        store.set({ images: true });
-    } else if (method === "session/new") {
-      acpSession = String(result.sessionId);
+      const offered = result?.agentCapabilities;
+      if (offered?.promptCapabilities?.image === true) store.set({ images: true });
+      if (kind === "agy" && (offered?.sessionCapabilities?.resume || offered?.loadSession))
+        resumable = true;
+    } else if (
+      method === "session/new" ||
+      method === "session/resume" ||
+      method === "session/load"
+    ) {
+      loading = false;
+      acpSession = String(result?.sessionId ?? params?.sessionId);
       onAgentSession?.(acpSession);
       const settings = configSettings(result.configOptions);
       const has = (category: string) => settings.some((setting) => setting.category === category);
@@ -1594,6 +1649,10 @@ export function startAcp(
         };
         store.set({ status: "working", turns: store.get().turns + 1, error: undefined });
       }
+    }
+    if (message.method === "session/load") {
+      loading = !showHistory;
+      showHistory = false;
     }
     if (!replay) return;
     if (message.method !== undefined && typeof message.id === "number") {
@@ -1680,12 +1739,15 @@ export function startAcp(
       if (active !== token) return;
       active = undefined;
       held = undefined;
+      ended?.();
+      ended = undefined;
       void forgetLog(holders, sessionId);
       rpc.close(`${agent.name} stopped.`);
       answer?.(null);
+      loading = false;
       if (stopping) return;
       store.set({
-        status: "exited",
+        status: asleep(),
         permission: undefined,
         ...(exit.error
           ? { error: exit.error }
@@ -1700,27 +1762,14 @@ export function startAcp(
     },
   });
 
-  const token = {};
-  active = token;
-  if (attach) {
-    ready = new Promise<void>((done) => {
-      void attachHeld(holders, sessionId, events(token, done)).then(
-        (found) => {
-          if (!found) {
-            active = undefined;
-            store.set({ status: "exited" });
-            done();
-          } else if (active === token) held = found;
-        },
-        (error: unknown) => {
-          active = undefined;
-          fail(error);
-          store.set({ status: "exited" });
-          done();
-        },
-      );
-    });
-  } else {
+  /** A session without a process: one that can go on waits for its next
+   * prompt, and any other has ended. */
+  const asleep = () => (resumable && acpSession ? "idle" : "exited");
+  /** Starts the agent in a holder and opens its session: a new one, or the
+   * agent's own session that goes on. */
+  const launch = (token: object, resume: string | undefined) => {
+    // What the session had chosen, which the agent's new process forgets.
+    const before = store.get().settings;
     held = startHeld(
       holders,
       {
@@ -1730,52 +1779,147 @@ export function startAcp(
         command: agent.command,
         args: agent.args,
         cwd,
-        env: agentEnvironment(env),
+        env: agentEnvironment(typeof env === "function" ? env() : env),
       },
       events(token, () => {}),
     );
-    ready = (async () => {
-      await call("initialize", {
+    return (async () => {
+      const started = await call("initialize", {
         protocolVersion: 1,
         clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
         clientInfo: { name: "Med", version: "0.1" },
       });
-      await call("session/new", { cwd, mcpServers: [] });
+      if (resume) {
+        const offered = started?.agentCapabilities ?? {};
+        // `session/resume` goes on without a replay; `session/load` replays
+        // the session, which is its history when it ran outside Med.
+        const method =
+          offered.sessionCapabilities?.resume && !showHistory
+            ? "session/resume"
+            : offered.loadSession
+              ? "session/load"
+              : offered.sessionCapabilities?.resume
+                ? "session/resume"
+                : undefined;
+        if (!method)
+          throw new HostError(
+            "session-stopped",
+            `${agent.name} cannot resume this session. Start a new one.`,
+            409,
+          );
+        await call(method, { sessionId: resume, cwd, mcpServers: [] });
+      } else await call("session/new", { cwd, mcpServers: [] });
       const settings = store.get().settings;
-      onOffer?.(settings);
-      for (const category of ["model", "effort"] as const) {
-        const wanted = choices[category];
+      if (!resume) onOffer?.(settings);
+      const wanted: Record<string, string | undefined> = { ...choices };
+      for (const setting of before)
+        if (setting.category !== "other") wanted[setting.category] = setting.value;
+      for (const category of ["model", "effort", "mode"] as const) {
+        const value = wanted[category];
         const setting = settings.find((entry) => entry.category === category);
-        if (wanted && setting && setting.value !== wanted)
-          await change(setting.id, wanted).catch(() => {});
+        if (value && setting && setting.value !== value)
+          await change(setting.id, value).catch(() => {});
       }
       if (store.get().status === "starting") store.set({ status: "idle" });
     })();
+  };
+
+  let token = {};
+  active = token;
+  if (sleeping) {
+    // No process until the next prompt.
+    active = undefined;
+    store.set({ status: "idle", ...(sleeping.halt ? { halt: sleeping.halt } : {}) });
+    ready = Promise.resolve();
+  } else if (attach) {
+    ready = new Promise<void>((done) => {
+      void attachHeld(holders, sessionId, events(token, done)).then(
+        (found) => {
+          if (!found) {
+            active = undefined;
+            store.set({ status: asleep() });
+            done();
+          } else if (active === token) held = found;
+        },
+        (error: unknown) => {
+          active = undefined;
+          fail(error);
+          store.set({ status: asleep() });
+          done();
+        },
+      );
+    });
+  } else {
+    ready = launch(token, agentSession);
     ready.catch((error) => {
       fail(error);
       if (!stopping) store.set({ status: "exited" });
     });
   }
 
+  const running = () => held;
+  const release = () => held?.stop();
+  let waking: Promise<void> | undefined;
+  /** Starts the agent of a session that no process runs now, once for
+   * prompts that come together; its session goes on. */
+  const wake = () =>
+    (waking ??= (async () => {
+      await ready.catch(() => {});
+      if (held || stopping || !resumable || !acpSession) return;
+      if (await elsewhere?.(acpSession))
+        throw new HostError(
+          "session-busy",
+          `Another ${agent.name} process has this session open, such as one in a terminal. Close it there, then send again.`,
+          409,
+        );
+      token = {};
+      active = token;
+      store.set({ error: undefined });
+      ready = launch(token, acpSession);
+      try {
+        await ready;
+      } catch (error) {
+        fail(error);
+        // The new process has no session: it ends, and the next prompt
+        // waits for that and starts another.
+        ready = running() ? new Promise<void>((done) => (ended = done)) : Promise.resolve();
+        release();
+        throw new HostError(
+          "agent-error",
+          error instanceof Error ? error.message : String(error),
+          502,
+        );
+      }
+    })().finally(() => {
+      waking = undefined;
+    }));
+
   return {
     session,
     log,
     attached: ready.catch(() => {}),
     state: store.get,
-    dormant: () => false,
+    dormant: () => !held && !stopping && resumable && !!acpSession,
     pid: () => held?.pid(),
     subscribe: store.subscribe,
     async prompt(text, images = []) {
-      await ready;
+      await ready.catch(() => {});
       if (store.get().status === "exited")
         throw new HostError("session-stopped", "This session has stopped.", 409);
+      if (!held) await wake();
+      await ready;
       if (images.length && !store.get().images)
         throw new HostError("images-unsupported", `${agent.name} does not take images.`, 400);
       const prompt = [
         ...images.map((image) => ({ type: "image" as const, ...image })),
         ...(text ? [{ type: "text" as const, text }] : []),
       ];
-      store.set({ status: "working", turns: store.get().turns + 1, error: undefined });
+      store.set({
+        status: "working",
+        turns: store.get().turns + 1,
+        error: undefined,
+        halt: undefined,
+      });
       turn = { text, answered: false };
       call("session/prompt", { sessionId: acpSession, prompt }).catch(() => {});
     },
@@ -1788,12 +1932,25 @@ export function startAcp(
       answer?.(null);
     },
     async set(id, value) {
-      await ready;
+      await ready.catch(() => {});
+      if (!held && resumable && acpSession) {
+        // No process to tell: the choice goes with the session's next start.
+        const setting = store.get().settings.find((entry) => entry.id === id);
+        if (!setting || !setting.options.some((option) => option.value === value))
+          throw new HostError("invalid-setting", "The agent does not offer this choice.", 400);
+        settingValue(id, value);
+        return;
+      }
       await change(id, value);
     },
-    // Med starts an ACP agent's session again only through `session/load`,
-    // which comes with ACP resume.
+    // Antigravity's session goes on in a new process; Med starts no other
+    // ACP agent's session again.
     async restart() {
+      if (resumable && acpSession) {
+        await wake();
+        store.set({ halt: undefined, error: undefined });
+        return;
+      }
       throw new HostError(
         "session-stopped",
         `${agent.name} cannot resume this session. Start a new one.`,
@@ -1809,9 +1966,7 @@ export function startAcp(
       held?.stop();
       store.set({ status: "exited", permission: undefined });
     },
-    release() {
-      held?.stop();
-    },
+    release,
     detach() {
       active = undefined;
       held?.detach();
@@ -2018,7 +2173,6 @@ export class OwnedSessions {
   private claudeModels = new Map<string, Promise<ClaudeModel[]>>();
   /** Codex's and agy's models, asked once per host. */
   private codexModels = new Map<string, Promise<CodexModel[]>>();
-  private agyModels = new Map<string, Promise<{ id: string; name: string }[]>>();
   /** What each ACP agent offered in its last new session. */
   private offered: Promise<Record<string, OwnedSetting[]>> | undefined;
   private records: Record<string, SessionRecord> = {};
@@ -2045,8 +2199,8 @@ export class OwnedSessions {
       environment?: (key: string | undefined, cwd: string) => Record<string, string>;
       /** The home directory whose `.claude/sessions` Claude Code writes. */
       home?: () => string;
-      /** Antigravity (`agy`), which is off until the user turns it on
-       * (`MED_AGY=1`, docs/AGENT_WORKSPACES.md#antigravity-is-off). */
+      /** Antigravity (`agy`): offered where it is installed, unless the
+       * server starts with `MED_AGY=0`. */
       agy?: boolean;
     },
   ) {
@@ -2147,17 +2301,22 @@ export class OwnedSessions {
     if (!models) this.codexModels.set(agent.id, (models = probeCodex(agent)));
     return models;
   }
-  private agyOffers(agent: RunnableAgent) {
-    let models = this.agyModels.get(agent.id);
-    if (!models) this.agyModels.set(agent.id, (models = probeAgy(agent)));
-    return models;
-  }
   private offers() {
     const file = this.options.offersFile;
     this.offered ??= (file ? readFile(file, "utf8") : Promise.reject(new Error("No file.")))
       .then((text) => z.record(z.string(), z.array(ownedSettingSchema)).parse(JSON.parse(text)))
       .catch(() => ({}));
     return this.offered;
+  }
+  /** What an ACP agent offered last, with a session's choices: what a
+   * session shows while no process of its agent runs. */
+  private async offeredSettings(presetId: string, choices: AgentChoices) {
+    return ((await this.offers())[presetId] ?? []).map((setting) => {
+      const value = setting.category === "other" ? undefined : choices[setting.category];
+      return value && setting.options.some((option) => option.value === value)
+        ? { ...setting, value }
+        : setting;
+    });
   }
   private async remember(presetId: string, settings: OwnedSetting[]) {
     const offers = await this.offers();
@@ -2237,22 +2396,6 @@ export class OwnedSessions {
           : {}),
       };
     }
-    if (agent.kind === "agy") {
-      const models = await this.agyOffers(agent);
-      if (!models.length) return {};
-      return {
-        model: {
-          id: "model",
-          name: "Model",
-          category: "model",
-          value: models.some((entry) => entry.id === wanted.model) ? wanted.model! : "default",
-          options: [
-            { value: "default", name: "agy's default" },
-            ...models.map((entry) => ({ value: entry.id, name: entry.name })),
-          ],
-        },
-      };
-    }
     const settings = (await this.offers())[presetId] ?? [];
     const pick = (category: "model" | "effort") => {
       const setting = settings.find((entry) => entry.category === category);
@@ -2317,20 +2460,36 @@ export class OwnedSessions {
       return runner;
     }
     if (agent.kind === "agy") {
-      const runner = startAgy(agent, cwd, {
+      // Antigravity's ACP server, `agy acp`: it asks before an edit or a
+      // command, which agy's print mode does not (it runs them, from 1.5).
+      // A conversation from agy's own app or terminal shows its history. agy
+      // has one writer: while the conversation is open there, Med starts no
+      // process and reads the history from agy's transcript; the first
+      // message after it closes there starts Med's process.
+      const open = !!conversation && (await this.lockedElsewhere("agy", conversation));
+      const runner: OwnedRunner = startAcp({ ...agent, args: [...agent.args, "acp"] }, cwd, {
+        kind: "agy",
         holders: this.options.holderDirectory,
         ...(this.options.logDirectory ? { logDirectory: this.options.logDirectory } : {}),
         env: () => this.environment(key, cwd),
         choices: wanted,
-        models: this.agyOffers(agent),
-        onConversation: (id) => this.noteAgentSession(runner.session.id, id),
+        onOffer: (settings) => void this.remember(presetId, settings),
+        onAgentSession: (id) => this.noteAgentSession(runner.session.id, id),
         elsewhere: (id) => this.lockedElsewhere("agy", id),
-        ...(this.options.home ? { home: this.options.home } : {}),
-        ...(conversation && {
-          conversation,
-          history: await agyHistory(this.options.home?.() ?? userHome(), conversation),
-        }),
+        ...(conversation ? { agentSession: conversation, history: !open } : {}),
+        ...(open
+          ? {
+              sleeping: {
+                sessionId: randomUUID(),
+                earlier: [],
+                settings: await this.offeredSettings(presetId, wanted),
+              },
+            }
+          : {}),
       });
+      if (open && conversation)
+        for (const update of await agyHistory(this.options.home?.() ?? userHome(), conversation))
+          runner.log?.push(update);
       this.track(runner, {
         preset: presetId,
         kind: "agy",
@@ -2603,28 +2762,45 @@ export class OwnedSessions {
             ? { halt: { kind: "interrupted" as const, detail: "Med restarted during the turn" } }
             : {}),
         });
-      } else if (record.kind === "agy" && agent?.kind === "agy" && agent.available && this.agy) {
-        const attach = !!(await readHolder(holders, id));
-        runner = startAgy(agent, record.cwd, {
+      } else if (
+        record.kind === "agy" &&
+        agent?.kind === "agy" &&
+        agent.available &&
+        this.agy &&
+        (record.agentSessionId || (await readHolder(holders, id)))
+      ) {
+        const earlier = this.options.logDirectory
+          ? await SessionLog.read(join(this.options.logDirectory, `${id}.jsonl`))
+          : [];
+        // Its holder runs, or its session sleeps until the next prompt.
+        const place = (await readHolder(holders, id))
+          ? { attach: { sessionId: id, earlier } }
+          : {
+              sleeping: {
+                sessionId: id,
+                earlier,
+                settings: await this.offeredSettings(record.preset, record.choices),
+                // Med never continues a cut turn alone: Continue or Dismiss.
+                ...(record.turn
+                  ? {
+                      halt: {
+                        kind: "interrupted" as const,
+                        detail: "Med restarted during the turn",
+                      },
+                    }
+                  : {}),
+              },
+            };
+        runner = startAcp({ ...agent, args: [...agent.args, "acp"] }, record.cwd, {
+          kind: "agy",
           holders,
-          sessionId: id,
           ...(this.options.logDirectory ? { logDirectory: this.options.logDirectory } : {}),
-          ...(record.agentSessionId ? { conversation: record.agentSessionId } : {}),
           env: () => this.environment(record.key, record.cwd),
           choices: record.choices,
-          models: this.agyOffers(agent),
-          onConversation: (conversation) => this.noteAgentSession(id, conversation),
+          onAgentSession: (conversation) => this.noteAgentSession(id, conversation),
           elsewhere: (conversation) => this.lockedElsewhere("agy", conversation),
-          ...(attach
-            ? {
-                attach: {
-                  earlier: this.options.logDirectory
-                    ? await SessionLog.read(join(this.options.logDirectory, `${id}.jsonl`))
-                    : [],
-                },
-              }
-            : {}),
-          ...(this.options.home ? { home: this.options.home } : {}),
+          ...(record.agentSessionId ? { agentSession: record.agentSessionId } : {}),
+          ...place,
         });
       } else if (record.kind === "acp" && (await readHolder(holders, id)))
         runner = startAcp(
