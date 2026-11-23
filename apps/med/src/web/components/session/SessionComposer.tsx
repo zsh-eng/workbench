@@ -33,7 +33,8 @@ import { mentionPopover, useMentions } from "../Mentions";
 import { SessionNotice } from "./SessionNotice";
 import type { MentionSources } from "../../data/mentions";
 import { readDraft, writeDraft } from "../../data/outbox";
-import { EFFORT_NOTE, optionChoice } from "../../data/owned-session";
+import { optionChoice } from "../../data/owned-session";
+import { ModelPicker } from "../ModelPicker";
 import { column } from "./session-styles";
 import { useViewSetting, viewSettings } from "../../data/view-settings";
 
@@ -795,21 +796,57 @@ export function SessionComposer({
         <ComposerMeta>
           {owned && (
             <div {...stylex.props(styles.pickers)}>
-              {settings.map((setting) => (
-                <ChoiceSelect
-                  key={setting.id}
-                  label={setting.name}
-                  value={setting.value}
-                  choices={setting.options.map(optionChoice)}
-                  // The pickers sit at the row's end, so each menu lines up
-                  // with its trigger's right edge and opens back over the row.
-                  align="end"
-                  note={setting.category === "effort" ? EFFORT_NOTE : undefined}
-                  disabled={stopped || (setting.idleOnly && working)}
-                  onChange={(value) => choose(setting, value)}
-                  trigger={styles.picker}
-                />
-              ))}
+              {settings.map((setting) => {
+                const model = settings.find((entry) => entry.category === "model");
+                const level = settings.find((entry) => entry.category === "effort");
+                // The model and its level are one picker; other settings,
+                // such as the mode, keep a menu each.
+                if (setting === level && model) return null;
+                if (setting === model)
+                  return (
+                    <ModelPicker
+                      key={setting.id}
+                      label={setting.name}
+                      models={setting.options.map((option) => ({
+                        value: option.value,
+                        name: optionChoice(option).label,
+                        ...(option.group ? { group: option.group } : {}),
+                      }))}
+                      model={setting.value}
+                      onModel={(value) => choose(setting, value)}
+                      {...(level
+                        ? {
+                            levels: {
+                              label: level.name,
+                              value: level.value,
+                              options: level.options.map((option) => ({
+                                value: option.value,
+                                name: optionChoice(option).label,
+                              })),
+                              onChange: (value: string) => choose(level, value),
+                              disabled: stopped || (level.idleOnly && working),
+                            },
+                          }
+                        : {})}
+                      disabled={stopped || (setting.idleOnly && working)}
+                      trigger={styles.picker}
+                    />
+                  );
+                return (
+                  <ChoiceSelect
+                    key={setting.id}
+                    label={setting.name}
+                    value={setting.value}
+                    choices={setting.options.map(optionChoice)}
+                    // The pickers sit at the row's end, so each menu lines up
+                    // with its trigger's right edge and opens back over the row.
+                    align="end"
+                    disabled={stopped || (setting.idleOnly && working)}
+                    onChange={(value) => choose(setting, value)}
+                    trigger={styles.picker}
+                  />
+                );
+              })}
             </div>
           )}
           {usage}

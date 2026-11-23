@@ -47,6 +47,14 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
       available: true,
       capabilities: expect.objectContaining({ steer: false, approvals: "ask" }),
     },
+    {
+      id: "pi",
+      name: "Pi",
+      kind: "pi",
+      available: true,
+      // Pi asks nothing itself: Med's rules decide its tools.
+      capabilities: expect.objectContaining({ steer: false, approvals: "rules" }),
+    },
     expect.objectContaining({ id: "missing", available: false }),
   ]);
   expect((await api(`/api/reviews/${review.id}/start`, { preset: "missing" })).status).toBe(404);

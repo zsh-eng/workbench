@@ -1,10 +1,11 @@
 /** An error that a JSON-RPC peer returned. */
 export class RpcError extends Error {
-  constructor(
-    message: string,
-    readonly code: number,
-  ) {
+  // A field, not a parameter property: Pi's bridge runs from source in Node,
+  // which strips types but does not transform them.
+  readonly code: number;
+  constructor(message: string, code: number) {
     super(message);
+    this.code = code;
   }
 }
 

@@ -61,6 +61,18 @@ function holderCommand(): string[] {
   throw new Error("Med cannot find its agent holder.");
 }
 
+/** How the host starts Pi's bridge (pi-acp.ts): the release
+ * binary runs `med __pi`, a built Med `dist/pi-acp.js`, and Med from its
+ * source `pi-acp.ts`. */
+export function piBridgeCommand(): string[] {
+  if ((globalThis as { __medAssets?: unknown }).__medAssets) return [process.execPath, "__pi"];
+  for (const candidate of ["./pi-acp.ts", "../pi-acp.js", "./pi-acp.js"]) {
+    const path = fileURLToPath(new URL(candidate, import.meta.url));
+    if (existsSync(path)) return [process.execPath, path];
+  }
+  throw new Error("Med cannot find its bridge to Pi.");
+}
+
 const alive = (pid: number) => {
   try {
     process.kill(pid, 0);

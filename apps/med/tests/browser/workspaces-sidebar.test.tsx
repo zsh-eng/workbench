@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, expect, onTestFinished, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
-import { EFFORT_NOTE } from "../../src/web/data/owned-session";
 import { themeController } from "../../src/web/themes";
 import {
   branches,
@@ -600,10 +599,8 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
     .element(repositories.getByRole("option", { name: /^fixture/, selected: true }))
     .toBeVisible();
   // Under the composer, one line of choices; each shows its choice.
-  const menu = (name: string) => dialog.getByRole("button", { name, exact: true });
   const where = dialog.getByRole("button", { name: /^Where the agent works: / });
-  const model = menu("Model");
-  const effort = menu("Effort");
+  const model = dialog.getByRole("combobox", { name: "Model", exact: true });
   await task.fill("Show each result's age in the list");
   // Two places to work: a click switches between them. The worktree names
   // the branch that Med creates; the checkout names its own.
@@ -618,39 +615,31 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   await where.click();
   await expect.element(where).toHaveTextContent("New worktree");
   await expect.element(dialog).toBeVisible();
-  // Med chooses Opus at medium effort: the agent's mark and the model, then
-  // the effort, each its own menu. The only agent is a fact, not a choice.
-  // The choice stays for the next thread.
-  await expect.element(model).toHaveTextContent("Opus 5.5");
-  await expect.element(effort).toHaveTextContent("medium effort");
+  // Med chooses Opus at medium effort: the agent's mark, the model, and the
+  // effort, in one picker. The only agent is a fact, not a choice. The
+  // choice stays for the next thread.
+  await expect.element(model).toHaveTextContent("Opus 5.5medium");
   await model.click();
-  await expect.element(page.getByRole("menuitemcheckbox", { name: "Haiku 4.5" })).toBeVisible();
-  await expect.element(page.getByRole("menuitem", { name: /^Agent/ })).not.toBeInTheDocument();
-  // The menus sit at the line's end, so each ends where its trigger ends; a
-  // choice's check is at its row's end. Claude Code's recommended model
-  // shows the mark as a badge.
+  const picker = page.getByRole("dialog", { name: "Model" });
+  await expect.element(picker.getByRole("option", { name: "Haiku 4.5" })).toBeVisible();
+  await expect.element(picker.getByRole("group", { name: "Agent" })).not.toBeInTheDocument();
+  // The picker sits at the line's end, so it ends where its trigger ends; a
+  // choice's check is at its row's end. Models show by name alone.
   const right = (element: Element) => element.getBoundingClientRect().right;
   await expect
-    .poll(() => Math.abs(right(page.getByRole("menu").element()) - right(model.element())))
+    .poll(() => Math.abs(right(picker.element()) - right(model.element())))
     .toBeLessThan(1);
-  const opus = page.getByRole("menuitemcheckbox", { name: "Opus 5.5" });
-  await expect.element(opus).toHaveAttribute("aria-checked", "true");
+  const opus = picker.getByRole("option", { name: "Opus 5.5" });
+  await expect.element(opus).toHaveAttribute("aria-selected", "true");
   const check = opus.element().querySelector("[data-check] svg")!;
   expect(right(opus.element()) - right(check)).toBeLessThanOrEqual(11);
-  await expect
-    .element(
-      page
-        .getByRole("menuitemcheckbox", { name: /^Default/ })
-        .getByText("Recommended", { exact: true }),
-    )
-    .toBeVisible();
+  expect(picker.element().textContent).not.toContain("Recommended");
+  // The effort is the row under the models.
+  await picker.getByRole("radio", { name: "high" }).click();
+  await expect.element(model).toHaveTextContent("Opus 5.5high");
   await userEvent.keyboard("{Escape}");
-  await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
-  await effort.click();
-  // The effort's menu says first what more effort trades.
-  await expect.element(page.getByRole("menu")).toHaveAccessibleDescription(EFFORT_NOTE);
-  await page.getByRole("menuitemcheckbox", { name: "high" }).click();
-  await expect.element(effort).toHaveTextContent("high effort");
+  await expect.element(picker).not.toBeInTheDocument();
+  await expect.element(dialog).toBeVisible();
   // The composer sits right under the list, both in the page's middle, and
   // its choices under it.
   const box = task.element().getBoundingClientRect();
@@ -659,7 +648,7 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   expect(box.top - list.bottom).toBeLessThan(64);
   expect(box.bottom).toBeLessThan(dialog.element().getBoundingClientRect().height * 0.8);
   expect(model.element().getBoundingClientRect().top).toBeGreaterThanOrEqual(box.bottom);
-  expect(box.right - effort.element().getBoundingClientRect().right).toBeLessThan(16);
+  expect(box.right - model.element().getBoundingClientRect().right).toBeLessThan(16);
   await expect.element(dialog.getByRole("button", { name: /^Start/ })).not.toBeInTheDocument();
   // An image pastes into the task, as into a thread's message box, and goes
   // with it; × takes one back.
@@ -684,10 +673,10 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   await images.getByRole("button", { name: "Remove attachment 2" }).click();
   await expect.poll(() => images.getByRole("listitem").elements().length).toBe(1);
   await expect.element(task).toHaveValue("Show each result's age in the list");
-  // ⌘↵ starts from anywhere on the page: here, from the effort's menu's button.
-  (effort.element() as HTMLElement).focus();
-  await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
-  await expect.element(effort).toHaveFocus();
+  // ⌘↵ starts from anywhere on the page: here, from the model's picker.
+  (model.element() as HTMLElement).focus();
+  await expect.element(page.getByRole("dialog", { name: "Model" })).not.toBeInTheDocument();
+  await expect.element(model).toHaveFocus();
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
   await expect
     .poll(() => host.threadRequests, { timeout: 5_000 })
@@ -714,16 +703,16 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   // thread that has not started.
   await userEvent.keyboard("{Alt>}n{/Alt}");
   await expect.element(dialog).toBeVisible();
-  await expect.element(model).toHaveTextContent("Opus 5.5");
-  await expect.element(effort).toHaveTextContent("high effort");
+  await expect.element(model).toHaveTextContent("Opus 5.5high");
   await model.click();
-  await page.getByRole("menuitemcheckbox", { name: "Haiku 4.5" }).click();
+  await page.getByRole("option", { name: "Haiku 4.5" }).click();
   await expect.poll(() => model.element().textContent).toBe("Haiku 4.5");
-  await expect.element(effort).not.toBeInTheDocument();
   await model.click();
-  await page.getByRole("menuitemcheckbox", { name: "Opus 5.5" }).click();
-  await expect.element(model).toHaveTextContent("Opus 5.5");
-  await expect.element(effort).toHaveTextContent("high effort");
+  await expect
+    .element(page.getByRole("dialog", { name: "Model" }).getByRole("radiogroup"))
+    .not.toBeInTheDocument();
+  await page.getByRole("option", { name: "Opus 5.5" }).click();
+  await expect.element(model).toHaveTextContent("Opus 5.5high");
   await userEvent.keyboard("{Escape}");
   await expect.element(dialog).not.toBeInTheDocument();
   expect(location.pathname).toBe("/review/claude-started");

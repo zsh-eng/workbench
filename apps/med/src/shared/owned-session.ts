@@ -4,7 +4,8 @@ import { sessionHaltSchema } from "./agent-status";
 /**
  * Sessions that Med starts and owns, as opposed to sessions it attaches to by
  * reading their transcripts. Med starts an agent that the user installed:
- * Claude Code with `stream-json`, or any agent through the Agent Client
+ * Claude Code with `stream-json`, Codex with its app server, Pi through Med's
+ * bridge to Pi's RPC (pi-acp.ts), or any agent through the Agent Client
  * Protocol (ACP), such as OpenCode.
  */
 
@@ -18,8 +19,8 @@ export const agentCapabilitiesSchema = z.object({
   /** Stops a turn: **Stop** and Esc. */
   interrupt: z.boolean(),
   /** How a tool that needs approval gets it: a card in Med ("ask"), or the
-   * mode and allow rules chosen before the turn ("rules"), for an agent
-   * that cannot ask. Every agent that Med runs now asks. */
+   * agent's own rules ("rules"), for an agent that cannot ask: Pi runs its
+   * tools without asking, unless an extension of its own asks. */
   approvals: z.enum(["ask", "rules"]),
   /** Takes images in a prompt. */
   images: z.boolean(),
@@ -66,6 +67,19 @@ export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {
     // agy reports tokens, but Med has no Gemini prices.
     usage: false,
   },
+  pi: {
+    // Med queues a message for the turn's end, as for other ACP agents.
+    steer: false,
+    interrupt: true,
+    approvals: "rules",
+    images: true,
+    // Its session file: Med's bridge starts Pi on it again (`--session`).
+    resume: true,
+    subagents: false,
+    // Pi counts tokens and spend, but by its own prices: Med shows the
+    // context that it reports, and no spend.
+    usage: false,
+  },
   acp: {
     steer: false,
     interrupt: true,
@@ -77,7 +91,7 @@ export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {
   },
 };
 
-export const agentKindSchema = z.enum(["claude", "codex", "agy", "acp"]);
+export const agentKindSchema = z.enum(["claude", "codex", "agy", "pi", "acp"]);
 export type AgentKind = z.infer<typeof agentKindSchema>;
 
 /** An installed agent that Med can start. */
@@ -104,6 +118,8 @@ export const ownedSettingSchema = z.object({
       description: z.string().optional(),
       /** A choice that asks first, such as Bypass: what it lets the agent do. */
       confirm: z.string().optional(),
+      /** Who offers it, such as a model's provider in Pi's long list. */
+      group: z.string().optional(),
     }),
   ),
   /** Changes only between turns, such as Claude Code's effort. */

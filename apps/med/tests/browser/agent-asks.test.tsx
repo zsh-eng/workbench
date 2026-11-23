@@ -3,7 +3,6 @@ import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { useState } from "react";
 import { SessionComposer } from "../../src/web/components/session/SessionComposer";
-import { EFFORT_NOTE } from "../../src/web/data/owned-session";
 import type {
   OwnedAction,
   OwnedPermission,
@@ -323,20 +322,19 @@ test("⇧Tab in the message field steps through the modes, and Bypass asks first
   expect(actions.at(-1)).toEqual({ action: "setting", id: "mode", value: "bypassPermissions" });
 });
 
-test("the pickers' menus open from their trigger's right edge, with the check at the row's end", async () => {
+test("the pickers open from their trigger's right edge, with the check at the row's end", async () => {
   // A session pane at the window's left, with room on both sides of each
   // picker: the menu could open either way.
   await page.viewport(1200, 800);
-  const actions = mountComposer(undefined, [MODELS, EFFORTS, MODES], 560);
+  mountComposer(undefined, [MODELS, EFFORTS, MODES], 560);
   const box = (element: Element) => element.getBoundingClientRect();
-  for (const name of ["Model", "Effort", "Mode"]) {
+  for (const name of ["Model", "Mode"]) {
     const picker = page.getByRole("combobox", { name, exact: true });
     await userEvent.click(picker);
     const list = page.getByRole("listbox");
     await expect.element(list).toBeVisible();
-    // The popup around the list ends where its trigger ends, once it has
-    // grown in.
-    const popup = list.element().parentElement!;
+    // The popup ends where its trigger ends, once it has grown in.
+    const popup = list.element().closest("[role=dialog]") ?? list.element().parentElement!;
     await expect
       .poll(() => Math.abs(box(popup).right - box(picker.element()).right))
       .toBeLessThan(1);
@@ -349,42 +347,116 @@ test("the pickers' menus open from their trigger's right edge, with the check at
     await userEvent.keyboard("{Escape}");
     await expect.element(list).not.toBeInTheDocument();
   }
+});
 
-  // The model that Claude Code recommends shows the mark as a badge, not in
-  // its name; the trigger shows the chosen model.
+test("the model and its effort are one picker, with names only: a search narrows the models, and ← → step the effort", async () => {
+  const actions = mountComposer(undefined, [MODELS, EFFORTS, MODES]);
+  // One trigger names both; the effort has no picker of its own.
   const model = page.getByRole("combobox", { name: "Model", exact: true });
-  await expect.element(model).toHaveTextContent("Opus 5.5");
+  await expect.element(model).toHaveTextContent("Opus 5.5High");
+  expect(page.getByRole("combobox", { name: "Effort", exact: true }).query()).toBeNull();
   await userEvent.click(model);
-  const recommended = page.getByRole("option", { name: /^Default/ });
-  await expect.element(recommended.getByText("Recommended", { exact: true })).toBeVisible();
-  await expect.element(recommended).not.toHaveTextContent("(recommended)");
-  await userEvent.keyboard("{Escape}");
-
-  // The effort's menu says first what more effort trades. From the
-  // keyboard: the trigger opens it, a letter moves to its choice, and Enter
-  // chooses.
-  const effort = page.getByRole("combobox", { name: "Effort", exact: true });
-  effort.element().focus();
-  await userEvent.keyboard("{ArrowDown}");
+  // Names only: no description, no Recommended mark, and no note on effort.
   const list = page.getByRole("listbox");
-  await expect.element(list).toHaveAccessibleDescription(EFFORT_NOTE);
-  await expect.element(list.getByRole("option", { name: "High", selected: true })).toBeVisible();
-  await userEvent.keyboard("l");
+  await expect.element(list).toBeVisible();
+  expect(
+    list
+      .getByRole("option")
+      .elements()
+      .map((option) => option.textContent),
+  ).toEqual(["Default", "Opus 5.5", "Haiku 5.5"]);
+  const panel = page.getByRole("dialog", { name: "Model" });
+  expect(panel.element().textContent).not.toMatch(/Efficient|Recommended|thinks longer/);
+  // The effort is a row of levels under the models.
+  const levels = panel.getByRole("radiogroup", { name: "Effort" });
+  expect(
+    levels
+      .getByRole("radio")
+      .elements()
+      .map((radio) => radio.textContent),
+  ).toEqual(["Auto", "Low", "Med", "High", "XHigh", "Max"]);
+  await expect.element(levels.getByRole("radio", { name: "High" })).toBeChecked();
+  // ← and → step it from the empty search field.
+  await expect.element(panel.getByRole("combobox", { name: "Search models" })).toHaveFocus();
+  await userEvent.keyboard("{ArrowLeft}");
+  expect(actions.at(-1)).toEqual({ action: "setting", id: "effort", value: "medium" });
+  await expect.element(levels.getByRole("radio", { name: "Medium" })).toBeChecked();
+  await userEvent.click(levels.getByRole("radio", { name: "Max" }));
+  expect(actions.at(-1)).toEqual({ action: "setting", id: "effort", value: "max" });
+  // Typing narrows the models; Enter picks one and closes the picker.
+  await userEvent.keyboard("hai");
   await expect
-    .element(list.getByRole("option", { name: "Low" }))
-    .toHaveAttribute("data-highlighted");
+    .poll(() =>
+      list
+        .getByRole("option")
+        .elements()
+        .map((option) => option.textContent),
+    )
+    .toEqual(["Haiku 5.5"]);
   await userEvent.keyboard("{Enter}");
+  expect(actions.at(-1)).toEqual({ action: "setting", id: "model", value: "haiku" });
   await expect.element(list).not.toBeInTheDocument();
-  expect(actions.at(-1)).toEqual({ action: "setting", id: "effort", value: "low" });
-  await expect.element(effort).toHaveTextContent("Low");
-  await expect.element(effort).toHaveFocus();
+  await expect.element(model).toHaveTextContent("Haiku 5.5Max");
+});
+
+test("a long list, as Pi's, shows in sections by provider, and a search finds a model in any of them", async () => {
+  const models: OwnedSetting = {
+    id: "model",
+    name: "Model",
+    category: "model",
+    value: "google/gemini-3-pro",
+    options: [
+      { value: "google/gemini-3-pro", name: "Gemini 3 Pro", group: "Google" },
+      { value: "google/gemini-3-flash", name: "Gemini 3 Flash", group: "Google" },
+      { value: "openai-codex/gpt-5.4", name: "GPT-5.4", group: "ChatGPT" },
+      { value: "openai-codex/gpt-5.4-mini", name: "GPT-5.4 Mini", group: "ChatGPT" },
+    ],
+  };
+  const thinking: OwnedSetting = {
+    id: "thought_level",
+    name: "Thinking",
+    category: "effort",
+    value: "low",
+    options: ["off", "minimal", "low", "medium", "high"].map((value) => ({
+      value,
+      name: value.charAt(0).toUpperCase() + value.slice(1),
+    })),
+  };
+  const actions = mountComposer(undefined, [models, thinking]);
+  await userEvent.click(page.getByRole("combobox", { name: "Model", exact: true }));
+  const panel = page.getByRole("dialog", { name: "Model" });
+  const section = (name: string) =>
+    panel
+      .getByRole("group", { name })
+      .getByRole("option")
+      .elements()
+      .map((option) => option.textContent);
+  expect(section("Google")).toEqual(["Gemini 3 Pro", "Gemini 3 Flash"]);
+  expect(section("ChatGPT")).toEqual(["GPT-5.4", "GPT-5.4 Mini"]);
+  await expect.element(panel.getByRole("radiogroup", { name: "Thinking" })).toBeVisible();
+  // A search matches a section's name too.
+  await userEvent.keyboard("chatgpt mini");
+  await expect
+    .poll(() =>
+      panel
+        .getByRole("option")
+        .elements()
+        .map((option) => option.textContent),
+    )
+    .toEqual(["GPT-5.4 Mini"]);
+  await userEvent.keyboard("{Enter}");
+  expect(actions.at(-1)).toEqual({
+    action: "setting",
+    id: "model",
+    value: "openai-codex/gpt-5.4-mini",
+  });
 });
 
 test("at a narrow window's edge, a picker's menu stays in the window", async () => {
   await page.viewport(360, 700);
   mountComposer(undefined, [MODELS, EFFORTS, MODES]);
   await userEvent.click(page.getByRole("combobox", { name: "Model", exact: true }));
-  const popup = page.getByRole("listbox").element().parentElement!;
+  const popup = page.getByRole("dialog", { name: "Model" }).element();
   await expect.poll(() => popup.getBoundingClientRect().left).toBeGreaterThanOrEqual(0);
   expect(popup.getBoundingClientRect().right).toBeLessThanOrEqual(window.innerWidth);
 });

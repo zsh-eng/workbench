@@ -148,17 +148,18 @@ does not load them or read their agents until you open one again.
     your checkout; **Checkout** works on the checkout's current branch. A
     click switches between the two; the tooltip names the other, with its
     branch.
-  - **Model**: the agent's mark and its model. Its **Agent** submenu chooses
-    another agent, when Med has more than one. The model that Claude Code
-    recommends shows **Recommended**.
-  - **Effort**, such as **High effort**, while the model has efforts. Its
-    menu starts with one line on what more effort trades. Claude
-    Code starts on Opus 5.5 at medium effort and Codex on `gpt-6-astra`; Med
-    keeps your last choice for each agent.
+  - **Model**: the agent's mark, its model, and the model's effort, such as
+    **Opus 5.5 High**, in one picker. The agents come first in it, when Med
+    has more than one; then a search field, the models by name (Pi's in
+    sections by provider), and the efforts as a row under them. Type to
+    narrow the models, `↑` `↓` and `Enter` to pick one; with the field
+    empty, `←` `→` step the effort. Claude Code starts on Opus 5.5 at medium
+    effort and Codex on `gpt-6-astra`; Med keeps your last choice for each
+    agent.
 
-  **Model** and **Effort** sit at the line's end, so their menus open from
-  the trigger's right edge; **Repository**'s opens from its left edge. A
-  chosen item's check is at its row's end.
+  **Model** sits at the line's end, so it opens from the trigger's right
+  edge; **Repository**'s menu opens from its left edge. A chosen item's
+  check is at its row's end.
 
   A choice with only two options, here or anywhere in Med, such as the pull
   requests page's **Where to look**, switches on a click. A menu opens only
@@ -467,16 +468,18 @@ background shells and agents. It follows the session live.
   globe. Med fetches no icons.
 
 A Session pane without a session lists the agents that Med found, and its **+**
-menu starts one. Med starts Claude Code, Codex, Antigravity, OpenCode, or
-Gemini CLI in the review's repository, with your own sign-in; it does not
+menu starts one. Med starts Claude Code, Codex, Antigravity, Pi, OpenCode,
+or Gemini CLI in the review's repository, with your own sign-in; it does not
 install them. Antigravity needs `agy` 1.5 or later. It starts in its
 accept-edits mode: it edits files without asking, and asks in Med before it
-runs a command. To have a thread's agent hand off its work with a guide, add the
+runs a command. Pi offers the models of each provider you signed in to in
+Pi, and runs its tools without asking, as it does in its terminal; Pi keeps
+the model and thinking level you chose last as its own default. To have a thread's agent hand off its work with a guide, add the
 lines from `med skills instructions` to your CLAUDE.md or AGENTS.md. The agent
 gets your messages from Med as new turns. The message box has `/` commands
-and **Stop** (or `Esc`); the model, effort, and mode pickers are under it, with
-the context and spend, as in Claude Desktop. Their menus open from the
-pickers' right edge, as on the new thread page. Model and effort
+and **Stop** (or `Esc`); the model picker, with the effort, and the mode
+picker are under it, with the context and spend, as in Claude Desktop. They
+open from their right edge, as on the new thread page. Model and effort
 change while the agent works too, from its next step; Claude Code's max
 effort, or its default, waits for the turn to end. A tool call that
 needs an answer shows **Allow** and **Deny**. While the agent works, **Send now**

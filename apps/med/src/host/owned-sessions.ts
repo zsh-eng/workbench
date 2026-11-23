@@ -31,12 +31,22 @@ import {
   attachHeld,
   forgetLog,
   holderEnded,
+  piBridgeCommand,
   readHolder,
   startHeld,
   type HeldAgent,
   type HeldEvents,
 } from "./held-agent";
 import { createJsonRpc, parseRpc, RpcError, type JsonRpc } from "./json-rpc";
+import {
+  configOptions,
+  LEVEL_NAMES,
+  LEVELS,
+  modelValue,
+  piLevels,
+  probePi,
+  type PiOffer,
+} from "./pi-bridge";
 import { HostError } from "./runtime/errors";
 import { readRecords, writeStateFile } from "./runtime/state-file";
 import { userHome } from "./service/discover";
@@ -1249,11 +1259,14 @@ const configOptionSchema = z.object({
 });
 type ConfigOption = z.infer<typeof configOptionSchema>;
 
-/** ACP select options, with groups flattened. */
-function flatOptions(options: Record<string, unknown>[]): OwnedSetting["options"] {
+/** ACP select options, with groups flattened: each option keeps its group's name. */
+function flatOptions(options: Record<string, unknown>[], group?: string): OwnedSetting["options"] {
   return options.flatMap((option) =>
     Array.isArray(option.options)
-      ? flatOptions(option.options as Record<string, unknown>[])
+      ? flatOptions(
+          option.options as Record<string, unknown>[],
+          typeof option.name === "string" ? option.name : undefined,
+        )
       : typeof option.value === "string"
         ? [
             {
@@ -1262,6 +1275,7 @@ function flatOptions(options: Record<string, unknown>[]): OwnedSetting["options"
               ...(typeof option.description === "string"
                 ? { description: option.description }
                 : {}),
+              ...(group ? { group } : {}),
             },
           ]
         : [],
@@ -1272,7 +1286,7 @@ const CATEGORIES: Record<string, OwnedSetting["category"]> = {
   thought_level: "effort",
   mode: "mode",
 };
-function configSettings(options: unknown): OwnedSetting[] {
+export function configSettings(options: unknown): OwnedSetting[] {
   if (!Array.isArray(options)) return [];
   return options.flatMap((raw) => {
     const parsed = configOptionSchema.safeParse(raw);
@@ -1353,9 +1367,9 @@ export function startAcp(
     /** A session from before the host restarted, whose holder runs, with
      * the updates that its thread has. */
     attach?: { sessionId: string; earlier: LoggedEvent[] };
-    /** Antigravity, whose session goes on in a new process after its own
-     * ends (`session/resume`): Stop, a closed tab, and a restart keep it. */
-    kind?: "acp" | "agy";
+    /** Antigravity or Pi, whose session goes on in a new process after its
+     * own ends (`session/resume`): Stop, a closed tab, and a restart keep it. */
+    kind?: "acp" | "agy" | "pi";
     /** A session without a process, such as one from before the host
      * restarted: its agent starts with the next prompt. `settings` are the
      * choices it shows until then, and `halt` says that its turn was cut. */
@@ -1392,9 +1406,10 @@ export function startAcp(
     capabilities: AGENT_CAPABILITIES[kind],
   });
   let acpSession: string | undefined = agentSession;
-  // The agent's session goes on in a new process: only Antigravity's is
-  // tried (agy 1.5.14), though other agents declare `session/resume` too.
-  let resumable = kind === "agy" && !!agentSession;
+  // The agent's session goes on in a new process: only Antigravity's (agy
+  // 1.5.14) and Pi's are tried, though other agents declare `session/resume`.
+  const resumes = kind === "agy" || kind === "pi";
+  let resumable = resumes && !!agentSession;
   // The agent replays a session that it loads; the thread has those updates.
   let loading = false;
   let showHistory = history;
@@ -1435,6 +1450,8 @@ export function startAcp(
             kind?: string;
             locations?: { path?: string }[];
             rawInput?: Record<string, unknown>;
+            /** A question in its own words, such as a Pi extension's. */
+            _meta?: { med?: { question?: string } };
           };
           options?: {
             optionId: string;
@@ -1445,16 +1462,20 @@ export function startAcp(
         const id = toolCall?.toolCallId ?? randomUUID();
         const detail = inputSummary(toolCall?.rawInput);
         const edited = toolCall?.locations?.[0]?.path;
+        const question = toolCall?._meta?.med?.question;
         const permission: OwnedPermission = {
           id,
-          title: `${agent.name} wants to ${
-            // An edit names its file; Antigravity titles one "File g.txt".
-            toolCall?.kind === "edit" && edited
-              ? `edit ${basename(edited)}`
-              : toolCall?.title
-                ? `run ${toolCall.title}`
-                : "use a tool"
-          }`,
+          title:
+            typeof question === "string"
+              ? question
+              : `${agent.name} wants to ${
+                  // An edit names its file; Antigravity titles one "File g.txt".
+                  toolCall?.kind === "edit" && edited
+                    ? `edit ${basename(edited)}`
+                    : toolCall?.title
+                      ? `run ${toolCall.title}`
+                      : "use a tool"
+                }`,
           ...(detail ? { detail } : {}),
           options: (options ?? []).map((option) => ({
             id: option.optionId,
@@ -1570,7 +1591,7 @@ export function startAcp(
     if (method === "initialize") {
       const offered = result?.agentCapabilities;
       if (offered?.promptCapabilities?.image === true) store.set({ images: true });
-      if (kind === "agy" && (offered?.sessionCapabilities?.resume || offered?.loadSession))
+      if (resumes && (offered?.sessionCapabilities?.resume || offered?.loadSession))
         resumable = true;
     } else if (
       method === "session/new" ||
@@ -2026,6 +2047,12 @@ const customAgentsSchema = z.array(
   }),
 );
 
+/** Pi as an ACP agent: Med's bridge (pi-acp.ts), which starts `pi` itself. */
+function viaBridge(agent: RunnableAgent): RunnableAgent {
+  const [command, ...args] = piBridgeCommand();
+  return { ...agent, command: command!, args: [...args, agent.command, ...agent.args] };
+}
+
 /**
  * The agents Med can start: Claude Code, the ACP agents it knows, and the
  * ones in `agents.json` in Med's state directory. Med starts only installed
@@ -2070,6 +2097,15 @@ export async function findAgents(stateDir?: string, home = userHome()): Promise<
       binary: "agy",
       args: [],
       folders: [join(home, ".local", "bin")],
+    },
+    // Pi runs through Med's bridge to its RPC (pi-acp.ts).
+    {
+      id: "pi",
+      name: "Pi",
+      kind: "pi" as const,
+      binary: "pi",
+      args: [],
+      folders: ["/opt/homebrew/bin", join(home, ".local", "bin"), join(home, ".bun", "bin")],
     },
     {
       id: "gemini",
@@ -2117,7 +2153,7 @@ export async function findAgents(stateDir?: string, home = userHome()): Promise<
  * continues after the host restarts. */
 const recordSchema = z.object({
   preset: z.string(),
-  kind: z.enum(["claude", "acp", "codex", "agy"]),
+  kind: z.enum(["claude", "acp", "codex", "agy", "pi"]),
   /** The key of a Codex thread's holder, when it is not the thread's ID. */
   holder: z
     .string()
@@ -2173,6 +2209,7 @@ export class OwnedSessions {
   private claudeModels = new Map<string, Promise<ClaudeModel[]>>();
   /** Codex's and agy's models, asked once per host. */
   private codexModels = new Map<string, Promise<CodexModel[]>>();
+  private piModels = new Map<string, Promise<PiOffer | undefined>>();
   /** What each ACP agent offered in its last new session. */
   private offered: Promise<Record<string, OwnedSetting[]>> | undefined;
   private records: Record<string, SessionRecord> = {};
@@ -2301,6 +2338,18 @@ export class OwnedSessions {
     if (!models) this.codexModels.set(agent.id, (models = probeCodex(agent)));
     return models;
   }
+  /** Pi's models, asked once; a Pi that did not answer is asked again. */
+  private piOffers(agent: RunnableAgent) {
+    let offer = this.piModels.get(agent.id);
+    if (!offer) {
+      offer = probePi([agent.command, ...agent.args], agentEnvironment(), userHome()).catch(() => {
+        this.piModels.delete(agent.id);
+        return undefined;
+      });
+      this.piModels.set(agent.id, offer);
+    }
+    return offer;
+  }
   private offers() {
     const file = this.options.offersFile;
     this.offered ??= (file ? readFile(file, "utf8") : Promise.reject(new Error("No file.")))
@@ -2394,6 +2443,37 @@ export class OwnedSessions {
               efforts: Object.fromEntries(models.map((entry) => [entry.id, entry.efforts])),
             }
           : {}),
+      };
+    }
+    if (agent.kind === "pi") {
+      // Pi lists its models without a session, offline: no model answers.
+      const offer = await this.piOffers(agent);
+      if (!offer?.models.length) return {};
+      const listed = configSettings(configOptions(offer.models, offer.state));
+      const model = listed.find((setting) => setting.category === "model")!;
+      const offered = (value: string | undefined) =>
+        !!value && model.options.some((option) => option.value === value);
+      const levels = LEVELS.filter((level) =>
+        offer.models.some((entry) => piLevels(entry).includes(level)),
+      );
+      return {
+        model: {
+          ...model,
+          value: offered(wanted.model) ? wanted.model! : model.value || model.options[0]!.value,
+        },
+        effort: {
+          id: "thought_level",
+          name: "Thinking",
+          category: "effort",
+          value:
+            wanted.effort && levels.includes(wanted.effort)
+              ? wanted.effort
+              : (offer.state.thinkingLevel ?? "off"),
+          options: levels.map((level) => ({ value: level, name: LEVEL_NAMES[level] ?? level })),
+        },
+        efforts: Object.fromEntries(
+          offer.models.map((entry) => [modelValue(entry), piLevels(entry)]),
+        ),
       };
     }
     const settings = (await this.offers())[presetId] ?? [];
@@ -2497,6 +2577,29 @@ export class OwnedSessions {
         cwd,
         ...(key ? { key } : {}),
         ...(conversation ? { agentSessionId: conversation } : {}),
+        choices: {},
+        updatedAt: Date.now(),
+      });
+      return runner;
+    }
+    if (agent.kind === "pi") {
+      // Pi through Med's bridge to its RPC. Its session goes on in a new
+      // process, on Pi's session file.
+      const runner: OwnedRunner = startAcp(viaBridge(agent), cwd, {
+        kind: "pi",
+        holders: this.options.holderDirectory,
+        ...(this.options.logDirectory ? { logDirectory: this.options.logDirectory } : {}),
+        env: () => this.environment(key, cwd),
+        choices: wanted,
+        onOffer: (settings) => void this.remember(presetId, settings),
+        onAgentSession: (id) => this.noteAgentSession(runner.session.id, id),
+      });
+      this.track(runner, {
+        preset: presetId,
+        kind: "pi",
+        name: agent.name,
+        cwd,
+        ...(key ? { key } : {}),
         choices: {},
         updatedAt: Date.now(),
       });
@@ -2728,8 +2831,10 @@ export class OwnedSessions {
       if (this.runners.has(id)) continue;
       const agent = agents.find((entry) => entry.id === record.preset);
       const session: AgentSession = {
-        agent: record.kind === "agy" ? "acp" : record.kind,
-        ...(record.kind === "acp" || record.kind === "agy" ? { name: record.name } : {}),
+        agent: record.kind === "agy" || record.kind === "pi" ? "acp" : record.kind,
+        ...(record.kind === "acp" || record.kind === "agy" || record.kind === "pi"
+          ? { name: record.name }
+          : {}),
         id,
         cwd: record.cwd,
       };
@@ -2763,12 +2868,12 @@ export class OwnedSessions {
             : {}),
         });
       } else if (
-        record.kind === "agy" &&
-        agent?.kind === "agy" &&
+        ((record.kind === "agy" && agent?.kind === "agy" && this.agy) ||
+          (record.kind === "pi" && agent?.kind === "pi")) &&
         agent.available &&
-        this.agy &&
         (record.agentSessionId || (await readHolder(holders, id)))
       ) {
+        const pi = record.kind === "pi";
         const earlier = this.options.logDirectory
           ? await SessionLog.read(join(this.options.logDirectory, `${id}.jsonl`))
           : [];
@@ -2791,17 +2896,23 @@ export class OwnedSessions {
                   : {}),
               },
             };
-        runner = startAcp({ ...agent, args: [...agent.args, "acp"] }, record.cwd, {
-          kind: "agy",
-          holders,
-          ...(this.options.logDirectory ? { logDirectory: this.options.logDirectory } : {}),
-          env: () => this.environment(record.key, record.cwd),
-          choices: record.choices,
-          onAgentSession: (conversation) => this.noteAgentSession(id, conversation),
-          elsewhere: (conversation) => this.lockedElsewhere("agy", conversation),
-          ...(record.agentSessionId ? { agentSession: record.agentSessionId } : {}),
-          ...place,
-        });
+        runner = startAcp(
+          pi ? viaBridge(agent) : { ...agent, args: [...agent.args, "acp"] },
+          record.cwd,
+          {
+            kind: pi ? "pi" : "agy",
+            holders,
+            ...(this.options.logDirectory ? { logDirectory: this.options.logDirectory } : {}),
+            env: () => this.environment(record.key, record.cwd),
+            choices: record.choices,
+            onAgentSession: (conversation) => this.noteAgentSession(id, conversation),
+            ...(pi
+              ? {}
+              : { elsewhere: (conversation: string) => this.lockedElsewhere("agy", conversation) }),
+            ...(record.agentSessionId ? { agentSession: record.agentSessionId } : {}),
+            ...place,
+          },
+        );
       } else if (record.kind === "acp" && (await readHolder(holders, id)))
         runner = startAcp(
           { id: record.preset, name: record.name, command: "", args: [] },
@@ -2923,8 +3034,10 @@ export class OwnedSessions {
   sessions(): { session: AgentSession; agentId?: string }[] {
     return Object.entries(this.records).map(([id, record]) => ({
       session: {
-        agent: record.kind === "agy" ? "acp" : record.kind,
-        ...(record.kind === "acp" || record.kind === "agy" ? { name: record.name } : {}),
+        agent: record.kind === "agy" || record.kind === "pi" ? "acp" : record.kind,
+        ...(record.kind === "acp" || record.kind === "agy" || record.kind === "pi"
+          ? { name: record.name }
+          : {}),
         id,
         cwd: record.cwd,
       },

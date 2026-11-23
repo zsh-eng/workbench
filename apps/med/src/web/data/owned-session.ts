@@ -35,9 +35,6 @@ export function optionChoice(option: OwnedSetting["options"][number]) {
   };
 }
 
-/** The first line of an effort's menu: what more effort trades. */
-export const EFFORT_NOTE = "Higher effort thinks longer: more thorough, but uses more tokens.";
-
 /** The agents that Med can start on this computer, once `enabled`. */
 export function useAgentPresets(enabled: boolean, fetcher: typeof fetch = browserFetch) {
   const [agents, setAgents] = useState<AgentPreset[] | null>(null);

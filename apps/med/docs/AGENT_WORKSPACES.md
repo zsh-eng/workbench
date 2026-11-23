@@ -104,6 +104,27 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   tool call (`invoke_subagent`), since agy's ACP server names no transcript
   for it. Shapes are agy 1.5.14's; the tests use a stand-in
   (`tests/fixtures/agents/fake-agy.mjs`).
+- **Pi** (`startAcp` with `kind: "pi"`; `src/host/pi-bridge.ts`): Pi
+  speaks its own RPC (`pi --mode rpc`), so Med runs its bridge,
+  `src/host/pi-acp.ts` (`med __pi <pi>`, `dist/pi-acp.js` in a built Med),
+  as an ACP agent in a holder; the bridge starts `pi` in the session's folder
+  and translates. Pi's session ID is the ACP session's. Pi writes the
+  session's file (`~/.pi/agent/sessions/--<folder>--/<time>_<id>.jsonl`)
+  once its model answers, and a new process opens it with `--session`, so a
+  Pi session goes on after a restart as an Antigravity session does. Pi's
+  models are a `model` config option in sections by provider (`group`), and
+  its thinking levels a `thought_level` one, with the model's levels only:
+  Off alone for a model that does not reason, Extra high and Max where Pi
+  gives them. Med lists Pi's models before a session from a Pi with
+  `--no-session --offline`, so nothing reaches a model. Text, thinking,
+  and tool calls stream as session updates (`bash` as a command, `edit` and
+  `write` with their diffs); Stop is Pi's `abort`; the turn ends at
+  `agent_end` (Pi 0.67) once Pi neither streams nor compacts, or at
+  `agent_settled` (newer Pi). Pi runs its tools without asking: an
+  extension's `confirm` or `select` dialog is a card in Med, in the
+  extension's words. Pi saves the model and level chosen last as its own
+  default, as in its terminal. Shapes are Pi 0.67.68's; the tests use a
+  stand-in (`tests/fixtures/agents/fake-pi.mjs`).
 - **ACP agents** (`src/host/json-rpc.ts`): `initialize`, `session/new`,
   `session/prompt`, `session/cancel`, and `session/set_config_option`. Med
   answers `session/request_permission` with the user's choice and appends the
@@ -131,9 +152,9 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   does not resume a session that another Claude Code process runs, such as
   one that the user resumed in a terminal; the message waits until that
   process ends ([messages to adopted sessions](SESSIONS.md#messages-to-adopted-sessions)).
-  An Antigravity session comes back the same way: idle, with the model and
-  effort it had, and its next prompt starts `agy acp` and resumes agy's
-  conversation.
+  An Antigravity or Pi session comes back the same way: idle, with the model
+  and effort it had, and its next prompt starts `agy acp` and resumes agy's
+  conversation, or starts Pi on the session's file.
   A session that the user stopped stays stopped, and any other ACP session
   without a holder shows as stopped, with its log, so the prompt box offers a
   new session.
@@ -207,15 +228,15 @@ Each agent declares what Med can do with it (`AGENT_CAPABILITIES` in
 `src/shared/owned-session.ts`, in `GET /api/agents` and the owned state), and
 the page shows only the controls that work:
 
-| Capability | Claude Code     | Codex                      | agy                   | Other ACP |
-| ---------- | --------------- | -------------------------- | --------------------- | --------- |
-| Send now   | After its tools | In the turn (`turn/steer`) | No                    | No        |
-| Stop       | Yes             | Yes                        | Yes                   | Yes       |
-| Approvals  | Cards           | Cards                      | Cards                 | Cards     |
-| Images     | Yes             | Yes                        | Yes                   | When set  |
-| Resume     | Yes             | Yes                        | Yes                   | No        |
-| Subagents  | Yes             | Yes                        | No (one tool call)    | No        |
-| Spend      | Yes             | Yes                        | No (no Gemini prices) | No        |
+| Capability | Claude Code     | Codex                      | agy                   | Pi                     | Other ACP |
+| ---------- | --------------- | -------------------------- | --------------------- | ---------------------- | --------- |
+| Send now   | After its tools | In the turn (`turn/steer`) | No                    | No                     | No        |
+| Stop       | Yes             | Yes                        | Yes                   | Yes                    | Yes       |
+| Approvals  | Cards           | Cards                      | Cards                 | None (its extensions') | Cards     |
+| Images     | Yes             | Yes                        | Yes                   | Yes                    | When set  |
+| Resume     | Yes             | Yes                        | Yes                   | Yes                    | No        |
+| Subagents  | Yes             | Yes                        | No (one tool call)    | No                     | No        |
+| Spend      | Yes             | Yes                        | No (no Gemini prices) | No (its own prices)    | No        |
 
 ### Queued messages
 
@@ -238,7 +259,7 @@ The inbox keeps it as `pending` with `queued: true` (`queued-messages.ts`):
   message, so a restart keeps it. **Send now** on one
   (`POST /api/reviews/:id/agent/send-now` with `{ id }`) clears it, so it goes
   at the next step.
-- agy and other ACP agents take no message during a turn: every message waits
+- agy, Pi, and other ACP agents take no message during a turn: every message waits
   for the turn's end, so their button is **Queue** and a queued message has
   no Send now. A turn that a restart cut (Interrupted) waits for the reader,
   and so do its messages.

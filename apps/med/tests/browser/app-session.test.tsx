@@ -991,13 +991,14 @@ describe("agent session", () => {
     });
     // Before the transcript has a request, the header shows what the runner reports.
     await expect.element(page.getByRole("button", { name: /^Context 20% full/ })).toBeVisible();
-    // Model, effort, and mode are pickers, not commands. With two models, a
-    // click switches to the other.
+    // Model, effort, and mode are pickers, not commands.
     // They are under the message box, as in Claude Desktop.
-    const model = page.getByRole("button", { name: "Model: Default" });
+    const model = page.getByRole("combobox", { name: "Model", exact: true });
     expect(composer.element().contains(model.element())).toBe(false);
+    await expect.element(model).toHaveTextContent("Default");
     await userEvent.click(model);
-    await expect.element(page.getByRole("button", { name: "Model: Haiku" })).toBeVisible();
+    await page.getByRole("option", { name: "Haiku" }).click();
+    await expect.element(model).toHaveTextContent("Haiku");
     expect(ownedActions).toContainEqual({
       action: "setting",
       id: "model",

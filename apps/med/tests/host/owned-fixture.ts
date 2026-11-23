@@ -52,6 +52,8 @@ export async function fixture({ key, agy = true }: { key?: string; agy?: boolean
   const home = join(directory, "home");
   await mkdir(home);
   vi.stubEnv("MED_HOME_DIR", home);
+  // Pi keeps its sessions here (fake-pi.mjs), and Med's bridge finds them here.
+  vi.stubEnv("PI_CODING_AGENT_DIR", join(home, ".pi", "agent"));
   const stateDir = join(directory, "state");
   const options: Parameters<typeof startHost>[0] = {
     repo,
@@ -92,6 +94,14 @@ export async function fixture({ key, agy = true }: { key?: string; agy?: boolean
         available: true,
         command: process.execPath,
         args: [agentScript("fake-agy.mjs")],
+      },
+      {
+        id: "pi",
+        name: "Pi",
+        kind: "pi",
+        available: true,
+        command: process.execPath,
+        args: [agentScript("fake-pi.mjs")],
       },
       { id: "missing", name: "Missing", kind: "acp", available: false, command: "x", args: [] },
     ],

@@ -18,8 +18,13 @@ export default defineConfig({
     target: "node22",
     sourcemap: true,
     rolldownOptions: {
-      // The CLI, and the small process that keeps an agent (holder.ts).
-      input: { cli: "src/cli/index.ts", holder: "src/host/holder.ts" },
+      // The CLI, the small process that keeps an agent (holder.ts), and the
+      // bridge that runs Pi as an ACP agent (pi-acp.ts).
+      input: {
+        cli: "src/cli/index.ts",
+        holder: "src/host/holder.ts",
+        "pi-acp": "src/host/pi-acp.ts",
+      },
       // Bun's own `ws` module, imported only under Bun.
       external: ["ws"],
       output: { entryFileNames: "[name].js" },

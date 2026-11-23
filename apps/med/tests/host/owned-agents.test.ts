@@ -673,6 +673,161 @@ test("an agy conversation from elsewhere continues in Med, from its history: at 
   }
 });
 
+test("Med runs Pi through its bridge: its models before a session, tool calls, Stop, an extension's question, and its session goes on after a reboot", async () => {
+  const { api, home, thread, start, restart } = await fixture();
+  const runs = async () =>
+    (await readFile(join(home, "pi-runs.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { args: string[] });
+  // Pi lists its models without a session and offline: no model answers.
+  // Each model keeps its provider, as the picker's sections; a model that
+  // does not reason has one level.
+  const offered = (await api<AgentOptions>("/api/agents/pi/choices")).data;
+  expect(offered.model).toMatchObject({
+    value: "openai-codex/gpt-5.4",
+    options: [
+      { value: "openai-codex/gpt-5.4", name: "GPT-5.4", group: "ChatGPT" },
+      { value: "openai-codex/gpt-5.4-mini", name: "GPT-5.4 Mini", group: "ChatGPT" },
+      { value: "openrouter/deepseek/deepseek-v4-flash", group: "OpenRouter" },
+    ],
+  });
+  expect(offered.effort).toMatchObject({ value: "medium" });
+  expect(offered.efforts?.["openrouter/deepseek/deepseek-v4-flash"]).toEqual(["off"]);
+  expect(offered.efforts?.["openai-codex/gpt-5.4"]).toContain("xhigh");
+  expect((await runs()).map((run) => run.args)).toEqual([
+    ["--mode", "rpc", "--no-session", "--offline"],
+  ]);
+
+  const session = await start("pi", { model: "openai-codex/gpt-5.4-mini", effort: "low" });
+  expect(session.review.session).toMatchObject({ agent: "acp", name: "Pi", id: session.id });
+  const ready = await session.until(
+    (state) =>
+      state.status === "idle" &&
+      state.settings.find((setting) => setting.id === "thought_level")?.value === "low",
+  );
+  // Pi runs its tools without asking; it takes images and Stop.
+  expect(ready.capabilities).toMatchObject({ approvals: "rules", images: true, resume: true });
+  expect(ready.settings.map((setting) => [setting.id, setting.category, setting.value])).toEqual([
+    ["model", "model", "openai-codex/gpt-5.4-mini"],
+    ["thought_level", "effort", "low"],
+  ]);
+  const replies = await thread(session.id);
+  await session.act({ action: "prompt", text: "Format the durations." });
+  await vi.waitFor(() =>
+    expect(replies().at(-1)).toBe("(gpt-5.4-mini, low) turn 1: Format the durations."),
+  );
+  await session.until((state) => state.status === "idle");
+
+  // A command and an edit are tool calls: the command by its line, the edit
+  // with its diff.
+  await session.act({ action: "prompt", text: "Run ls -1, then name the files." });
+  await vi.waitFor(() => expect(replies().at(-1)).toBe("Ran ls -1."));
+  await session.act({ action: "prompt", text: "Edit summary.ts." });
+  await vi.waitFor(() => expect(replies().at(-1)).toBe("Edited summary.ts."));
+  const calls = replies.events.flatMap((event) =>
+    event.update.sessionUpdate === "tool_call" ? [event.update] : [],
+  );
+  expect(calls.map((call) => [call.title, call.kind])).toEqual([
+    ["ls -1", "execute"],
+    ["Edit summary.ts", "edit"],
+  ]);
+  expect(calls[1]!.content).toEqual([
+    expect.objectContaining({
+      type: "diff",
+      oldText: "export const best = 1;\n",
+      newText: "export const best = 2;\n",
+    }),
+  ]);
+  await session.until((state) => state.status === "idle");
+
+  // A model without levels has Off alone; the level comes back with a model
+  // that has it.
+  await session.act({
+    action: "setting",
+    id: "model",
+    value: "openrouter/deepseek/deepseek-v4-flash",
+  });
+  const flash = await session.state();
+  expect(flash.settings.find((setting) => setting.id === "thought_level")).toMatchObject({
+    value: "off",
+    options: [{ value: "off" }],
+  });
+  await session.act({ action: "setting", id: "model", value: "openai-codex/gpt-5.4" });
+  await session.act({ action: "setting", id: "thought_level", value: "high" });
+
+  // An extension's question is a card in Med, in the extension's words.
+  await session.act({ action: "prompt", text: "Clean the build." });
+  const asked = await session.until((state) => state.permission !== undefined);
+  expect(asked.permission).toMatchObject({
+    title: "Allow bash?",
+    detail: "rm -rf build",
+    options: [
+      { name: "Yes", kind: "allow_once" },
+      { name: "No", kind: "reject_once" },
+    ],
+  });
+  await session.act({
+    action: "permission",
+    id: asked.permission!.id,
+    option: asked.permission!.options[0]!.id,
+  });
+  await vi.waitFor(() => expect(replies().at(-1)).toBe("Cleaned."));
+  await session.until((state) => state.status === "idle" && !state.permission);
+
+  // It takes images.
+  await api(`/api/sessions/${session.thread}/agent/messages`, {
+    text: "Look.",
+    noteIds: [],
+    images: [{ mimeType: "image/png", data: PNG }],
+  });
+  await vi.waitFor(() => expect(replies().at(-1)).toBe("Saw image/png: Look."));
+  await session.until((state) => state.status === "idle");
+
+  // Pi's model failing ends the turn with its error.
+  await session.act({ action: "prompt", text: "Fail now." });
+  const failed = await session.until((state) => state.status === "idle" && !!state.error);
+  expect(failed.error).toContain("429 Rate limited");
+
+  // Stop aborts the turn; Pi's process stays for the next message.
+  await session.act({ action: "prompt", text: "Run sleep 30, then say done." });
+  await session.until((state) => state.status === "working");
+  await vi.waitFor(() =>
+    expect(
+      replies.events.some(
+        (event) => event.update.sessionUpdate === "tool_call" && event.update.title === "sleep 30",
+      ),
+    ).toBe(true),
+  );
+  await session.act({ action: "interrupt" });
+  await session.until((state) => state.status === "idle");
+  await session.act({ action: "prompt", text: "Say ok." });
+  await vi.waitFor(() => expect(replies().at(-1)).toBe("(gpt-5.4, high) turn 8: Say ok."));
+  await session.until((state) => state.status === "idle");
+  const before = (await runs()).length;
+
+  // After a reboot no process runs. The session waits with the choices it
+  // had; the next message starts Pi again on the session's file, which Med
+  // tells the choices again.
+  await restart({ reboot: true });
+  const back = await session.until((state) => state.settings.length > 0);
+  expect(back.status).toBe("idle");
+  expect(back.settings.map((setting) => [setting.id, setting.value])).toEqual([
+    ["model", "openai-codex/gpt-5.4"],
+    ["thought_level", "high"],
+  ]);
+  expect((await runs()).length).toBe(before);
+  const resumed = await thread(session.id);
+  await session.act({ action: "prompt", text: "And now?" });
+  await vi.waitFor(() => expect(resumed().at(-1)).toBe("(gpt-5.4, high) turn 9: And now?"), {
+    timeout: 5000,
+  });
+  const last = (await runs()).at(-1)!.args;
+  expect(last.slice(0, 3)).toEqual(["--mode", "rpc", "--session"]);
+  expect(last[3]).toMatch(/_[0-9a-f-]{36}\.jsonl$/);
+  expect(resumed().filter((reply) => reply.includes("Say ok."))).toHaveLength(1);
+});
+
 test("with Antigravity turned off (MED_AGY=0), Med does not offer it or continue its conversations", async () => {
   const { api, home, repo, review } = await fixture({ agy: false });
   const agy = "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d";

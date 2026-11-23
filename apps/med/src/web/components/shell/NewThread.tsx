@@ -5,14 +5,10 @@ import { threadSlug, threadTitle, type Thread, type ThreadList } from "../../../
 import { createApi } from "../../data/api";
 import { readBrowserToken } from "../../data/auth";
 import type { AgentChoices, AgentOptions } from "../../../shared/owned-session";
-import {
-  EFFORT_NOTE,
-  optionChoice,
-  useAgentOptions,
-  useAgentPresets,
-} from "../../data/owned-session";
+import { useAgentOptions, useAgentPresets } from "../../data/owned-session";
 import { tokens } from "../../theme.stylex";
-import { ActionMenu, FlipChoice, type Choice as Option, type MenuEntry } from "../Controls";
+import { ActionMenu, FlipChoice, type Choice as Option } from "../Controls";
+import { ModelPicker } from "../ModelPicker";
 import { Icon, type IconName } from "../Icon";
 import { useMentions } from "../Mentions";
 import { createBrowseApi, useBrowseFiles, useVaults } from "../../data/browse";
@@ -266,17 +262,11 @@ export function NewThread({
     onCancel();
     findSources();
   };
-  const modelName = options?.model?.options.find((option) => option.value === model);
-  const effortName = efforts.find((option) => option.value === effort);
-  const modelChoices = (options?.model?.options ?? []).map((option) => ({
-    ...optionChoice(option),
-    label: optionName(option),
-  }));
-  const effortChoices = efforts.map((option) => ({
+  const models = (options?.model?.options ?? []).map((option) => ({
     value: option.value,
-    label: optionName(option),
+    name: optionName(option),
+    ...(option.group ? { group: option.group } : {}),
   }));
-  const otherAgents = agents && agents.length > 1 ? agents : [];
   return (
     <div ref={page} role="dialog" aria-label="New thread" {...stylex.props(styles.page)}>
       <div {...stylex.props(styles.column)}>
@@ -371,45 +361,32 @@ export function NewThread({
               <MenuLabel icon="branch" text={choice.worktree ? "New worktree" : "Checkout"} />
             </FlipChoice>
             {agent && (
-              <Picker
-                label="Model"
-                value={model ?? ""}
-                choices={modelChoices}
-                onChange={(value) => chooseAgent({ model: value })}
-                more={
-                  otherAgents.length
-                    ? [
-                        {
-                          label: `Agent · ${agent.name}`,
-                          sections: [
-                            otherAgents.map((entry) => ({
-                              label: entry.name,
-                              checked: entry.id === agent.id,
-                              choice: true,
-                              onClick: () => chooseAgent({ preset: entry.id }),
-                            })),
-                          ],
-                        },
-                      ]
-                    : []
-                }
-              >
-                <AgentLabel
-                  kind={agent.kind}
-                  model={modelName ? optionName(modelName) : agent.name}
-                />
-              </Picker>
-            )}
-            {effort && (
-              <Picker
-                label="Effort"
-                value={effort}
-                choices={effortChoices}
-                onChange={(value) => chooseAgent({ effort: value })}
-                note={EFFORT_NOTE}
-              >
-                <EffortLabel text={effortName ? optionName(effortName) : "Default"} />
-              </Picker>
+              <ModelPicker
+                models={models}
+                model={model ?? ""}
+                placeholder={agent.name}
+                onModel={(value) => chooseAgent({ model: value })}
+                {...(effort
+                  ? {
+                      levels: {
+                        label: options?.effort?.name ?? "Effort",
+                        value: effort,
+                        options: efforts.map((option) => ({
+                          value: option.value,
+                          name: optionName(option),
+                        })),
+                        onChange: (value: string) => chooseAgent({ effort: value }),
+                      },
+                    }
+                  : {})}
+                agents={{
+                  value: agent.id,
+                  options: (agents ?? []).map((entry) => ({ value: entry.id, label: entry.name })),
+                  onChange: (preset) => chooseAgent({ preset }),
+                }}
+                icon={<AgentMark kind={agent.kind} />}
+                trigger={styles.menu}
+              />
             )}
           </div>
           <p {...stylex.props(styles.hint)} aria-live="polite">
@@ -426,31 +403,25 @@ export function NewThread({
 }
 
 /**
- * A choice under the composer: a menu, or with two choices and nothing more,
- * a control that switches between them.
+ * A choice under the composer: a menu, or with two choices, a control that
+ * switches between them.
  */
 function Picker({
   label,
   value,
   choices,
   onChange,
-  more = [],
   align,
-  note,
   children,
 }: {
   label: string;
   align?: "start" | "end";
-  /** A sentence at the menu's top, such as what more effort trades. */
-  note?: string;
   value: string;
   choices: Option[];
   onChange(value: string): void;
-  /** Items after the choices, such as the agent's submenu. */
-  more?: MenuEntry[];
   children: ReactNode;
 }) {
-  if (choices.length === 2 && !more.length)
+  if (choices.length === 2)
     return (
       <FlipChoice
         label={label}
@@ -466,17 +437,14 @@ function Picker({
     <ActionMenu
       label={label}
       align={align}
-      note={note}
       trigger={styles.menu}
       sections={[
         choices.map((option) => ({
           label: option.label,
-          ...(option.badge ? { badge: option.badge } : {}),
           checked: option.value === value,
           choice: true,
           onClick: () => onChange(option.value),
         })),
-        more,
       ]}
     >
       {children}
@@ -499,21 +467,13 @@ function MenuLabel({ icon, text }: { icon: IconName; text: string }) {
   );
 }
 
-/** The agent's mark in its colour, then the model. */
-function AgentLabel({ kind, model }: { kind: string; model: string }) {
+/** The agent's mark, in Claude's colour for Claude Code. */
+function AgentMark({ kind }: { kind: string }) {
   return (
-    <>
-      <span {...stylex.props(styles.mark, kind === "claude" && styles.claude)}>
-        <Icon name={kind === "claude" || kind === "codex" ? kind : "agent"} size={13} />
-      </span>
-      <span {...stylex.props(styles.text, styles.model)}>{model}</span>
-    </>
+    <span {...stylex.props(styles.mark, kind === "claude" && styles.claude)}>
+      <Icon name={kind === "claude" || kind === "codex" ? kind : "agent"} size={13} />
+    </span>
   );
-}
-
-/** The effort, as "High effort": a word alone would not say what it is. */
-function EffortLabel({ text }: { text: string }) {
-  return <span {...stylex.props(styles.text)}>{`${text} effort`}</span>;
 }
 
 const enter = stylex.keyframes({
@@ -622,7 +582,6 @@ const styles = stylex.create({
   text: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   mark: { display: "flex", flexShrink: 0 },
   claude: { color: CLAUDE },
-  model: { color: tokens.text },
   // A line kept for a note, so that the composer stays put when one shows.
   hint: {
     minHeight: "1.6em",
