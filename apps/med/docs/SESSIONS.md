@@ -585,8 +585,9 @@ file, so the next call reads only the new lines.
   older rollouts a running total (`token_count`), priced by its growth; a
   subagent's rollout counts too. Codex's cache writes are priced at the
   30-minute rate. A model that the table lacks shows its tokens and no price.
-  ACP agents' and agy's logs have no token counts and are listed as not in
-  the total. The figure is an estimate: Claude Code also makes small requests
+  ACP agents' logs, Antigravity's among them, have no token counts and are
+  listed as not in the total; a thread with no counted session shows no
+  spend, since "$0.00" would say that it was free. The figure is an estimate: Claude Code also makes small requests
   that the transcript leaves out (titles, suggestions), so `/usage` reads a
   few percent higher. The note under the figures says only that it is an
   estimate at list prices, with the read date and a link to each price page.

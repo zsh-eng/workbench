@@ -43,7 +43,7 @@ import { ToolButton } from "../ToolButton";
 import { paneHandle } from "../PaneTree";
 import { InTitleBand, useInTitleBand } from "../Workspaces";
 import { ComposerMeta, SessionComposer, type ComposerAttachment } from "./SessionComposer";
-import { UsageChip, type ShownContext } from "./ThreadUsage";
+import { countedSpend, UsageChip, type ShownContext } from "./ThreadUsage";
 import {
   SIDE_PANEL_MIN_PANE,
   SessionSidePanel,
@@ -688,9 +688,14 @@ export function SessionPanel({
     onSideRoom(roomy);
     return () => onSideRoom(false);
   }, [roomy, onSideRoom]);
+  const chosenModel = ownedState?.settings.find((setting) => setting.category === "model");
   const model =
     shownContext?.model ??
-    ownedState?.settings.find((setting) => setting.category === "model")?.value;
+    // An ACP agent's model goes by the name that the agent gives it.
+    (session.agent === "acp"
+      ? chosenModel?.options.find((option) => option.value === chosenModel.value)?.name
+      : undefined) ??
+    chosenModel?.value;
   const sessionPlace: SessionEnvironment = {
     // A folder that Med does not know as a repository goes by its own name.
     repository: basename(session.cwd),
@@ -740,7 +745,8 @@ export function SessionPanel({
   );
   // The rail has Spend and Context with their detail, so the chip under the
   // message box would say both a second time.
-  const usageChip = side ? null : <UsageChip usage={usage} context={shownContext} />;
+  const spend = countedSpend(usage);
+  const usageChip = side ? null : <UsageChip usage={spend} context={shownContext} />;
 
   // The message box, or what stands in its place, at the pane's foot: over
   // the thread's foot while the thread shows (SessionThread's footer).
@@ -791,7 +797,7 @@ export function SessionPanel({
         )
       )}
       {!inbox && footer}
-      {!inbox && usageChip && (usage || shownContext) && <ComposerMeta>{usageChip}</ComposerMeta>}
+      {!inbox && usageChip && (spend || shownContext) && <ComposerMeta>{usageChip}</ComposerMeta>}
     </>
   );
   return (
@@ -855,7 +861,7 @@ export function SessionPanel({
         </div>
         {side && (
           <SessionSidePanel
-            usage={usage}
+            usage={spend}
             context={panelContext}
             breakdown={breakdown}
             working={running}

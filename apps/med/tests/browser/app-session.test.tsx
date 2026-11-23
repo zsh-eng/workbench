@@ -227,6 +227,31 @@ describe("agent session", () => {
     await expect.poll(current).toContain("Second prompt");
   });
 
+  test("a thread whose agent counts no tokens shows no spend, not $0.00", async () => {
+    await mountApp({
+      savedReview: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      usage: {
+        spend: {
+          total: 0,
+          subagents: { count: 0, cost: 0 },
+          models: [],
+          missing: ["Antigravity"],
+        },
+        prices: {
+          version: 1,
+          source: "https://platform.claude.com/docs/en/about-claude/pricing",
+          readAt: "2026-10-29",
+        },
+      },
+    });
+    await page.getByRole("button", { name: "Show agent session" }).click();
+    const panel = page.getByRole("region", { name: "Agent session" });
+    await expect.element(panel.getByRole("form", { name: "Message Claude" })).toBeVisible();
+    await expect.element(panel.getByText("$0.00")).not.toBeInTheDocument();
+    await expect.element(panel.getByRole("region", { name: "Spend" })).not.toBeInTheDocument();
+  });
+
   test("the header shows the thread's context and spend, and a click shows where they come from", async () => {
     await mountApp({
       savedReview: true,
