@@ -299,7 +299,8 @@ function render(host: ReturnType<typeof createHost>) {
 const recap = page.getByRole("region", { name: "Turn recap" });
 const shownRecap = () => document.querySelector<HTMLElement>("[data-recap]");
 /** The session's message box. */
-const composer = () => document.querySelector<HTMLTextAreaElement>("[data-session-panel] textarea");
+const composer = () =>
+  document.querySelector<HTMLElement>("[data-session-panel] [data-composer-input]");
 
 /** Opens the tab, whose session leads it. */
 async function openSession() {
@@ -368,7 +369,7 @@ test("before a hand-off Review opens Changes at the first file; ⌥↵ works fro
     .element(page.getByRole("radio", { name: "Changes", exact: true }))
     .toHaveAttribute("aria-checked", "true");
   await expect.poll(() => shownRecap()?.dataset.recap).toBe("hidden");
-  expect(composer()!.value).toBe("");
+  expect(composer()!.getAttribute("data-value")).toBe("");
   await expect
     .poll(() => document.querySelector("[data-stream-file]")?.textContent)
     .toContain("tides.ts");

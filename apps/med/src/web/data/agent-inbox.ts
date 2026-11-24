@@ -204,10 +204,18 @@ const needleOf = (message: SentMessage) =>
  * thread, as for a session that Med runs or a Codex queue, that copy stays,
  * with Med's text and comments.
  */
-export function withSentMessages(items: SessionItem[], messages: SentMessage[]) {
+export function withSentMessages(
+  items: SessionItem[],
+  messages: SentMessage[],
+  { truncated = false }: { truncated?: boolean } = {},
+) {
   if (!messages.length) return items;
   const merged = [...items];
   const waiting: SessionItem[] = [];
+  let earliest = Number.POSITIVE_INFINITY;
+  if (truncated) {
+    for (const item of items) if (item.at > 0 && item.at < earliest) earliest = item.at;
+  }
   for (const message of messages) {
     const sentAt = Date.parse(message.createdAt);
     const content: ContentBlock[] =
@@ -241,10 +249,15 @@ export function withSentMessages(items: SessionItem[], messages: SentMessage[]) 
       continue;
     }
     const taken = message.delivery === "delivered";
+    const itemAt = taken ? Date.parse(message.deliveredAt ?? message.createdAt) : sentAt;
+    // When only the tail of a long transcript is loaded, older delivered
+    // messages belong to earlier unloaded pages; splicing them above the tail
+    // creates a stack of user prompts without their assistant replies.
+    if (taken && truncated && Number.isFinite(earliest) && itemAt < earliest - 1000) continue;
     const item: SessionItem = {
       kind: "user",
       id: `med-${message.id}`,
-      at: taken ? Date.parse(message.deliveredAt ?? message.createdAt) : sentAt,
+      at: itemAt,
       content,
       sent: message,
       ...(taken ? {} : { queued: true }),

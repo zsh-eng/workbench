@@ -2,6 +2,9 @@ import { describe, expect, test } from "vitest";
 import type { Thread } from "../../src/shared/threads";
 import { tabOrder, threadInput, workspaceThread } from "../../src/web/data/threads";
 import { findPattern } from "../../src/web/data/search-highlights";
+import { overlayAddress } from "../../src/web/data/workspaces";
+import { withSentMessages } from "../../src/web/data/agent-inbox";
+import type { SessionItem } from "../../src/web/data/session-store";
 
 const thread = (id: string, updatedAt: number, change: Partial<Thread> = {}): Thread => ({
   id,
@@ -74,5 +77,63 @@ describe("the find bar's pattern", () => {
     expect(all("trail", { wholeWord: true })).toEqual(["Trail", "TRAIL"]);
     expect(all("a.b", { regexp: true })).toEqual(["a.b", "axb"]);
     expect(all("trails?", { regexp: true, wholeWord: true })).toEqual(["Trail", "trails", "TRAIL"]);
+  });
+});
+
+describe("overlay routes and truncated history", () => {
+  test("treats /usage as an overlay address so opening Usage keeps the active thread", () => {
+    expect(overlayAddress("/usage")).toBe(true);
+    expect(overlayAddress("/dashboards")).toBe(true);
+    expect(overlayAddress("/review/claude-a")).toBe(false);
+  });
+
+  test("does not splice older delivered Med messages above a truncated session tail", () => {
+    const tail: SessionItem[] = [
+      {
+        kind: "user",
+        id: "u-recent",
+        at: Date.parse("2026-11-24T10:10:00.000Z"),
+        content: [{ type: "text", text: "Recent prompt" }],
+      },
+      {
+        kind: "agent",
+        id: "a-recent",
+        at: Date.parse("2026-11-24T10:10:05.000Z"),
+        text: "Recent reply",
+      },
+    ];
+    const sent = [
+      {
+        id: "m-old",
+        sessionId: "s1",
+        agent: "claude" as const,
+        text: "Very old prompt from unloaded page",
+        noteIds: [],
+        attachmentCount: 0,
+        createdAt: "2026-11-24T09:00:00.000Z",
+        deliveredAt: "2026-11-24T09:00:01.000Z",
+        delivery: "delivered" as const,
+      },
+      {
+        id: "m-queued",
+        sessionId: "s1",
+        agent: "claude" as const,
+        text: "Queued follow-up",
+        noteIds: [],
+        attachmentCount: 0,
+        createdAt: "2026-11-24T10:11:00.000Z",
+        delivery: "pending" as const,
+      },
+    ];
+    const merged = withSentMessages(tail, sent, { truncated: true });
+    expect(merged.map((item) => item.id)).toEqual(["u-recent", "a-recent", "med-m-queued"]);
+    // Once all earlier pages load (truncated = false), older delivered messages merge normally.
+    const full = withSentMessages(tail, sent, { truncated: false });
+    expect(full.map((item) => item.id)).toEqual([
+      "med-m-old",
+      "u-recent",
+      "a-recent",
+      "med-m-queued",
+    ]);
   });
 });

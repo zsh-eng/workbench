@@ -562,6 +562,19 @@ export function piBridge({
   };
 
   /** Starts Pi in `folder`, on a session's file when it goes on. */
+  let commands: {
+    name: string;
+    description: string;
+    input?: { hint: string };
+    _meta?: { med?: { kind?: "builtin" | "skill" | "command" } };
+  }[] = [
+    {
+      name: "compact",
+      description: "Summarize older messages to free context",
+      input: { hint: "what the summary should keep" },
+      _meta: { med: { kind: "builtin" } },
+    },
+  ];
   const open = async (folder: string, file?: string) => {
     process_?.stop();
     cwd = folder;
@@ -583,6 +596,34 @@ export function piBridge({
       pi.exited.then((reason) => Promise.reject(new RpcError(reason, -32603))),
     ]);
     models = answered.models ?? [];
+    const discovered = await pi
+      .command<{
+        commands?: { name?: string; description?: string; source?: string; hint?: string }[];
+      }>("get_commands")
+      .catch(() => ({ commands: [] }));
+    const seen = new Set<string>();
+    const list: typeof commands = [];
+    for (const entry of Array.isArray(discovered.commands) ? discovered.commands : []) {
+      const name = typeof entry?.name === "string" ? entry.name.replace(/^\//, "").trim() : "";
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      const kind =
+        entry.source === "skill" ? "skill" : entry.source === "builtin" ? "builtin" : "command";
+      list.push({
+        name,
+        description: String(entry.description ?? ""),
+        ...(typeof entry.hint === "string" && entry.hint ? { input: { hint: entry.hint } } : {}),
+        _meta: { med: { kind } },
+      });
+    }
+    if (!seen.has("compact"))
+      list.push({
+        name: "compact",
+        description: "Summarize older messages to free context",
+        input: { hint: "what the summary should keep" },
+        _meta: { med: { kind: "builtin" } },
+      });
+    commands = list;
     await refresh(pi);
     return pi;
   };
@@ -592,13 +633,7 @@ export function piBridge({
     setTimeout(() =>
       update({
         sessionUpdate: "available_commands_update",
-        availableCommands: [
-          {
-            name: "compact",
-            description: "Summarize older messages to free context",
-            input: { hint: "what the summary should keep" },
-          },
-        ],
+        availableCommands: commands,
       }),
     );
   const running = () => {

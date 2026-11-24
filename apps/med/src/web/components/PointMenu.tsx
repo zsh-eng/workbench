@@ -48,7 +48,7 @@ export function PointMenu({
           sideOffset={2}
           {...stylex.props(styles.positioner, layer === "dialog" && styles.overDialog)}
         >
-          <Menu.Popup aria-label={menu?.label} {...stylex.props(ui.popup, styles.menu)}>
+          <Menu.Popup aria-label={menu?.label} {...stylex.props(ui.popup, ui.pop, styles.menu)}>
             {menu?.items.map((item, index) =>
               item ? (
                 <Menu.Item

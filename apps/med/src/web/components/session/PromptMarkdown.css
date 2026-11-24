@@ -1,0 +1,53 @@
+/* User prompt Markdown inside the prompt bubble: compact rhythm and subtle
+ * code block elevation on top of the bubble's tinted fill. */
+[data-prompt-prose] {
+  min-width: 0;
+}
+
+[data-prompt-prose] > .med-md-prose.med-session-prose {
+  margin: 0;
+  font-family: var(--med-font-prose, var(--med-font-ui));
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+[data-prompt-prose] > .med-md-prose.med-session-prose p {
+  margin-block: 0 0.45em;
+}
+
+[data-prompt-prose] > .med-md-prose.med-session-prose p:last-child,
+[data-prompt-prose] > .med-md-prose.med-session-prose ul:last-child,
+[data-prompt-prose] > .med-md-prose.med-session-prose ol:last-child,
+[data-prompt-prose] > .med-md-prose.med-session-prose pre:last-child,
+[data-prompt-prose] > .med-md-prose.med-session-prose blockquote:last-child {
+  margin-bottom: 0;
+}
+
+[data-prompt-prose] > .med-md-prose.med-session-prose h1,
+[data-prompt-prose] > .med-md-prose.med-session-prose h2,
+[data-prompt-prose] > .med-md-prose.med-session-prose h3,
+[data-prompt-prose] > .med-md-prose.med-session-prose h4 {
+  font-size: 1.05em;
+  line-height: 1.4;
+  margin-block: 0.55em 0.3em;
+}
+
+[data-prompt-prose] > .med-md-prose.med-session-prose h1:first-child,
+[data-prompt-prose] > .med-md-prose.med-session-prose h2:first-child,
+[data-prompt-prose] > .med-md-prose.med-session-prose h3:first-child {
+  margin-top: 0;
+}
+
+[data-prompt-prose] > .med-md-prose.med-session-prose ul,
+[data-prompt-prose] > .med-md-prose.med-session-prose ol {
+  margin-block: 0.3em 0.45em;
+  padding-inline-start: 1.35em;
+}
+
+[data-prompt-prose] > .med-md-prose.med-session-prose code {
+  font-size: 12.5px;
+}
+
+[data-prompt-prose] > .med-md-prose.med-session-prose pre {
+  margin-block: 0.45em;
+}

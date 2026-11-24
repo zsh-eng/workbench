@@ -625,7 +625,7 @@ export function createCodexRolloutReader(options: CodexReaderOptions = {}) {
           .map((part) => text(record(part)?.text) ?? "")
           .join("");
         if (!body.trim() || (role === "user" && CONTEXT.test(body))) return [];
-        const messageId = text(payload.id) ?? `message-${++sequence}`;
+        const messageId = text(payload.id) ?? `message-${at}-${++sequence}`;
         return [
           {
             sessionUpdate: role === "user" ? "user_message_chunk" : "agent_message_chunk",
@@ -643,7 +643,7 @@ export function createCodexRolloutReader(options: CodexReaderOptions = {}) {
           {
             sessionUpdate: "agent_thought_chunk",
             content: { type: "text", text: summary },
-            messageId: text(payload.id) ?? `reasoning-${++sequence}`,
+            messageId: text(payload.id) ?? `reasoning-${at}-${++sequence}`,
           },
         ];
       }
@@ -679,7 +679,7 @@ export function createCodexRolloutReader(options: CodexReaderOptions = {}) {
         return [
           {
             sessionUpdate: "compaction_update",
-            compactionId: text(payload.id) ?? `compaction-${++sequence}`,
+            compactionId: text(payload.id) ?? `compaction-${at}-${++sequence}`,
             status: "completed",
           },
         ];
@@ -688,7 +688,7 @@ export function createCodexRolloutReader(options: CodexReaderOptions = {}) {
         return [
           {
             sessionUpdate: "tool_call",
-            toolCallId: text(payload.id) ?? `search-${++sequence}`,
+            toolCallId: text(payload.id) ?? `search-${at}-${++sequence}`,
             title: query ? `Search the web for “${query}”` : "Search the web",
             kind: "fetch",
             status: payload.status === "failed" ? "failed" : "completed",

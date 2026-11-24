@@ -13,7 +13,6 @@ import {
   expandMentions,
   findMentions,
   mentionLabel,
-  mentionParts,
   startsWithMention,
   type Mention,
   type MentionCandidate,
@@ -21,30 +20,26 @@ import {
 } from "../data/mentions";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
+import type { RichPromptEditorHandle } from "./RichPromptEditor";
 
 const ICONS = { file: "file", note: "vault", thread: "sessions" } as const;
 const GROUPS = { file: "Files", note: "Notes", thread: "Threads" } as const;
 
 /**
- * @ in a message box: a menu of files, vault notes, and threads, chips for the
- * chosen ones, and the message with their absolute paths. The box renders
- * `menu`, then `field(textarea)`, and spreads `textarea` on its text area.
- * `input` is the text area's style, which the chips' backdrop copies. The
- * menu opens over what is above the box, which must be positioned, so the
- * box keeps its size.
+ * @ in a message box: a menu of files, vault notes, and threads, atomic chips
+ * rendered inside RichPromptEditor, and expansion to absolute paths on send.
  */
 export function useMentions({
   text,
   setText,
   sources,
   onWanted,
-  input,
   off = false,
-  area: given,
+  editor: given,
   initial,
 }: {
-  /** The text area's own ref, if the box has one. */
-  area?: RefObject<HTMLTextAreaElement | null>;
+  /** The prompt editor's ref, if the box has one. */
+  editor?: RefObject<RichPromptEditorHandle | null>;
   /** The mentions of a text that the box restores, such as a kept draft. */
   initial?: Mention[];
   text: string;
@@ -53,14 +48,12 @@ export function useMentions({
   sources?: MentionSources;
   /** @ opened: the workspace reads what it can name again. */
   onWanted?(): void;
-  input: stylex.StyleXStyles;
   /** Another menu, such as `/` commands, has the keys. */
   off?: boolean;
 }) {
   const id = useId();
-  const own = useRef<HTMLTextAreaElement>(null);
-  const area = given ?? own;
-  const backdrop = useRef<HTMLDivElement>(null);
+  const own = useRef<RichPromptEditorHandle | null>(null);
+  const editor = given ?? own;
   const [caret, setCaret] = useState(0);
   const [mentioned, setMentioned] = useState<Mention[]>(initial ?? []);
   // Escape closes the menu for this @: the text up to it names it.
@@ -113,17 +106,16 @@ export function useMentions({
     setCaret(start + token.length);
     setHighlight(0);
   };
-  // The caret goes after an inserted mention, once the text area has the text.
+  // The caret goes after an inserted mention, once the editor has the text.
   useLayoutEffect(() => {
-    const at = placeCaret.current;
-    if (at === null || !area.current) return;
+    const pos = placeCaret.current;
+    if (pos === null || !editor.current) return;
     placeCaret.current = null;
-    area.current.focus();
-    area.current.setSelectionRange(at, at);
+    editor.current.setSelection(pos);
   });
 
   /** Handles the menu's keys; true when it used the key. */
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (!at || event.nativeEvent.isComposing) return false;
     const move = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
     if (move && options.length) {
@@ -197,38 +189,14 @@ export function useMentions({
   return {
     open,
     menu,
-    /** The text area over a backdrop of chips, as wide as their tokens. */
-    field: (textarea: ReactNode) => (
-      <div {...stylex.props(styles.field)}>
-        <div ref={backdrop} aria-hidden="true" {...stylex.props(input, styles.backdrop)}>
-          {mentionParts(text, mentioned).map((part, index) =>
-            part.mention ? (
-              <mark key={index} {...stylex.props(styles.chip)}>
-                {part.text}
-              </mark>
-            ) : (
-              part.text
-            ),
-          )}
-        </div>
-        {textarea}
-      </div>
-    ),
-    textarea: {
-      ref: area,
-      onSelect: (event: { currentTarget: HTMLTextAreaElement }) =>
-        setCaret(event.currentTarget.selectionStart),
-      onScroll: (event: { currentTarget: HTMLTextAreaElement }) => {
-        if (backdrop.current) backdrop.current.scrollTop = event.currentTarget.scrollTop;
-      },
-      "aria-controls": at ? `${id}-menu` : undefined,
-      "aria-activedescendant": at && options.length ? `${id}-${active}` : undefined,
-    },
-    /** The text area's style over its backdrop. */
-    over: styles.over,
+    editorRef: editor,
+    mentioned,
+    ariaControls: at ? `${id}-menu` : undefined,
+    ariaActiveDescendant: at && options.length ? `${id}-${active}` : undefined,
+    onSelect: (pos: number) => setCaret(pos),
     /** Call with each change of the text and its caret. */
-    changed(caret: number) {
-      setCaret(caret);
+    changed(pos: number) {
+      setCaret(pos);
       setHighlight(0);
     },
     onKeyDown,
@@ -243,25 +211,6 @@ export function useMentions({
 }
 
 const styles = stylex.create({
-  field: { position: "relative", display: "flex" },
-  backdrop: {
-    position: "absolute",
-    inset: 0,
-    overflow: "hidden",
-    whiteSpace: "pre-wrap",
-    overflowWrap: "break-word",
-    color: "transparent",
-    pointerEvents: "none",
-    scrollbarGutter: "stable",
-  },
-  over: { position: "relative", backgroundColor: "transparent", scrollbarGutter: "stable" },
-  chip: {
-    color: "transparent",
-    backgroundColor: tokens.accentSoft,
-    borderRadius: `calc(4px * ${tokens.round})`,
-    // Wider than the token, without moving the text.
-    boxShadow: `0 0 0 2px ${tokens.accentSoft}`,
-  },
   menu: { display: "flex", flexDirection: "column", gap: 1, scrollbarWidth: "thin" },
   group: {
     display: "block",

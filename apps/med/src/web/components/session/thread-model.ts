@@ -101,7 +101,13 @@ export function finalReplies(list: Unit[], live: boolean) {
     const unit = list[index]!;
     if (!("item" in unit)) continue;
     const { item } = unit;
-    if (item.kind === "user" || (item.kind === "tool" && isMedWait(item.call))) open = true;
+    if (
+      item.kind === "user" ||
+      (item.kind === "notice" && item.scheduled === true) ||
+      item.kind === "compaction" ||
+      (item.kind === "tool" && isMedWait(item.call))
+    )
+      open = true;
     else if (item.kind === "agent" && (open || item.endsTurn)) {
       result.add(item.id);
       open = false;
@@ -130,7 +136,7 @@ export function fold(
   isOpen: (key: string) => boolean,
 ): Unit[] {
   const result: Unit[] = [];
-  for (let at = 0; at < list.length;) {
+  for (let at = 0; at < list.length; ) {
     let end = at + 1;
     while (end < list.length && !isPrompt(list[end]!)) end++;
     const turn = list.slice(at, end);

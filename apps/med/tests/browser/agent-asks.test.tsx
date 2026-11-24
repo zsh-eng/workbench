@@ -171,8 +171,10 @@ test("a question's number keys pick its choices, Other takes an answer, and Answ
     .element(format.getByRole("button", { name: /Long/ }))
     .toHaveAttribute("aria-pressed", "true");
   expect(
-    (page.getByRole("combobox", { name: "Message Claude Code" }).element() as HTMLTextAreaElement)
-      .value,
+    page
+      .getByRole("combobox", { name: "Message Claude Code" })
+      .element()
+      .getAttribute("data-value"),
   ).toBe("");
   // A multiple choice takes several; 4 goes to Other.
   await userEvent.keyboard("13");
@@ -459,4 +461,32 @@ test("at a narrow window's edge, a picker's menu stays in the window", async () 
   const popup = page.getByRole("dialog", { name: "Model" }).element();
   await expect.poll(() => popup.getBoundingClientRect().left).toBeGreaterThanOrEqual(0);
   expect(popup.getBoundingClientRect().right).toBeLessThanOrEqual(window.innerWidth);
+});
+
+test("a long multi-question ask card caps its height and keeps footer actions visible", async () => {
+  await page.viewport(900, 700);
+  const many: OwnedPermission = {
+    id: "q-many",
+    title: "Claude Code asks",
+    options: [
+      { id: "answer", name: "Answer", kind: "allow_once" },
+      { id: "deny", name: "Skip", kind: "reject_once" },
+    ],
+    questions: Array.from({ length: 6 }, (_, i) => ({
+      question: `Question ${i + 1}: which option should we use?`,
+      header: `Step ${i + 1}`,
+      options: [
+        { label: `Choice ${i + 1}A`, description: "Detailed trade-off explanation for option A." },
+        { label: `Choice ${i + 1}B`, description: "Detailed trade-off explanation for option B." },
+        { label: `Choice ${i + 1}C`, description: "Detailed trade-off explanation for option C." },
+      ],
+    })),
+  };
+  mountComposer(many);
+  const card = page.getByRole("group", { name: "Question" });
+  await expect.element(card).toBeVisible();
+  const rect = card.element().getBoundingClientRect();
+  expect(rect.height).toBeLessThanOrEqual(465);
+  await expect.element(card.getByRole("button", { name: "Answer" })).toBeVisible();
+  await expect.element(card.getByRole("button", { name: "Skip" })).toBeVisible();
 });

@@ -360,8 +360,13 @@ export function UsageChip({
         )}
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Positioner align="end" sideOffset={6} {...stylex.props(styles.positioner)}>
-          <Popover.Popup {...stylex.props(ui.popup, styles.popup)}>
+        <Popover.Positioner
+          align="end"
+          side="top"
+          sideOffset={6}
+          {...stylex.props(styles.positioner)}
+        >
+          <Popover.Popup {...stylex.props(ui.popup, ui.pop, styles.popup)}>
             {/* One bar, a line under it, and each model's cost: the tokens
                 are in the session rail's Spend card. */}
             {context && (

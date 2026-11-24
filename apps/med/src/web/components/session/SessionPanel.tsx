@@ -538,7 +538,7 @@ export function SessionPanel({
         return { sessionId: session.id, items: [...list.slice(-4), next] };
       });
       requestAnimationFrame(() =>
-        panel.current?.querySelector<HTMLTextAreaElement>("form textarea")?.focus(),
+        panel.current?.querySelector<HTMLElement>("[data-composer-input], form textarea")?.focus(),
       );
     },
     [session.id],
@@ -641,28 +641,29 @@ export function SessionPanel({
           (message) =>
             message.sessionId === session.id && !outgoing.some((entry) => entry.id === message.id),
         )
-        .map((message): SentMessage =>
-          message.queued && message.delivery === "pending"
-            ? {
-                ...message,
-                edit: () => takeBack([message.id], true),
-                remove: () => takeBack([message.id], false),
-                ...(message.afterTurn && takesMidTurn && inbox?.sendNow
-                  ? {
-                      sendNow: () => {
-                        setTakeNote(undefined);
-                        inbox.sendNow!(message.id).catch((error: unknown) =>
-                          setTakeNote({
-                            text:
-                              error instanceof Error ? error.message : "Med did not send it now.",
-                            error: true,
-                          }),
-                        );
-                      },
-                    }
-                  : {}),
-              }
-            : message,
+        .map(
+          (message): SentMessage =>
+            message.queued && message.delivery === "pending"
+              ? {
+                  ...message,
+                  edit: () => takeBack([message.id], true),
+                  remove: () => takeBack([message.id], false),
+                  ...(message.afterTurn && takesMidTurn && inbox?.sendNow
+                    ? {
+                        sendNow: () => {
+                          setTakeNote(undefined);
+                          inbox.sendNow!(message.id).catch((error: unknown) =>
+                            setTakeNote({
+                              text:
+                                error instanceof Error ? error.message : "Med did not send it now.",
+                              error: true,
+                            }),
+                          );
+                        },
+                      }
+                    : {}),
+                }
+              : message,
         ) ?? []),
       ...outgoing.map((message): SentMessage => {
         const { input } = message;
@@ -687,7 +688,9 @@ export function SessionPanel({
       }),
     ];
     const items = withStreamedReplies(
-      sent.length ? withSentMessages(snapshot.items, sent) : snapshot.items,
+      sent.length
+        ? withSentMessages(snapshot.items, sent, { truncated: start > 0 })
+        : snapshot.items,
       streamed,
     );
     return items === snapshot.items && snapshot.running === running
@@ -705,6 +708,7 @@ export function SessionPanel({
     running,
     presence,
     takesMidTurn,
+    start,
   ]);
   // Asked again as the transcript grows, at a turn's end, and every 15 s
   // while the agent or its subagents work (without re-rendering SessionPanel).
@@ -753,7 +757,9 @@ export function SessionPanel({
         ? {
             ...recap,
             onReply: () =>
-              panel.current?.querySelector<HTMLTextAreaElement>("form textarea")?.focus(),
+              panel.current
+                ?.querySelector<HTMLElement>("[data-composer-input], form textarea")
+                ?.focus(),
           }
         : undefined,
     [recap],

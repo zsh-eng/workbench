@@ -692,6 +692,12 @@ function peekTarget(nav: HTMLElement | null, pointed: string | null) {
   if (!active || active === document.body) return pointed;
   if (active instanceof HTMLTextAreaElement && active.closest("[data-session-panel]"))
     return active.value === "" ? pointed : null;
+  if (
+    active instanceof HTMLElement &&
+    active.hasAttribute("data-composer-input") &&
+    active.closest("[data-session-panel]")
+  )
+    return (active.dataset.value ?? "") === "" ? pointed : null;
   return null;
 }
 
@@ -978,7 +984,7 @@ function SessionMenu({
     <Menu.Popup
       aria-label={`${thread.title} actions`}
       onKeyDown={onKeyDown}
-      {...stylex.props(ui.popup, styles.menu)}
+      {...stylex.props(ui.popup, ui.pop, styles.menu)}
     >
       {items.map((entry, index) => (
         <div key={entry.label}>

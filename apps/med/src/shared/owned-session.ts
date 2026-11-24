@@ -130,11 +130,12 @@ export const ownedSettingSchema = z.object({
 });
 export type OwnedSetting = z.infer<typeof ownedSettingSchema>;
 
-/** A command for the `/` menu: a skill or a custom command. */
+/** A command for the `/` menu: a skill, custom command, or agent built-in. */
 export const ownedCommandSchema = z.object({
   name: z.string(),
   description: z.string(),
   hint: z.string().optional(),
+  kind: z.enum(["builtin", "skill", "command"]).optional(),
 });
 export type OwnedCommand = z.infer<typeof ownedCommandSchema>;
 

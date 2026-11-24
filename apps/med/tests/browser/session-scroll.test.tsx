@@ -458,7 +458,7 @@ test("a scroll event that comes before the units report a new height keeps the v
   scroller.scrollTop -= 1500;
   await expect.poll(() => document.querySelector("[data-unit] .med-session-plain")).toBeNull();
   // The view stands still before it is read.
-  for (let last = Number.NaN; scroller.scrollTop !== last;) {
+  for (let last = Number.NaN; scroller.scrollTop !== last; ) {
     last = scroller.scrollTop;
     await afterFrames(3);
   }
@@ -497,4 +497,30 @@ test("a turn from the index goes to the top of the view", async () => {
   await afterFrames(4);
   expect(firstInView().text).toContain("Prompt 120");
   expect(Math.abs(firstInView().top)).toBeLessThan(2);
+});
+
+test("selecting or double-clicking text at the bottom does not flicker the Latest button", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(40);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r39");
+  const scroller = threadScroller();
+  await expect
+    .poll(() => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight)
+    .toBeLessThan(32);
+
+  const lastReply = page.getByText("Reply 39.", { exact: false }).element();
+  scroller.dispatchEvent(new PointerEvent("pointerdown", { button: 0, bubbles: true }));
+  const range = document.createRange();
+  range.selectNodeContents(lastReply);
+  const selection = window.getSelection()!;
+  selection.removeAllRanges();
+  selection.addRange(range);
+  document.dispatchEvent(new Event("selectionchange"));
+  document.dispatchEvent(new PointerEvent("pointerup", { button: 0, bubbles: true }));
+  await afterFrames(4);
+  expect(page.getByRole("button", { name: "Latest" }).query()).toBeNull();
+  selection.removeAllRanges();
+  document.dispatchEvent(new Event("selectionchange"));
 });

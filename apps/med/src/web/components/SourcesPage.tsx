@@ -627,7 +627,7 @@ function SourceRow({
         </Menu.Trigger>
         <Menu.Portal>
           <Menu.Positioner align="end" sideOffset={4} {...stylex.props(styles.positioner)}>
-            <Menu.Popup {...stylex.props(ui.popup, styles.menu)}>
+            <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.menu)}>
               {[
                 { label: "Open", run: onOpen },
                 ...(vault ? [{ label: "Index again", run: () => void run("index") }] : []),

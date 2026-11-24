@@ -213,8 +213,19 @@ export class AgentInbox {
         (message) => message.sessionId === sessionId && message.delivery === "pending",
       );
       if (during && !during.when()) return { delivered: 0, left: waiting.length };
-      const due = waiting.filter((message) => !during || during.only(message));
-      if (!due.length) return { delivered: 0, left: waiting.length };
+      const eligible = waiting.filter((message) => !during || during.only(message));
+      if (!eligible.length) return { delivered: 0, left: waiting.length };
+      // A leading `/` slash command runs in its own turn instead of merging with
+      // other queued prompts.
+      const isSlash = (message: StoredMessage) => message.body.trimStart().startsWith("/");
+      const due: StoredMessage[] = [];
+      for (const message of eligible) {
+        if (isSlash(message)) {
+          if (due.length === 0) due.push(message);
+          break;
+        }
+        due.push(message);
+      }
       let error: string | undefined;
       try {
         await deliver(due.map((message) => message.body).join(BETWEEN_MESSAGES));
@@ -235,6 +246,15 @@ export class AgentInbox {
         } else {
           message.delivery = "delivered";
           message.deliveredAt = at;
+        }
+      }
+      // Keep any remaining queued messages attached to the forked target session.
+      if (to && due.length < waiting.length) {
+        const sent = new Set(due);
+        for (const message of waiting) {
+          if (sent.has(message)) continue;
+          message.sessionId = to.id;
+          message.agent = to.agent;
         }
       }
       return { delivered: error ? 0 : due.length, left: waiting.length - due.length };

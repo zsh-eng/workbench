@@ -315,7 +315,7 @@ export function StatPanel({
             {stat && value !== null ? formatValue(value, unit) : "–"}
           </span>
           {index >= 0 && times ? (
-            <span data-stat-moment="" {...stylex.props(styles.change)}>
+            <span data-stat-moment="" {...stylex.props(styles.moment)}>
               at {formatMoment(times[index]!, spacing)}
             </span>
           ) : (
@@ -686,13 +686,15 @@ const styles = stylex.create({
   },
   // They take no height of their own, so the title row stays as tall as its text.
   headTools: { display: "inline-flex", gap: 2, marginBlock: -5, marginInlineEnd: -6 },
-  statRow: { display: "flex", alignItems: "baseline", gap: 10, marginTop: 8 },
+  statRow: { display: "flex", alignItems: "baseline", gap: 10, marginTop: 8, minWidth: 0 },
   statValue: {
+    flexShrink: 0,
     fontSize: 26,
     fontWeight: 600,
     letterSpacing: "-0.02em",
     fontVariantNumeric: "tabular-nums",
     lineHeight: 1.1,
+    whiteSpace: "nowrap",
   },
   waiting: { color: tokens.faint },
   change: {
@@ -700,13 +702,24 @@ const styles = stylex.create({
     alignItems: "baseline",
     gap: 6,
     minWidth: 0,
+    overflow: "hidden",
     color: tokens.muted,
     fontSize: 12,
     fontVariantNumeric: "tabular-nums",
     whiteSpace: "nowrap",
   },
-  changeAmount: { color: tokens.muted, fontWeight: 500 },
-  since: { color: tokens.faint },
+  moment: {
+    display: "block",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    color: tokens.muted,
+    fontSize: 12,
+    fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap",
+  },
+  changeAmount: { flexShrink: 0, color: tokens.muted, fontWeight: 500 },
+  since: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", color: tokens.faint },
   spark: {
     display: "block",
     width: "100%",

@@ -155,17 +155,30 @@ async function readLines(path: string, offset: number, limit = Number.POSITIVE_I
 }
 
 /** The complete lines from byte offset `start` up to `end`, where a line
- * starts; `first` is where the first of them starts. */
+ * starts; `first` is where the first of them starts. When a single line spans
+ * past `start`, scans backward to its preceding newline so `first < end` always
+ * makes progress. */
 async function readSpan(path: string, start: number, end: number) {
+  if (end <= 0) return { lines: [], first: 0 };
   const handle = await open(path, "r");
   try {
-    const buffer = Buffer.alloc(end - start);
-    await handle.read(buffer, 0, buffer.length, start);
-    // A span starts inside a line unless it starts the file.
-    const newline = start > 0 ? buffer.indexOf(10) : -1;
-    const from = start > 0 ? (newline < 0 ? buffer.length : newline + 1) : 0;
-    const text = buffer.toString("utf8", from);
-    return { lines: text.split("\n").filter(Boolean), first: start + from };
+    let cursor = Math.max(0, start);
+    while (true) {
+      const length = end - cursor;
+      const buffer = Buffer.alloc(length);
+      await handle.read(buffer, 0, length, cursor);
+      // A span starts inside a line unless it starts the file. `end` sits right
+      // after the preceding line's `\n`, so a newline only at `length - 1`
+      // means the entire chunk still lies inside one oversized line.
+      const newline = cursor > 0 ? buffer.indexOf(10) : -1;
+      if (cursor > 0 && (newline < 0 || newline === length - 1)) {
+        cursor = Math.max(0, cursor - PAGE_BYTES);
+        continue;
+      }
+      const from = cursor > 0 ? newline + 1 : 0;
+      const text = buffer.toString("utf8", from);
+      return { lines: text.split("\n").filter(Boolean), first: cursor + from };
+    }
   } finally {
     await handle.close();
   }
@@ -256,7 +269,6 @@ export async function transcriptPoint(
   const handle = await open(path, "r");
   try {
     const size = (await handle.stat()).size;
-    const needle = at === undefined ? undefined : `"uuid":"${at}"`;
     let end = at === undefined ? size : undefined;
     let model: string | undefined;
     let effort: string | undefined;
@@ -292,11 +304,11 @@ export async function transcriptPoint(
         if (end !== undefined) read += bytes + 1;
         if (!line) continue;
         if (end === undefined) {
-          if (!line.includes(needle!)) continue;
+          if (!line.includes(at!)) continue;
           if (parseLine(line)?.uuid !== at) continue;
           end = after;
         }
-        if (!line.includes('"type":"assistant"')) continue;
+        if (!line.includes('"assistant"')) continue;
         const entry = parseLine(line);
         if (!entry || entry.type !== "assistant" || entry.isSidechain) continue;
         // Claude Code's own name for the model, with its context window, such
@@ -489,7 +501,7 @@ export async function followTranscript(
   const newest = await read(main, FIRST_BYTES);
   let tail = newest.events;
   let start = newest.first;
-  for (let reach = FIRST_BYTES; start > 0 && reach < TAIL_BYTES;) {
+  for (let reach = FIRST_BYTES; start > 0 && reach < TAIL_BYTES; ) {
     if (shownLines(tail) >= FIRST_LINES) break;
     reach = Math.min(reach * 4, TAIL_BYTES);
     const from = Math.max(0, main.offset - reach);

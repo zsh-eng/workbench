@@ -62,6 +62,7 @@ export function ModelPicker({
   placeholder,
   disabled,
   align = "end",
+  side,
   trigger,
 }: {
   label?: string;
@@ -91,7 +92,8 @@ export function ModelPicker({
   /** The trigger's text while no model is chosen, such as the agent's name. */
   placeholder?: string;
   disabled?: boolean;
-  align?: "start" | "end";
+  align?: "start" | "center" | "end";
+  side?: "top" | "bottom";
   trigger?: stylex.StyleXStyles;
 }) {
   const [query, setQuery] = useState("");
@@ -165,7 +167,12 @@ export function ModelPicker({
         </Combobox.Icon>
       </Combobox.Trigger>
       <Combobox.Portal>
-        <Combobox.Positioner sideOffset={6} align={align} {...stylex.props(styles.positioner)}>
+        <Combobox.Positioner
+          sideOffset={6}
+          align={align}
+          {...(side ? { side } : {})}
+          {...stylex.props(styles.positioner)}
+        >
           <Combobox.Popup aria-label={label} {...stylex.props(ui.popup, ui.pop, styles.popup)}>
             {agents && agents.options.length > 1 && (
               <div role="group" aria-label="Agent" {...stylex.props(styles.agents)}>
@@ -204,11 +211,11 @@ export function ModelPicker({
               )}
             </Combobox.Empty>
             <Combobox.List {...stylex.props(styles.list)}>
-              {(group: { value: string; items: string[] }) => (
+              {(group: { value: string; items: string[] }, groupIndex: number) => (
                 <Combobox.Group
                   key={group.value}
                   items={group.items}
-                  {...stylex.props(styles.group)}
+                  {...stylex.props(styles.group, groupIndex > 0 && styles.groupSplit)}
                 >
                   {group.value && (
                     <Combobox.GroupLabel {...stylex.props(styles.groupLabel)}>
@@ -216,31 +223,32 @@ export function ModelPicker({
                     </Combobox.GroupLabel>
                   )}
                   <Combobox.Collection>
-                    {(item: string) => (
-                      <Combobox.Item
-                        key={item}
-                        value={item}
-                        className={(state) =>
-                          stylex.props(
-                            ui.menuItem,
-                            styles.item,
-                            state.highlighted && [ui.menuHighlighted, picked],
-                          ).className
-                        }
-                      >
-                        <span {...stylex.props(styles.itemName)}>
-                          <Matched
-                            text={names.get(item)?.name ?? item}
-                            ranges={matchRanges(names.get(item)?.name ?? item, query)}
-                          />
-                        </span>
-                        <span data-check="" {...stylex.props(styles.check)}>
-                          <Combobox.ItemIndicator {...stylex.props(styles.indicator)}>
-                            <Icon name="check" size={14} />
-                          </Combobox.ItemIndicator>
-                        </span>
-                      </Combobox.Item>
-                    )}
+                    {(item: string) => {
+                      const name = names.get(item)?.name ?? item;
+                      return (
+                        <Combobox.Item
+                          key={item}
+                          value={item}
+                          title={name}
+                          className={(state) =>
+                            stylex.props(
+                              ui.menuItem,
+                              styles.item,
+                              state.highlighted && [ui.menuHighlighted, picked],
+                            ).className
+                          }
+                        >
+                          <span {...stylex.props(styles.itemName)}>
+                            <Matched text={name} ranges={matchRanges(name, query)} />
+                          </span>
+                          <span data-check="" {...stylex.props(styles.check)}>
+                            <Combobox.ItemIndicator {...stylex.props(styles.indicator)}>
+                              <Icon name="check" size={14} />
+                            </Combobox.ItemIndicator>
+                          </span>
+                        </Combobox.Item>
+                      );
+                    }}
                   </Combobox.Collection>
                 </Combobox.Group>
               )}
@@ -357,6 +365,13 @@ const styles = stylex.create({
   },
   list: { flex: "1", minHeight: 0, overflowY: "auto", outline: "none", scrollPaddingBlock: 6 },
   group: { display: "flex", flexDirection: "column" },
+  groupSplit: {
+    marginTop: 4,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: tokens.line,
+  },
   // A section's name stays at the list's top while its models scroll under it.
   groupLabel: {
     position: "sticky",
@@ -364,14 +379,20 @@ const styles = stylex.create({
     zIndex: 1,
     backgroundColor: tokens.menu,
     paddingInline: 10,
-    paddingTop: 8,
+    paddingTop: 6,
     paddingBottom: 3,
     color: tokens.faint,
     fontSize: 11.5,
     fontWeight: 500,
   },
   item: { justifyContent: "flex-start", gap: 12 },
-  itemName: { flex: "1", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
+  itemName: {
+    flex: "1",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
   check: { display: "inline-flex", justifyContent: "center", flexShrink: 0, width: 14 },
   indicator: { display: "inline-flex", color: tokens.accent },
   // The levels: a track with a pill that slides to the chosen one.

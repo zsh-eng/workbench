@@ -70,14 +70,18 @@ export function followEnd(node: HTMLElement, stuck: { current: boolean }, change
   let pressed = false;
   // The reader let go: only a move to the end follows again.
   let away = false;
+  // The view paused following only because the reader dragged or double-clicked a selection.
+  let heldBySelection = false;
   let touch: number | undefined;
   // The reader moves the view by this distance, up when it is negative.
-  const move = (distance: number) => {
+  const move = (distance: number, fromSelection = false) => {
     const was = stuck.current;
     if (distance < 0) {
       up = performance.now();
       // Up lets go, unless the view is at its top.
       if (node.scrollTop > 0) {
+        if (!fromSelection) heldBySelection = false;
+        else if (stuck.current) heldBySelection = true;
         stuck.current = false;
         away = true;
       }
@@ -86,6 +90,7 @@ export function followEnd(node: HTMLElement, stuck: { current: boolean }, change
     else if (node.scrollHeight - node.scrollTop - node.clientHeight - distance < END) {
       stuck.current = true;
       away = false;
+      heldBySelection = false;
     }
     if (stuck.current !== was) changed();
   };
@@ -146,10 +151,21 @@ export function followEnd(node: HTMLElement, stuck: { current: boolean }, change
     pressed = false;
   };
   // A selection that the reader drags in the view: the text holds still under it.
+  // Once the selection clears while the view is still at the end, following resumes.
   const onSelect = () => {
     const selection = node.ownerDocument.getSelection();
-    if (pressed && selection && !selection.isCollapsed && node.contains(selection.anchorNode))
-      move(-1);
+    if (pressed && selection && !selection.isCollapsed && node.contains(selection.anchorNode)) {
+      move(-1, true);
+      return;
+    }
+    if (heldBySelection && (!selection || selection.isCollapsed) && atEnd(node)) {
+      heldBySelection = false;
+      away = false;
+      if (!stuck.current) {
+        stuck.current = true;
+        changed();
+      }
+    }
   };
   const doc = node.ownerDocument;
   node.addEventListener("wheel", onWheel, { passive: true });
@@ -169,18 +185,23 @@ export function followEnd(node: HTMLElement, stuck: { current: boolean }, change
       if (!node.clientHeight) return;
       const y = node.scrollTop;
       const gap = node.scrollHeight - y - node.clientHeight;
-      if (stuck.current) away = false;
+      if (stuck.current) {
+        away = false;
+        heldBySelection = false;
+      }
       // The reader's move up lets go. The browser's clamp, as the thread gets
       // shorter, leaves the view at its very end, and does not.
       if (y + 1 < top && gap >= 1 && (pressed || performance.now() - up < RECENT)) {
         stuck.current = false;
         away = true;
+        heldBySelection = false;
       }
       // A move to the end follows again, and so does a view at the end that
       // the reader did not take away.
       else if (gap < END && (Math.abs(y - top) > 1 || !away)) {
         stuck.current = true;
         away = false;
+        heldBySelection = false;
       }
       top = y;
     },

@@ -82,14 +82,15 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
     ["effort", "medium"],
     ["mode", "auto"],
   ]);
-  // Built-in commands have GUI controls; the `/` menu lists the others, and
-  // /compact, which Compact now also sends.
+  // The `/` menu surfaces custom commands and agent built-ins (including /compact).
   expect(ready.commands).toEqual([
-    { name: "review", description: "Review the current changes" },
+    { name: "review", description: "Review the current changes", kind: "command" },
+    { name: "clear", description: "Clear the conversation", kind: "builtin" },
     {
       name: "compact",
       description: "Summarize the conversation to free its context",
       hint: "[instructions]",
+      kind: "builtin",
     },
   ]);
   // Claude Code names the signed-in account; Med keeps none of it.

@@ -157,7 +157,7 @@ export function PathContextMenu({
         <ContextMenu.Positioner {...stylex.props(styles.positioner)}>
           <ContextMenu.Popup
             aria-label={target ? `${target.path} actions` : "File actions"}
-            {...stylex.props(ui.popup, styles.menu)}
+            {...stylex.props(ui.popup, ui.pop, styles.menu)}
           >
             {entries.map((entry, index) =>
               entry ? (

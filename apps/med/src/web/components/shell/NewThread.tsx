@@ -11,6 +11,7 @@ import { ActionMenu, FlipChoice, type Choice as Option } from "../Controls";
 import { ModelPicker } from "../ModelPicker";
 import { Icon, type IconName } from "../Icon";
 import { useMentions } from "../Mentions";
+import { RichPromptEditor, type RichPromptEditorHandle } from "../RichPromptEditor";
 import { createBrowseApi, useBrowseFiles, useVaults } from "../../data/browse";
 import { useMentionSources } from "../../data/mentions";
 import { findSources } from "../../data/setup";
@@ -137,7 +138,7 @@ export function NewThread({
   const options = useAgentOptions(agent?.id, fetcher);
   const { model, effort, efforts } = sessionChoices(options, agent && choice.agents?.[agent.id]);
   const [prompt, setPrompt] = useState("");
-  const input = useRef<HTMLTextAreaElement>(null);
+  const input = useRef<RichPromptEditorHandle | null>(null);
   // @ names the repository's files, the vaults' notes, and other threads.
   const api = useMemo(() => createBrowseApi(fetcher, readBrowserToken()), [fetcher]);
   const [mentionRound, setMentionRound] = useState(0);
@@ -164,8 +165,7 @@ export function NewThread({
     setText: setPrompt,
     sources: mentionSources,
     onWanted: wantMentions,
-    input: styles.input,
-    area: input,
+    editor: input,
   });
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
@@ -287,41 +287,42 @@ export function NewThread({
                 <PromptImageList images={pictures.images} onRemove={pictures.remove} />
               </div>
             )}
-            {mentions.field(
-              <textarea
-                {...mentions.textarea}
-                value={prompt}
-                disabled={busy}
-                rows={3}
-                placeholder="Describe the task, and @ to name files, notes, or threads. Enter starts the agent."
-                aria-label="Task"
-                role="combobox"
-                aria-controls={mentions.textarea["aria-controls"]}
-                aria-expanded={mentions.open}
-                aria-autocomplete="list"
-                onChange={(event) => {
-                  setPrompt(event.target.value);
-                  mentions.changed(event.target.selectionStart);
-                }}
-                onKeyDown={(event) => {
-                  if (mentions.onKeyDown(event)) return;
-                  // Enter starts, ⇧Enter adds a line; ⌘↵ starts from anywhere.
-                  if (
-                    event.key === "Enter" &&
-                    !event.shiftKey &&
-                    !event.metaKey &&
-                    !event.ctrlKey &&
-                    !event.altKey &&
-                    !event.nativeEvent.isComposing
-                  ) {
-                    event.preventDefault();
-                    void start();
-                  }
-                }}
-                {...pictures.field}
-                {...stylex.props(styles.input, mentions.over)}
-              />,
-            )}
+            <RichPromptEditor
+              editorRef={input}
+              value={prompt}
+              mentions={mentions.mentioned}
+              disabled={busy}
+              minHeight={72}
+              maxHeight={220}
+              placeholder="Describe the task, and @ to name files, notes, or threads. Enter starts the agent."
+              ariaLabel="Task"
+              inputRole="combobox"
+              ariaControls={mentions.ariaControls}
+              ariaActiveDescendant={mentions.ariaActiveDescendant}
+              ariaExpanded={mentions.open}
+              ariaAutoComplete="list"
+              onChange={(next, pos) => {
+                setPrompt(next);
+                mentions.changed(pos);
+              }}
+              onSelect={mentions.onSelect}
+              onKeyDown={(event) => {
+                if (mentions.onKeyDown(event)) return;
+                // Enter starts, ⇧Enter adds a line; ⌘↵ starts from anywhere.
+                if (
+                  event.key === "Enter" &&
+                  !event.shiftKey &&
+                  !event.metaKey &&
+                  !event.ctrlKey &&
+                  !event.altKey &&
+                  !event.nativeEvent.isComposing
+                ) {
+                  event.preventDefault();
+                  void start();
+                }
+              }}
+              {...pictures.field}
+            />
             <div {...stylex.props(styles.tray)}>
               <AddImagesButton onAdd={(files) => void pictures.add(files)} disabled={busy} />
             </div>
@@ -458,7 +459,7 @@ function Picker({
 /** A model's or an effort's name, with Claude Code's "Default (recommended)" as "Default";
  * the menu shows its mark as a badge. */
 const optionName = (option: { value: string; name: string }) =>
-  option.value === "default" ? "Default" : option.name;
+  option.value === "default" ? "Default" : option.name.replace(/\s*\(recommended\)$/i, "");
 
 /** A menu's trigger: its icon and the choice. */
 function MenuLabel({ icon, text }: { icon: IconName; text: string }) {

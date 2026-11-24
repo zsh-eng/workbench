@@ -64,7 +64,9 @@ import { partAt, partMove, type PartPlace } from "./thread-place";
 import { PlacePill, type ThreadPlace } from "./PlacePill";
 import { glideContent } from "./thread-glide";
 import { whenIdle } from "../../data/idle";
+import { closeOpenFence, hasPromptMarkdown, keepLineBreaks } from "../../markdown/user-markdown";
 import "./prose-styles";
+import "./PromptMarkdown.css";
 
 type AgentItem = Extract<SessionItem, { kind: "agent" }>;
 
@@ -180,12 +182,14 @@ function PromptText({
   parts,
   images,
   onOpen,
+  onOpenLink,
 }: {
   id: string;
   parts: PromptBlock[];
   /** Thumbnails above the text, which put space before its first part. */
   images: boolean;
   onOpen?(): void;
+  onOpenLink?(href: string): void;
 }) {
   const body = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useRowOpen(id, false);
@@ -232,6 +236,19 @@ function PromptText({
             >
               <LinkedText text={part.text} />
             </blockquote>
+          ) : hasPromptMarkdown(part.text) ? (
+            <div
+              key={at}
+              data-prompt-prose=""
+              {...stylex.props((at > 0 || images) && styles.userNext)}
+            >
+              <SessionMarkdown
+                text={keepLineBreaks(folded && cut ? closeOpenFence(part.text) : part.text)}
+                streaming={false}
+                settled
+                onOpenLink={onOpenLink}
+              />
+            </div>
           ) : (
             <p key={at} {...stylex.props(styles.userText, (at > 0 || images) && styles.userNext)}>
               <LinkedText text={part.text} />
@@ -288,6 +305,7 @@ const Item = memo(function Item({
               parts={promptParts(item)}
               images={images.length > 0}
               onOpen={unitKey ? () => onHold?.(unitKey) : undefined}
+              onOpenLink={onOpenLink}
             />
             {item.sent?.comments?.map((comment, index) => (
               <Comment key={index} comment={comment} />
@@ -1732,7 +1750,7 @@ export function SessionThread({
         letGo();
         record();
       }
-      setAtBottom(stuck.current);
+      setAtBottom(stuck.current || atEnd(node));
     });
     // A view that stops following ends its glide where the reader sees the
     // content: the rest of the glide becomes scroll position, so nothing on
@@ -1912,7 +1930,7 @@ export function SessionThread({
       }
       reader.wrote();
       if (stuck.current) recorded = node.scrollTop;
-      setAtBottom(stuck.current);
+      setAtBottom(stuck.current || atEnd(node));
       setSized(node.clientHeight > 0);
     };
     const onScroll = () => {
@@ -1920,7 +1938,7 @@ export function SessionThread({
       if (!stuck.current) letGo();
       // The place the next glide measures from.
       see();
-      setAtBottom(stuck.current);
+      setAtBottom(stuck.current || atEnd(node));
       // The event for a scroll that the view wrote itself keeps the anchor it
       // kept. The page can have changed since, as when a reply above renders
       // its Markdown, and the units report their heights only after this

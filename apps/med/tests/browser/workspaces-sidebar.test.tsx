@@ -672,7 +672,7 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   await expect.poll(() => images.getByRole("listitem").elements().length).toBe(2);
   await images.getByRole("button", { name: "Remove attachment 2" }).click();
   await expect.poll(() => images.getByRole("listitem").elements().length).toBe(1);
-  await expect.element(task).toHaveValue("Show each result's age in the list");
+  await expect.element(task).toHaveAttribute("data-value", "Show each result's age in the list");
   // ⌘↵ starts from anywhere on the page: here, from the model's picker.
   (model.element() as HTMLElement).focus();
   await expect.element(page.getByRole("dialog", { name: "Model" })).not.toBeInTheDocument();
@@ -748,7 +748,7 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   // Enter in the task starts; ⇧Enter adds a line.
   await task.click();
   await userEvent.keyboard("Rank results{Shift>}{Enter}{/Shift}by age");
-  await expect.element(task).toHaveValue("Rank results\nby age");
+  await expect.element(task).toHaveAttribute("data-value", "Rank results\nby age");
   await userEvent.keyboard("{Enter}");
   await expect
     .poll(() => host.threadRequests.at(-1)?.body)
@@ -763,7 +763,7 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
     .element(dialog.getByRole("group", { name: "Notes" }).getByRole("option", { name: /Ages\.md/ }))
     .toBeVisible();
   await userEvent.keyboard("{Enter}");
-  await expect.element(task).toHaveValue("Follow @Ages.md ");
+  await expect.element(task).toHaveAttribute("data-value", "Follow @Ages.md ");
   await userEvent.keyboard("{Enter}");
   await expect
     .poll(() => host.threadRequests.at(-1)?.body)

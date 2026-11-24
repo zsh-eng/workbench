@@ -304,8 +304,8 @@ const startMode = (mode: string | undefined) =>
 /** The modes that an approved plan can continue in, the first by default,
  * as Claude Code offers them after a plan. */
 const planModes = (bypass: boolean) =>
-  ["acceptEdits", "default", "auto", ...(bypass ? [BYPASS] : [])].map((value) =>
-    CLAUDE_MODES.find((mode) => mode.value === value)!,
+  ["acceptEdits", "default", "auto", ...(bypass ? [BYPASS] : [])].map(
+    (value) => CLAUDE_MODES.find((mode) => mode.value === value)!,
   );
 const questionsSchema = z.array(ownedQuestionSchema).min(1).max(8);
 
@@ -626,19 +626,26 @@ export function startClaude(
       // Claude Code reports the mode that it started in: the session's own,
       // or for a new one, the mode that Med asked for.
       if (parsed.data.current_permission_mode) chosen.mode = parsed.data.current_permission_mode;
+      const seen = new Set<string>();
+      const custom: OwnedCommand[] = [];
+      const builtins: OwnedCommand[] = [];
+      for (const command of parsed.data.commands) {
+        if (!command.name || seen.has(command.name)) continue;
+        seen.add(command.name);
+        const entry: OwnedCommand = {
+          name: command.name,
+          description: command.description,
+          ...(command.argumentHint ? { hint: command.argumentHint } : {}),
+          kind: command.builtin ? "builtin" : "command",
+        };
+        (command.builtin ? builtins : custom).push(entry);
+      }
+      if (!seen.has(COMPACT_COMMAND.name))
+        builtins.push({ ...COMPACT_COMMAND, hint: "[instructions]", kind: "builtin" });
       store.set({
         status: store.get().status === "starting" ? "idle" : store.get().status,
         settings: settings(),
-        commands: [
-          ...parsed.data.commands
-            .filter((command) => !command.builtin && command.name !== COMPACT_COMMAND.name)
-            .map((command): OwnedCommand => ({
-              name: command.name,
-              description: command.description,
-              ...(command.argumentHint ? { hint: command.argumentHint } : {}),
-            })),
-          { ...COMPACT_COMMAND, hint: "[instructions]" },
-        ],
+        commands: [...custom, ...builtins],
       });
     },
     get_context_usage(value) {
@@ -1593,19 +1600,34 @@ export function startAcp(
         };
       },
       notify(method, params) {
-        if (method !== "session/update" || loading) return;
+        if (method !== "session/update") return;
         const update = (params as { update?: Record<string, unknown> })?.update;
         if (!update || typeof update.sessionUpdate !== "string") return;
+        if (
+          loading &&
+          update.sessionUpdate !== "available_commands_update" &&
+          update.sessionUpdate !== "config_option_update" &&
+          update.sessionUpdate !== "current_mode_update"
+        )
+          return;
         switch (update.sessionUpdate) {
           case "available_commands_update":
             store.set({
               commands: (Array.isArray(update.availableCommands) ? update.availableCommands : [])
                 .filter((command) => typeof command?.name === "string")
-                .map((command: Record<string, any>) => ({
-                  name: command.name,
-                  description: String(command.description ?? ""),
-                  ...(typeof command.input?.hint === "string" ? { hint: command.input.hint } : {}),
-                })),
+                .map((command: Record<string, any>): OwnedCommand => {
+                  const kind = command._meta?.med?.kind;
+                  return {
+                    name: command.name,
+                    description: String(command.description ?? ""),
+                    ...(typeof command.input?.hint === "string"
+                      ? { hint: command.input.hint }
+                      : {}),
+                    ...(kind === "builtin" || kind === "skill" || kind === "command"
+                      ? { kind }
+                      : {}),
+                  };
+                }),
             });
             return;
           case "config_option_update":
@@ -2964,15 +2986,32 @@ export class OwnedSessions {
     { key, at }: { key?: string; at?: string } = {},
   ): Promise<OwnedRunner> {
     const agent = await this.claude(session.cwd);
-    const choices = await this.sessionChoices(session, at);
+    // A fork before its first prompt has no transcript of its own yet: follow
+    // its fork source chain so forking any reply shown in it works immediately
+    // and keeps the ancestor's forkAt/cwd when `at` is not specified.
+    let source = session;
+    let forkAt = at;
+    const visited = new Set<string>([source.id]);
+    while (!(await findTranscript(source).catch(() => undefined))) {
+      const point = this.forkPoint(source.id);
+      if (!point || visited.has(point.of)) break;
+      visited.add(point.of);
+      if (!forkAt && point.at) forkAt = point.at;
+      source = {
+        ...source,
+        id: point.of,
+        cwd: this.records[point.of]?.cwd ?? source.cwd,
+      };
+    }
+    const choices = await this.sessionChoices(source, forkAt);
     if (!choices) throw new HostError("message-not-found", "The session has no such message.", 404);
     const mode = AGENT_DEFAULTS[agent.id]?.mode;
     const wanted = { ...choices, ...(mode ? { mode } : {}) };
-    const runner = startClaude(agent, session.cwd, {
+    const runner = startClaude(agent, source.cwd, {
       holders: this.options.holderDirectory,
-      fork: session.id,
-      ...(at ? { forkAt: at } : {}),
-      env: () => this.environment(key, session.cwd),
+      fork: source.id,
+      ...(forkAt ? { forkAt } : {}),
+      env: () => this.environment(key, source.cwd),
       autoCompact: () => this.autoCompact(agent.id),
       choices: wanted,
       models: await this.models(agent),
@@ -2982,12 +3021,12 @@ export class OwnedSessions {
       preset: agent.id,
       kind: "claude",
       name: agent.name,
-      cwd: session.cwd,
+      cwd: source.cwd,
       ...(key ? { key } : {}),
       // What it starts with, so a restart before the agent answers keeps them.
       choices: wanted,
-      forkOf: session.id,
-      ...(at ? { forkAt: at } : {}),
+      forkOf: source.id,
+      ...(forkAt ? { forkAt } : {}),
       updatedAt: Date.now(),
     });
     return runner;

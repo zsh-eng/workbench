@@ -559,9 +559,13 @@ export function LineChart({
             <span {...stylex.props(styles.bigValue)}>
               {single0 === null ? "–" : formatValue(single0, spec.unit)}
             </span>
-            {/* Neutral: whether up is good depends on what is measured. */}
-            {change !== null && source?.live && hoverTime === null && (
-              <span {...stylex.props(styles.change)}>
+            {/* Neutral: whether up is good depends on what is measured. Kept
+                in layout on hover so the header title never rewraps. */}
+            {change !== null && source?.live && (
+              <span
+                aria-hidden={hoverTime !== null || undefined}
+                {...stylex.props(styles.change, hoverTime !== null && styles.hiddenSlot)}
+              >
                 {change >= 0 ? "↗" : "↘"}{" "}
                 {Math.abs(change * 100).toFixed(Math.abs(change) < 0.1 ? 1 : 0)}%
               </span>
@@ -612,8 +616,11 @@ export function LineChart({
             </button>
           );
         })}
-        {drawn && hoverTime === null && (
-          <span {...stylex.props(styles.moment)}>
+        {drawn && (
+          <span
+            aria-hidden={hoverTime !== null || undefined}
+            {...stylex.props(styles.moment, hoverTime !== null && styles.hiddenSlot)}
+          >
             {source?.live && !zoom ? "Now" : formatMoment(Math.min(to, full[1]), 60_000)}
           </span>
         )}
@@ -1083,6 +1090,7 @@ const styles = stylex.create({
     fontSize: 12,
     fontWeight: 500,
     fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap",
   },
   keys: {
     display: "flex",
@@ -1127,6 +1135,7 @@ const styles = stylex.create({
     fontWeight: 500,
     fontVariantNumeric: "tabular-nums",
     textAlign: "left",
+    whiteSpace: "nowrap",
   },
   keyUnit: { marginLeft: 3, color: tokens.faint, fontWeight: 400 },
   pending: { color: tokens.faint },
@@ -1137,6 +1146,11 @@ const styles = stylex.create({
     color: tokens.faint,
     fontSize: 11.5,
     fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap",
+  },
+  hiddenSlot: {
+    visibility: "hidden",
+    pointerEvents: "none",
   },
   grow: { flex: "1" },
   plot: { position: "relative", marginTop: 10, marginInline: -2 },

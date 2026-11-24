@@ -30,6 +30,7 @@ import { tooltip } from "../ToolButton";
 import { PlanCard, QuestionCard, type CardKeys } from "./AskCards";
 import { AddImagesButton, PromptImageList, usePromptImages } from "./PromptImages";
 import { mentionPopover, useMentions } from "../Mentions";
+import { RichPromptEditor } from "../RichPromptEditor";
 import { SessionNotice } from "./SessionNotice";
 import type { MentionSources } from "../../data/mentions";
 import { readDraft, writeDraft } from "../../data/outbox";
@@ -54,17 +55,27 @@ export interface OwnedControls {
 }
 
 const SETTING_ORDER: OwnedSetting["category"][] = ["model", "effort", "mode", "other"];
-/** Commands shown at most in the `/` menu. */
-const MAX_COMMANDS = 8;
+const COMMAND_KIND: Record<NonNullable<OwnedCommand["kind"]>, string> = {
+  command: "Command",
+  skill: "Skill",
+  builtin: "Built-in",
+};
 
-/** The commands whose names start with, then contain, the typed text. */
+/** The commands whose names start with, then contain, then describe the typed text. */
 function matchCommands(commands: OwnedCommand[], query: string) {
   const needle = query.toLowerCase();
+  if (!needle) return commands;
   const starts = commands.filter((command) => command.name.toLowerCase().startsWith(needle));
   const contains = commands.filter(
     (command) => !starts.includes(command) && command.name.toLowerCase().includes(needle),
   );
-  return [...starts, ...contains].slice(0, MAX_COMMANDS);
+  const described = commands.filter(
+    (command) =>
+      !starts.includes(command) &&
+      !contains.includes(command) &&
+      command.description.toLowerCase().includes(needle),
+  );
+  return [...starts, ...contains, ...described];
 }
 
 /** A tool call that waits for the user: a permission to give, the agent's
@@ -268,12 +279,15 @@ export function SessionComposer({
   const slash = owned && !menuClosed ? /^\/(\S*)$/.exec(text) : null;
   const matches = slash ? matchCommands(owned!.state.commands, slash[1]!) : [];
   const active = Math.min(highlight, Math.max(0, matches.length - 1));
+  useEffect(() => {
+    if (matches.length)
+      document.getElementById(`${menuId}-${active}`)?.scrollIntoView({ block: "nearest" });
+  }, [active, matches.length, menuId]);
   const mentions = useMentions({
     text,
     setText,
     sources: mentionSources,
     onWanted: onMentionsWanted,
-    input: styles.input,
     off: matches.length > 0,
     initial: kept?.mentions,
   });
@@ -347,7 +361,7 @@ export function SessionComposer({
     onClearQuotes?.();
     for (const attachment of attachments) onRemoveAttachment(attachment.id);
   };
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (mentions.onKeyDown(event)) return;
     // While the field is empty, a question's number keys pick its choices.
     if (!text && cardKeys.current?.(event)) return;
@@ -728,44 +742,45 @@ export function SessionComposer({
                   )}
                 </span>
                 <span {...stylex.props(styles.commandText)}>{command.description}</span>
+                {command.kind && (
+                  <span {...stylex.props(styles.commandBadge)}>{COMMAND_KIND[command.kind]}</span>
+                )}
               </button>
             ))}
           </div>
         )}
         {mentions.menu}
-        {mentions.field(
-          <textarea
-            {...mentions.textarea}
-            aria-label={`Message ${name}`}
-            placeholder={
-              owned?.state.commands.length
-                ? `Message ${name}, @ to mention, or / for commands…`
-                : mentionSources
-                  ? `Message ${name}, or @ to mention…`
-                  : `Message ${name}…`
-            }
-            value={text}
-            rows={2}
-            role={owned || mentionSources ? "combobox" : undefined}
-            aria-expanded={
-              owned || mentionSources ? matches.length > 0 || mentions.open : undefined
-            }
-            aria-controls={matches.length ? menuId : mentions.textarea["aria-controls"]}
-            aria-activedescendant={
-              matches.length ? `${menuId}-${active}` : mentions.textarea["aria-activedescendant"]
-            }
-            aria-autocomplete={owned || mentionSources ? "list" : undefined}
-            onChange={(event) => {
-              setText(event.target.value);
-              mentions.changed(event.target.selectionStart);
-              setHighlight(0);
-              if (!event.target.value.startsWith("/")) setMenuClosed(false);
-            }}
-            onKeyDown={onKeyDown}
-            {...pictures.field}
-            {...stylex.props(styles.input, mentions.over)}
-          />,
-        )}
+        <RichPromptEditor
+          editorRef={mentions.editorRef}
+          value={text}
+          mentions={mentions.mentioned}
+          ariaLabel={`Message ${name}`}
+          placeholder={
+            owned?.state.commands.length
+              ? `Message ${name}, @ to mention, or / for commands…`
+              : mentionSources
+                ? `Message ${name}, or @ to mention…`
+                : `Message ${name}…`
+          }
+          inputRole={owned || mentionSources ? "combobox" : undefined}
+          ariaExpanded={owned || mentionSources ? matches.length > 0 || mentions.open : undefined}
+          ariaControls={matches.length ? menuId : mentions.ariaControls}
+          ariaActiveDescendant={
+            matches.length ? `${menuId}-${active}` : mentions.ariaActiveDescendant
+          }
+          ariaAutoComplete={owned || mentionSources ? "list" : undefined}
+          minHeight={40}
+          maxHeight={200}
+          onChange={(next, pos) => {
+            setText(next);
+            mentions.changed(pos);
+            setHighlight(0);
+            if (!next.startsWith("/")) setMenuClosed(false);
+          }}
+          onSelect={mentions.onSelect}
+          onKeyDown={onKeyDown}
+          {...pictures.field}
+        />
         {owned && ownedStatus && (
           <span
             role="status"
@@ -873,6 +888,7 @@ export function SessionComposer({
                             },
                           }
                         : {})}
+                      side="top"
                       disabled={stopped || (setting.idleOnly && working)}
                       trigger={styles.picker}
                     />
@@ -884,8 +900,9 @@ export function SessionComposer({
                     value={setting.value}
                     choices={setting.options.map(optionChoice)}
                     // The pickers sit at the row's end, so each menu lines up
-                    // with its trigger's right edge and opens back over the row.
+                    // with its trigger's right edge and opens upward over the composer.
                     align="end"
+                    side="top"
                     disabled={stopped || (setting.idleOnly && working)}
                     onChange={(value) => choose(setting, value)}
                     trigger={styles.picker}
@@ -1147,6 +1164,7 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     gap: 1,
+    scrollbarWidth: "thin",
   },
   command: {
     display: "flex",
@@ -1168,7 +1186,25 @@ const styles = stylex.create({
   commandActive: { backgroundColor: tokens.fill, color: tokens.text },
   commandName: { flexShrink: 0, color: tokens.text, fontFamily: tokens.code, fontSize: 11.5 },
   commandHint: { color: tokens.faint },
-  commandText: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  commandText: {
+    flexGrow: 1,
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  commandBadge: {
+    flexShrink: 0,
+    marginInlineStart: "auto",
+    paddingInline: 5,
+    paddingBlock: 1,
+    borderRadius: `calc(4px * ${tokens.round})`,
+    backgroundColor: tokens.fill,
+    color: tokens.faint,
+    fontSize: 10.5,
+    fontWeight: 500,
+    lineHeight: 1.35,
+  },
   ask: {
     flexShrink: 0,
     display: "flex",

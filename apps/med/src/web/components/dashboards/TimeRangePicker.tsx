@@ -106,7 +106,7 @@ export function TimeRangePicker({
           </span>
         </Popover.Trigger>
         <Popover.Portal>
-          <Popover.Positioner align="start" sideOffset={6} {...stylex.props(styles.positioner)}>
+          <Popover.Positioner align="end" sideOffset={6} {...stylex.props(styles.positioner)}>
             <Popover.Popup
               aria-label="Time range"
               initialFocus={field}

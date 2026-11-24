@@ -4,6 +4,7 @@ import { createInterface } from "node:readline";
 import {
   AGENT_CAPABILITIES,
   type AgentChoices,
+  type OwnedCommand,
   OwnedPermission,
   OwnedQuestion,
   OwnedSetting,
@@ -66,7 +67,6 @@ const QUIET = [
   "account/rateLimits/updated",
   "mcpServer/startupStatus/updated",
   "remoteControl/status/changed",
-  "skills/changed",
 ];
 const initialize = {
   clientInfo: CLIENT,
@@ -106,6 +106,39 @@ function modelsOf(result: unknown): CodexModel[] {
       },
     ];
   });
+}
+
+function skillsOf(result: unknown): { commands: OwnedCommand[]; paths: Map<string, string> } {
+  const root = record(result);
+  const buckets = Array.isArray(root?.data)
+    ? root.data.flatMap((entry: unknown) =>
+        Array.isArray(record(entry)?.skills) ? (record(entry)!.skills as unknown[]) : [],
+      )
+    : Array.isArray(root?.skills)
+      ? root.skills
+      : [];
+  const seen = new Set<string>();
+  const commands: OwnedCommand[] = [];
+  const paths = new Map<string, string>();
+  for (const raw of buckets) {
+    const skill = record(raw);
+    if (!skill || skill.enabled === false || typeof skill.name !== "string") continue;
+    const name = skill.name.replace(/^[/$]/, "").trim();
+    if (!name || seen.has(name) || name === COMPACT_COMMAND.name) continue;
+    seen.add(name);
+    if (typeof skill.path === "string" && skill.path) paths.set(name, skill.path);
+    commands.push({
+      name,
+      description:
+        typeof skill.shortDescription === "string" && skill.shortDescription
+          ? skill.shortDescription
+          : typeof skill.description === "string"
+            ? skill.description
+            : "",
+      kind: "skill",
+    });
+  }
+  return { commands, paths };
 }
 
 /**
@@ -214,11 +247,34 @@ const APPROVE: OwnedPermission["options"] = [
   { id: "decline", name: "Deny", kind: "reject_once" },
 ];
 
-/** A user prompt as Codex's input: images as data URLs, then the text. */
-const inputOf = (text: string, images: { data: string; mimeType: string }[] = []) => [
-  ...images.map((image) => ({ type: "image", url: `data:${image.mimeType};base64,${image.data}` })),
-  ...(text ? [{ type: "text", text, text_elements: [] }] : []),
-];
+/** A user prompt as Codex's input: images as data URLs, optional skill invocation, then text. */
+const inputOf = (
+  text: string,
+  images: { data: string; mimeType: string }[] = [],
+  skills?: { known: ReadonlySet<string>; paths: ReadonlyMap<string, string> },
+) => {
+  const items: Record<string, unknown>[] = images.map((image) => ({
+    type: "image",
+    url: `data:${image.mimeType};base64,${image.data}`,
+  }));
+  const trimmed = text.trimStart();
+  const lead = /^\/([^\s]+)(?:\s+([\s\S]*))?$/.exec(trimmed);
+  const skillName = lead?.[1];
+  if (skillName && skills?.known.has(skillName)) {
+    const path = skills.paths.get(skillName);
+    const rest = lead?.[2] ?? "";
+    if (path) {
+      items.push({ type: "skill", name: skillName, path });
+      if (rest.trim()) items.push({ type: "text", text: rest, text_elements: [] });
+      return items;
+    }
+    const rewritten = rest ? `$${skillName} ${rest}` : `$${skillName}`;
+    items.push({ type: "text", text: rewritten, text_elements: [] });
+    return items;
+  }
+  if (text) items.push({ type: "text", text, text_elements: [] });
+  return items;
+};
 
 export interface CodexOptions {
   /** The folder of the agents' holders and their logs. */
@@ -257,8 +313,8 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
     name: agent.name,
     status: options.thread ? "idle" : "starting",
     settings: [],
-    // Codex's /compact is `thread/compact/start`.
-    commands: [COMPACT_COMMAND],
+    // Codex's /compact is `thread/compact/start`; discovered skills join on launch.
+    commands: [{ ...COMPACT_COMMAND, kind: "builtin" }],
     turns: 0,
     capabilities: AGENT_CAPABILITIES.codex,
     images: true,
@@ -279,6 +335,7 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
   let loaded = false;
   let turnId: string | undefined;
   let models: CodexModel[] = Array.isArray(options.models) ? options.models : [];
+  const skillState = { known: new Set<string>(), paths: new Map<string, string>() };
   const wanted = options.choices ?? {};
   let chosen = {
     model: wanted.model ?? "default",
@@ -498,6 +555,10 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
       });
     },
     notify(method, raw) {
+      if (method === "skills/changed") {
+        if (!replaying) void call("skills/list", { cwds: [cwd] }).catch(() => undefined);
+        return;
+      }
       const params = record(raw);
       if (!ours(params)) return;
       switch (method) {
@@ -624,6 +685,13 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
         models = offered;
         store.set({ settings: settings() });
       }
+    } else if (method === "skills/list") {
+      const { commands, paths } = skillsOf(result);
+      skillState.known = new Set(commands.map((command) => command.name));
+      skillState.paths = paths;
+      store.set({
+        commands: [...commands, { ...COMPACT_COMMAND, kind: "builtin" }],
+      });
     }
   };
   const call = <T = Json>(method: string, params: Json) =>
@@ -805,6 +873,7 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
       await call("initialize", initialize);
       rpc.notify("initialized", undefined);
       if (!models.length) await call("model/list", {}).catch(() => undefined);
+      void call("skills/list", { cwds: [cwd] }).catch(() => undefined);
       // The thread opens with Codex's own policy, which "Codex's setting"
       // goes back to; a chosen mode goes with the first turn. Med's
       // autocompact is the thread's model_auto_compact_token_limit.
@@ -908,7 +977,7 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
     modeChanged = false;
     await call("turn/start", {
       threadId: session.id,
-      input: inputOf(text, images),
+      input: inputOf(text, images, skillState),
       ...settings,
     }).catch((error: unknown) => {
       store.set({ status: "idle" });
@@ -988,7 +1057,7 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
         await call("turn/steer", {
           threadId: session.id,
           expectedTurnId: turnId,
-          input: inputOf(text, images),
+          input: inputOf(text, images, skillState),
         });
       } catch (error) {
         // The turn ended meanwhile: the message starts the next one.

@@ -98,22 +98,26 @@ export const ui = stylex.create({
     transitionProperty: "none",
     scrollBehavior: "auto",
   },
-  // Pointer-opened menus grow from their trigger. Base UI sets the origin and
-  // keeps the popup mounted until the exit transition ends.
+  // Pointer-opened menus grow from their trigger. Base UI sets --transform-origin
+  // and data-side, and keeps the popup mounted until the exit transition ends.
   pop: {
     transformOrigin: "var(--transform-origin)",
     transitionProperty: "opacity, transform",
     transitionTimingFunction: tokens.easeOut,
     transitionDuration: {
-      default: "150ms",
-      ":is([data-ending-style])": "90ms",
+      default: "160ms",
+      ":is([data-ending-style])": "100ms",
       ":is([data-instant])": "0ms",
       [reduced]: "0ms",
     },
     opacity: { default: 1, ":is([data-starting-style], [data-ending-style])": 0 },
     transform: {
-      default: "scale(1)",
-      ":is([data-starting-style], [data-ending-style])": "scale(0.96)",
+      default: "translateY(0) scale(1)",
+      ":is([data-starting-style], [data-ending-style])": "scale(0.95)",
+      ":is([data-starting-style], [data-ending-style])[data-side='top']":
+        "translateY(4px) scale(0.95)",
+      ":is([data-starting-style], [data-ending-style])[data-side='bottom']":
+        "translateY(-4px) scale(0.95)",
     },
   },
   button: {

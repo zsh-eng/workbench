@@ -48,8 +48,14 @@ export function QuestionCard({
   const [picked, setPicked] = useState<Picked[]>(() => questions.map(() => NONE));
   const [current, setCurrent] = useState(0);
   const others = useRef<(HTMLInputElement | null)[]>([]);
+  const groups = useRef<(HTMLDivElement | null)[]>([]);
   const instant = questions.length === 1 && !questions[0]!.multiSelect;
-  const complete = picked.every((entry) => answerOf(entry) !== "");
+  const answeredCount = picked.filter((entry) => answerOf(entry) !== "").length;
+  const complete = answeredCount === questions.length;
+
+  useEffect(() => {
+    if (questions.length > 1) groups.current[current]?.scrollIntoView({ block: "nearest" });
+  }, [current, questions.length]);
 
   const send = (all: Picked[]) => {
     if (!all.every((entry) => answerOf(entry) !== "")) return;
@@ -133,98 +139,149 @@ export function QuestionCard({
       }}
       {...stylex.props(styles.card, column.bar)}
     >
-      <div {...stylex.props(styles.title)}>
-        <Icon name="ask" size={13} />
-        {permission.title}
+      <div {...stylex.props(styles.cardHead)}>
+        <span aria-hidden="true" {...stylex.props(styles.badge)}>
+          <Icon name="ask" size={13} />
+        </span>
+        <span {...stylex.props(styles.titleText)}>{permission.title}</span>
+        {questions.length > 1 && (
+          <span {...stylex.props(styles.progress)}>
+            {answeredCount} of {questions.length} answered
+          </span>
+        )}
       </div>
-      {questions.map((question, index) => {
-        const entry = picked[index]!;
-        const here = index === current;
-        return (
-          <div
-            key={question.question}
-            role="group"
-            aria-label={question.question}
-            {...stylex.props(styles.question, questions.length > 1 && here && styles.current)}
-          >
-            <div {...stylex.props(styles.prompt)}>
-              {question.header && <span {...stylex.props(styles.header)}>{question.header}</span>}
-              <span>{question.question}</span>
-              {question.multiSelect && <span {...stylex.props(styles.hint)}>Choose any</span>}
-            </div>
-            <div {...stylex.props(styles.choices)}>
-              {question.options.map((option, at) => {
-                const on = entry.labels.includes(option.label);
-                return (
-                  <button
-                    key={option.label}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => pick(index, option.label)}
-                    {...stylex.props(styles.choice, on && styles.choiceOn)}
+      <div {...stylex.props(styles.body)}>
+        {questions.map((question, index) => {
+          const entry = picked[index]!;
+          const here = index === current;
+          const answered = answerOf(entry) !== "";
+          return (
+            <div
+              key={question.question}
+              ref={(node) => {
+                groups.current[index] = node;
+              }}
+              role="group"
+              aria-label={question.question}
+              {...stylex.props(
+                styles.question,
+                index > 0 && styles.questionSplit,
+                questions.length > 1 && styles.questionMulti,
+                questions.length > 1 && here && styles.current,
+              )}
+            >
+              <div {...stylex.props(styles.prompt)}>
+                {question.header && <span {...stylex.props(styles.header)}>{question.header}</span>}
+                <span {...stylex.props(styles.promptText)}>{question.question}</span>
+                {question.multiSelect && <span {...stylex.props(styles.hint)}>Select any</span>}
+                {questions.length > 1 && answered && (
+                  <span aria-hidden="true" {...stylex.props(styles.answeredDot)}>
+                    <Icon name="check" size={11} />
+                  </span>
+                )}
+              </div>
+              <div {...stylex.props(styles.choices)}>
+                {question.options.map((option, at) => {
+                  const on = entry.labels.includes(option.label);
+                  return (
+                    <button
+                      key={option.label}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => pick(index, option.label)}
+                      {...stylex.props(styles.choice, on && styles.choiceOn)}
+                    >
+                      <kbd
+                        aria-hidden="true"
+                        {...stylex.props(
+                          styles.key,
+                          on && styles.keyOn,
+                          !here && !on && styles.keyAway,
+                        )}
+                      >
+                        {at + 1}
+                      </kbd>
+                      <span {...stylex.props(styles.choiceText)}>
+                        <span {...stylex.props(styles.choiceLabel)}>{option.label}</span>
+                        {option.description && (
+                          <span {...stylex.props(styles.choiceNote)}>{option.description}</span>
+                        )}
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        {...stylex.props(
+                          styles.indicator,
+                          question.multiSelect ? styles.indicatorBox : styles.indicatorRadio,
+                          on && styles.indicatorOn,
+                        )}
+                      >
+                        {on && <Icon name="check" size={11} />}
+                      </span>
+                    </button>
+                  );
+                })}
+                <label
+                  {...stylex.props(styles.choice, styles.other, entry.otherOn && styles.choiceOn)}
+                >
+                  <kbd
+                    aria-hidden="true"
+                    {...stylex.props(
+                      styles.key,
+                      entry.otherOn && styles.keyOn,
+                      !here && !entry.otherOn && styles.keyAway,
+                    )}
                   >
-                    <kbd aria-hidden="true" {...stylex.props(styles.key, !here && styles.keyAway)}>
-                      {at + 1}
-                    </kbd>
-                    <span {...stylex.props(styles.choiceText)}>
-                      <span {...stylex.props(styles.choiceLabel)}>{option.label}</span>
-                      {option.description && (
-                        <span {...stylex.props(styles.choiceNote)}>{option.description}</span>
-                      )}
-                    </span>
-                    {on && <Icon name="check" size={12} />}
-                  </button>
-                );
-              })}
-              <label
-                {...stylex.props(styles.choice, styles.other, entry.otherOn && styles.choiceOn)}
-              >
-                <kbd aria-hidden="true" {...stylex.props(styles.key, !here && styles.keyAway)}>
-                  {question.options.length + 1}
-                </kbd>
-                <input
-                  ref={(input) => {
-                    others.current[index] = input;
-                  }}
-                  aria-label={`Other answer to ${question.question}`}
-                  placeholder="Other…"
-                  value={entry.other}
-                  onFocus={() => setCurrent(index)}
-                  onChange={(event) => write(index, event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" || !entry.other.trim()) return;
-                    event.preventDefault();
-                    const all = picked.map((value, at) =>
-                      at === index ? { ...value, otherOn: true } : value,
-                    );
-                    if (all.every((value) => answerOf(value) !== "")) send(all);
-                    else next(all, index);
-                  }}
-                  {...stylex.props(styles.otherInput)}
-                />
-              </label>
+                    {question.options.length + 1}
+                  </kbd>
+                  <input
+                    ref={(input) => {
+                      others.current[index] = input;
+                    }}
+                    aria-label={`Other answer to ${question.question}`}
+                    placeholder="Other…"
+                    value={entry.other}
+                    onFocus={() => setCurrent(index)}
+                    onChange={(event) => write(index, event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" || !entry.other.trim()) return;
+                      event.preventDefault();
+                      const all = picked.map((value, at) =>
+                        at === index ? { ...value, otherOn: true } : value,
+                      );
+                      if (all.every((value) => answerOf(value) !== "")) send(all);
+                      else next(all, index);
+                    }}
+                    {...stylex.props(styles.otherInput)}
+                  />
+                </label>
+              </div>
             </div>
-          </div>
-        );
-      })}
-      <div {...stylex.props(styles.actions)}>
-        {(!instant || picked[0]!.otherOn) && (
+          );
+        })}
+      </div>
+      <div {...stylex.props(styles.footer)}>
+        <span {...stylex.props(styles.shortcutHint)}>
+          {instant ? "Press 1–9 to answer" : "Press 1–9 to pick · Enter to submit"}
+        </span>
+        <div {...stylex.props(styles.footerButtons)}>
           <button
             type="button"
-            disabled={!complete}
-            onClick={() => send(picked)}
-            {...stylex.props(ui.button, ui.pressable, ui.primary, styles.button)}
+            onClick={() => onAnswer("deny")}
+            {...stylex.props(ui.button, ui.pressable, ui.outlined, styles.button)}
           >
-            Answer
+            Skip
           </button>
-        )}
-        <button
-          type="button"
-          onClick={() => onAnswer("deny")}
-          {...stylex.props(ui.button, ui.pressable, ui.outlined, styles.button)}
-        >
-          Skip
-        </button>
+          {(!instant || picked[0]!.otherOn) && (
+            <button
+              type="button"
+              disabled={!complete}
+              onClick={() => send(picked)}
+              {...stylex.props(ui.button, ui.pressable, ui.primary, styles.button)}
+            >
+              Answer
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -252,9 +309,11 @@ export function PlanCard({
   }, [keeping]);
   return (
     <div role="group" aria-label="Plan" {...stylex.props(styles.card, column.bar)}>
-      <div {...stylex.props(styles.title)}>
-        <Icon name="tasks" size={13} />
-        {permission.title}
+      <div {...stylex.props(styles.cardHead)}>
+        <span aria-hidden="true" {...stylex.props(styles.badge)}>
+          <Icon name="tasks" size={13} />
+        </span>
+        <span {...stylex.props(styles.titleText)}>{permission.title}</span>
       </div>
       <div {...stylex.props(styles.plan)}>
         <SessionMarkdown text={plan.text} streaming={false} />
@@ -266,7 +325,7 @@ export function PlanCard({
             event.preventDefault();
             onAnswer("deny", message.trim() ? { message: message.trim() } : {});
           }}
-          {...stylex.props(styles.actions)}
+          {...stylex.props(styles.footer, styles.actions)}
         >
           <input
             ref={field}
@@ -297,7 +356,7 @@ export function PlanCard({
           </button>
         </form>
       ) : (
-        <div {...stylex.props(styles.actions)}>
+        <div {...stylex.props(styles.footer, styles.actions)}>
           <button
             type="button"
             onClick={() => onAnswer("approve", { mode })}
@@ -331,97 +390,220 @@ const styles = stylex.create({
     flexShrink: 0,
     display: "flex",
     flexDirection: "column",
-    gap: 10,
+    maxHeight: "min(56vh, 460px)",
     marginInline: 12,
     marginBottom: 8,
-    padding: 10,
-    borderRadius: `calc(12px * ${tokens.round})`,
-    backgroundColor: tokens.raised,
-    boxShadow: `inset 0 0 0 1px ${tokens.accentLine}`,
+    overflow: "hidden",
+    borderRadius: `calc(14px * ${tokens.round})`,
+    backgroundColor: tokens.menu,
+    boxShadow: `${tokens.shadow}, inset 0 0 0 1px ${tokens.lineStrong}`,
     outline: "none",
   },
-  title: {
+  cardHead: {
+    flexShrink: 0,
     display: "flex",
     alignItems: "center",
-    gap: 7,
+    gap: 8,
+    paddingInline: 12,
+    paddingBlock: 9,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: tokens.line,
+    backgroundColor: tokens.raised,
+  },
+  badge: {
+    flexShrink: 0,
+    display: "grid",
+    placeItems: "center",
+    width: 22,
+    height: 22,
+    borderRadius: `calc(6px * ${tokens.round})`,
+    backgroundColor: tokens.accentSoft,
+    color: tokens.accent,
+  },
+  titleText: {
+    minWidth: 0,
     color: tokens.text,
     fontSize: 12.5,
+    fontWeight: 600,
+    letterSpacing: "-0.005em",
+  },
+  progress: {
+    marginInlineStart: "auto",
+    flexShrink: 0,
+    paddingInline: 7,
+    paddingBlock: 2,
+    borderRadius: 999,
+    backgroundColor: tokens.fill,
+    color: tokens.muted,
+    fontSize: 11,
     fontWeight: 500,
+    fontVariantNumeric: "tabular-nums",
+  },
+  body: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minHeight: 0,
+    overflowY: "auto",
+    scrollbarWidth: "thin",
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+    paddingInline: 12,
+    paddingBlock: 11,
   },
   question: {
     display: "flex",
     flexDirection: "column",
-    gap: 6,
-    paddingInlineStart: 8,
+    gap: 8,
+  },
+  questionSplit: {
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: tokens.line,
+  },
+  questionMulti: {
+    paddingInlineStart: 10,
     borderInlineStartWidth: 2,
     borderInlineStartStyle: "solid",
     borderInlineStartColor: "transparent",
+    transition: "border-color 140ms ease",
   },
   current: { borderInlineStartColor: tokens.accent },
   prompt: {
     display: "flex",
     flexWrap: "wrap",
-    alignItems: "baseline",
+    alignItems: "center",
     gap: 6,
     color: tokens.text,
     fontSize: 13,
     lineHeight: 1.45,
   },
+  promptText: {
+    fontWeight: 500,
+    color: tokens.text,
+  },
   header: {
     paddingInline: 6,
     paddingBlock: 1,
-    borderRadius: `calc(4px * ${tokens.round})`,
+    borderRadius: `calc(5px * ${tokens.round})`,
     backgroundColor: tokens.accentSoft,
     color: tokens.accent,
     fontSize: 11,
-    fontWeight: 500,
+    fontWeight: 600,
+    letterSpacing: "0.01em",
   },
-  hint: { color: tokens.muted, fontSize: 11.5 },
-  choices: { display: "flex", flexDirection: "column", gap: 4 },
+  hint: {
+    color: tokens.muted,
+    fontSize: 11.5,
+  },
+  answeredDot: {
+    marginInlineStart: "auto",
+    display: "grid",
+    placeItems: "center",
+    width: 18,
+    height: 18,
+    borderRadius: 999,
+    backgroundColor: tokens.accentSoft,
+    color: tokens.accent,
+  },
+  choices: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 5,
+  },
   choice: {
     display: "flex",
-    alignItems: "center",
-    gap: 8,
-    minHeight: 30,
-    paddingInline: 8,
-    paddingBlock: 4,
+    alignItems: "flex-start",
+    gap: 9,
+    minHeight: 34,
+    paddingInline: 10,
+    paddingBlock: 7,
     borderWidth: 0,
-    borderRadius: `calc(8px * ${tokens.round})`,
-    backgroundColor: { default: tokens.fill, ":hover": tokens.hover },
+    borderRadius: `calc(9px * ${tokens.round})`,
+    backgroundColor: { default: tokens.panel, ":hover": tokens.hover },
+    boxShadow: {
+      default: `inset 0 0 0 1px ${tokens.line}`,
+      ":hover": `inset 0 0 0 1px ${tokens.lineStrong}`,
+    },
     color: tokens.text,
     font: "inherit",
     textAlign: "start",
     cursor: "pointer",
+    transition: "background-color 120ms ease, box-shadow 120ms ease",
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
   choiceOn: {
     backgroundColor: { default: tokens.accentSoft, ":hover": tokens.accentSoft },
-    boxShadow: `inset 0 0 0 1px ${tokens.accentLine}`,
+    boxShadow: {
+      default: `inset 0 0 0 1px ${tokens.accentLine}`,
+      ":hover": `inset 0 0 0 1px ${tokens.accentLine}`,
+    },
   },
   key: {
     flexShrink: 0,
-    minWidth: 16,
+    marginTop: 1,
+    minWidth: 18,
+    height: 18,
     paddingInline: 4,
-    borderRadius: `calc(4px * ${tokens.round})`,
+    display: "inline-grid",
+    placeItems: "center",
+    borderRadius: `calc(5px * ${tokens.round})`,
+    backgroundColor: tokens.fill,
     boxShadow: `inset 0 0 0 1px ${tokens.line}`,
     color: tokens.muted,
     fontFamily: tokens.code,
     fontSize: 10.5,
-    lineHeight: "16px",
-    textAlign: "center",
+    fontWeight: 500,
+    lineHeight: 1,
+    transition: "background-color 120ms ease, color 120ms ease, opacity 120ms ease",
   },
-  keyAway: { opacity: 0.4 },
+  keyOn: {
+    backgroundColor: tokens.accent,
+    boxShadow: "none",
+    color: tokens.canvas,
+  },
+  keyAway: { opacity: 0.45 },
   choiceText: {
     display: "flex",
-    flexWrap: "wrap",
-    alignItems: "baseline",
-    columnGap: 8,
+    flexDirection: "column",
+    gap: 2,
     flexGrow: 1,
     minWidth: 0,
   },
-  choiceLabel: { fontSize: 12.5, fontWeight: 500 },
-  choiceNote: { color: tokens.muted, fontSize: 12 },
-  other: { cursor: "text" },
+  choiceLabel: {
+    fontSize: 12.5,
+    fontWeight: 500,
+    lineHeight: 1.35,
+    color: tokens.text,
+  },
+  choiceNote: {
+    color: tokens.muted,
+    fontSize: 12,
+    lineHeight: 1.4,
+  },
+  indicator: {
+    flexShrink: 0,
+    marginTop: 2,
+    display: "grid",
+    placeItems: "center",
+    width: 16,
+    height: 16,
+    boxShadow: `inset 0 0 0 1.25px ${tokens.lineStrong}`,
+    color: tokens.canvas,
+    transition: "background-color 120ms ease, box-shadow 120ms ease",
+  },
+  indicatorRadio: { borderRadius: 999 },
+  indicatorBox: { borderRadius: `calc(4px * ${tokens.round})` },
+  indicatorOn: {
+    backgroundColor: tokens.accent,
+    boxShadow: "none",
+  },
+  other: {
+    alignItems: "center",
+    cursor: "text",
+  },
   otherInput: {
     flexGrow: 1,
     minWidth: 0,
@@ -431,23 +613,56 @@ const styles = stylex.create({
     color: tokens.text,
     font: "inherit",
     fontSize: 12.5,
+    lineHeight: 1.4,
     outline: "none",
     "::placeholder": { color: tokens.faint },
   },
   plan: {
-    maxHeight: "min(40vh, 360px)",
+    flexGrow: 1,
+    flexShrink: 1,
+    minHeight: 0,
+    maxHeight: "min(40vh, 340px)",
     overflowY: "auto",
-    paddingInline: 10,
-    paddingBlock: 4,
-    borderRadius: `calc(8px * ${tokens.round})`,
+    scrollbarWidth: "thin",
+    paddingInline: 14,
+    paddingBlock: 10,
     backgroundColor: tokens.panel,
-    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
     fontSize: 13,
   },
-  actions: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 },
-  button: { minHeight: 26, fontSize: 12 },
+  footer: {
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    paddingInline: 12,
+    paddingBlock: 8,
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: tokens.line,
+    backgroundColor: tokens.raised,
+  },
+  footerButtons: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    marginInlineStart: "auto",
+  },
+  shortcutHint: {
+    color: tokens.faint,
+    fontSize: 11,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  actions: {
+    justifyContent: "flex-start",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  button: { minHeight: 27, paddingInline: 11, fontSize: 12 },
   then: { color: tokens.muted, fontSize: 12 },
-  picker: { minHeight: 26, fontSize: 12 },
+  picker: { minHeight: 27, fontSize: 12 },
   end: { marginInlineStart: "auto" },
-  feedback: { flexGrow: 1, minWidth: 160, minHeight: 26, fontSize: 12 },
+  feedback: { flexGrow: 1, minWidth: 160, minHeight: 27, fontSize: 12 },
 });

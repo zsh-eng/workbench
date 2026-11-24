@@ -1217,12 +1217,20 @@ const scroller = (node: Element | null) => {
       return next;
 };
 /** Types into a field as a person does, one character at a time. */
-const type = async (field: HTMLTextAreaElement | HTMLInputElement, text: string, ms: number) => {
-  const set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
-  // An empty text clears the field.
-  for (let length = text ? 1 : 0; length <= text.length; length += 1) {
-    set.call(field, text.slice(0, length));
-    field.dispatchEvent(new Event("input", { bubbles: true }));
+const type = async (field: HTMLElement, text: string, ms: number) => {
+  if (field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement) {
+    const set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+    // An empty text clears the field.
+    for (let length = text ? 1 : 0; length <= text.length; length += 1) {
+      set.call(field, text.slice(0, length));
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      await pause(ms);
+    }
+    return;
+  }
+  field.focus();
+  for (const ch of text) {
+    document.execCommand("insertText", false, ch);
     await pause(ms);
   }
 };
@@ -1316,7 +1324,9 @@ const scenes: Record<string, () => Promise<void>> = {
   // and the diff with the reviewer's comment on the first file.
   async review() {
     await review({ sidebar: true, session: true }, "Changes");
-    await until(() => visible(`${session} textarea`) && visible("[data-comment-card]"));
+    await until(
+      () => visible(`${session} [data-composer-input]`) && visible("[data-comment-card]"),
+    );
     // The first file, with the comment, at the top.
     const stream = scroller(visible("diffs-container") ?? null);
     if (stream) stream.scrollTop = 0;
@@ -1354,7 +1364,7 @@ const scenes: Record<string, () => Promise<void>> = {
     if (innerWidth < 600) {
       await until(() => visible(session) || visible("[data-review-status='ready']"));
       if (!visible(session)) toggleReview();
-      await until(() => visible(`${session} textarea`));
+      await until(() => visible(`${session} [data-composer-input]`));
       return;
     }
     await review({ sidebar: false, session: true }, "Changes");
@@ -1594,7 +1604,7 @@ const plays: Record<string, () => Promise<void>> = {
     );
     if (!message?.body) return;
     await pause(900);
-    const field = visible(`${session} textarea`) as HTMLTextAreaElement | undefined;
+    const field = visible(`${session} [data-composer-input]`) as HTMLElement | undefined;
     const { text } = JSON.parse(message.body) as { text: string };
     if (field && text) await type(field, text, 45);
     await pause(400);

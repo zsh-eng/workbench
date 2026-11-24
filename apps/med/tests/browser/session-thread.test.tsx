@@ -1384,3 +1384,32 @@ test("highlighting text in a reply shows a Quote popover inside the viewport and
   expect(quoted[1]!.speaker).toBe("Claude");
   expect(quoted[1]!.text).toContain("Reply 1.");
 });
+
+test("user prompts render Markdown formatting cleanly in the thread", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "user_message_chunk" as const,
+        content: {
+          type: "text" as const,
+          text: "Update **duration formatting** in `src/time.ts`:\n\n- Handle hours\n- Handle minutes\n\n```ts\nexport const ms = 1000;\n```",
+        },
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  const bubble = () => document.querySelector('[data-message="user"]');
+  await expect
+    .poll(() => bubble()?.querySelector("strong")?.textContent)
+    .toBe("duration formatting");
+  expect(bubble()!.querySelector("code")?.textContent).toBe("src/time.ts");
+  expect([...bubble()!.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
+    "Handle hours",
+    "Handle minutes",
+  ]);
+  expect(bubble()!.querySelector("pre")?.textContent).toContain("export const ms = 1000;");
+});

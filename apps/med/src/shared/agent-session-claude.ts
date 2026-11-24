@@ -440,6 +440,9 @@ export function createClaudeTranscriptReader(options: ClaudeReaderOptions = {}) 
       else if (prompt && !prompt.startsWith("<")) idle = false;
     }
     if (type === "assistant" && message) {
+      // Sidechain entries in a main-thread transcript belong to subagents, not
+      // the main reply stream.
+      if (!options.parentToolCallId && entry.isSidechain) return [];
       if (entry.isApiErrorMessage) {
         const body = list(message.content)
           .map((block) => text(record(block)?.text) ?? "")

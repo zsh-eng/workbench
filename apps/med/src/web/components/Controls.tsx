@@ -194,6 +194,7 @@ export function ChoiceSelect({
   triggerRef,
   display,
   align = "start",
+  side,
   note,
 }: {
   value: string;
@@ -213,7 +214,8 @@ export function ChoiceSelect({
   display?: string;
   /** The trigger's edge that the menu lines up with: "end" for a control at
    * the end of its row, so that the menu opens back over the row. */
-  align?: "start" | "end";
+  align?: "start" | "center" | "end";
+  side?: "top" | "bottom";
   /** A short sentence at the menu's top, such as what the choice trades. */
   note?: string;
 }) {
@@ -264,6 +266,7 @@ export function ChoiceSelect({
         <Select.Positioner
           sideOffset={6}
           align={align}
+          {...(side ? { side } : {})}
           alignItemWithTrigger={false}
           {...stylex.props(styles.positioner)}
         >
@@ -397,6 +400,7 @@ export function ActionMenu({
   sections,
   trigger,
   align = "end",
+  side,
   layer,
   note,
 }: {
@@ -406,7 +410,8 @@ export function ActionMenu({
   sections: MenuEntry[][];
   /** The trigger's look, in place of a toolbar button. */
   trigger?: stylex.StyleXStyles;
-  align?: "start" | "end";
+  align?: "start" | "center" | "end";
+  side?: "top" | "bottom";
   /** "dialog": the menu opens over a dialog, as from its header. */
   layer?: "dialog";
   /** A short sentence at the menu's top, such as what the choice trades. */
@@ -448,6 +453,7 @@ export function ActionMenu({
       <Menu.Portal>
         <Menu.Positioner
           align={align}
+          {...(side ? { side } : {})}
           sideOffset={6}
           {...stylex.props(styles.positioner, layer === "dialog" && styles.overDialog)}
         >
@@ -944,6 +950,8 @@ export function SearchSelect({
   label,
   icon,
   trigger,
+  align = "start",
+  side,
 }: {
   value: string;
   choices: Choice[];
@@ -953,6 +961,8 @@ export function SearchSelect({
   icon?: ReactNode;
   /** The trigger's look, in place of a toolbar button. */
   trigger?: stylex.StyleXStyles;
+  align?: "start" | "center" | "end";
+  side?: "top" | "bottom";
 }) {
   const labels = new Map(choices.map((choice) => [choice.value, choice.label]));
   const [query, setQuery] = useState("");
@@ -984,7 +994,12 @@ export function SearchSelect({
         </Combobox.Icon>
       </Combobox.Trigger>
       <Combobox.Portal>
-        <Combobox.Positioner sideOffset={6} align="start" {...stylex.props(styles.positioner)}>
+        <Combobox.Positioner
+          sideOffset={6}
+          align={align}
+          {...(side ? { side } : {})}
+          {...stylex.props(styles.positioner)}
+        >
           <Combobox.Popup
             aria-label={label}
             {...stylex.props(ui.popup, ui.pop, styles.searchPopup)}

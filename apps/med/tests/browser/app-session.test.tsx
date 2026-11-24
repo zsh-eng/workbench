@@ -615,7 +615,7 @@ describe("agent session", () => {
     await userEvent.keyboard("{Tab}");
     await expect.element(mentions).not.toBeInTheDocument();
     // The box keeps short tokens, marked as chips.
-    await expect.element(input).toHaveValue("Read @alpha.ts and @Plan.md ");
+    await expect.element(input).toHaveAttribute("data-value", "Read @alpha.ts and @Plan.md ");
     expect([...document.querySelectorAll("form mark")].map((mark) => mark.textContent)).toEqual([
       "@alpha.ts",
       "@Plan.md",
@@ -697,7 +697,9 @@ describe("agent session", () => {
     await expect.element(panel.getByText("Use minutes.")).toBeVisible();
     await expect.element(panel.getByText("Sending…")).toBeVisible();
     await expect.element(panel.getByText("Rename it.")).toBeVisible();
-    await expect.element(panel.getByRole("combobox", { name: "Message Claude" })).toHaveValue("");
+    await expect
+      .element(panel.getByRole("combobox", { name: "Message Claude" }))
+      .toHaveAttribute("data-value", "");
     await expect.element(panel.getByRole("button", { name: "1 comment" })).toBeVisible();
     expect(panel.element().textContent).not.toMatch(/Worked for -/);
 
@@ -817,7 +819,7 @@ describe("agent session", () => {
     let app = await reload();
     await input.fill("Use minutes.");
     app = await reload();
-    await expect.element(input).toHaveValue("Use minutes.");
+    await expect.element(input).toHaveAttribute("data-value", "Use minutes.");
 
     // A message on its way when the page closes goes again after the reload.
     await input.click();
@@ -829,7 +831,7 @@ describe("agent session", () => {
     await expect.element(panel.getByText("Not sent: The host is busy.")).toBeVisible();
     for (const [key, value] of onTheWay) localStorage.setItem(key, value);
     app = await reload();
-    await expect.element(input).toHaveValue("");
+    await expect.element(input).toHaveAttribute("data-value", "");
     await expect.element(panel.getByText("Sending…")).toBeVisible();
     await expect.poll(() => app.agentAnswers.length).toBe(1);
 
@@ -1019,7 +1021,7 @@ describe("agent session", () => {
     await userEvent.keyboard("/rev");
     await expect.element(composer.getByRole("option", { name: /\/review/ })).toBeVisible();
     await userEvent.keyboard("{Enter}");
-    await expect.element(input).toHaveValue("/review ");
+    await expect.element(input).toHaveAttribute("data-value", "/review ");
     await userEvent.keyboard("the durations{Meta>}{Enter}{/Meta}");
     await expect
       .poll(() => agentMessages)
@@ -1118,13 +1120,13 @@ describe("agent session", () => {
     await expect.element(queued).toBeVisible();
     // Claude Code takes it after its tools by itself, so no Send now.
     await expect.element(panel.getByRole("button", { name: "Send now" })).not.toBeInTheDocument();
-    await expect.element(field).toHaveValue("");
+    await expect.element(field).toHaveAttribute("data-value", "");
 
     // Edit takes it back into the box, before what the box holds.
     await userEvent.click(field);
     await userEvent.keyboard("And hours.");
     await userEvent.click(panel.getByRole("button", { name: "Edit", exact: true }));
-    await expect.element(field).toHaveValue("Round to minutes.\n\nAnd hours.");
+    await expect.element(field).toHaveAttribute("data-value", "Round to minutes.\n\nAnd hours.");
     await expect.element(queued).not.toBeInTheDocument();
 
     // Remove drops one; ↑ in the empty box takes back the rest, in order.
@@ -1142,7 +1144,7 @@ describe("agent session", () => {
     goneOnTake.add("Test the hour.");
     await userEvent.click(field);
     await userEvent.keyboard("{ArrowUp}");
-    await expect.element(field).toHaveValue("Round to minutes.\n\nAnd hours.");
+    await expect.element(field).toHaveAttribute("data-value", "Round to minutes.\n\nAnd hours.");
     await expect.element(queued).not.toBeInTheDocument();
     await expect.element(panel.getByText("1 of them went to Claude already.")).toBeVisible();
 
@@ -1165,7 +1167,7 @@ describe("agent session", () => {
     await userEvent.keyboard("See the chart.{Meta>}{Enter}{/Meta}");
     await expect.element(queued).toBeVisible();
     await userEvent.click(panel.getByRole("button", { name: "Edit", exact: true }));
-    await expect.element(field).toHaveValue("See the chart.");
+    await expect.element(field).toHaveAttribute("data-value", "See the chart.");
     await expect
       .element(panel.getByText("Its attachment did not come back; add it again."))
       .toBeVisible();
