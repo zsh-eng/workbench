@@ -531,6 +531,20 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
           streaming = { ...streaming, text: streaming.text + String(params?.delta ?? "") };
           streamTimer ??= setTimeout(flushStreaming, 80);
           return;
+        case "item/completed": {
+          const item = record(params?.item);
+          if (item?.type === "agentMessage") {
+            const id = String(item.id ?? streaming?.id ?? randomUUID());
+            const text = typeof item.text === "string" ? item.text : (streaming?.text ?? "");
+            if (text.trim()) {
+              clearTimeout(streamTimer);
+              streamTimer = undefined;
+              streaming = { id, text, ended: true };
+              flushStreaming();
+            }
+          }
+          return;
+        }
         case "thread/tokenUsage/updated": {
           const usage = record(params?.tokenUsage);
           const used = Number(usage?.last?.inputTokens);

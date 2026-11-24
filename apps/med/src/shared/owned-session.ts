@@ -380,3 +380,50 @@ export type PermissionReply = Omit<
   Extract<OwnedAction, { action: "permission" }>,
   "action" | "id" | "option"
 >;
+
+/** Applies one SSE event from `/owned/events` (`state` or lightweight
+ * `streaming` delta) to the last known OwnedState. */
+export function applyOwnedStreamEvent(
+  current: OwnedState | undefined,
+  event: { event: string; data: string },
+): OwnedState | undefined {
+  if (event.event === "streaming") {
+    if (!current) return undefined;
+    const patch = JSON.parse(event.data) as {
+      id?: string;
+      from?: number;
+      delta?: string;
+      ended?: boolean;
+      streaming?: OwnedState["streaming"] | null;
+      updatedAt?: number;
+    };
+    let streaming = current.streaming;
+    if ("streaming" in patch) {
+      streaming = patch.streaming ?? undefined;
+    } else if (typeof patch.id === "string" && typeof patch.delta === "string") {
+      const base = streaming && streaming.id === patch.id ? streaming.text : "";
+      let text: string;
+      if (typeof patch.from === "number" && base.length > patch.from) {
+        // Idempotent against POST /owned returning a newer snapshot before this
+        // buffered SSE delta is read.
+        const overlap = base.length - patch.from;
+        text = overlap >= patch.delta.length ? base : base + patch.delta.slice(overlap);
+      } else {
+        text = base + patch.delta;
+      }
+      streaming = {
+        id: patch.id,
+        text,
+        ...(patch.ended || (streaming?.id === patch.id && streaming.ended) ? { ended: true } : {}),
+      };
+    }
+    return {
+      ...current,
+      streaming,
+      ...(patch.updatedAt !== undefined ? { updatedAt: patch.updatedAt } : {}),
+    };
+  }
+  if (event.event !== "state") return undefined;
+  const parsed = ownedStateSchema.safeParse(JSON.parse(event.data));
+  return parsed.success ? parsed.data : undefined;
+}

@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   agentOptionsSchema,
   agentPresetSchema,
+  applyOwnedStreamEvent,
   ownedStateSchema,
   sessionForkedSchema,
   type AgentOptions,
@@ -152,9 +153,12 @@ export function useOwnedSession(
           await readServerEvents(
             response.body,
             (event) => {
-              if (event.event !== "state") return;
-              const parsed = ownedStateSchema.safeParse(JSON.parse(event.data));
-              if (parsed.success) setState({ id: sessionId, value: parsed.data });
+              if (event.event !== "state" && event.event !== "streaming") return;
+              setState((current) => {
+                const base = current?.id === sessionId ? current.value : undefined;
+                const next = applyOwnedStreamEvent(base, event);
+                return next ? { id: sessionId, value: next } : current;
+              });
             },
             signal,
             1024 * 1024,

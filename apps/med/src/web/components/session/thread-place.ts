@@ -22,21 +22,27 @@ export interface PartPlace {
  */
 export function partAt(unit: Element, y: number, end: number): PartPlace | undefined {
   let across: PartPlace | undefined;
-  // Boxes that end above the view's top, and all inside them, are not it.
-  const walker = unit.ownerDocument.createTreeWalker(unit, NodeFilter.SHOW_ELEMENT, {
-    acceptNode: (node) => {
-      const box = (node as Element).getBoundingClientRect();
-      return box.height && box.bottom > y ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
-    },
-  });
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    const box = (node as Element).getBoundingClientRect();
-    const place = { part: node as Element, delta: y - box.top, height: box.height };
-    if (box.top >= end) break;
-    if (box.top >= y) return place;
-    across = place;
-  }
-  return across;
+  let stopped = false;
+  // Walk descendants in pre-order, reading each box once and skipping subtrees
+  // that end at or above the view's top.
+  const visit = (parent: Element): PartPlace | undefined => {
+    for (let node = parent.firstElementChild; node; node = node.nextElementSibling) {
+      const box = node.getBoundingClientRect();
+      if (!box.height || box.bottom <= y) continue;
+      if (box.top >= end) {
+        stopped = true;
+        return undefined;
+      }
+      const place = { part: node, delta: y - box.top, height: box.height };
+      if (box.top >= y) return place;
+      across = place;
+      const inner = visit(node);
+      if (inner) return inner;
+      if (stopped) return undefined;
+    }
+    return undefined;
+  };
+  return visit(unit) ?? across;
 }
 
 /**

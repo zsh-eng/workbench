@@ -407,11 +407,12 @@ const styles = stylex.create({
     paddingInline: 8,
     borderWidth: 0,
     borderRadius: 999,
-    backgroundColor: { default: tokens.fill, ":hover": tokens.lineStrong },
+    backgroundColor: { default: tokens.fill, ":hover": tokens.fillStrong },
     color: { default: tokens.muted, ":hover": tokens.text },
     fontFamily: tokens.ui,
     fontSize: 11.5,
     cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
   nested: {
     paddingInlineStart: 12,

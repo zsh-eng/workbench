@@ -26,7 +26,7 @@ const kept = <T>(limit: number) => {
     },
   };
 };
-const codeCache = kept<string>(32);
+const codeCache = kept<string>(128);
 const mathCache = kept<string>(256);
 
 // KaTeX loads with the first formula. Its options and its fallbacks for a

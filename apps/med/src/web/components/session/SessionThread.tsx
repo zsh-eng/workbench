@@ -191,7 +191,9 @@ function PromptText({
   const [measured, setMeasured] = useState(false);
   useLayoutEffect(() => {
     const node = body.current;
-    if (!node) return;
+    // A cut prompt is already known to be long from its line count, so measuring
+    // it with a ResizeObserver and getComputedStyle adds nothing.
+    if (cut || !node) return;
     // The text's own height, which the fold does not change; a new width
     // can. It is read after layout, when the observer reports the size.
     const resize = new ResizeObserver(() =>
@@ -201,7 +203,7 @@ function PromptText({
     );
     resize.observe(node);
     return () => resize.disconnect();
-  }, []);
+  }, [cut]);
   // A cut prompt is long whatever it measures: folded, it renders only its
   // first lines, which can measure under the fold and would open it again.
   const long = cut || measured;
@@ -1285,9 +1287,10 @@ export function SessionThread({
   const model = useMemo(() => {
     const offsets = new Float64Array(all.length + 1);
     const index = new Map<string, number>();
+    const promptIndices: number[] = [];
     // Units with a quick height, which wait for idle time to measure their text.
-    let rough = 0;
-    const heightOf = (unit: Unit, m: ThreadMetrics) => {
+    const roughIndices: number[] = [];
+    const heightOf = (unit: Unit, at: number, m: ThreadMetrics) => {
       const source = sourceOf(unit);
       const seen = heights.measured.get(unit.key);
       // A rendered unit's height is the one on screen, even before it
@@ -1298,22 +1301,42 @@ export function SessionThread({
       const known = heights.estimates.get(source);
       if (known && known.metrics === m && known.open === open && known.final === final)
         return known.height;
-      rough++;
+      roughIndices.push(at);
       return roughUnit(unit, m, { open, final });
     };
     const sizes = new Float64Array(all.length);
-    if (metrics) for (let at = 0; at < all.length; at++) sizes[at] = heightOf(all[at]!, metrics);
-    for (let at = 0; at < all.length; at++) {
-      index.set(all[at]!.key, at);
-      offsets[at + 1] = offsets[at]! + sizes[at]!;
-    }
-    // Units in folded work are at their row, as for a view anchored in them.
+    if (metrics)
+      for (let at = 0; at < all.length; at++) sizes[at] = heightOf(all[at]!, at, metrics);
     for (let at = 0; at < all.length; at++) {
       const unit = all[at]!;
-      if ("work" in unit && !unit.open)
-        for (const inner of unit.work) if (!index.has(inner.key)) index.set(inner.key, at);
+      index.set(unit.key, at);
+      if (isPrompt(unit)) promptIndices.push(at);
+      offsets[at + 1] = offsets[at]! + sizes[at]!;
     }
-    return { all, offsets, index, rough, version };
+    // Units inside folded work or Explore groups resolve to their enclosing row,
+    // so prepending a page that folds or merges a unit preserves its index.
+    for (let at = 0; at < all.length; at++) {
+      const unit = all[at]!;
+      if ("work" in unit) {
+        if (!unit.open)
+          for (const inner of unit.work) {
+            if (!index.has(inner.key)) index.set(inner.key, at);
+            if ("explore" in inner)
+              for (const call of inner.explore) if (!index.has(call.id)) index.set(call.id, at);
+          }
+      } else if ("explore" in unit) {
+        for (const call of unit.explore) if (!index.has(call.id)) index.set(call.id, at);
+      }
+    }
+    return {
+      all,
+      offsets,
+      index,
+      promptIndices,
+      roughIndices,
+      rough: roughIndices.length,
+      version,
+    };
   }, [all, finals, metrics, rows, version, heights]);
 
   // A thread that opens is pending until its newest units have their
@@ -1325,14 +1348,16 @@ export function SessionThread({
     if (settled && !grown) return whenIdle(() => setGrown(true));
   }, [settled, grown]);
 
-  // In idle time, units with a quick height measure their text, the newest
-  // first; the view keeps its place as their heights change.
+  // In idle time, only units that still have a quick height measure their text,
+  // newest first; the view keeps its place as their heights change.
   useEffect(() => {
     if (!metrics || !model.rough || !grown) return;
     const run = (deadline?: IdleDeadline) => {
       const until = performance.now() + Math.min(8, deadline?.timeRemaining() ?? 8);
       let done = 0;
-      for (let at = all.length - 1; at >= 0 && performance.now() < until; at--) {
+      const pending = model.roughIndices;
+      for (let i = pending.length - 1; i >= 0 && performance.now() < until; i--) {
+        const at = pending[i]!;
         const unit = all[at]!;
         const source = sourceOf(unit);
         const open = "item" in unit ? rows.get(unit.item.id) : undefined;
@@ -1381,10 +1406,17 @@ export function SessionThread({
   const [appended, setAppended] = useState<ReadonlySet<string>>(() => new Set());
   if (previous !== all) {
     setPrevious(all);
-    // A unit that was there under another key, as a message that Med learns
-    // it sent, is not new.
+    // A unit that was there under another key — such as a message that Med
+    // learns it sent, or a streamed reply replaced by its transcript copy — is
+    // not new and must not replay its enter animation.
     const known = new Set(
-      previous.flatMap((unit) => ("item" in unit ? [unit.key, unit.item.id] : [unit.key])),
+      previous.flatMap((unit) => {
+        if (!("item" in unit)) return [unit.key];
+        const id = unit.item.id;
+        return id.startsWith("streaming-")
+          ? [unit.key, id, id.slice("streaming-".length)]
+          : [unit.key, id];
+      }),
     );
     const seen = (unit: Unit) => known.has(unit.key) || ("item" in unit && known.has(unit.item.id));
     const next = new Set<string>();
@@ -1708,7 +1740,12 @@ export function SessionThread({
       const saved = anchor.current;
       if (!saved) return;
       const { offsets, index } = latest.current.model;
-      const at = index.get(saved.key) ?? index.get(`explore-${saved.key}`);
+      const at =
+        index.get(saved.key) ??
+        index.get(`explore-${saved.key}`) ??
+        (saved.key.startsWith("explore-")
+          ? index.get(saved.key.slice("explore-".length))
+          : undefined);
       if (at === undefined) return;
       // A unit on the page keeps its place by where it is, or its part is;
       // one that is not, by the list's offsets.
@@ -1970,19 +2007,21 @@ export function SessionThread({
   );
   // The request that the view is in: the last one whose message ended above
   // the view's top. None at the thread's end, which the view follows.
+  // Binary search over promptIndices avoids an O(N) scan on every scroll frame.
   const placeAt = useCallback(() => {
     const node = scroller.current;
-    const { all, offsets } = latest.current.model;
+    const { offsets, promptIndices } = latest.current.model;
     if (!node || stuck.current || !latest.current.metrics) return -1;
     const y = node.scrollTop - (head.current?.offsetTop ?? 0);
-    let passed = 0;
-    for (let at = 0; at < all.length; at++) {
-      if (!isPrompt(all[at]!)) continue;
-      if (offsets[at + 1]! > y + 4) break;
-      passed++;
+    let lo = 0;
+    let hi = promptIndices.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (offsets[promptIndices[mid]! + 1]! <= y + 4) lo = mid + 1;
+      else hi = mid;
     }
     // Before the first loaded request, the view is in the one before it.
-    return latestTurns.current.earlierTurns.length + passed - 1;
+    return latestTurns.current.earlierTurns.length + lo - 1;
   }, []);
   const holdUnit = useCallback((key: string) => list.current?.hold(key), []);
   const toggleWork = (key: string) => {
@@ -2017,6 +2056,8 @@ export function SessionThread({
     revealed.current = handled.nonce;
     stuck.current = false;
     anchor.current = { key: handled.key, delta: 0 };
+    setCurrent(handled.key);
+    scroller.current?.focus({ preventScroll: true });
   }, [handled]);
 
   // A message that the reader sends from Med brings the view to the end, and
@@ -2082,17 +2123,28 @@ export function SessionThread({
   // A thread that opens is pending until its newest units have their Markdown
   // and their heights, and shows at its end in one step. A new workspace
   // stays out of sight meanwhile (see WorkspaceViews); in a workspace on
-  // screen, the thread itself does.
+  // screen, the thread itself does. Keying on the initial non-streaming reply
+  // texts ensures live tool or streaming updates do not cancel settling.
+  const settleTexts = useMemo(
+    () =>
+      settled
+        ? []
+        : all
+            .slice(start, end)
+            .flatMap((unit) =>
+              "item" in unit &&
+              unit.item.kind === "agent" &&
+              !(snapshot.running && unit === all.at(-1))
+                ? [unit.item.text]
+                : [],
+            ),
+    [settled, all, start, end, snapshot.running],
+  );
+  const settleKey = settleTexts.join("\0");
   useEffect(() => {
     if (settled || loading || !metrics) return;
     let live = true;
-    const texts = all
-      .slice(start, end)
-      .flatMap((unit) =>
-        "item" in unit && unit.item.kind === "agent" && !(snapshot.running && unit === all.at(-1))
-          ? [unit.item.text]
-          : [],
-      );
+    const texts = settleKey ? settleKey.split("\0") : [];
     void Promise.all(
       texts.map((text) =>
         renderBrief(theme.pierreTheme, text, true, { cache: "session" }).catch(() => {}),
@@ -2105,7 +2157,7 @@ export function SessionThread({
     return () => {
       live = false;
     };
-  }, [settled, loading, metrics, all, start, end, snapshot.running, theme.pierreTheme]);
+  }, [settled, loading, metrics, settleKey, theme.pierreTheme]);
 
   const renderThread = useCallback(
     (nested: SessionItem[]) => (
@@ -2195,7 +2247,10 @@ export function SessionThread({
                         <button
                           type="button"
                           disabled={earlier.loading}
-                          onClick={() => void earlier.load()}
+                          onClick={() => {
+                            list.current?.record();
+                            void earlier.load();
+                          }}
                           {...stylex.props(styles.earlier)}
                         >
                           {earlier.loading
@@ -2281,8 +2336,19 @@ export function SessionThread({
                   </div>
                 </div>
               </div>
+              {!agent && earlier?.loading && (
+                <div role="status" data-loading-earlier="" {...stylex.props(styles.loadingPill)}>
+                  <span {...stylex.props(motion.spinner)} />
+                  <span>Loading earlier work…</span>
+                </div>
+              )}
               {!agent && places.length > 1 && (
-                <PlacePill scroller={scroller} places={places} at={placeAt} />
+                <PlacePill
+                  scroller={scroller}
+                  places={places}
+                  at={placeAt}
+                  hidden={!!earlier?.loading}
+                />
               )}
               {!atBottom && (
                 <button
@@ -2493,7 +2559,7 @@ const styles = stylex.create({
     alignItems: "center",
     gap: 8,
     flexShrink: 0,
-    minHeight: 38,
+    minHeight: tokens.bar,
     paddingInline: 12,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
@@ -2545,6 +2611,7 @@ const styles = stylex.create({
     fontSize: 12,
     whiteSpace: "nowrap",
     cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
   tabOpen: { backgroundColor: tokens.fill, color: tokens.text, fontWeight: 500 },
   // The list in the side panel's card: a row for each, as the card's other rows.
@@ -2633,11 +2700,12 @@ const styles = stylex.create({
     paddingInline: 10,
     borderWidth: 0,
     borderRadius: 999,
-    backgroundColor: { default: tokens.fill, ":hover": tokens.lineStrong },
-    color: tokens.muted,
+    backgroundColor: { default: tokens.fill, ":hover:not(:disabled)": tokens.fillStrong },
+    color: { default: tokens.muted, ":hover:not(:disabled)": tokens.text },
     fontFamily: tokens.ui,
     fontSize: 11.5,
     cursor: { default: "pointer", ":disabled": "default" },
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
   // A unit holds its children's margins, so its height is all of its space.
   unit: { position: "relative", display: "flow-root", minWidth: 0, paddingBottom: 6 },
@@ -2737,11 +2805,13 @@ const styles = stylex.create({
     marginTop: 4,
     padding: 0,
     borderWidth: 0,
+    borderRadius: `calc(4px * ${tokens.round})`,
     backgroundColor: "transparent",
     color: { default: tokens.muted, ":hover": tokens.text },
     fontFamily: tokens.ui,
     fontSize: 12,
     cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
   comment: {
     display: "flex",
@@ -2799,15 +2869,20 @@ const styles = stylex.create({
   deliveryAction: {
     padding: 0,
     borderWidth: 0,
+    borderRadius: `calc(4px * ${tokens.round})`,
     backgroundColor: "transparent",
     color: { default: tokens.text, ":hover": tokens.accent },
     font: "inherit",
     textDecoration: "underline",
     textUnderlineOffset: 2,
     cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
   verb: { color: tokens.text, fontWeight: 500 },
-  thought: { color: tokens.faint, cursor: { default: "pointer", ":disabled": "default" } },
+  thought: {
+    color: { default: tokens.faint, ":hover:not(:disabled)": tokens.muted },
+    cursor: { default: "pointer", ":disabled": "default" },
+  },
   thoughtText: {
     margin: 0,
     marginInlineStart: 24,
@@ -2818,7 +2893,10 @@ const styles = stylex.create({
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere",
   },
-  groupHead: { cursor: "pointer" },
+  groupHead: {
+    cursor: "pointer",
+    color: { default: tokens.muted, ":hover": tokens.text },
+  },
   work: {
     gap: 6,
     color: { default: tokens.faint, ":hover": tokens.muted },
@@ -2858,11 +2936,13 @@ const styles = stylex.create({
     marginBlock: 8,
     padding: 0,
     borderWidth: 0,
+    borderRadius: `calc(4px * ${tokens.round})`,
     backgroundColor: "transparent",
-    color: tokens.faint,
+    color: { default: tokens.faint, ":hover:not(:disabled)": tokens.muted },
     fontFamily: tokens.ui,
     fontSize: 11.5,
     cursor: { default: "pointer", ":disabled": "default" },
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
   rule: { flex: "1", height: 1, backgroundColor: tokens.line },
   status: { color: tokens.muted, marginTop: 4 },
@@ -2878,6 +2958,27 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
   },
   above: (bottom: number) => ({ bottom }),
+  loadingPill: {
+    position: "absolute",
+    top: 10,
+    insetInline: 0,
+    marginInline: "auto",
+    zIndex: 2,
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    width: "fit-content",
+    height: 28,
+    boxSizing: "border-box",
+    paddingInline: 12,
+    borderRadius: 999,
+    backgroundColor: tokens.menu,
+    boxShadow: `${tokens.shadow}, inset 0 0 0 1px ${tokens.lineStrong}`,
+    color: tokens.muted,
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    pointerEvents: "none",
+  },
   latest: {
     position: "absolute",
     insetInline: 0,
@@ -2887,16 +2988,18 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: 6,
-    height: 26,
-    paddingInline: 11,
+    height: 28,
+    boxSizing: "border-box",
+    paddingInline: 12,
     borderWidth: 0,
     borderRadius: 999,
-    backgroundColor: tokens.raised,
-    boxShadow: `${tokens.shadow}, inset 0 0 0 1px ${tokens.line}`,
+    backgroundColor: { default: tokens.menu, ":hover": tokens.fill },
+    boxShadow: `${tokens.shadow}, inset 0 0 0 1px ${tokens.lineStrong}`,
     color: tokens.text,
     fontFamily: tokens.ui,
-    fontSize: 11.5,
+    fontSize: 12,
     cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
     zIndex: 1,
   },
   plan: {

@@ -50,6 +50,21 @@ export function renderedBrief(theme: string, text: string, cache: RenderCache = 
   return results[cache].get(keyOf(theme, text));
 }
 
+/** Stores an already-rendered result in `cache`, so a streaming reply that
+ * settles does not pay for a second identical worker render just to cache it. */
+export function keepBrief(
+  theme: string,
+  text: string,
+  result: MarkdownResult,
+  cache: RenderCache = "brief",
+) {
+  const key = keyOf(theme, text);
+  const kept = results[cache];
+  kept.delete(key);
+  kept.set(key, result);
+  while (kept.size > MAX_RESULTS[cache]) kept.delete(kept.keys().next().value!);
+}
+
 /**
  * Renders Markdown in the worker. `keep: false` renders without caching the
  * result, for the partial text of a reply that is still streaming.

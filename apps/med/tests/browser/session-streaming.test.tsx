@@ -480,3 +480,61 @@ test("a subagent's view lets go at the reader's move up while its reply streams,
     await reply.stop();
   }
 });
+
+test("a repeated short reply still streams and hands off to the transcript without replaying rise", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 1000,
+      update: {
+        sessionUpdate: "user_message_chunk",
+        messageId: "u1",
+        content: { type: "text", text: "First task." },
+      },
+    },
+    {
+      at: 2000,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "m1",
+        content: { type: "text", text: "Done." },
+      },
+    },
+    {
+      at: 3000,
+      update: {
+        sessionUpdate: "user_message_chunk",
+        messageId: "u2",
+        content: { type: "text", text: "Second task." },
+      },
+    },
+  ]);
+  const show = (streaming?: Streaming, running = true) =>
+    root!.render(<Streamed store={store} streaming={streaming} running={running} />);
+  show(undefined, true);
+  await expect.element(page.getByText("Second task.")).toBeVisible();
+
+  // Streaming the same short phrase "Done." in turn 2 must not be suppressed
+  // by turn 1's "Done." reply.
+  show({ id: "m2", text: "Done.", ended: true }, true);
+  await expect.poll(() => document.querySelector('[data-unit="streaming-m2"]')).toBeTruthy();
+
+  // When the transcript's copy arrives with the matching message ID, it takes
+  // over without triggering data-rise again.
+  store.applyAll([
+    {
+      at: 4000,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "m2",
+        content: { type: "text", text: "Done." },
+      },
+    },
+  ]);
+  show(undefined, false);
+  await expect.poll(() => document.querySelector('[data-unit="m2"]')).toBeTruthy();
+  expect(document.querySelector('[data-unit="streaming-m2"]')).toBeNull();
+  expect(document.querySelector<HTMLElement>('[data-unit="m2"]')?.dataset.rise).toBeUndefined();
+});

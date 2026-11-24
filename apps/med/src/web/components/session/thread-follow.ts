@@ -99,7 +99,9 @@ export function followEnd(node: HTMLElement, stuck: { current: boolean }, change
       at = at.parentElement
     )
       if (
-        (event.deltaY < 0 ? at.scrollTop > 0 : at.scrollTop + at.clientHeight < at.scrollHeight) &&
+        (event.deltaY < 0
+          ? at.scrollTop > 0
+          : at.scrollTop + at.clientHeight + 1 < at.scrollHeight) &&
         /auto|scroll/.test(getComputedStyle(at).overflowY)
       )
         return;

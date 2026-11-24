@@ -33,6 +33,7 @@ import {
   loadSessionPage,
   loadSessionTurns,
   sessionRunning,
+  STALE_MS,
   type SessionStreamState,
   type SessionTurn,
 } from "../../data/session-stream";
@@ -334,21 +335,13 @@ export function SessionPanel({
     loaded && loaded.generation === state.generation ? loaded.start : (state.start ?? 0);
   const pageable = session.agent !== "acp" && state.status === "live";
   const generation = useRef(state.generation);
+  const startRef = useRef(start);
+  const pagingRef = useRef(0);
+  const loadingPageRef = useRef(false);
   useLayoutEffect(() => {
     generation.current = state.generation;
+    startRef.current = start;
   });
-  const loadPage = useCallback(
-    async (before: number) => {
-      const requested = generation.current;
-      const page = await loadSessionPage(threadId, before, fetcher);
-      // A first view that came meanwhile has its own start; the page is not its.
-      if (generation.current !== requested) throw new Error("The thread started again.");
-      prependPage(store, page);
-      setLoaded({ generation: requested, start: page.start });
-      return page.start;
-    },
-    [threadId, fetcher, store],
-  );
   const earlier = useMemo(
     () =>
       pageable && start > 0
@@ -356,20 +349,32 @@ export function SessionPanel({
             loading: loadingEarlier,
             failed: earlierFailed,
             load: async () => {
+              if (loadingPageRef.current) return;
+              const requested = generation.current;
+              const token = ++pagingRef.current;
+              loadingPageRef.current = true;
               setLoadingEarlier(true);
               setEarlierFailed(false);
               try {
-                await loadPage(start);
+                const page = await loadSessionPage(threadId, startRef.current, fetcher);
+                if (generation.current !== requested || pagingRef.current !== token) return;
+                prependPage(store, page);
+                startRef.current = page.start;
+                setLoaded({ generation: requested, start: page.start });
               } catch {
-                // The button stays; a click reads the page again.
-                setEarlierFailed(true);
+                // Only report failure if a newer jump or reset did not supersede this load.
+                if (generation.current === requested && pagingRef.current === token)
+                  setEarlierFailed(true);
               } finally {
-                setLoadingEarlier(false);
+                if (pagingRef.current === token) {
+                  loadingPageRef.current = false;
+                  setLoadingEarlier(false);
+                }
               }
             },
           }
         : undefined,
-    [pageable, start, loadingEarlier, earlierFailed, loadPage],
+    [pageable, start, loadingEarlier, earlierFailed, threadId, fetcher, store],
   );
   // The session's prompts, which { steps to, while earlier pages have not
   // loaded: read once for each first view of a long session.
@@ -388,14 +393,42 @@ export function SessionPanel({
       live = false;
     };
   }, [longSession, threadId, session.id, fetcher, state.generation]);
-  // A turn from the index: load pages until its prompt is in the thread.
+  // A turn from the index: fetch all pages back to it first, then prepend
+  // once so the store and layout rebuild once instead of once per page.
   const showTurn = async (turn: SessionTurn) => {
-    let from = start;
+    const requested = generation.current;
+    const token = ++pagingRef.current;
+    let from = startRef.current;
+    loadingPageRef.current = true;
     setLoadingEarlier(true);
+    setEarlierFailed(false);
     try {
-      while (from > turn.offset) from = await loadPage(from);
+      const pages: {
+        events: Awaited<ReturnType<typeof loadSessionPage>>["events"];
+        start: number;
+      }[] = [];
+      while (from > turn.offset) {
+        const page = await loadSessionPage(threadId, from, fetcher);
+        if (generation.current !== requested || pagingRef.current !== token) return;
+        pages.push(page);
+        if (page.start >= from) break;
+        from = page.start;
+      }
+      if (pages.length) {
+        // Pages were fetched newest-to-oldest; prepend oldest-to-newest in one pass.
+        const combined = pages.reverse().flatMap((page) => page.events);
+        prependPage(store, { events: combined, start: from });
+        startRef.current = from;
+        setLoaded({ generation: requested, start: from });
+      }
+    } catch {
+      if (generation.current === requested && pagingRef.current === token) setEarlierFailed(true);
+      return;
     } finally {
-      setLoadingEarlier(false);
+      if (pagingRef.current === token) {
+        loadingPageRef.current = false;
+        setLoadingEarlier(false);
+      }
     }
     const items = store.getSnapshot().items;
     const prompt =
@@ -422,9 +455,9 @@ export function SessionPanel({
     ownedState?.status !== "working" &&
     ownedState?.status !== "starting" &&
     (state.modifiedAt ?? 0) > (ownedState?.updatedAt ?? 0) &&
-    sessionRunning(state, now);
+    sessionRunning(state);
   const runner = othersTurn ? undefined : ownedState;
-  const running = runner ? runner.status === "working" : sessionRunning(state, now);
+  const running = runner ? runner.status === "working" : sessionRunning(state);
   // A turn that a reboot or a kill cut waits for the reader: Med never
   // continues it alone, because it may have stopped in the middle of a
   // migration or a push.
@@ -461,12 +494,13 @@ export function SessionPanel({
     ) : undefined;
   useEffect(() => {
     store.setRunning(running);
-    if (!running) return;
-    // To see a transcript go quiet (sessionRunning). The thread's times keep
-    // their own clocks (Elapsed.tsx).
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [running, store]);
+    // Owned runners report idle directly; attached transcripts only need one
+    // wake-up when STALE_MS passes since their last modification.
+    if (!running || runner) return;
+    const remaining = Math.max(250, (state.modifiedAt ?? Date.now()) + STALE_MS - Date.now() + 50);
+    const timer = setTimeout(() => setNow(Date.now()), remaining);
+    return () => clearTimeout(timer);
+  }, [running, runner, state.modifiedAt, store, now]);
 
   // The agent writes paths from its own folder.
   // Stable, as each reply is a memo: a new function would render every reply again.
@@ -631,12 +665,13 @@ export function SessionPanel({
     presence,
     takesMidTurn,
   ]);
-  // Asked again as the transcript grows, at a turn's end, and now and then
-  // while subagents work, whose transcripts the thread does not follow.
+  // Asked again as the transcript grows, at a turn's end, and every 15 s
+  // while the agent or its subagents work (without re-rendering SessionPanel).
   const usage = useThreadUsage(
     threadId,
-    `${state.modifiedAt ?? 0}:${running}:${running ? Math.floor(now / 15_000) : 0}`,
+    `${state.modifiedAt ?? 0}:${running}`,
     fetcher,
+    running ? 15_000 : 0,
   );
   const shownContext: ShownContext | undefined =
     usage?.context?.sessionId === session.id
@@ -797,7 +832,9 @@ export function SessionPanel({
         )
       )}
       {!inbox && footer}
-      {!inbox && usageChip && (spend || shownContext) && <ComposerMeta>{usageChip}</ComposerMeta>}
+      {!inbox && usageChip && (spend || shownContext) && (
+        <ComposerMeta standalone>{usageChip}</ComposerMeta>
+      )}
     </>
   );
   return (
@@ -825,6 +862,12 @@ export function SessionPanel({
       )}
       <div {...stylex.props(styles.split)}>
         <div {...stylex.props(styles.main)}>
+          {state.status === "error" && (
+            <div role="status" {...stylex.props(styles.reconnecting)}>
+              <span {...stylex.props(styles.reconnectingDot)} aria-hidden="true" />
+              <span>{state.message ?? "Reconnecting to the session…"}</span>
+            </div>
+          )}
           {state.status === "missing" && !ownedState ? (
             <p {...stylex.props(styles.empty)}>{state.message}</p>
           ) : (
@@ -924,11 +967,28 @@ const styles = stylex.create({
   },
   menuPositioner: { zIndex: 100, outline: "none" },
   menuTrigger: { flexShrink: 0, gap: 4, height: 24, paddingInline: 8, fontSize: 12 },
-  menu: { minWidth: 220 },
-  menuItem: { justifyContent: "flex-start", gap: 8 },
-  menuLabel: { flex: "1", minWidth: 0 },
-  check: { display: "inline-flex", flexShrink: 0, width: 14, color: tokens.accent },
-  indicator: { display: "inline-flex", color: tokens.accent },
+  reconnecting: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    flexShrink: 0,
+    paddingBlock: 5,
+    paddingInline: 12,
+    backgroundColor: tokens.fill,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: tokens.line,
+    color: tokens.muted,
+    fontSize: 11.5,
+  },
+  reconnectingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: "50%",
+    backgroundColor: tokens.warning,
+    flexShrink: 0,
+  },
   note: { margin: 0, marginBottom: 8, color: tokens.faint, fontSize: 11.5, textAlign: "center" },
   stopped: { flexShrink: 0, marginInline: 12, marginBlock: 12 },
   takeError: { color: tokens.red },

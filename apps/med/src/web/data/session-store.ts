@@ -90,6 +90,115 @@ const ROOT = "";
 const empty: SessionSnapshot = { items: [], plan: [], running: false, toolCalls: 0 };
 const textOf = (block: ContentBlock) => (block.type === "text" ? block.text : "");
 
+function sameBlock(a: ContentBlock, b: ContentBlock) {
+  if (a === b) return true;
+  if (a.type !== b.type) return false;
+  if (a.type === "text" && b.type === "text") return a.text === b.text;
+  if (a.type === "image" && b.type === "image")
+    return a.data === b.data && a.mimeType === b.mimeType;
+  return false;
+}
+
+function sameToolContent(a: ToolCallContent, b: ToolCallContent) {
+  if (a === b) return true;
+  if (a.type !== b.type) return false;
+  if (a.type === "content" && b.type === "content") return sameBlock(a.content, b.content);
+  if (a.type === "diff" && b.type === "diff")
+    return a.path === b.path && a.oldText === b.oldText && a.newText === b.newText;
+  return false;
+}
+
+function samePlan(a: PlanEntry[] | undefined, b: PlanEntry[] | undefined) {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every(
+    (entry, index) =>
+      entry.content === b[index]!.content &&
+      entry.status === b[index]!.status &&
+      entry.priority === b[index]!.priority,
+  );
+}
+
+function sameJson(a: unknown, b: unknown) {
+  if (a === b) return true;
+  if (a === undefined || b === undefined || typeof a !== typeof b) return false;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
+/** Structural equality for SessionItems so `prepend` can preserve unchanged
+ * item references, keeping Pretext, height, and React memo caches warm. */
+function sameItem(a: SessionItem, b: SessionItem): boolean {
+  if (a === b) return true;
+  if (a.kind !== b.kind || a.id !== b.id || a.at !== b.at) return false;
+  switch (a.kind) {
+    case "user": {
+      const other = b as typeof a;
+      return (
+        a.queued === other.queued &&
+        a.sent === other.sent &&
+        a.content.length === other.content.length &&
+        a.content.every((block, index) => sameBlock(block, other.content[index]!))
+      );
+    }
+    case "agent": {
+      const other = b as typeof a;
+      return a.text === other.text && a.endsTurn === other.endsTurn && a.settled === other.settled;
+    }
+    case "thought": {
+      const other = b as typeof a;
+      return a.text === other.text && a.durationMs === other.durationMs;
+    }
+    case "notice": {
+      const other = b as typeof a;
+      return (
+        a.title === other.title &&
+        a.severity === other.severity &&
+        a.description === other.description &&
+        a.scheduled === other.scheduled
+      );
+    }
+    case "compaction": {
+      const other = b as typeof a;
+      return a.summary === other.summary && a.failed === other.failed;
+    }
+    case "tool": {
+      const other = b as typeof a;
+      const ca = a.call;
+      const cb = other.call;
+      if (
+        a.endedAt !== other.endedAt ||
+        ca.title !== cb.title ||
+        ca.kind !== cb.kind ||
+        ca.status !== cb.status ||
+        ca.tool !== cb.tool ||
+        ca.interrupted !== cb.interrupted ||
+        ca.background?.id !== cb.background?.id ||
+        ca.background?.kind !== cb.background?.kind ||
+        ca.content.length !== cb.content.length ||
+        ca.locations.length !== cb.locations.length ||
+        a.items.length !== other.items.length ||
+        !samePlan(a.plan, other.plan) ||
+        !sameJson(ca.rawInput, cb.rawInput) ||
+        !sameJson(ca.rawOutput, cb.rawOutput) ||
+        !sameJson(ca.schedule, cb.schedule)
+      )
+        return false;
+      return (
+        ca.content.every((part, index) => sameToolContent(part, cb.content[index]!)) &&
+        ca.locations.every(
+          (loc, index) =>
+            loc.path === cb.locations[index]!.path && loc.line === cb.locations[index]!.line,
+        ) &&
+        a.items.every((child, index) => child === other.items[index])
+      );
+    }
+  }
+}
+
 /**
  * Holds one session as a list of items that a thread renders. Updates arrive
  * one at a time, from a transcript, a replay, or a live agent. Each update
@@ -415,19 +524,63 @@ export function createSessionStore() {
       applyAll(added);
     },
     /** Puts an earlier page before the updates so far. The thread builds again
-     * in order, so results that waited for their calls find them. */
+     * in order, so results that waited for their calls find them, while
+     * unchanged items keep their previous object references so height and
+     * memo caches stay warm. */
     prepend(page: SessionEvent[]) {
       if (!page.length) return;
+      const previous = new Map<string, SessionItem>();
+      for (const items of threads.values()) for (const item of items) previous.set(item.id, item);
       const later = events;
       const running = snapshot.running;
-      snapshot = { ...empty, running };
-      threads = new Map([[ROOT, []]]);
-      where = new Map();
-      named = new Map();
-      events = [];
-      orphans = new Map();
-      tasks = new Map();
-      applyAll([...page, ...later]);
+      batch++;
+      try {
+        snapshot = { ...empty, running };
+        threads = new Map([[ROOT, []]]);
+        where = new Map();
+        named = new Map();
+        events = [];
+        orphans = new Map();
+        tasks = new Map();
+        for (const event of page) {
+          events.push(event);
+          apply(event);
+        }
+        for (const event of later) {
+          events.push(event);
+          apply(event);
+        }
+        // Reconcile subagent threads before the root thread so unchanged tool
+        // items see identical child arrays and keep their references too.
+        const reconcile = (key: string) => {
+          const items = threads.get(key);
+          if (!items) return;
+          for (let at = 0; at < items.length; at++) {
+            let item = items[at]!;
+            if (item.kind === "tool") {
+              reconcile(item.id);
+              const children = threads.get(item.id);
+              if (children && children !== item.items) item = { ...item, items: children };
+            }
+            const prior = previous.get(item.id);
+            if (prior && sameItem(prior, item)) {
+              items[at] = prior;
+              if (prior.kind === "tool") threads.set(prior.id, prior.items);
+            } else {
+              items[at] = item;
+            }
+          }
+        };
+        reconcile(ROOT);
+        snapshot = { ...snapshot, items: threads.get(ROOT) ?? [] };
+        changed = true;
+      } finally {
+        batch--;
+      }
+      if (changed && !batch) {
+        changed = false;
+        emit();
+      }
     },
   };
 }

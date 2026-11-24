@@ -120,6 +120,9 @@ export function textStyle(element: Element): TextStyle {
   };
 }
 
+let probeCanvas: CanvasRenderingContext2D | null | undefined;
+const probeContext = () => (probeCanvas ??= document.createElement("canvas").getContext("2d"));
+
 /** Reads the metrics from the probe's samples, marked with data-probe. */
 export function readMetrics(probe: HTMLElement): ThreadMetrics {
   const part = (name: string) => probe.querySelector<HTMLElement>(`[data-probe="${name}"]`)!;
@@ -142,7 +145,7 @@ export function readMetrics(probe: HTMLElement): ThreadMetrics {
   const edge = px(style("reply").marginTop);
   const blockLine = (height("pre3") - height("pre1")) / 2;
   const diff = textStyle(part("diff"));
-  const canvas = document.createElement("canvas").getContext("2d")!;
+  const canvas = probeContext()!;
   canvas.font = diff.font;
   return {
     width: probe.clientWidth,

@@ -857,8 +857,19 @@ export function SessionComposer({
 }
 
 /** The row under the message box, at its end, as in Claude Desktop. */
-export function ComposerMeta({ children }: { children: ReactNode }) {
-  return <div {...stylex.props(styles.meta, column.bar)}>{children}</div>;
+export function ComposerMeta({
+  children,
+  standalone = false,
+}: {
+  children: ReactNode;
+  /** Rendered without a message box above it: keep normal top spacing. */
+  standalone?: boolean;
+}) {
+  return (
+    <div {...stylex.props(styles.meta, standalone && styles.metaStandalone, column.bar)}>
+      {children}
+    </div>
+  );
 }
 
 /** Claude's mark in its own colour, as on the new thread page. */
@@ -902,6 +913,7 @@ const styles = stylex.create({
     fontFamily: tokens.ui,
     fontSize: 11.5,
     cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
   chipOn: { backgroundColor: tokens.accentSoft, color: tokens.accent },
   sendComments: {
@@ -915,10 +927,12 @@ const styles = stylex.create({
     display: "inline-flex",
     padding: 0,
     borderWidth: 0,
+    borderRadius: 999,
     backgroundColor: "transparent",
     color: "inherit",
     cursor: "pointer",
     opacity: { default: 0.7, ":hover": 1 },
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
   drafts: {
     listStyle: "none",
@@ -1007,6 +1021,7 @@ const styles = stylex.create({
   // Under the box, at its end: the pickers, then context and spend.
   meta: {
     display: "flex",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "flex-end",
     gap: 2,
@@ -1015,13 +1030,14 @@ const styles = stylex.create({
     marginBottom: 8,
     paddingInline: 2,
   },
+  metaStandalone: { marginTop: 4 },
   pickers: {
     flexShrink: 1,
     minWidth: 0,
     display: "flex",
+    flexWrap: "wrap",
     alignItems: "center",
     gap: 2,
-    overflow: "hidden",
   },
   picker: {
     flexShrink: 1,
@@ -1097,6 +1113,7 @@ const styles = stylex.create({
     color: tokens.muted,
     fontSize: 12,
     cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
   commandActive: { backgroundColor: tokens.fill, color: tokens.text },
   commandName: { flexShrink: 0, color: tokens.text, fontFamily: tokens.code, fontSize: 11.5 },

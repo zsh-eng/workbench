@@ -21,24 +21,32 @@ export function useThreadUsage(
   key: string,
   version: string,
   fetcher: typeof fetch = browserFetch,
+  pollMs = 0,
 ): ThreadUsage | null {
   const [usage, setUsage] = useState<{ key: string; value: ThreadUsage } | null>(null);
   const last = useRef<{ key: string; at: number } | null>(null);
   useEffect(() => {
-    // Not a debounce: a stream of updates still gets an answer every pause.
-    const wait = last.current?.key === key ? Math.max(0, last.current.at + PAUSE - Date.now()) : 0;
-    const timer = setTimeout(() => {
+    let live = true;
+    const load = () => {
       last.current = { key, at: Date.now() };
       // An answer for another thread waits in `kept`, and shows on a revisit.
       createApi(fetcher, readBrowserToken())
         .call(usageRoutes.thread, { id: key })
         .then((value) => {
           kept.set(key, value);
-          setUsage({ key, value });
+          if (live) setUsage({ key, value });
         })
         .catch(() => {});
-    }, wait);
-    return () => clearTimeout(timer);
-  }, [key, version, fetcher]);
+    };
+    // Not a debounce: a stream of updates still gets an answer every pause.
+    const wait = last.current?.key === key ? Math.max(0, last.current.at + PAUSE - Date.now()) : 0;
+    const timer = setTimeout(load, wait);
+    const interval = pollMs > 0 ? setInterval(load, pollMs) : undefined;
+    return () => {
+      live = false;
+      clearTimeout(timer);
+      if (interval) clearInterval(interval);
+    };
+  }, [key, version, fetcher, pollMs]);
   return usage?.key === key ? usage.value : (kept.get(key) ?? null);
 }

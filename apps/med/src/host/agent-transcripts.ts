@@ -393,6 +393,8 @@ export async function followTranscript(
   type Source = {
     path: string;
     offset: number;
+    mtimeMs: number;
+    size: number;
     line(raw: string): SessionEvent[];
     idle?: () => boolean;
     /** A Codex subagent's rollout, which Med finds by its thread ID. */
@@ -418,6 +420,8 @@ export async function followTranscript(
       return {
         path: file,
         offset: 0,
+        mtimeMs: -1,
+        size: -1,
         line: reader.line,
         ...(parentToolCallId ? {} : { idle: reader.idle }),
       };
@@ -436,6 +440,8 @@ export async function followTranscript(
     return {
       path: file,
       offset: 0,
+      mtimeMs: -1,
+      size: -1,
       line: reader.line,
       ...(parentToolCallId ? {} : { idle: reader.idle }),
     };
@@ -451,9 +457,16 @@ export async function followTranscript(
       source.path = found;
       delete source.find;
     }
+    // Check stat before opening: avoids open/read/close on unchanged files every poll.
+    const info = await stat(source.path).catch(() => undefined);
+    if (!info) return { events: [] as SessionEvent[], truncated: false, first: 0 };
+    if (limit === undefined && info.mtimeMs === source.mtimeMs && info.size === source.size)
+      return { events: [] as SessionEvent[], truncated: false, first: source.offset };
     const result = await readLines(source.path, source.offset, limit).catch(() => undefined);
     if (!result) return { events: [] as SessionEvent[], truncated: false, first: 0 };
     source.offset = result.next;
+    source.mtimeMs = info.mtimeMs;
+    source.size = info.size;
     // A tail can start after a call. Its later updates still go to the
     // browser, which keeps them until an earlier page brings the call.
     const events = result.lines.flatMap((line) => source.line(line));
@@ -708,26 +721,32 @@ export async function readTranscriptPage(
       },
     });
     for (const line of lines) events.push(...reader.line(line));
-    for (const [threadId, toolCallId] of children) {
-      const child = await findTranscript({ agent: "codex", id: threadId });
-      const read = child && (await readLines(child, 0, TAIL_BYTES).catch(() => undefined));
-      if (!read) continue;
-      const childReader = createCodexRolloutReader({ parentToolCallId: toolCallId });
-      for (const line of read.lines) events.push(...childReader.line(line));
-    }
+    const childEvents = await Promise.all(
+      [...children].map(async ([threadId, toolCallId]) => {
+        const child = await findTranscript({ agent: "codex", id: threadId });
+        const read = child && (await readLines(child, 0, TAIL_BYTES).catch(() => undefined));
+        if (!read) return [] as SessionEvent[];
+        const childReader = createCodexRolloutReader({ parentToolCallId: toolCallId });
+        return read.lines.flatMap((line) => childReader.line(line));
+      }),
+    );
+    for (const list of childEvents) events.push(...list);
   } else {
     const subagents: [string, string][] = [];
     const reader = createClaudeTranscriptReader({
       onSubagent: (agentId, toolCallId) => subagents.push([agentId, toolCallId]),
     });
     for (const line of lines) events.push(...reader.line(line));
-    for (const [agentId, toolCallId] of subagents) {
-      const sub = join(dirname(path), session.id, "subagents", `agent-${agentId}.jsonl`);
-      const read = await readLines(sub, 0, TAIL_BYTES).catch(() => undefined);
-      if (!read) continue;
-      const subReader = createClaudeTranscriptReader({ parentToolCallId: toolCallId });
-      for (const line of read.lines) events.push(...subReader.line(line));
-    }
+    const subEvents = await Promise.all(
+      subagents.map(async ([agentId, toolCallId]) => {
+        const sub = join(dirname(path), session.id, "subagents", `agent-${agentId}.jsonl`);
+        const read = await readLines(sub, 0, TAIL_BYTES).catch(() => undefined);
+        if (!read) return [] as SessionEvent[];
+        const subReader = createClaudeTranscriptReader({ parentToolCallId: toolCallId });
+        return read.lines.flatMap((line) => subReader.line(line));
+      }),
+    );
+    for (const list of subEvents) events.push(...list);
   }
   return {
     events: events
@@ -744,6 +763,7 @@ export interface TranscriptTurn {
   at: number;
   text: string;
 }
+const MAX_TURN_INDEXES = 32;
 const turnIndexes = new Map<
   string,
   { modifiedAt: number; scanned: number; turns: TranscriptTurn[] }
@@ -765,8 +785,15 @@ export async function transcriptTurns(
   const info = await stat(path);
   let index = turnIndexes.get(path);
   if (!index || info.size < index.scanned) index = { modifiedAt: 0, scanned: 0, turns: [] };
-  if (index.modifiedAt === info.mtimeMs) return index.turns;
+  if (index.modifiedAt === info.mtimeMs) {
+    // Refresh LRU order.
+    turnIndexes.delete(path);
+    turnIndexes.set(path, index);
+    return index.turns;
+  }
   const handle = await open(path, "r");
+  const reader =
+    session.agent === "codex" ? createCodexRolloutReader() : createClaudeTranscriptReader();
   try {
     let offset = index.scanned;
     while (offset < info.size) {
@@ -786,8 +813,6 @@ export async function transcriptTurns(
         const lineEnd = buffer.indexOf(10, lineStart);
         const line = buffer.toString("utf8", lineStart, lineEnd);
         if (promptLine(session.agent, line)) {
-          const reader =
-            session.agent === "codex" ? createCodexRolloutReader() : createClaudeTranscriptReader();
           for (const event of reader.line(line)) {
             const update = event.update;
             if (update.sessionUpdate !== "user_message_chunk" || update.content.type !== "text")
@@ -805,7 +830,10 @@ export async function transcriptTurns(
     }
     index.scanned = offset;
     index.modifiedAt = info.mtimeMs;
+    turnIndexes.delete(path);
     turnIndexes.set(path, index);
+    while (turnIndexes.size > MAX_TURN_INDEXES)
+      turnIndexes.delete(turnIndexes.keys().next().value!);
     return index.turns;
   } finally {
     await handle.close();

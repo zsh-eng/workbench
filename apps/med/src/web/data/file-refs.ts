@@ -278,10 +278,11 @@ export function decorateFileRefs<T extends { html: string }>(
     template.innerHTML = block.html;
     return template;
   });
-  const found: { node: Element; ref: FileRef; keepText: boolean }[] = [];
-  const named: { node: Element; branch: string }[] = [];
-  const dead: Element[] = [];
-  for (const template of templates) {
+  const found: { at: number; node: Element; ref: FileRef; keepText: boolean }[] = [];
+  const named: { at: number; node: Element; branch: string }[] = [];
+  const dead: { at: number; node: Element }[] = [];
+  for (let at = 0; at < templates.length; at++) {
+    const template = templates[at];
     if (!template) continue;
     for (const node of template.content.querySelectorAll("a[data-brief-href], code")) {
       if (node.tagName === "CODE") {
@@ -289,8 +290,8 @@ export function decorateFileRefs<T extends { html: string }>(
         const text = (node.textContent ?? "").trim();
         const target = parseCodeTarget(text);
         const ref = target && index.resolve(target, cwd);
-        if (ref) found.push({ node, ref, keepText: false });
-        else if (branches?.has(text)) named.push({ node, branch: text });
+        if (ref) found.push({ at, node, ref, keepText: false });
+        else if (branches?.has(text)) named.push({ at, node, branch: text });
         continue;
       }
       const href = (node as HTMLElement).dataset.briefHref ?? "";
@@ -304,28 +305,32 @@ export function decorateFileRefs<T extends { html: string }>(
         const text = (node.textContent ?? "").trim();
         const named = parseCodeTarget(text);
         const same = !text || (named && basename(named.path) === basename(ref.path));
-        found.push({ node, ref, keepText: !same });
-      } else if (index.complete && !web) dead.push(node);
+        found.push({ at, node, ref, keepText: !same });
+      } else if (index.complete && !web) dead.push({ at, node });
     }
   }
   // Paths in the text, outside code and links.
-  const texts: { node: Text; parts: NonNullable<ReturnType<typeof textFileRefs>> }[] = [];
+  const texts: { at: number; node: Text; parts: NonNullable<ReturnType<typeof textFileRefs>> }[] =
+    [];
   if (options.text)
-    for (const template of templates) {
+    for (let at = 0; at < templates.length; at++) {
+      const template = templates[at];
       if (!template) continue;
       const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
       for (let node = walker.nextNode(); node; node = walker.nextNode()) {
         if (node.parentElement?.closest("pre, code, a")) continue;
         const parts = textFileRefs(node.textContent ?? "", index, cwd);
-        if (parts) texts.push({ node: node as Text, parts });
+        if (parts) texts.push({ at, node: node as Text, parts });
       }
     }
-  for (const { node, branch } of named) {
+  if (!found.length && !dead.length && !texts.length && !named.length) return [...blocks];
+  const dirty = new Set<number>();
+  for (const { at, node, branch } of named) {
+    dirty.add(at);
     const holder = document.createElement("template");
     holder.innerHTML = branchRefHtml(branch);
     node.replaceWith(holder.content.firstElementChild!);
   }
-  if (!found.length && !dead.length && !texts.length && !named.length) return [...blocks];
   const labels = refLabels([
     ...found.map((entry) => entry.ref.path),
     ...texts.flatMap(({ parts }) =>
@@ -337,9 +342,12 @@ export function decorateFileRefs<T extends { html: string }>(
     holder.innerHTML = fileRefHtml(ref, labels.get(ref.path)!);
     return holder.content.firstElementChild!;
   };
-  for (const { node, parts } of texts)
+  for (const { at, node, parts } of texts) {
+    dirty.add(at);
     node.replaceWith(...parts.map((part) => (typeof part === "string" ? part : linkTo(part.ref))));
-  for (const { node, ref, keepText } of found) {
+  }
+  for (const { at, node, ref, keepText } of found) {
+    dirty.add(at);
     const link = linkTo(ref);
     if (keepText) {
       // The author's words, with the file's lines after them.
@@ -349,9 +357,12 @@ export function decorateFileRefs<T extends { html: string }>(
     node.replaceWith(link);
   }
   // A relative link to no file of the checkout is text.
-  for (const node of dead) node.replaceWith(...node.childNodes);
+  for (const { at, node } of dead) {
+    dirty.add(at);
+    node.replaceWith(...node.childNodes);
+  }
   return blocks.map((block, at) =>
-    templates[at] ? { ...block, html: templates[at].innerHTML } : block,
+    dirty.has(at) && templates[at] ? { ...block, html: templates[at].innerHTML } : block,
   );
 }
 

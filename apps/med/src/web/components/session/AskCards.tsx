@@ -392,6 +392,7 @@ const styles = stylex.create({
     font: "inherit",
     textAlign: "start",
     cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
   choiceOn: {
     backgroundColor: { default: tokens.accentSoft, ":hover": tokens.accentSoft },

@@ -2874,8 +2874,8 @@ function KeepScroll({
       const target = event.target;
       if (
         target instanceof Element &&
-        target.getClientRects().length &&
-        !target.hasAttribute("data-keeps-place")
+        !target.hasAttribute("data-keeps-place") &&
+        target.getClientRects().length
       )
         offsets.current.set(target, [target.scrollTop, target.scrollLeft]);
     };

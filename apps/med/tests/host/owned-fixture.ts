@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SessionEvent } from "../../src/shared/agent-session";
 import type { Thread, ThreadList } from "../../src/shared/threads";
-import type { OwnedState } from "../../src/shared/owned-session";
+import { applyOwnedStreamEvent, type OwnedState } from "../../src/shared/owned-session";
 import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { readServerEvents } from "../../src/web/data/sse";
@@ -218,7 +218,10 @@ export async function fixture({ key, agy = true }: { key?: string; agy?: boolean
       streams.push(controller);
       void readServerEvents(
         response.body!,
-        (event) => seen.push(JSON.parse(event.data) as OwnedState),
+        (event) => {
+          const next = applyOwnedStreamEvent(seen.at(-1), event);
+          if (next) seen.push(next);
+        },
         controller.signal,
       ).catch(() => {});
       return seen;

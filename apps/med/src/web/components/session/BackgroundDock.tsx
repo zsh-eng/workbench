@@ -1,7 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SessionItem } from "../../data/session-store";
-import { tokens } from "../../theme.stylex";
+import { tokens, ui } from "../../theme.stylex";
 import { Icon } from "../Icon";
 import { Elapsed } from "./Elapsed";
 import { useViewSwitch, viewSettings } from "../../data/view-settings";
@@ -166,48 +166,78 @@ export function BackgroundDock({
     setHidden(next);
     store(HIDDEN, JSON.stringify(next));
   };
+  const summary =
+    [running && `${running} running`, failures.length && `${failures.length} failed`]
+      .filter(Boolean)
+      .join(" · ") || "Done";
   return (
     <section
       aria-label="Background tasks"
       {...stylex.props(styles.dock, card ? styles.card : column.bar)}
     >
-      <div {...stylex.props(styles.top)}>
-        <button
-          type="button"
-          aria-expanded={open}
-          onClick={() => setOpen(!open)}
-          {...stylex.props(rowStyles.row, styles.head)}
-        >
-          <span {...stylex.props(rowStyles.icon)}>
-            {running ? (
-              <span {...stylex.props(motion.spinner)} />
-            ) : (
-              <Icon name="terminal" size={14} />
-            )}
-          </span>
-          <span {...stylex.props(styles.label)}>Background</span>
-          <span {...stylex.props(styles.count)}>
-            {[running && `${running} running`, failures.length && `${failures.length} failed`]
-              .filter(Boolean)
-              .join(" · ") || "Done"}
-          </span>
+      {card ? (
+        <div {...stylex.props(styles.cardHead)}>
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => setOpen(!open)}
+            {...stylex.props(ui.button, styles.cardFold)}
+          >
+            <span {...stylex.props(styles.label)}>Background</span>
+            <span {...stylex.props(styles.cardChevron, !open && styles.cardChevronFolded)}>
+              <Icon name="chevron" size={11} />
+            </span>
+          </button>
           <span {...stylex.props(styles.grow)} />
-          <span {...stylex.props(styles.chevron, open ? styles.chevronOpen : styles.chevronUp)}>
-            <Icon name="chevron" size={12} />
+          <span {...stylex.props(styles.cardFigure)}>
+            {running > 0 && <span {...stylex.props(motion.spinner)} />}
+            {summary}
           </span>
-        </button>
-        <button
-          type="button"
-          aria-label="Hide background tasks"
-          {...tooltip("Hide until a new task starts")}
-          onClick={hide}
-          {...stylex.props(styles.hide)}
-        >
-          <Icon name="close" size={12} />
-        </button>
-      </div>
+          <button
+            type="button"
+            aria-label="Hide background tasks"
+            {...tooltip("Hide until a new task starts")}
+            onClick={hide}
+            {...stylex.props(styles.hide)}
+          >
+            <Icon name="close" size={12} />
+          </button>
+        </div>
+      ) : (
+        <div {...stylex.props(styles.top)}>
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => setOpen(!open)}
+            {...stylex.props(rowStyles.row, styles.head)}
+          >
+            <span {...stylex.props(rowStyles.icon)}>
+              {running ? (
+                <span {...stylex.props(motion.spinner)} />
+              ) : (
+                <Icon name="terminal" size={14} />
+              )}
+            </span>
+            <span {...stylex.props(styles.label)}>Background</span>
+            <span {...stylex.props(styles.count)}>{summary}</span>
+            <span {...stylex.props(styles.grow)} />
+            <span {...stylex.props(styles.chevron, open ? styles.chevronOpen : styles.chevronUp)}>
+              <Icon name="chevron" size={12} />
+            </span>
+          </button>
+          <button
+            type="button"
+            aria-label="Hide background tasks"
+            {...tooltip("Hide until a new task starts")}
+            onClick={hide}
+            {...stylex.props(styles.hide)}
+          >
+            <Icon name="close" size={12} />
+          </button>
+        </div>
+      )}
       {open && (
-        <ul {...stylex.props(styles.list)}>
+        <ul {...stylex.props(styles.list, card && styles.cardList)}>
           {/* In the order they started, so a task ends in its place. */}
           {tasks.map((item) => {
             const live = isRunning(item);
@@ -275,7 +305,7 @@ const styles = stylex.create({
     marginInline: 0,
     marginBottom: 0,
     paddingInline: 0,
-    paddingBlock: 8,
+    paddingBlock: 12,
     borderRadius: 0,
     backgroundColor: "transparent",
     boxShadow: "none",
@@ -283,6 +313,30 @@ const styles = stylex.create({
     borderTopStyle: "solid",
     borderTopColor: tokens.line,
   },
+  cardHead: { display: "flex", alignItems: "center", gap: 6, minHeight: 26 },
+  cardFold: {
+    gap: 4,
+    height: 24,
+    marginInlineStart: -6,
+    paddingInline: 6,
+    color: tokens.text,
+  },
+  cardChevron: {
+    display: "inline-flex",
+    color: tokens.faint,
+    transitionProperty: "transform",
+    transitionDuration: "120ms",
+  },
+  cardChevronFolded: { transform: "rotate(-90deg)" },
+  cardFigure: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    color: tokens.muted,
+    fontSize: 12.5,
+    fontVariantNumeric: "tabular-nums",
+  },
+  cardList: { paddingTop: 6, paddingBottom: 0 },
   top: { display: "flex", alignItems: "center", gap: 4 },
   head: { flex: "1", cursor: "pointer", gap: 8 },
   hide: {
@@ -298,6 +352,7 @@ const styles = stylex.create({
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     color: { default: tokens.faint, ":hover": tokens.text },
     cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
   label: { color: tokens.text, fontWeight: 500 },
   count: { color: tokens.faint, fontVariantNumeric: "tabular-nums" },
@@ -343,6 +398,7 @@ const styles = stylex.create({
     fontSize: 12.5,
     textAlign: "left",
     cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
   finished: { color: tokens.muted },
   address: {

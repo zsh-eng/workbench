@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { renderBrief, renderedBrief } from "../../markdown/brief-render";
+import { keepBrief, renderBrief, renderedBrief } from "../../markdown/brief-render";
 import { useKeptFolds } from "../../markdown/folds";
 import { loadMarkdownImages, markdownImageUrl } from "../../markdown/images";
 import type { MarkdownResult } from "../../markdown/model";
@@ -63,6 +63,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   // The newest request; a render that finishes starts the next one from here.
   const latest = useRef({ text, theme: theme.pierreTheme, streaming, settled });
   const pump = useRef({ running: false, mounted: true });
+  const lastRendered = useRef<{ text: string; theme: string; result: MarkdownResult } | null>(null);
   const open = useRef(onOpenLink);
   // Paths that name a file of the thread's checkout are links to it.
   const refs = useFileRefs();
@@ -104,7 +105,19 @@ export const SessionMarkdown = memo(function SessionMarkdown({
 
   useEffect(() => {
     const state = pump.current;
-    if (renderedBrief(theme.pierreTheme, text, "session") || state.running) return;
+    if (renderedBrief(theme.pierreTheme, text, "session")) return;
+    // If the exact text and theme were already rendered while streaming,
+    // promote that result into the cache instead of running a duplicate worker pass.
+    if (
+      (!streaming || settled) &&
+      lastRendered.current &&
+      lastRendered.current.text === text &&
+      lastRendered.current.theme === theme.pierreTheme
+    ) {
+      keepBrief(theme.pierreTheme, text, lastRendered.current.result, "session");
+      return;
+    }
+    if (state.running) return;
     const run = (request: typeof latest.current) => {
       state.running = true;
       renderBrief(request.theme, request.text, true, {
@@ -112,6 +125,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({
         keep: !request.streaming || request.settled,
       })
         .then((next) => {
+          lastRendered.current = { text: request.text, theme: request.theme, result: next };
           if (state.mounted) setRendered(next);
         })
         .catch(() => {})
@@ -119,8 +133,22 @@ export const SessionMarkdown = memo(function SessionMarkdown({
           state.running = false;
           const next = latest.current;
           const changed = next.text !== request.text || next.theme !== request.theme;
+          if (!state.mounted) return;
+          if (changed) {
+            run(next);
+            return;
+          }
           const kept = (request.streaming && !next.streaming) || (!request.settled && next.settled);
-          if (state.mounted && (changed || kept)) run(next);
+          if (
+            kept &&
+            lastRendered.current &&
+            lastRendered.current.text === next.text &&
+            lastRendered.current.theme === next.theme
+          ) {
+            keepBrief(next.theme, next.text, lastRendered.current.result, "session");
+          } else if (kept) {
+            run(next);
+          }
         });
     };
     run(latest.current);

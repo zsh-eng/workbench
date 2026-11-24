@@ -27,6 +27,7 @@ export function PlacePill({
   scroller,
   places,
   at,
+  hidden = false,
 }: {
   scroller: RefObject<HTMLElement | null>;
   /** Every request of the thread, oldest first. */
@@ -34,6 +35,9 @@ export function PlacePill({
   /** The request that the view is in now, as a place in `places`; -1 for
    * none. Read at each scroll. */
   at(): number;
+  /** Visually hides the pill while another status pill takes its spot,
+   * without unmounting or losing state. */
+  hidden?: boolean;
 }) {
   const [shown, setShown] = useState(-1);
   const [visible, setVisible] = useState(false);
@@ -65,20 +69,26 @@ export function PlacePill({
   useEffect(() => {
     const node = scroller.current;
     if (!node) return;
-    const onScroll = () => {
+    let frame = 0;
+    const update = () => {
+      frame = 0;
       const index = latest.current();
       if (index < 0) {
         // The first request is in view again, or the view is at the end.
         if (!held.current.open) setVisible(false);
         return;
       }
-      setShown(index);
+      setShown((current) => (current === index ? current : index));
       setVisible(true);
       restRef.current();
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(update);
     };
     node.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       node.removeEventListener("scroll", onScroll);
+      if (frame) cancelAnimationFrame(frame);
       clearTimeout(timer.current);
     };
   }, [scroller]);
@@ -116,8 +126,8 @@ export function PlacePill({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`Request ${shown + 1} of ${places.length}: ${place.text}. Show the thread's requests`}
-        aria-hidden={!visible && !open ? true : undefined}
-        tabIndex={visible || open ? 0 : -1}
+        aria-hidden={hidden || (!visible && !open) ? true : undefined}
+        tabIndex={!hidden && (visible || open) ? 0 : -1}
         onClick={() => (open ? close() : setOpen(true))}
         onPointerEnter={() => (held.current.pointer = true)}
         onPointerLeave={() => (held.current.pointer = false)}
@@ -132,7 +142,7 @@ export function PlacePill({
             menu.current?.querySelector<HTMLElement>('[aria-current="true"]')?.focus();
           }
         }}
-        {...stylex.props(styles.pill, !visible && !open && styles.faded)}
+        {...stylex.props(styles.pill, (hidden || (!visible && !open)) && styles.faded)}
       >
         <span {...stylex.props(styles.count)}>
           {shown + 1} of {places.length}
@@ -159,7 +169,10 @@ export function PlacePill({
               items[Math.max(0, Math.min(items.length - 1, next))]?.focus();
             }
           }}
-          {...stylex.props(styles.list)}
+          {...(() => {
+            const props = stylex.props(styles.list);
+            return { ...props, className: `${props.className ?? ""} med-slim-scroll`.trim() };
+          })()}
         >
           {places.map((entry, index) => (
             <button
@@ -204,12 +217,12 @@ const styles = stylex.create({
     paddingInline: 12,
     borderWidth: 0,
     borderRadius: 999,
-    backgroundColor: tokens.raised,
-    boxShadow: `${tokens.shadow}, inset 0 0 0 1px ${tokens.line}`,
+    backgroundColor: { default: tokens.menu, ":hover": tokens.fill },
+    boxShadow: `${tokens.shadow}, inset 0 0 0 1px ${tokens.lineStrong}`,
     color: tokens.text,
     fontFamily: tokens.ui,
     fontSize: 12,
-    cursor: "default",
+    cursor: "pointer",
     opacity: 1,
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
@@ -236,9 +249,12 @@ const styles = stylex.create({
     maxHeight: "min(60%, 420px)",
     overflowY: "auto",
     padding: 6,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: tokens.lineStrong,
     borderRadius: `calc(12px * ${tokens.round})`,
-    backgroundColor: tokens.raised,
-    boxShadow: `${tokens.shadow}, inset 0 0 0 1px ${tokens.line}`,
+    backgroundColor: tokens.menu,
+    boxShadow: tokens.shadow,
     fontFamily: tokens.ui,
   },
   item: {
@@ -259,7 +275,7 @@ const styles = stylex.create({
     fontFamily: tokens.ui,
     fontSize: 13,
     textAlign: "start",
-    cursor: "default",
+    cursor: "pointer",
     outline: "none",
   },
   itemCurrent: {

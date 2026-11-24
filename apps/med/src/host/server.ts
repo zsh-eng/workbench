@@ -1972,9 +1972,53 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             ownedStreams.add(response);
             // The agents keep working as the host closes. The page keeps their
             // last state, so its message box stays open while Med restarts.
+            let last: ReturnType<typeof runner.state> | undefined;
+            const onlyStreamingChanged = (
+              before: ReturnType<typeof runner.state>,
+              after: ReturnType<typeof runner.state>,
+            ) =>
+              before.sessionId === after.sessionId &&
+              before.preset === after.preset &&
+              before.name === after.name &&
+              before.status === after.status &&
+              before.settings === after.settings &&
+              before.commands === after.commands &&
+              before.permission === after.permission &&
+              before.context === after.context &&
+              before.turns === after.turns &&
+              before.images === after.images &&
+              before.capabilities === after.capabilities &&
+              before.error === after.error &&
+              before.halt === after.halt;
             const push = () => {
-              if (!closing)
-                response.write(`event: state\ndata: ${JSON.stringify(runner.state())}\n\n`);
+              if (closing) return;
+              const next = runner.state();
+              if (last && onlyStreamingChanged(last, next)) {
+                const prev = last.streaming;
+                const curr = next.streaming;
+                if (prev && curr && prev.id === curr.id && curr.text.startsWith(prev.text)) {
+                  response.write(
+                    `event: streaming\ndata: ${JSON.stringify({
+                      id: curr.id,
+                      from: prev.text.length,
+                      delta: curr.text.slice(prev.text.length),
+                      ...(curr.ended ? { ended: true } : {}),
+                      ...(next.updatedAt !== undefined ? { updatedAt: next.updatedAt } : {}),
+                    })}\n\n`,
+                  );
+                } else {
+                  response.write(
+                    `event: streaming\ndata: ${JSON.stringify({
+                      streaming: curr ?? null,
+                      ...(next.updatedAt !== undefined ? { updatedAt: next.updatedAt } : {}),
+                    })}\n\n`,
+                  );
+                }
+                last = next;
+                return;
+              }
+              last = next;
+              response.write(`event: state\ndata: ${JSON.stringify(next)}\n\n`);
             };
             const unsubscribe = runner.subscribe(push);
             response.once("close", () => {

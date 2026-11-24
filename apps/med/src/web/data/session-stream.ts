@@ -11,7 +11,7 @@ import { dropSession, holdSession } from "./session-held";
 
 /** A session counts as working until its agent ends the turn, or until the
  * transcript has not changed for this long (the agent stopped or crashed). */
-const STALE_MS = 5 * 60_000;
+export const STALE_MS = 5 * 60_000;
 /** The host sends parts of up to 1 MiB; this leaves room for one large update. */
 const MAX_EVENT = 4 * 1024 * 1024;
 

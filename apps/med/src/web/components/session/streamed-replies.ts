@@ -67,18 +67,36 @@ const HEAD = 200;
 /** How long a reply that stopped streaming waits for the transcript's copy. */
 const KEEP_MS = 10_000;
 
-/** Whether the transcript's latest items have a reply that starts as `text` does. */
-function transcriptHas(items: SessionItem[], text: string) {
-  const head = text.trim().slice(0, HEAD);
-  return items
-    .slice(-RECENT)
-    .some((item) => item.kind === "agent" && item.text.trim().startsWith(head));
+/** Whether the transcript already holds the reply that streamed as `id`.
+ * Checks exact ID first (immune to repeated text and tool bursts), then
+ * prefix-matches only items that arrived after this reply started streaming
+ * so a repeated short reply from an earlier turn does not suppress it. */
+function transcriptHas(items: SessionItem[], id: string, reply: Kept) {
+  const recent = Math.max(0, items.length - RECENT);
+  for (let at = Math.max(0, items.length - 48); at < items.length; at++) {
+    const item = items[at]!;
+    if (item.kind === "agent" && item.id === id) return true;
+  }
+  const head = reply.text.trim().slice(0, HEAD);
+  if (!head) return false;
+  let from = recent;
+  if (reply.afterId !== undefined) {
+    const at = items.findLastIndex((item) => item.id === reply.afterId);
+    if (at >= 0) from = at + 1;
+  }
+  for (let at = from; at < items.length; at++) {
+    const item = items[at]!;
+    if (item.kind === "agent" && item.text.trim().startsWith(head)) return true;
+  }
+  return false;
 }
 
 interface Kept {
   text: string;
   /** When it shows: after the transcript's latest item. */
   at: number;
+  /** The transcript's last item when this reply started streaming live. */
+  afterId?: string;
   /** The host stopped streaming it. */
   stopped?: boolean;
 }
@@ -103,15 +121,21 @@ function advance(
   const kept = new Map(state?.kept);
   for (const [id, reply] of kept) {
     if (id === live?.id) continue;
-    if (transcriptHas(items, reply.text) || (expired && reply.stopped)) kept.delete(id);
+    if (transcriptHas(items, id, reply) || (expired && reply.stopped)) kept.delete(id);
     else if (!reply.stopped) kept.set(id, { ...reply, stopped: true });
   }
   // The text as it came, so the transcript's copy renders from the same cache entry.
-  if (live)
-    kept.set(live.id, { text: live.text, at: kept.get(live.id)?.at ?? items.at(-1)?.at ?? 0 });
+  if (live) {
+    const existing = kept.get(live.id);
+    kept.set(live.id, {
+      text: live.text,
+      at: existing?.at ?? items.at(-1)?.at ?? 0,
+      afterId: existing ? existing.afterId : state ? items.at(-1)?.id : undefined,
+    });
+  }
   const shown: StreamedReply[] = [];
   for (const [id, reply] of kept) {
-    if (transcriptHas(items, reply.text)) continue;
+    if (transcriptHas(items, id, reply)) continue;
     const settled = id !== live?.id || !!live.ended;
     const text = settled ? reply.text : finishedBlocks(reply.text);
     if (text) shown.push({ id: `streaming-${id}`, at: reply.at, text, settled });
