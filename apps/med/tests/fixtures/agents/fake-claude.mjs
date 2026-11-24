@@ -61,6 +61,9 @@ let mode = flag("--permission-mode") ?? "default";
 let effort = flag("--effort") ?? "default";
 const asks = new Map();
 let waiting = false;
+/** The context, which "Fill" fills and /compact frees. */
+let used = 2500;
+let window = 10000;
 
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 const record = (entry) =>
@@ -256,8 +259,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
             { name: "Autocompact buffer", tokens: 1000, color: "inactive", kind: "buffer" },
             { name: "Free space", tokens: 6500, color: "promptBorder", kind: "free" },
           ],
-          totalTokens: 2500,
-          maxTokens: 10000,
+          totalTokens: used,
+          maxTokens: window,
           percentage: 25,
           memoryFiles: [{ path: "/repo/CLAUDE.md", type: "Project", tokens: 120 }],
           mcpTools: [
@@ -308,8 +311,51 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     return;
   }
   if (forkOf) copyHistory();
+  // /compact, as Claude Code 2.1 runs it from stream-json: a compact
+  // boundary, the summary, the command, and a result without turns.
+  if (/^\/compact(\s|$)/.test(text.trim())) {
+    send({ type: "system", subtype: "status", status: "compacting" });
+    const before = used;
+    used = 8000;
+    record({
+      type: "system",
+      subtype: "compact_boundary",
+      uuid: randomUUID(),
+      content: "Conversation compacted",
+      compactMetadata: { trigger: "manual", preTokens: before, postTokens: used },
+    });
+    record({
+      type: "user",
+      uuid: randomUUID(),
+      isCompactSummary: true,
+      isVisibleInTranscriptOnly: true,
+      message: { role: "user", content: "This session is being continued from earlier." },
+    });
+    record({
+      type: "user",
+      uuid: randomUUID(),
+      message: {
+        role: "user",
+        content:
+          "<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args></command-args>",
+      },
+    });
+    send({ type: "system", subtype: "status", status: null });
+    send({
+      type: "system",
+      subtype: "compact_boundary",
+      compact_metadata: { trigger: "manual", pre_tokens: before, post_tokens: used },
+    });
+    send({ type: "result", subtype: "success", is_error: false, result: "", num_turns: 0 });
+    return;
+  }
   record({ type: "user", uuid: randomUUID(), message: { role: "user", content } });
   send({ type: "system", subtype: "status", status: "requesting" });
+  if (text.includes("Fill")) {
+    used = 250_000;
+    window = 1_000_000;
+    return reply("Filled.");
+  }
   if (text.includes("Edit")) {
     const request_id = `ask-${randomUUID().slice(0, 8)}`;
     asks.set(request_id, (answer) =>

@@ -170,6 +170,36 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (raw) 
     mkdirSync(folder, { recursive: true });
     record(main, "session_meta", { id: main, cwd, source: "vscode" });
   }
+  // Codex's compaction, as Codex 0.160 runs it: a turn of its own with one
+  // item, after which the context is 0 until the next request.
+  if (message.method === "thread/compact/start") {
+    appendFileSync(
+      join(process.env.MED_HOME_DIR, "codex-threads.jsonl"),
+      `${JSON.stringify({ method: message.method, config: null })}\n`,
+    );
+    const threadId = message.params.threadId;
+    const turn = { id: `compact-${message.id}`, items: [], status: "inProgress" };
+    const item = { type: "contextCompaction", id: `compaction-${message.id}` };
+    const usage = { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    write({ id: message.id, result: {} });
+    return play([
+      { method: "turn/started", params: { threadId, turn } },
+      { method: "item/started", params: { threadId, turnId: turn.id, item } },
+      {
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId,
+          turnId: turn.id,
+          tokenUsage: { total: usage, last: usage, modelContextWindow: 258400 },
+        },
+      },
+      { method: "item/completed", params: { threadId, turnId: turn.id, item } },
+      {
+        method: "turn/completed",
+        params: { threadId, turn: { ...turn, status: "completed" } },
+      },
+    ]);
+  }
   const next = segments.get(message.method)?.shift();
   if (next) return play(next.lines, message.id);
   if (message.id === undefined) return;

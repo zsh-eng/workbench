@@ -211,3 +211,63 @@ test("Claude Code and Codex start with Med's autocompact, and without it with th
   await last.until((state) => state.status === "idle");
   expect((await env(last.id)).CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBeUndefined();
 });
+
+test("A Claude Code session that started before Med's autocompact compacts past it with Claude Code's /compact", async () => {
+  const { api, home, start } = await fixture();
+  const claude = await start("claude");
+  const ready = await claude.until((state) => state.status === "idle" && state.commands.length > 0);
+  // Claude Code's list leaves out its built-in commands; Med offers /compact.
+  expect(ready.commands.map((command) => command.name)).toEqual(["review", "compact"]);
+  const boundaries = async () =>
+    (
+      await readFile(join(home, ".claude", "projects", "-fake-repo", `${claude.id}.jsonl`), "utf8")
+    ).split('"compact_boundary"').length - 1;
+
+  // The setting comes after the process started, without a window.
+  await api("/api/settings", { key: "claude.autoCompact", value: 200_000 }, "PUT");
+  await claude.act({ action: "prompt", text: "Fill the context." });
+  await claude.until((state) => state.status === "idle" && state.turns === 2);
+  await vi.waitFor(async () => expect((await claude.state()).context?.used).toBe(8000));
+  expect(await boundaries()).toBe(1);
+  expect((await claude.state()).autoCompact).toBe(200_000);
+
+  // Under the setting, a turn is a turn; the user's /compact is Claude Code's.
+  await claude.act({ action: "prompt", text: "Say hi." });
+  await claude.until((state) => state.status === "idle" && state.turns === 3);
+  expect(await boundaries()).toBe(1);
+  await claude.act({ action: "prompt", text: "/compact" });
+  await claude.until((state) => state.status === "idle" && state.turns === 4);
+  expect(await boundaries()).toBe(2);
+});
+
+test("Codex's /compact is its thread/compact/start, which Med also sends after a turn past its autocompact", async () => {
+  const { api, home, start } = await fixture();
+  await api("/api/settings", { key: "codex.autoCompact", value: 10_000 }, "PUT");
+  const codex = await start("codex", { model: "gpt-6-luna" });
+  const ready = await codex.until((state) => state.status === "idle");
+  expect(ready.commands.map((command) => command.name)).toEqual(["compact"]);
+  const compactions = async () =>
+    (await readFile(join(home, "codex-threads.jsonl"), "utf8"))
+      .split("\n")
+      .filter((line) => line.includes("thread/compact/start")).length;
+  const send = (text: string, afterTurn = false) =>
+    api<{ message: { id: string } }>(`/api/sessions/${codex.thread}/agent/messages`, {
+      text,
+      noteIds: [],
+      ...(afterTurn ? { afterTurn } : {}),
+    });
+
+  await send("/compact");
+  await codex.until((state) => state.status === "idle" && state.turns === 1);
+  expect(await compactions()).toBe(1);
+
+  // The recorded turn ends at 19,028 tokens, past 10k: Med compacts after it.
+  await send("Run ls -1, then name the files.");
+  const asked = await codex.until((state) => !!state.permission);
+  await codex.act({ action: "permission", id: asked.permission!.id, option: "accept" });
+  const queued = await send("Also end your reply with the word steered.", true);
+  await api(`/api/sessions/${codex.thread}/agent/send-now`, { id: queued.data.message.id });
+  await vi.waitFor(async () => expect(await compactions()).toBe(2));
+  await codex.until((state) => state.status === "idle" && state.turns === 3);
+  expect(await compactions()).toBe(2);
+});

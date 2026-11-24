@@ -494,7 +494,8 @@ the box (attachments stay out, and the box says so), and **Remove** drops it.
 The pane's header
 shows how full
 the context is and what the thread has spent, subagents included; click it
-for where autocompact starts and each model's tokens. A pane with room beside
+for where autocompact starts and each model's tokens, and **Compact now** to
+compact the context (the agent's `/compact`, after the turn that runs). A pane with room beside
 its thread shows the session rail instead, a pane of plain sections:
 **Thread** (the repository and the branch that the thread shows; the
 repository's row opens the repositories, and the branch's row the branches

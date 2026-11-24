@@ -76,10 +76,12 @@ the settings file (see [Run Med](run-med.md#start-at-login)).
 Where each agent that Med finds here compacts its context, in tokens:
 Claude Code, Codex, Pi, and Antigravity. **Default** leaves it to the agent.
 Claude Code takes it as `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (100k to 1M) and
-Codex as its thread's `model_auto_compact_token_limit`, both from the next
-session that Med starts. Pi and Antigravity have no such setting: Med sends
-their `/compact` after a turn that ends past it, with a note in the thread,
-and sends no other while a compaction frees nothing. The context chip marks
+Codex as its thread's `model_auto_compact_token_limit`, as each session
+starts. A session that started before the setting changed keeps what it
+started with, so after any of its turns that ends past the setting, Med sends
+the agent's own `/compact`. Pi and Antigravity have no such setting: Med sends
+their `/compact` after a turn that ends past it, with a note in the thread.
+Med sends no other while a compaction frees nothing. The context chip marks
 where compaction starts, and says when the setting is Med's.
 
 ## Grafana

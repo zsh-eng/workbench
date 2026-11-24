@@ -618,7 +618,13 @@ file, so the next call reads only the new lines.
   Med does not read managed settings, `--autocompact`, or a terminal's
   environment, so a session started with those can differ. Med's own
   setting (`claude.autoCompact`, [Settings › Agents](usage/settings.md#agents))
-  is the variable for the sessions that Med starts, and the chip says so.
+  is the variable for the sessions that Med starts, and the chip says so. A
+  session whose process started before the setting changed runs without it,
+  so after a turn that ends past it Med writes Claude Code's `/compact`; Codex
+  likewise gets `thread/compact/start` (auto-compact.ts). **Compact now**, in
+  the chip and the rail's Context, sends the agent's `/compact` as the
+  thread's next message, after the turn that runs; Claude Code's and Codex's
+  slash menus list it, as Pi's and Antigravity's own lists do.
   Codex's context is its last `token_count`; an ACP agent's is its last
   `usage_update` in Med's file, and a compaction after it waits for the next
   request. Pi compacts at its window less `compaction.reserveTokens` from its

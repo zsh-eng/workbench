@@ -986,11 +986,19 @@ describe("agent session", () => {
           ],
         },
       ],
-      commands: [{ name: "review", description: "Review the current changes" }],
+      commands: [
+        { name: "review", description: "Review the current changes" },
+        { name: "compact", description: "Summarize the conversation to free its context" },
+      ],
       context: { used: 40_000, total: 200_000 },
     });
     // Before the transcript has a request, the header shows what the runner reports.
     await expect.element(page.getByRole("button", { name: /^Context 20% full/ })).toBeVisible();
+    // Compact now sends the agent's own /compact, and closes the popover.
+    await userEvent.click(page.getByRole("button", { name: /^Context 20% full/ }));
+    await userEvent.click(page.getByRole("button", { name: "Compact now" }));
+    await expect.poll(() => agentMessages).toMatchObject([{ text: "/compact", afterTurn: true }]);
+    await expect.element(page.getByRole("button", { name: "Compact now" })).not.toBeInTheDocument();
     // Model, effort, and mode are pickers, not commands.
     // They are under the message box, as in Claude Desktop.
     const model = page.getByRole("combobox", { name: "Model", exact: true });
@@ -1013,7 +1021,9 @@ describe("agent session", () => {
     await userEvent.keyboard("{Enter}");
     await expect.element(input).toHaveValue("/review ");
     await userEvent.keyboard("the durations{Meta>}{Enter}{/Meta}");
-    await expect.poll(() => agentMessages).toMatchObject([{ text: "/review the durations" }]);
+    await expect
+      .poll(() => agentMessages)
+      .toMatchObject([{ text: "/compact" }, { text: "/review the durations" }]);
 
     // A pasted image goes with the next message to an agent that takes images.
     setOwned({ images: true });

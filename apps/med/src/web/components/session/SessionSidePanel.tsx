@@ -7,7 +7,7 @@ import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
 import { tooltip } from "../ToolButton";
 import { ContextDetails, ContextSummary } from "./ContextPanel";
-import { dollars, modelName, SpendBlock, type ShownContext } from "./ThreadUsage";
+import { CompactButton, dollars, modelName, SpendBlock, type ShownContext } from "./ThreadUsage";
 
 // The session rail in a wide pane, as Claude Desktop has one: a pane of plain
 // sections, a line between each. What the thread shows, the agent and where
@@ -260,9 +260,12 @@ export function SessionSidePanel({
   place,
   backgroundRef,
   agentsRef,
+  compact,
 }: {
   usage: ThreadUsage | null;
   context: ShownContext | undefined;
+  /** The agent compacts on request: Med runs it, and it offers /compact. */
+  compact?: { working: boolean; onCompact(): void };
   /** What fills the context, from the agent that Med runs. */
   breakdown?: ContextBreakdown;
   /** A turn runs, at whose end the breakdown is read again. */
@@ -378,6 +381,7 @@ export function SessionSidePanel({
             <>
               <ContextSummary context={context} breakdown={breakdown} />
               <ContextDetails context={context} breakdown={breakdown} working={working} />
+              {compact && <CompactButton compact={compact} />}
             </>
           }
         />

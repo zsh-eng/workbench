@@ -10,6 +10,7 @@ import {
   OwnedState,
 } from "../shared/owned-session";
 import type { AgentSession } from "../shared/saved-review";
+import { COMPACT_COMMAND, compactsPast, isCompact } from "./auto-compact";
 import { attachHeld, forgetLog, startHeld, type HeldAgent, type HeldEvents } from "./held-agent";
 import { createJsonRpc, parseRpc, RpcError, type JsonRpc } from "./json-rpc";
 import {
@@ -231,7 +232,8 @@ export interface CodexOptions {
   onHolder?(key: string): void;
   env?: () => Record<string, string>;
   /** Med's autocompact for Codex (agent-defaults.ts), read when the thread
-   * starts or resumes: its model_auto_compact_token_limit. */
+   * starts or resumes, as its model_auto_compact_token_limit, and at each
+   * turn's end (auto-compact.ts). */
   autoCompact?: () => number | undefined;
   /** The model, effort, and mode to start with. */
   choices?: AgentChoices;
@@ -255,7 +257,8 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
     name: agent.name,
     status: options.thread ? "idle" : "starting",
     settings: [],
-    commands: [],
+    // Codex's /compact is `thread/compact/start`.
+    commands: [COMPACT_COMMAND],
     turns: 0,
     capabilities: AGENT_CAPABILITIES.codex,
     images: true,
@@ -265,6 +268,13 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
   let active: object | undefined;
   let replaying = false;
   let stopping = false;
+  // Med's autocompact past the limit that the thread started with
+  // (auto-compact.ts): the turn's compaction, and whether Med or the user
+  // asked for one.
+  const compacts = compactsPast();
+  let startedWith: number | undefined;
+  let compactedFrom: number | undefined;
+  let compactAsked = false;
   /** The thread is loaded in the app-server that runs now. */
   let loaded = false;
   let turnId: string | undefined;
@@ -504,8 +514,17 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
           for (const entry of asking.values())
             entry.resolve(reply(entry.method, entry.params, "cancel"));
           asking.clear();
+          const end = { compacted: compactedFrom, asked: compactAsked };
+          compactedFrom = undefined;
+          compactAsked = false;
+          // Past Med's autocompact the thread goes on working, so that a
+          // queued message waits for the compaction.
+          const compact =
+            !replaying &&
+            store.get().status !== "exited" &&
+            compactAfter(end, turn?.status === "completed");
           store.set({
-            status: store.get().status === "exited" ? "exited" : "idle",
+            status: store.get().status === "exited" ? "exited" : compact ? "working" : "idle",
             streaming: undefined,
             permission: undefined,
             ...(turn?.status === "failed"
@@ -520,12 +539,16 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
               thread: session.id,
               lastId: rpc.last(),
             });
+          if (compact) void compactNow(false).catch(() => {});
           return;
         }
         case "item/started": {
           const item = record(params?.item);
           if (item?.type === "agentMessage")
             streaming = { id: String(item.id ?? randomUUID()), text: "" };
+          // A compaction: Med's, the user's /compact, or Codex's own.
+          if (item?.type === "contextCompaction" && !replaying)
+            compactedFrom = store.get().context?.used ?? 0;
           return;
         }
         case "item/agentMessage/delta":
@@ -550,6 +573,7 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
         }
         case "thread/tokenUsage/updated": {
           const usage = record(params?.tokenUsage);
+          // After a compaction Codex says 0, until the next request tells the size.
           const used = Number(usage?.last?.inputTokens);
           const total = Number(usage?.modelContextWindow);
           if (used > 0 && total > 0) store.set({ context: { used, total } });
@@ -616,12 +640,14 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
     const message = parseRpc(line);
     if (!message) return;
     if (
-      (message.method === "turn/start" || message.method === "turn/steer") &&
+      (message.method === "turn/start" ||
+        message.method === "turn/steer" ||
+        message.method === "thread/compact/start") &&
       typeof message.id === "number"
     )
       store.set({
         status: "working",
-        turns: store.get().turns + (message.method === "turn/start" ? 1 : 0),
+        turns: store.get().turns + (message.method === "turn/steer" ? 0 : 1),
       });
     if (message.method !== undefined && typeof message.id === "number") {
       sent.set(message.id, { method: message.method, params: record(message.params) ?? {} });
@@ -783,6 +809,7 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
       // goes back to; a chosen mode goes with the first turn. Med's
       // autocompact is the thread's model_auto_compact_token_limit.
       const autoCompact = options.autoCompact?.();
+      startedWith = autoCompact;
       store.set({ autoCompact });
       const common = {
         cwd,
@@ -893,10 +920,40 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
     });
   };
 
+  /** After a turn: whether Med compacts, past its autocompact in Settings. */
+  const compactAfter = (end: { compacted?: number; asked: boolean }, completed: boolean) => {
+    const at = options.autoCompact?.();
+    store.set({ autoCompact: at ?? startedWith });
+    if (!completed && end.compacted === undefined && !end.asked) return false;
+    return compacts.ended({ at, used: store.get().context?.used, ...end });
+  };
+  /** Codex's compaction, which runs as a turn of its own. */
+  const compactNow = async (counted = true) => {
+    compactAsked = true;
+    if (counted)
+      store.set({
+        status: "working",
+        turns: store.get().turns + 1,
+        error: undefined,
+        halt: undefined,
+      });
+    else store.set({ turns: store.get().turns + 1 });
+    await call("thread/compact/start", { threadId: session.id }).catch((error: unknown) => {
+      compactAsked = false;
+      store.set({ status: "idle" });
+      throw new HostError(
+        "agent-error",
+        error instanceof Error ? error.message : String(error),
+        502,
+      );
+    });
+  };
+
   const prompt = async (text: string, images: { data: string; mimeType: string }[] = []) => {
     if (store.get().status === "exited")
       throw new HostError("session-stopped", "This session has stopped.", 409);
     await ensure();
+    if (isCompact(text) && !images.length) return compactNow();
     await startTurn(text, images);
   };
 

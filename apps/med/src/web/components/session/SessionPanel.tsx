@@ -822,7 +822,19 @@ export function SessionPanel({
   // The rail has Spend and Context with their detail, so the chip under the
   // message box would say both a second time.
   const spend = countedSpend(usage);
-  const usageChip = side ? null : <UsageChip usage={spend} context={shownContext} />;
+  // The agent's own /compact, where Med runs it and it offers one.
+  const compact =
+    ownedState &&
+    ownedState.status !== "exited" &&
+    ownedState.commands.some((command) => command.name === "compact")
+      ? {
+          working: ownedState.status === "working",
+          onCompact: () => send({ text: "/compact", noteIds: [], afterTurn: true }),
+        }
+      : undefined;
+  const usageChip = side ? null : (
+    <UsageChip usage={spend} context={shownContext} compact={compact} />
+  );
 
   // The message box, or what stands in its place, at the pane's foot: over
   // the thread's foot while the thread shows (SessionThread's footer).
@@ -959,6 +971,7 @@ export function SessionPanel({
             place={sessionPlace}
             backgroundRef={setBackground}
             agentsRef={setAgentsSlot}
+            compact={compact}
           />
         )}
       </div>

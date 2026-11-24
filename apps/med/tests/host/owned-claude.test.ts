@@ -82,8 +82,16 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
     ["effort", "medium"],
     ["mode", "auto"],
   ]);
-  // Built-in commands have GUI controls; the `/` menu lists the others.
-  expect(ready.commands).toEqual([{ name: "review", description: "Review the current changes" }]);
+  // Built-in commands have GUI controls; the `/` menu lists the others, and
+  // /compact, which Compact now also sends.
+  expect(ready.commands).toEqual([
+    { name: "review", description: "Review the current changes" },
+    {
+      name: "compact",
+      description: "Summarize the conversation to free its context",
+      hint: "[instructions]",
+    },
+  ]);
   // Claude Code names the signed-in account; Med keeps none of it.
   expect(JSON.stringify(ready)).not.toContain("example.invalid");
 

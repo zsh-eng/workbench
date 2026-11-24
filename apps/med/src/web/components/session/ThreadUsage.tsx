@@ -304,14 +304,35 @@ export function SpendBlock({ usage, table = true }: { usage: ThreadUsage; table?
   );
 }
 
+/** The agent's own /compact, as the thread's next message: now, or after
+ * the turn that runs. In a popover it closes the popover too. */
+export function CompactButton({
+  compact,
+  inPopover = false,
+}: {
+  compact: { working: boolean; onCompact(): void };
+  inPopover?: boolean;
+}) {
+  const props = {
+    type: "button" as const,
+    onClick: compact.onCompact,
+    children: compact.working ? "Compact after this turn" : "Compact now",
+    ...stylex.props(ui.button, ui.pressable, styles.compact),
+  };
+  return inPopover ? <Popover.Close {...props} /> : <button {...props} />;
+}
+
 /** The chip under the message box: context and spend at a glance, the gist
  * one click away. */
 export function UsageChip({
   usage,
   context,
+  compact,
 }: {
   usage: ThreadUsage | null;
   context: ShownContext | undefined;
+  /** The agent compacts on request: Med runs it, and it offers /compact. */
+  compact?: { working: boolean; onCompact(): void };
 }) {
   if (!usage && !context) return null;
   const share = context?.window ? context.used / context.window : 0;
@@ -363,6 +384,7 @@ export function UsageChip({
                     Compacted since; the next request tells the new size.
                   </p>
                 )}
+                {compact && <CompactButton compact={compact} inPopover />}
               </section>
             )}
             {usage && (
@@ -424,6 +446,8 @@ const styles = stylex.create({
     paddingInline: 16,
   },
   section: { display: "flex", flexDirection: "column", gap: 4 },
+  // A text button whose words line up with the lines over it.
+  compact: { alignSelf: "flex-start", marginTop: 4, marginInlineStart: -8, color: tokens.text },
   quiet: { color: tokens.muted, marginTop: 4 },
   block: { display: "flex", flexDirection: "column", gap: 6, minWidth: 0 },
   bar: {

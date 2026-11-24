@@ -51,6 +51,7 @@ import { HostError } from "./runtime/errors";
 import { readRecords, writeStateFile } from "./runtime/state-file";
 import { userHome } from "./service/discover";
 import { createSessionProcesses, type SessionProcesses } from "./session-processes";
+import { COMPACT_COMMAND, compactsPast, isCompact } from "./auto-compact";
 import { shellEnvironment, withoutClaudeSession } from "./shell-environment";
 import type { PromptImage } from "../shared/agent-inbox";
 
@@ -537,9 +538,28 @@ export function startClaude(
   let bypassable = false;
   let streamTimer: ReturnType<typeof setTimeout> | undefined;
   let streaming: OwnedState["streaming"];
+  // Med's autocompact past the window that the process started with
+  // (auto-compact.ts): the turn's compaction, and whether Med or the user
+  // asked for one.
+  const compacts = compactsPast();
+  let startedWith: number | undefined;
+  let compactedFrom: number | undefined;
+  let compactAsked = false;
 
   const write = (message: object) => {
     if (!replaying) held?.write(JSON.stringify(message));
+  };
+  /** After a turn: Med's /compact, past its autocompact in Settings. */
+  const compactAfter = (turn: { compacted?: number; asked: boolean; failed: boolean }) => {
+    const at = options.autoCompact?.();
+    store.set({ autoCompact: at ?? startedWith });
+    if (turn.failed && turn.compacted === undefined && !turn.asked) return;
+    const { failed: _failed, ...end } = turn;
+    if (!compacts.ended({ at, used: store.get().context?.used, ...end })) return;
+    if (store.get().status !== "idle" || !held) return;
+    compactAsked = true;
+    write({ type: "user", message: { role: "user", content: "/compact" } });
+    store.set({ status: "working", turns: store.get().turns + 1, error: undefined });
   };
   /** A model's ID, as a resumed session's own, shows as the model that names it. */
   const settle = () => {
@@ -609,13 +629,16 @@ export function startClaude(
       store.set({
         status: store.get().status === "starting" ? "idle" : store.get().status,
         settings: settings(),
-        commands: parsed.data.commands
-          .filter((command) => !command.builtin)
-          .map((command): OwnedCommand => ({
-            name: command.name,
-            description: command.description,
-            ...(command.argumentHint ? { hint: command.argumentHint } : {}),
-          })),
+        commands: [
+          ...parsed.data.commands
+            .filter((command) => !command.builtin && command.name !== COMPACT_COMMAND.name)
+            .map((command): OwnedCommand => ({
+              name: command.name,
+              description: command.description,
+              ...(command.argumentHint ? { hint: command.argumentHint } : {}),
+            })),
+          { ...COMPACT_COMMAND, hint: "[instructions]" },
+        ],
       });
     },
     get_context_usage(value) {
@@ -799,6 +822,10 @@ export function startClaude(
           reported(message.permissionMode);
         if (message.subtype === "status" && message.status === "requesting")
           store.set({ status: "working" });
+        // A compaction: Med's, the user's /compact, or Claude Code's own.
+        if (message.subtype === "compact_boundary" && !replaying)
+          compactedFrom =
+            Number(message.compact_metadata?.pre_tokens) || store.get().context?.used || 0;
         return;
       case "stream_event": {
         const event = message.event ?? {};
@@ -839,7 +866,16 @@ export function startClaude(
         });
         if (!replaying) {
           held?.checkpoint({ state: kept(store.get()), models, chosen, exists, sequence });
-          void control({ subtype: "get_context_usage" }).catch(() => {});
+          const turn = {
+            compacted: compactedFrom,
+            asked: compactAsked,
+            failed: !!message.is_error,
+          };
+          compactedFrom = undefined;
+          compactAsked = false;
+          void control({ subtype: "get_context_usage" })
+            .catch(() => {})
+            .then(() => compactAfter(turn));
         }
         return;
       }
@@ -976,6 +1012,7 @@ export function startClaude(
     const token = {};
     active = token;
     const autoCompact = options.autoCompact?.();
+    startedWith = autoCompact;
     store.set({ autoCompact });
     held = startHeld(
       options.holders,
@@ -1093,6 +1130,7 @@ export function startClaude(
           ]
         : text;
       write({ type: "user", message: { role: "user", content } });
+      if (isCompact(text)) compactAsked = true;
       exists = true;
       store.set({
         status: "working",
