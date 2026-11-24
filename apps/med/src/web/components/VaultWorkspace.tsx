@@ -55,6 +55,7 @@ const SECTIONS: SettingsSection[] = [
   "open-in",
   "files",
   "sources",
+  "agents",
   "grafana",
   "file",
 ];

@@ -9,6 +9,9 @@
 // - Pi's models and thinking levels are the session's config options.
 // - Pi's streamed text, thinking and tool calls are session updates, and
 //   `session/cancel` is Pi's abort.
+// - Each request's tokens are a `token_usage` update, Med's own, for the
+//   thread's spend; the context comes after each turn. `/compact` is Pi's
+//   compaction, which Med also sends past its autocompact setting.
 // - Pi runs its tools without asking. An extension's dialog that asks yes or
 //   no, or to pick one of a few, is a permission card in Med.
 //
@@ -162,6 +165,35 @@ export function sessionFile(env: NodeJS.ProcessEnv, cwd: string, id: string) {
     sessionFolder(env, cwd),
     `${new Date().toISOString().replace(/[:.]/g, "-")}${suffix}`,
   );
+}
+
+/**
+ * An assistant message's tokens, as Med's `token_usage` update: one request,
+ * for the thread's spend. Pi's input leaves out cache reads and writes. Pi
+ * counts cache writes only for Anthropic's models, in the 5-minute cache
+ * unless PI_CACHE_RETENTION is "long"; for OpenAI's it counts them as input.
+ * None for a request without tokens, such as one that failed.
+ */
+export function requestTokens(message: Json, env: NodeJS.ProcessEnv = process.env) {
+  const usage = message.usage as Json | undefined;
+  const count = (value: unknown) => (typeof value === "number" && value > 0 ? value : 0);
+  const tokens = {
+    input: count(usage?.input),
+    output: count(usage?.output),
+    cacheRead: count(usage?.cacheRead),
+    cacheWrite: count(usage?.cacheWrite),
+  };
+  if (!tokens.input && !tokens.output && !tokens.cacheRead && !tokens.cacheWrite) return undefined;
+  const cost = count(usage?.cost?.total);
+  return {
+    sessionUpdate: "token_usage",
+    ...(typeof message.model === "string" ? { model: message.model } : {}),
+    ...tokens,
+    ...(tokens.cacheWrite && message.provider === "anthropic" && env.PI_CACHE_RETENTION === "long"
+      ? { cacheWriteHour: true }
+      : {}),
+    ...(cost ? { cost } : {}),
+  };
 }
 
 /** A tool call's title and kind, as Med shows ACP tool calls. */
@@ -362,6 +394,7 @@ export function piBridge({
   /** The turn in progress: its end, and whether Med stopped it. */
   let turn: { done(result: Json): void; fail(error: Error): void; stopped: boolean } | undefined;
   let lastAssistant: Json | undefined;
+  let compactions = 0;
   const calls = new Map<string, Json>();
 
   // JSON.stringify leaves U+2028 and U+2029 raw; Med's reader may split on them.
@@ -392,9 +425,26 @@ export function piBridge({
           });
         return;
       }
-      case "message_end":
-        if (event.message?.role === "assistant") lastAssistant = event.message;
+      case "message_end": {
+        if (event.message?.role !== "assistant") return;
+        lastAssistant = event.message;
+        // Each assistant message is one request: its tokens, for the thread's spend.
+        const tokens = requestTokens(event.message, env);
+        if (tokens) update(tokens);
         return;
+      }
+      case "compaction_end": {
+        // Pi's own compaction, at its threshold or on an overflow, and /compact.
+        const summary = event.result?.summary;
+        update({
+          sessionUpdate: "compaction_update",
+          compactionId: `pi-compaction-${++compactions}`,
+          status: event.aborted || !event.result ? "failed" : "completed",
+          summary:
+            typeof summary === "string" && summary ? [{ type: "text", text: summary }] : null,
+        });
+        return;
+      }
       case "tool_execution_start": {
         const args = (event.args ?? {}) as Json;
         calls.set(event.toolCallId, { name: event.toolName, args });
@@ -537,6 +587,20 @@ export function piBridge({
     return pi;
   };
   const pi_ = pi;
+  /** The `/` menu's commands, after the session's answer. */
+  const offerCommands = () =>
+    setTimeout(() =>
+      update({
+        sessionUpdate: "available_commands_update",
+        availableCommands: [
+          {
+            name: "compact",
+            description: "Summarize older messages to free context",
+            input: { hint: "what the summary should keep" },
+          },
+        ],
+      }),
+    );
   const running = () => {
     if (!process_) throw new RpcError("Pi is not running. Send again to start it.", -32603);
     return process_;
@@ -560,12 +624,14 @@ export function piBridge({
         case "session/new": {
           await open(String(input.cwd ?? cwd));
           session = state.sessionId ?? "";
+          offerCommands();
           return { sessionId: session, configOptions: options() };
         }
         case "session/resume": {
           const folder = String(input.cwd ?? cwd);
           session = String(input.sessionId);
           await open(folder, sessionFile(env, folder, session));
+          offerCommands();
           return { configOptions: options() };
         }
         case "session/set_config_option": {
@@ -602,6 +668,16 @@ export function piBridge({
           const images = blocks
             .filter((block) => block.type === "image" && typeof block.data === "string")
             .map((block) => ({ type: "image", data: block.data, mimeType: block.mimeType }));
+          // `/compact`, from the reader or from Med past its autocompact:
+          // Pi summarizes the session's older messages.
+          const compact = /^\/compact(?:\s+([\s\S]*))?$/.exec(message.trim());
+          if (compact && !images.length) {
+            const instructions = compact[1]?.trim();
+            await pi
+              .command("compact", instructions ? { customInstructions: instructions } : {})
+              .catch((error: Error) => Promise.reject(new RpcError(error.message, -32603)));
+            return { stopReason: "end_turn" };
+          }
           return new Promise((done, fail) => {
             turn = { done, fail, stopped: false };
             lastAssistant = undefined;

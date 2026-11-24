@@ -228,15 +228,16 @@ Each agent declares what Med can do with it (`AGENT_CAPABILITIES` in
 `src/shared/owned-session.ts`, in `GET /api/agents` and the owned state), and
 the page shows only the controls that work:
 
-| Capability | Claude Code     | Codex                      | agy                   | Pi                     | Other ACP |
-| ---------- | --------------- | -------------------------- | --------------------- | ---------------------- | --------- |
-| Send now   | After its tools | In the turn (`turn/steer`) | No                    | No                     | No        |
-| Stop       | Yes             | Yes                        | Yes                   | Yes                    | Yes       |
-| Approvals  | Cards           | Cards                      | Cards                 | None (its extensions') | Cards     |
-| Images     | Yes             | Yes                        | Yes                   | Yes                    | When set  |
-| Resume     | Yes             | Yes                        | Yes                   | Yes                    | No        |
-| Subagents  | Yes             | Yes                        | No (one tool call)    | No                     | No        |
-| Spend      | Yes             | Yes                        | No (no Gemini prices) | No (its own prices)    | No        |
+| Capability  | Claude Code     | Codex                      | agy                | Pi                     | Other ACP           |
+| ----------- | --------------- | -------------------------- | ------------------ | ---------------------- | ------------------- |
+| Send now    | After its tools | In the turn (`turn/steer`) | No                 | No                     | No                  |
+| Stop        | Yes             | Yes                        | Yes                | Yes                    | Yes                 |
+| Approvals   | Cards           | Cards                      | Cards              | None (its extensions') | Cards               |
+| Images      | Yes             | Yes                        | Yes                | Yes                    | When set            |
+| Resume      | Yes             | Yes                        | Yes                | Yes                    | No                  |
+| Subagents   | Yes             | Yes                        | No (one tool call) | No                     | No                  |
+| Spend       | Yes             | Yes                        | Yes (by turn)      | Yes (by request)       | If it counts tokens |
+| Autocompact | Its own setting | Its own setting            | Med's `/compact`   | Med's `/compact`       | No                  |
 
 ### Queued messages
 

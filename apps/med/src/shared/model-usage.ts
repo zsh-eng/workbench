@@ -15,8 +15,12 @@ export interface ModelPrice {
   cacheRead: number;
   output: number;
   fast?: { input: number; output: number };
-  longContext?: { over: number } & Omit<ModelPrice, "fast" | "longContext">;
+  longContext?: { over: number } & Rates;
+  /** Prices that change on a date (YYYY-MM-DD, from that day), oldest first:
+   * a request pays the prices of its day. */
+  changes?: ({ from: string } & Partial<Rates>)[];
 }
+type Rates = Omit<ModelPrice, "fast" | "longContext" | "changes">;
 
 const table = prices as {
   version: number;
@@ -24,6 +28,8 @@ const table = prices as {
   readAt: string;
   /** The GPT models' prices, from OpenAI's page. */
   openai: { source: string; readAt: string };
+  /** The Gemini models' prices, from Google's page. */
+  google: { source: string; readAt: string };
   webSearchPerThousand: number;
   dataResidency: number;
   models: Record<string, ModelPrice>;
@@ -35,6 +41,7 @@ export const PRICE_TABLE = {
   source: table.source,
   readAt: table.readAt,
   openai: { source: table.openai.source, readAt: table.openai.readAt },
+  google: { source: table.google.source, readAt: table.google.readAt },
 };
 
 /**
@@ -71,13 +78,27 @@ export interface RequestTokens {
   geo?: string;
 }
 
-/** A request's cost in dollars at list price, or undefined for a model without a price. */
-export function requestCost(model: string, tokens: RequestTokens): number | undefined {
+/**
+ * A request's cost in dollars at list price, or undefined for a model
+ * without a price. `at` is when it ran, for a price that changed; `whole`
+ * is a turn's sum of its requests, which a long-context price is not for.
+ */
+export function requestCost(
+  model: string,
+  tokens: RequestTokens,
+  { at = Date.now(), whole = false }: { at?: number; whole?: boolean } = {},
+): number | undefined {
   const price = priceOf(model);
   if (!price) return undefined;
   const prompt = tokens.input + tokens.cacheRead + tokens.cacheWrite5m + tokens.cacheWrite1h;
-  let rates: Omit<ModelPrice, "fast" | "longContext"> =
-    price.longContext && prompt > price.longContext.over ? price.longContext : price;
+  let rates: Rates =
+    price.longContext && !whole && prompt > price.longContext.over
+      ? price.longContext
+      : (price.changes ?? []).reduce<Rates>(
+          (current, { from, ...change }) =>
+            Date.parse(from) <= at ? { ...current, ...change } : current,
+          price,
+        );
   if (tokens.speed === "fast" && price.fast) {
     // Fast mode prices input and output; caching keeps its multipliers.
     const scale = price.fast.input / price.input;
@@ -141,7 +162,8 @@ export const threadUsageSchema = z.object({
   context: z
     .object({
       sessionId: z.string(),
-      agent: z.enum(["claude", "codex"]),
+      /** `acp`: an ACP agent's, from the updates that Med keeps for it. */
+      agent: z.enum(["claude", "codex", "acp"]),
       model: z.string().optional(),
       /** Tokens that the last request sent: its input, cache reads, and cache writes. */
       used: z.number(),
@@ -177,9 +199,12 @@ export const threadUsageSchema = z.object({
         requests: z.number(),
         /** Null for a model without a price, such as Codex's. */
         cost: z.number().nullable(),
+        /** The agent whose own price its requests have, where Med has none,
+         * such as Pi's for a model on OpenRouter. */
+        pricedBy: z.string().optional(),
       }),
     ),
-    /** Sessions whose transcripts have no token counts, such as ACP agents'. */
+    /** Sessions without token counts, such as an ACP agent's that counts none. */
     missing: z.array(z.string()),
   }),
   prices: z.object({
@@ -187,6 +212,7 @@ export const threadUsageSchema = z.object({
     source: z.string(),
     readAt: z.string(),
     openai: z.object({ source: z.string(), readAt: z.string() }).optional(),
+    google: z.object({ source: z.string(), readAt: z.string() }).optional(),
   }),
 });
 export type ThreadUsage = z.infer<typeof threadUsageSchema>;

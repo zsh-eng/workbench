@@ -71,6 +71,17 @@ login** opens Med when you log in, so review links keep working after a
 restart; it shows where the server can set a login item, and is not a key in
 the settings file (see [Run Med](run-med.md#start-at-login)).
 
+## Agents
+
+Where each agent that Med finds here compacts its context, in tokens:
+Claude Code, Codex, Pi, and Antigravity. **Default** leaves it to the agent.
+Claude Code takes it as `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (100k to 1M) and
+Codex as its thread's `model_auto_compact_token_limit`, both from the next
+session that Med starts. Pi and Antigravity have no such setting: Med sends
+their `/compact` after a turn that ends past it, with a note in the thread,
+and sends no other while a compaction frees nothing. The context chip marks
+where compaction starts, and says when the setting is Med's.
+
 ## Grafana
 
 Charts in replies can draw a Grafana panel (see
@@ -221,6 +232,10 @@ the file.
 | `session.followUp`      | `"now"` or `"queue"`: what `⌘↩` does while the agent works | `"now"`          |
 | `comments.sendNow`      | `true` or `false`: a new comment goes to the agent at once | `true`           |
 | `sources.pullBase`      | `true` or `false`: pull each repository's base branch      | `true`           |
+| `claude.autoCompact`    | tokens where Claude Code compacts, such as `300000`        | Claude Code's    |
+| `codex.autoCompact`     | tokens where Codex compacts                                | Codex's          |
+| `pi.autoCompact`        | tokens past which Med sends Pi's `/compact`                | Pi's             |
+| `agy.autoCompact`       | tokens past which Med sends Antigravity's `/compact`       | Antigravity's    |
 | `openIn.hosts`          | a host's kind by host: `"github"`, `"gitlab"`, or `"off"`  | `{}`             |
 | `openIn.sourcegraph`    | your Sourcegraph's address, or `""` for none               | `""`             |
 | `openIn.editors`        | the editors to list, in order, such as `["vscode", "zed"]` | each one found   |

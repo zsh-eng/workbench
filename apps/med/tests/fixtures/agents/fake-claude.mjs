@@ -49,7 +49,10 @@ writeFileSync(
   join(project, `${sessionId}.env.json`),
   JSON.stringify(
     Object.fromEntries(
-      Object.entries(process.env).filter(([name]) => name.startsWith("MED_") || name === "PATH"),
+      Object.entries(process.env).filter(
+        ([name]) =>
+          name.startsWith("MED_") || name === "PATH" || name === "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+      ),
     ),
   ),
 );

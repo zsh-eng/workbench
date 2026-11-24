@@ -136,7 +136,28 @@ export type SessionUpdate =
       compactionId: string;
       status: "completed" | "failed";
       summary?: ContentBlock[] | null;
-    } & Partial<Meta>);
+    } & Partial<Meta>)
+  /** Med's own: the tokens of an ACP agent's request, or of its turn, as the
+   * agent counts them, for the thread's spend (session-usage.ts). */
+  | ({ sessionUpdate: "token_usage" } & TurnTokens & Partial<Meta>);
+
+/** Tokens that an ACP agent reports. Input leaves out cache reads and
+ * writes; output includes thinking. */
+export interface TurnTokens {
+  /** The model's ID, such as gemini-4-neon. */
+  model?: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  /** Anthropic's 1-hour cache, which costs more than the 5-minute one. */
+  cacheWriteHour?: boolean;
+  /** The agent's own price in dollars, for a model that Med has none for. */
+  cost?: number;
+  /** A turn's sum of its requests (an ACP prompt result), not one request:
+   * Med does not apply a long-context price to it. */
+  turn?: boolean;
+}
 
 /** One update and when the agent sent it, in milliseconds since the epoch. */
 export interface SessionEvent {

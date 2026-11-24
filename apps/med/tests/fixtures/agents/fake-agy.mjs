@@ -36,6 +36,8 @@ const options = () =>
   }));
 
 let session;
+/** A context that agy's /compact does not shrink ("Fill and hold"). */
+let held = false;
 let next = 0;
 let cancel;
 const waiting = new Map();
@@ -113,7 +115,10 @@ async function handle(method, params) {
       setTimeout(() =>
         update({
           sessionUpdate: "available_commands_update",
-          availableCommands: [{ name: "plan", description: "Plan carefully." }],
+          availableCommands: [
+            { name: "plan", description: "Plan carefully." },
+            { name: "compact", description: "Summarize the conversation." },
+          ],
         }),
       );
       return opened();
@@ -141,12 +146,32 @@ async function handle(method, params) {
       const images = params.prompt.filter((block) => block.type === "image");
       const turn = steps(session).filter((step) => step.type === "USER_INPUT").length + 1;
       keep("USER_INPUT", `<USER_REQUEST>\n${text}\n</USER_REQUEST>`);
-      const reply = (words) => {
-        say(words);
+      // As agy counts a turn: input without the cache reads, and output
+      // with the thinking, which the total does not add again.
+      const reply = (words, used = held ? 251_000 : 1000 * turn) => {
+        if (words) say(words);
         keep("PLANNER_RESPONSE", words);
-        update({ sessionUpdate: "usage_update", used: 1000 * turn, size: 1048576 });
-        return { stopReason: "end_turn", usage: { inputTokens: 10, outputTokens: 2 } };
+        update({ sessionUpdate: "usage_update", used, size: 1048576 });
+        return {
+          stopReason: "end_turn",
+          usage: {
+            inputTokens: 10,
+            outputTokens: 2,
+            cachedReadTokens: 100,
+            cachedWriteTokens: 0,
+            thoughtTokens: 1,
+            totalTokens: 112,
+          },
+        };
       };
+      // A turn that fills the context, and agy's own /compact, which says
+      // nothing: its context then is the compaction's request, and the next
+      // turn's is the smaller one.
+      if (text.includes("Fill")) {
+        held = text.includes("hold");
+        return reply("Filled.", 250_000);
+      }
+      if (text === "/compact") return reply("", 252_000);
       if (images.length)
         return reply(`Saw ${images.map((image) => image.mimeType).join(", ")}: ${text}`);
       // As agy does: its default and plan modes ask before an edit, and

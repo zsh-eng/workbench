@@ -10,6 +10,7 @@ import {
   type ThreadUsage,
 } from "../shared/model-usage";
 import { agentName, type AgentSession } from "../shared/saved-review";
+import { AUTO_COMPACT_FROM } from "../shared/agent-defaults";
 import { findTranscript } from "./agent-transcripts";
 import { userHome } from "./service/discover";
 import { changedSince, transcriptReads } from "./transcript-reads";
@@ -26,6 +27,12 @@ import { changedSince, transcriptReads } from "./transcript-reads";
 //   (`token_count`); each total that grows adds its `last_token_usage`, and
 //   a record of the same total replaces it. Pricing each response applies
 //   the long-context rate. A subagent's own rollout counts with its parent.
+// - An ACP agent keeps no transcript that Med can read: Med's own file of
+//   the session's updates has its `token_usage` updates, from agy's prompt
+//   results (a turn each) and from the bridge to Pi (a request each), and
+//   its `usage_update`s for the context.
+//
+// Each request pays the prices of the day it ran (model-prices.json).
 
 const CHUNK = 4 * 1024 * 1024;
 
@@ -37,6 +44,12 @@ const count = (value: unknown) => (typeof value === "number" && value > 0 ? valu
 interface Request {
   model: string;
   tokens: RequestTokens;
+  /** When it ran, for a price that changed. */
+  at?: number;
+  /** An ACP turn's sum of its requests. */
+  whole?: boolean;
+  /** The agent's own price, for a model that Med has none for, and its name. */
+  agentCost?: { cost: number; agent: string };
 }
 
 /** One transcript, read up to `offset`. */
@@ -53,6 +66,8 @@ interface Read {
   /** Codex: the model of the turn, the running totals so far, and the
    * subagents' threads. `file` keeps one rollout's keys apart from another's. */
   codex?: { file: number; model?: string; totals: Json; children: Set<string> };
+  /** An ACP session's file: its lines so far, which key its requests. */
+  acp?: { lines: number };
 }
 
 let codexFiles = 0;
@@ -122,10 +137,10 @@ function claudeLine(line: string, state: Read) {
   const known = state.requests.get(id);
   // Each block of a response repeats its usage; a later line may carry the
   // final output count.
-  if (known) known.tokens.output = Math.max(known.tokens.output, tokens.output);
-  else state.requests.set(id, { model, tokens });
-  if (entry.isSidechain || !promptOf(tokens)) return;
   const at = Date.parse(String(entry.timestamp ?? ""));
+  if (known) known.tokens.output = Math.max(known.tokens.output, tokens.output);
+  else state.requests.set(id, { model, tokens, ...(Number.isFinite(at) ? { at } : {}) });
+  if (entry.isSidechain || !promptOf(tokens)) return;
   state.last = { used: promptOf(tokens), model, ...(Number.isFinite(at) ? { at } : {}) };
   state.compacted = false;
 }
@@ -146,6 +161,8 @@ function codexLine(line: string, state: Read) {
   }
   const payload = record(entry?.payload);
   const codex = (state.codex ??= { file: ++codexFiles, totals: {}, children: new Set() });
+  const time = Date.parse(String(entry?.timestamp ?? ""));
+  const when = Number.isFinite(time) ? { at: time } : {};
   const model = () => codex.model ?? "Codex";
   if (entry?.type === "turn_context" && typeof payload?.model === "string")
     codex.model = payload.model;
@@ -159,7 +176,7 @@ function codexLine(line: string, state: Read) {
       state.requests.delete(`${codex.file}:${totalOf(totals)}`);
       if (totalOf(totals) >= totalOf(codex.totals)) codex.totals = totals;
     }
-    state.requests.set(id, { model: model(), tokens: codexTokens(usage) });
+    state.requests.set(id, { model: model(), tokens: codexTokens(usage), ...when });
     return;
   }
   if (entry?.type !== "event_msg") return;
@@ -187,17 +204,71 @@ function codexLine(line: string, state: Read) {
     state.requests.set(`${codex.file}:${totalOf(totals)}`, {
       model: model(),
       tokens: codexTokens(grown),
+      ...when,
     });
     codex.totals = totals;
   }
   const used = count(last?.input_tokens);
   const window = count(info?.model_context_window);
-  const at = Date.parse(String(entry.timestamp ?? ""));
-  if (used && window) state.last = { used, window, ...(Number.isFinite(at) ? { at } : {}) };
+  if (used && window) state.last = { used, window, ...when };
+}
+
+/**
+ * A line of Med's file of an ACP session's updates (owned-sessions.ts): a
+ * `token_usage` update is a request, or a turn's requests; a `usage_update`
+ * is the context, which a compaction after it leaves to the next request.
+ */
+function acpLine(line: string, state: Read, agent: string) {
+  const acp = (state.acp ??= { lines: 0 });
+  const index = acp.lines++;
+  if (
+    !line.includes('"token_usage"') &&
+    !line.includes('"usage_update"') &&
+    !line.includes('"compaction_update"')
+  )
+    return;
+  let entry: Json | undefined;
+  try {
+    entry = record(JSON.parse(line));
+  } catch {
+    return;
+  }
+  const update = record(entry?.update);
+  const at = typeof entry?.at === "number" ? entry.at : undefined;
+  const when = at ? { at } : {};
+  if (update?.sessionUpdate === "compaction_update" && update.status === "completed")
+    state.compacted = true;
+  if (update?.sessionUpdate === "usage_update") {
+    const used = count(update.used);
+    const window = count(update.size);
+    if (window) {
+      state.last = { used, window, ...when };
+      state.compacted = false;
+    }
+  }
+  if (update?.sessionUpdate !== "token_usage") return;
+  const model = typeof update.model === "string" && update.model ? update.model : agent;
+  const written = count(update.cacheWrite);
+  const hour = update.cacheWriteHour === true;
+  const cost = count(update.cost);
+  state.requests.set(`acp:${index}`, {
+    model,
+    tokens: {
+      input: count(update.input),
+      output: count(update.output),
+      cacheWrite5m: hour ? 0 : written,
+      cacheWrite1h: hour ? written : 0,
+      cacheRead: count(update.cacheRead),
+      webSearches: 0,
+    },
+    ...when,
+    ...(update.turn === true ? { whole: true } : {}),
+    ...(cost ? { agentCost: { cost, agent } } : {}),
+  });
 }
 
 /** Reads the lines that a transcript gained since the last read. */
-async function readMore(agent: "claude" | "codex", path: string, state: Read) {
+async function readMore(agent: "claude" | "codex" | "acp", path: string, state: Read, name = "") {
   // A finished transcript, such as a done subagent's, costs one stat.
   if (!(await changedSince(path, state.offset))) return;
   const handle = await open(path, "r");
@@ -212,6 +283,7 @@ async function readMore(agent: "claude" | "codex", path: string, state: Read) {
         last: undefined,
         compacted: false,
         codex: undefined,
+        acp: undefined,
       });
     while (state.offset < size) {
       const length = Math.min(CHUNK, size - state.offset);
@@ -225,7 +297,8 @@ async function readMore(agent: "claude" | "codex", path: string, state: Read) {
       if (end < 0) continue;
       for (const line of bytes.toString("utf8", 0, end).split("\n"))
         if (agent === "claude") claudeLine(line, state);
-        else codexLine(line, state);
+        else if (agent === "codex") codexLine(line, state);
+        else acpLine(line, state, name);
     }
   } finally {
     await handle.close();
@@ -259,13 +332,15 @@ const truthy = (value: unknown) => value === true || value === "1" || value === 
  * `autoCompactWindow` in the same file; `autoCompactEnabled: false` or
  * `DISABLE_AUTO_COMPACT`. The local, project, and user files count in that
  * order; Med does not read managed settings or a terminal's environment or
- * `--autocompact` flag, so a session started with those can differ.
+ * `--autocompact` flag, so a session started with those can differ. Med's
+ * own setting (`setting`, agent-defaults.ts) is the variable for the
+ * sessions that Med starts.
  */
 export async function claudeCompaction(
   model: string | undefined,
   window: number,
   cwd: string | undefined,
-  options: { home: string; env?: NodeJS.ProcessEnv },
+  options: { home: string; env?: NodeJS.ProcessEnv; setting?: number },
 ): Promise<NonNullable<ThreadUsage["context"]>["compaction"]> {
   const home = options.home;
   const short = (path: string) =>
@@ -301,6 +376,8 @@ export async function claudeCompaction(
   const enabled = files.find((file) => typeof file.data.autoCompactEnabled === "boolean");
   if (enabled?.data.autoCompactEnabled === false)
     return { from: `autoCompactEnabled in ${enabled.path}`, approximate: false };
+  if (options.setting)
+    return { at: Math.min(options.setting, window), from: AUTO_COMPACT_FROM, approximate: false };
   const set = (value: unknown, from: string) => {
     const size = windowSetting(value);
     if (size === undefined) return undefined;
@@ -331,7 +408,60 @@ export async function claudeCompaction(
   return { at: defaultCompaction(window), from: "Claude Code's default", approximate: true };
 }
 
-export function createSessionUsage(options: { home?: () => string } = {}) {
+/**
+ * Where Pi compacts a session with a `window`: at the window less the tokens
+ * that its settings keep free (`compaction.reserveTokens`, 16384 unless the
+ * project's .pi/settings.json or Pi's own say otherwise), or past Med's
+ * `setting` when that comes first. Pi compacts by itself unless
+ * `compaction.enabled` is false.
+ */
+export async function piCompaction(
+  window: number,
+  cwd: string | undefined,
+  options: { home: string; env?: NodeJS.ProcessEnv; setting?: number },
+): Promise<NonNullable<ThreadUsage["context"]>["compaction"]> {
+  const agentDir =
+    options.env?.PI_CODING_AGENT_DIR ||
+    process.env.PI_CODING_AGENT_DIR ||
+    join(options.home, ".pi", "agent");
+  let enabled = true;
+  let reserve = 16_384;
+  for (const path of [
+    join(agentDir, "settings.json"),
+    ...(cwd ? [join(cwd, ".pi", "settings.json")] : []),
+  ]) {
+    try {
+      const compaction = record(record(JSON.parse(await readFile(path, "utf8")))?.compaction);
+      if (typeof compaction?.enabled === "boolean") enabled = compaction.enabled;
+      if (typeof compaction?.reserveTokens === "number") reserve = compaction.reserveTokens;
+    } catch {
+      /* No file, or not JSON. */
+    }
+  }
+  const own = enabled && window > reserve ? window - reserve : undefined;
+  if (options.setting && (own === undefined || options.setting < own))
+    return { at: Math.min(options.setting, window), from: AUTO_COMPACT_FROM, approximate: false };
+  return own === undefined
+    ? { from: "Pi's settings", approximate: false }
+    : { at: own, from: "Pi's default", approximate: true };
+}
+
+/** What Med's runner of a session reports: its window, its variables, and
+ * the agent and autocompact it runs with. */
+export interface OwnedReport {
+  window?: number;
+  env?: NodeJS.ProcessEnv;
+  preset?: string;
+  autoCompact?: number;
+}
+
+export function createSessionUsage(
+  options: {
+    home?: () => string;
+    /** Med's file of an ACP session's updates, by the session's ID. */
+    logs?: (sessionId: string) => string;
+  } = {},
+) {
   const home = options.home ?? userHome;
   const reads = transcriptReads<Read>(() => ({
     offset: 0,
@@ -341,20 +471,26 @@ export function createSessionUsage(options: { home?: () => string } = {}) {
   }));
   const running = new Map<string, Promise<Read>>();
 
-  const readFile = (agent: "claude" | "codex", path: string) => {
+  const readFile = (agent: "claude" | "codex" | "acp", path: string, name?: string) => {
     let read = running.get(path);
     if (read) return read;
     const current = reads.get(path);
-    read = readMore(agent, path, current)
+    read = readMore(agent, path, current, name)
       .then(() => current)
       .finally(() => running.delete(path));
     running.set(path, read);
     return read;
   };
 
-  /** A session's transcripts: its own, and for Claude Code its subagents'. */
+  /** A session's transcripts: its own, and for Claude Code its subagents';
+   * for an ACP agent, Med's file of its updates. */
   const transcripts = async (session: AgentSession) => {
-    if (session.agent === "acp") return undefined;
+    if (session.agent === "acp") {
+      const path = options.logs?.(session.id);
+      return path
+        ? { main: await readFile("acp", path, agentName(session)), subagents: [] as Read[] }
+        : undefined;
+    }
     const path = await findTranscript(session, home());
     if (!path) return undefined;
     const main = await readFile(session.agent, path);
@@ -386,8 +522,7 @@ export function createSessionUsage(options: { home?: () => string } = {}) {
     async thread(
       sessions: readonly AgentSession[],
       current: string | undefined,
-      owned: (sessionId: string) => { window?: number; env?: NodeJS.ProcessEnv } | undefined = () =>
-        undefined,
+      owned: (sessionId: string) => OwnedReport | undefined = () => undefined,
     ): Promise<ThreadUsage> {
       const requests = new Map<string, Request & { subagent: boolean }>();
       const models = new Map<string, NonNullable<ThreadUsage["spend"]["models"][number]>>();
@@ -395,7 +530,12 @@ export function createSessionUsage(options: { home?: () => string } = {}) {
       let subagents = 0;
       let subagentCost = 0;
       let total = 0;
-      const add = (model: string, tokens: RequestTokens, cost: number | undefined) => {
+      const add = (
+        model: string,
+        tokens: RequestTokens,
+        cost: number | undefined,
+        pricedBy?: string,
+      ) => {
         const entry = models.get(model) ?? {
           model,
           requests: 0,
@@ -415,6 +555,7 @@ export function createSessionUsage(options: { home?: () => string } = {}) {
         entry.cacheRead += tokens.cacheRead;
         entry.webSearches += tokens.webSearches;
         entry.cost = cost === undefined || entry.cost === null ? null : entry.cost + cost;
+        if (pricedBy) entry.pricedBy = pricedBy;
         models.set(model, entry);
         if (cost !== undefined) total += cost;
       };
@@ -426,7 +567,8 @@ export function createSessionUsage(options: { home?: () => string } = {}) {
           missing.push(agentName(session));
           continue;
         }
-        if (session.agent === "codex" && !read.main.requests.size) missing.push(agentName(session));
+        if (session.agent !== "claude" && !read.main.requests.size)
+          missing.push(agentName(session));
         // A fork starts with its original's history: a response counts once
         // in the thread, by its message ID.
         for (const [index, file] of [read.main, ...read.subagents].entries()) {
@@ -441,39 +583,66 @@ export function createSessionUsage(options: { home?: () => string } = {}) {
         if (session !== shown || !read.main.last) continue;
         const last = read.main.last;
         const reported = owned(session.id);
-        if (session.agent === "codex") {
+        // Med's autocompact, as the agent runs with it.
+        const set = reported?.autoCompact;
+        const window = last.window ?? 0;
+        const medCompacts =
+          set && window
+            ? { at: Math.min(set, window), from: AUTO_COMPACT_FROM, approximate: false }
+            : undefined;
+        if (session.agent === "codex" || session.agent === "acp") {
+          const compaction =
+            reported?.preset === "pi"
+              ? await piCompaction(window, session.cwd, {
+                  home: home(),
+                  ...(reported.env ? { env: reported.env } : {}),
+                  ...(set ? { setting: set } : {}),
+                })
+              : medCompacts;
           context = {
             sessionId: session.id,
-            agent: "codex",
+            agent: session.agent,
             ...(read.main.codex?.model ? { model: read.main.codex.model } : {}),
             used: last.used,
-            window: last.window ?? 0,
+            window,
             windowFrom: "agent",
-            compacted: false,
+            ...(compaction ? { compaction } : {}),
+            compacted: read.main.compacted,
             ...(last.at ? { at: last.at } : {}),
           };
           continue;
         }
         const table = claudeWindow(last.model ?? "");
-        const window = reported?.window ?? table.size;
+        const claude = reported?.window ?? table.size;
         context = {
           sessionId: session.id,
           agent: "claude",
           ...(last.model ? { model: last.model } : {}),
           used: last.used,
-          window,
+          window: claude,
           windowFrom: reported?.window ? "agent" : table.known ? "model" : "assumed",
-          compaction: await claudeCompaction(last.model, window, session.cwd, {
+          compaction: await claudeCompaction(last.model, claude, session.cwd, {
             home: home(),
             ...(reported?.env ? { env: reported.env } : {}),
+            ...(set ? { setting: set } : {}),
           }),
           compacted: read.main.compacted,
           ...(last.at ? { at: last.at } : {}),
         };
       }
       for (const request of requests.values()) {
-        const cost = requestCost(request.model, request.tokens);
-        add(request.model, request.tokens, cost);
+        const listed = requestCost(request.model, request.tokens, {
+          ...(request.at ? { at: request.at } : {}),
+          ...(request.whole ? { whole: true } : {}),
+        });
+        // A model without Med's price takes the agent's own, as Pi gives it.
+        const cost = listed ?? request.agentCost?.cost;
+        add(
+          request.model,
+          request.tokens,
+          cost,
+          listed === undefined ? request.agentCost?.agent : undefined,
+        );
         if (request.subagent && cost !== undefined) subagentCost += cost;
       }
       return {

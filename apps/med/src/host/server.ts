@@ -154,7 +154,8 @@ import {
   openInSettings,
   type Editor,
 } from "./open-in";
-import { createSettingsFile, SETTING_KEY, settingsPath } from "./settings-file";
+import { createSettingsFile, SETTING_KEY, settingsPath, type Settings } from "./settings-file";
+import { autoCompactOf } from "../shared/agent-defaults";
 import { createThreadFeed } from "./thread-feed";
 import { createCheckoutChanges } from "./checkout-changes";
 import { createSessionEdits } from "./session-edits";
@@ -507,6 +508,26 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // The login service reads the user's shell environment before any agent
   // starts, so agents get the tokens and PATH that a terminal gives them.
   await loadShellEnvironment();
+  // Med's settings file. The agents' defaults in it (agent-defaults.ts) are
+  // read as each agent starts and as an ACP agent's turn ends: Med keeps
+  // the file's settings as they are now.
+  const settingsFile = createSettingsFile(
+    options.settingsPath ??
+      (options.stateDir && resolve(options.stateDir) === defaultStateDirectory()
+        ? settingsPath()
+        : join(options.stateDir ?? temporaryState!, "settings.json")),
+  );
+  let settingsNow: Settings = {};
+  const readSettings = () =>
+    void settingsFile.snapshot().then(
+      (snapshot) => (settingsNow = snapshot.settings),
+      () => {},
+    );
+  await settingsFile.snapshot().then(
+    (snapshot) => (settingsNow = snapshot.settings),
+    () => {},
+  );
+  const stopSettings = settingsFile.subscribe(readSettings);
   // Sessions that Med starts. ACP sessions keep their updates in the state
   // directory, and the sessions from before a restart come back first.
   const ownedSessions = new OwnedSessions({
@@ -516,6 +537,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     offersFile: join(options.stateDir ?? temporaryState!, "agent-offers.json"),
     recordsFile: join(options.stateDir ?? temporaryState!, "owned-sessions.json"),
     environment: agentEnvironment,
+    autoCompact: (agent) => autoCompactOf(settingsNow, agent),
     agy: options.agy ?? process.env.MED_AGY !== "0",
   });
   await ownedSessions.restore();
@@ -614,7 +636,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // The files that each agent session edited, for "Only this session's files",
   // and the commands that wrote generated files.
   const sessionEdits = createSessionEdits();
-  const sessionUsage = createSessionUsage();
+  const sessionUsage = createSessionUsage({
+    logs: (sessionId) =>
+      join(options.stateDir ?? temporaryState!, "sessions", `${sessionId}.jsonl`),
+  });
   // Dependency licences and release dates, once the reader turns them on.
   const dependencyInfo = createDependencyInfo({
     stateDir: options.stateDir ?? temporaryState!,
@@ -671,12 +696,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     onChange: () => listChanged(),
   });
   // The open pull request of a tab's branch, for a thread that has none yet.
-  const settingsFile = createSettingsFile(
-    options.settingsPath ??
-      (options.stateDir && resolve(options.stateDir) === defaultStateDirectory()
-        ? settingsPath()
-        : join(options.stateDir ?? temporaryState!, "settings.json")),
-  );
   const settingsStreams = new Set<ServerResponse>();
   // Grafanas for the charts in replies: their addresses are settings, and
   // each token is in the Keychain, or in a file of its own beside the
@@ -1327,14 +1346,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       packages: await dependencyInfo.lookup(input.packages, signal),
     })),
     // A thread's spend and its session's context (session-usage.ts). An
-    // agent that Med runs reports its window, and starts with Med's variables.
+    // agent that Med runs reports its window and the autocompact it runs
+    // with, and starts with Med's variables.
     route(usageRoutes.thread, async ({ id }) => {
       const own = await threadSession(id);
       return sessionUsage.thread(own ? [own] : [], own?.id, (sessionId) => {
         const runner = ownedSessions.get(sessionId);
         if (!runner) return undefined;
-        const window = runner.state().context?.total;
-        return { ...(window ? { window } : {}), env: startedAgentEnvironment() };
+        const { context, preset, autoCompact } = runner.state();
+        return {
+          ...(context?.total ? { window: context.total } : {}),
+          env: startedAgentEnvironment(),
+          preset,
+          ...(autoCompact ? { autoCompact } : {}),
+        };
       });
     }),
     // A Grafana panel for a chart in a reply (grafana.ts).
@@ -1815,6 +1840,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 z.boolean(),
                 z.array(z.string().max(200)).max(50),
                 z.record(z.string().max(200), z.string().max(1000)),
+                // The key out of the file: its default.
+                z.null(),
               ]),
             })
             .parse(await readBody(request));
@@ -4134,6 +4161,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       found.close();
       checkoutWork.close();
       pullRequestLinks.close();
+      stopSettings();
       settingsFile.close();
       for (const done of [...threadWaits]) done(undefined);
       threadFeed.close();

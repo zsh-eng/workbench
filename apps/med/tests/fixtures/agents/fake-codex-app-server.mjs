@@ -159,6 +159,12 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (raw) 
     if (next) play(next.lines);
     return;
   }
+  // A test reads the config that Med gives each thread.
+  if (message.method === "thread/start" || message.method === "thread/resume")
+    appendFileSync(
+      join(process.env.MED_HOME_DIR, "codex-threads.jsonl"),
+      `${JSON.stringify({ method: message.method, config: message.params.config ?? null })}\n`,
+    );
   if (message.method === "thread/start") {
     cwd = message.params.cwd;
     mkdirSync(folder, { recursive: true });

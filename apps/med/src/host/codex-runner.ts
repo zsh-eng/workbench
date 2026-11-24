@@ -230,6 +230,9 @@ export interface CodexOptions {
   /** The holder's key changed, to keep with the session's record. */
   onHolder?(key: string): void;
   env?: () => Record<string, string>;
+  /** Med's autocompact for Codex (agent-defaults.ts), read when the thread
+   * starts or resumes: its model_auto_compact_token_limit. */
+  autoCompact?: () => number | undefined;
   /** The model, effort, and mode to start with. */
   choices?: AgentChoices;
   models?: CodexModel[] | Promise<CodexModel[]>;
@@ -777,8 +780,15 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
       rpc.notify("initialized", undefined);
       if (!models.length) await call("model/list", {}).catch(() => undefined);
       // The thread opens with Codex's own policy, which "Codex's setting"
-      // goes back to; a chosen mode goes with the first turn.
-      const common = { cwd, ...(chosen.model !== "default" ? { model: chosen.model } : {}) };
+      // goes back to; a chosen mode goes with the first turn. Med's
+      // autocompact is the thread's model_auto_compact_token_limit.
+      const autoCompact = options.autoCompact?.();
+      store.set({ autoCompact });
+      const common = {
+        cwd,
+        ...(chosen.model !== "default" ? { model: chosen.model } : {}),
+        ...(autoCompact ? { config: { model_auto_compact_token_limit: autoCompact } } : {}),
+      };
       if (session.id)
         await call("thread/resume", { threadId: session.id, excludeTurns: true, ...common });
       else await call("thread/start", { ...common, serviceName: "Med" });

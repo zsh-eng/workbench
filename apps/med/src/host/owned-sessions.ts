@@ -459,6 +459,9 @@ export function startClaude(
     sessionId?: string;
     /** The variables to add, read when the process starts. */
     env?: () => Record<string, string>;
+    /** Med's autocompact for Claude Code (agent-defaults.ts), read when the
+     * process starts: its CLAUDE_CODE_AUTO_COMPACT_WINDOW. */
+    autoCompact?: () => number | undefined;
     /** The model and effort to start with, where `models` offers them. */
     choices?: AgentChoices;
     models?: ClaudeModel[] | Promise<ClaudeModel[]>;
@@ -972,6 +975,8 @@ export function startClaude(
     bypassable = !!chosen.bypass || chosen.mode === BYPASS;
     const token = {};
     active = token;
+    const autoCompact = options.autoCompact?.();
+    store.set({ autoCompact });
     held = startHeld(
       options.holders,
       {
@@ -981,7 +986,10 @@ export function startClaude(
         command: agent.command,
         args: [...agent.args, ...args],
         cwd,
-        env: agentEnvironment(options.env?.()),
+        env: agentEnvironment({
+          ...options.env?.(),
+          ...(autoCompact ? { CLAUDE_CODE_AUTO_COMPACT_WINDOW: String(autoCompact) } : {}),
+        }),
       },
       events(token),
     );
@@ -1304,6 +1312,44 @@ export function configSettings(options: unknown): OwnedSetting[] {
   });
 }
 
+/** Tokens as the page writes them: 212k, 1.05M. */
+const tokensText = (value: number) =>
+  value >= 1_000_000
+    ? `${Number((value / 1_000_000).toFixed(value % 1_000_000 ? 2 : 0))}M`
+    : value >= 1000
+      ? `${Math.round(value / 1000)}k`
+      : String(value);
+
+/**
+ * An ACP prompt result's `usage` as Med's `token_usage` update, for the
+ * thread's spend: the sum of the turn's requests, at the session's model.
+ * agy's input leaves out cache reads, and its output has the thinking in it
+ * (its total adds up without thoughtTokens); an agent whose total counts the
+ * thinking apart has it added to the output.
+ */
+export function turnTokens(usage: unknown, model: string | undefined): SessionUpdate | undefined {
+  if (!usage || typeof usage !== "object") return undefined;
+  const raw = usage as Record<string, unknown>;
+  const count = (value: unknown) => (typeof value === "number" && value > 0 ? value : 0);
+  const input = count(raw.inputTokens);
+  const cacheRead = count(raw.cachedReadTokens);
+  const cacheWrite = count(raw.cachedWriteTokens);
+  const thought = count(raw.thoughtTokens);
+  let output = count(raw.outputTokens);
+  if (thought && count(raw.totalTokens) >= input + cacheRead + cacheWrite + output + thought)
+    output += thought;
+  if (!input && !output && !cacheRead && !cacheWrite) return undefined;
+  return {
+    sessionUpdate: "token_usage",
+    ...(model ? { model } : {}),
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    turn: true,
+  };
+}
+
 /** A note in the thread for a turn that ended early or without a reply. */
 function stopNotice(name: string, reason: string | undefined, answered: boolean) {
   const notice = (title: string, description?: string): SessionUpdate => ({
@@ -1350,10 +1396,15 @@ export function startAcp(
     agentSession,
     history = false,
     elsewhere,
+    autoCompact,
   }: {
     /** The folder of the agents' holders and their logs. */
     holders: string;
     logDirectory?: string;
+    /** Tokens past which Med has the agent compact, read at each turn's end
+     * (agent-defaults.ts): a turn that ends past it is followed by the
+     * agent's `/compact`, where the agent offers one. */
+    autoCompact?: () => number | undefined;
     /** Read when the agent's process starts: a session that sleeps starts
      * it later, when the host may listen on another port. */
     env?: Record<string, string> | (() => Record<string, string>);
@@ -1418,8 +1469,18 @@ export function startAcp(
   let answer: ((option: string | null) => void) | undefined;
   let stopping = false;
   // The prompt of the turn in progress, which some agents, such as OpenCode,
-  // send back as a user update; and whether the agent answered it.
-  let turn: { text: string; answered: boolean } | undefined;
+  // send back as a user update; whether the agent answered it; whether it
+  // sent each request's tokens; and whether Med sent it to compact.
+  let turn: { text: string; answered: boolean; tokens?: boolean; compact?: boolean } | undefined;
+  /** Med's last compaction: the context before it, and whether the agent
+   * said that it compacted. */
+  let compaction: { from: number; done: boolean } | undefined;
+  /** The context before a compaction that the agent did not mark, which the
+   * next turn's context is checked against. */
+  let unproven: number | undefined;
+  /** A compaction that freed nothing: Med stops sending them, until the
+   * context is under the setting again. */
+  let compactsNot = false;
   let held: HeldAgent | undefined;
   let active: object | undefined;
   /** Called when the agent's process has ended, by a prompt that waits for it. */
@@ -1532,6 +1593,15 @@ export function startAcp(
               store.set({ context: { used: update.used, total: update.size } });
             push(update as SessionUpdate);
             return;
+          // Med's bridge to Pi counts each request's tokens.
+          case "token_usage":
+            if (turn) turn.tokens = true;
+            push(update as SessionUpdate);
+            return;
+          case "compaction_update":
+            if (compaction && update.status === "completed") compaction.done = true;
+            push(update as SessionUpdate);
+            return;
           case "user_message_chunk": {
             const content = update.content as { type?: string; text?: string } | undefined;
             // Med logged the prompt when it sent it.
@@ -1573,11 +1643,22 @@ export function startAcp(
       if (error) fail(error);
       else {
         // An agent can end a turn without a word, as OpenCode does when its
-        // model refuses the request; the thread says so.
-        const notice = stopNotice(agent.name, result?.stopReason, current?.answered ?? true);
+        // model refuses the request; the thread says so. A compaction may
+        // say nothing.
+        const notice = stopNotice(
+          agent.name,
+          result?.stopReason,
+          (current?.answered ?? true) || !!current?.compact,
+        );
         if (notice) push(notice);
+        // The turn's tokens, where the agent's answer counts them (agy's
+        // does) and it sent none for each request (Pi's bridge does).
+        const spent = current?.tokens ? undefined : turnTokens(result?.usage, modelOf());
+        if (spent) push(spent);
       }
-      if (store.get().status !== "exited") store.set({ status: "idle" });
+      const next = !error && !replaying && current ? compactNext(current, result) : undefined;
+      if (next) compact(next);
+      else if (store.get().status !== "exited") store.set({ status: "idle" });
       if (!replaying)
         held?.checkpoint({
           state: kept(store.get()),
@@ -1647,6 +1728,77 @@ export function startAcp(
   const call = <T = any>(method: string, params: Record<string, unknown>) =>
     rpc.request<T>(method, params, (result, error) => answered(method, params, result, error));
 
+  /** The session's model now, which a turn's tokens are priced by. */
+  const modelOf = () =>
+    store.get().settings.find((setting) => setting.category === "model")?.value || undefined;
+  /** After a turn: the context to compact, past Med's autocompact. Med's
+   * own compaction ends: one that freed nothing is the last until the
+   * context is under the setting again. */
+  const compactNext = (current: NonNullable<typeof turn>, result: any) => {
+    const at = autoCompact?.();
+    store.set({ autoCompact: at });
+    const used = store.get().context?.used;
+    const compactedNot = () => {
+      compactsNot = true;
+      push({
+        sessionUpdate: "notice",
+        severity: "warning",
+        title: `${agent.name} did not compact`,
+        description: `Med sends no other /compact until the context is under ${tokensText(at ?? 0)}.`,
+      });
+    };
+    if (current.compact) {
+      const before = compaction;
+      compaction = undefined;
+      if (!before || before.done) return undefined;
+      // Pi's bridge says when Pi compacted. Antigravity says nothing, and its
+      // context after the /compact is the compaction's own request: Med marks
+      // the compaction, and the next turn tells whether it freed any.
+      if (result?.stopReason !== "end_turn") {
+        if (at) compactedNot();
+        return undefined;
+      }
+      push({
+        sessionUpdate: "compaction_update",
+        compactionId: `med-compaction-${Date.now()}`,
+        status: "completed",
+      });
+      unproven = before.from;
+      return undefined;
+    }
+    const from = unproven;
+    unproven = undefined;
+    if (!at || used === undefined) return undefined;
+    if (used < at) {
+      compactsNot = false;
+      return undefined;
+    }
+    if (from !== undefined && used >= from * 0.9) {
+      compactedNot();
+      return undefined;
+    }
+    if (compactsNot || result?.stopReason !== "end_turn") return undefined;
+    if (!store.get().commands.some((command) => command.name === "compact")) return undefined;
+    return { at, used };
+  };
+  /** The agent's `/compact`, as a turn of Med's: the thread shows a note, not a message. */
+  const compact = ({ at, used }: { at: number; used: number }) => {
+    compaction = { from: used, done: false };
+    push({
+      sessionUpdate: "notice",
+      severity: "info",
+      title: "Compacting the context",
+      description: `${tokensText(used)} tokens, past the ${tokensText(at)} autocompact in Settings.`,
+    });
+    store.set({ status: "working", turns: store.get().turns + 1, error: undefined });
+    turn = { text: "/compact", answered: false, compact: true };
+    call("session/prompt", {
+      sessionId: acpSession,
+      prompt: [{ type: "text", text: "/compact" }],
+      _meta: { med: { autoCompact: true } },
+    }).catch(() => {});
+  };
+
   // Read again from the log: Med's requests that wait for answers, and the
   // agent's that wait for the reader.
   const sent = new Map<number, { method: string; params: any }>();
@@ -1657,16 +1809,20 @@ export function startAcp(
     const message = parseRpc(line);
     if (!message) return;
     if (message.method === "session/prompt") {
-      // The prompt goes to the thread with its log entry's number.
+      // The prompt goes to the thread with its log entry's number; Med's
+      // own /compact has a note in its place.
       const prompt = Array.isArray((message.params as any)?.prompt)
         ? ((message.params as any).prompt as Record<string, any>[])
         : [];
-      for (const content of prompt)
-        push({ sessionUpdate: "user_message_chunk", content } as SessionUpdate);
+      const medCompacts = (message.params as any)?._meta?.med?.autoCompact === true;
+      if (!medCompacts)
+        for (const content of prompt)
+          push({ sessionUpdate: "user_message_chunk", content } as SessionUpdate);
       if (replay) {
         turn = {
           text: prompt.map((block) => (typeof block.text === "string" ? block.text : "")).join(""),
           answered: false,
+          ...(medCompacts ? { compact: true } : {}),
         };
         store.set({ status: "working", turns: store.get().turns + 1, error: undefined });
       }
@@ -1940,6 +2096,7 @@ export function startAcp(
         turns: store.get().turns + 1,
         error: undefined,
         halt: undefined,
+        autoCompact: autoCompact?.(),
       });
       turn = { text, answered: false };
       call("session/prompt", { sessionId: acpSession, prompt }).catch(() => {});
@@ -2234,6 +2391,9 @@ export class OwnedSessions {
       recordsFile?: string;
       /** The variables of an agent in a thread with `key`, working in `cwd`. */
       environment?: (key: string | undefined, cwd: string) => Record<string, string>;
+      /** Tokens past which an agent compacts, by its ID, from Med's
+       * settings (agent-defaults.ts); none for the agent's own default. */
+      autoCompact?: (agentId: string) => number | undefined;
       /** The home directory whose `.claude/sessions` Claude Code writes. */
       home?: () => string;
       /** Antigravity (`agy`): offered where it is installed, unless the
@@ -2492,6 +2652,9 @@ export class OwnedSessions {
   private environment(key: string | undefined, cwd: string) {
     return this.options.environment?.(key, cwd) ?? {};
   }
+  private autoCompact(agentId: string) {
+    return this.options.autoCompact?.(agentId);
+  }
   /**
    * Starts an agent in `cwd`, for the thread with `key`, and the chosen model
    * and effort, or Med's defaults, where the agent offers them.
@@ -2520,6 +2683,7 @@ export class OwnedSessions {
         holders: this.options.holderDirectory,
         holder,
         env: () => this.environment(key, cwd),
+        autoCompact: () => this.autoCompact(agent.id),
         choices: wanted,
         models: this.codexOffers(agent),
         elsewhere: (id) => this.lockedElsewhere("codex", id),
@@ -2552,6 +2716,7 @@ export class OwnedSessions {
         holders: this.options.holderDirectory,
         ...(this.options.logDirectory ? { logDirectory: this.options.logDirectory } : {}),
         env: () => this.environment(key, cwd),
+        autoCompact: () => this.autoCompact(agent.id),
         choices: wanted,
         onOffer: (settings) => void this.remember(presetId, settings),
         onAgentSession: (id) => this.noteAgentSession(runner.session.id, id),
@@ -2590,6 +2755,7 @@ export class OwnedSessions {
         holders: this.options.holderDirectory,
         ...(this.options.logDirectory ? { logDirectory: this.options.logDirectory } : {}),
         env: () => this.environment(key, cwd),
+        autoCompact: () => this.autoCompact(agent.id),
         choices: wanted,
         onOffer: (settings) => void this.remember(presetId, settings),
         onAgentSession: (id) => this.noteAgentSession(runner.session.id, id),
@@ -2610,6 +2776,7 @@ export class OwnedSessions {
         ? startClaude(agent, cwd, {
             holders: this.options.holderDirectory,
             env: () => this.environment(key, cwd),
+            autoCompact: () => this.autoCompact(agent.id),
             choices: wanted,
             models: await this.models(agent),
             elsewhere: (id) => this.runsElsewhere(id),
@@ -2618,6 +2785,7 @@ export class OwnedSessions {
             holders: this.options.holderDirectory,
             ...(this.options.logDirectory ? { logDirectory: this.options.logDirectory } : {}),
             env: this.environment(key, cwd),
+            autoCompact: () => this.autoCompact(agent.id),
             choices: wanted,
             onOffer: (settings) => void this.remember(presetId, settings),
             onAgentSession: (id) => this.noteAgentSession(runner.session.id, id),
@@ -2675,6 +2843,7 @@ export class OwnedSessions {
       holders: this.options.holderDirectory,
       sessionId: session.id,
       env: () => this.environment(key, session.cwd),
+      autoCompact: () => this.autoCompact(agent.id),
       // The model and effort of its last reply, so it reads its prompt cache.
       resume: await this.sessionChoices(session),
       models: this.models(agent),
@@ -2727,6 +2896,7 @@ export class OwnedSessions {
       holders: this.options.holderDirectory,
       thread,
       env: () => this.environment(key, cwd),
+      autoCompact: () => this.autoCompact(agent.id),
       models: this.codexOffers(agent),
       elsewhere: (id) => this.lockedElsewhere("codex", id),
       onHolder: (holder) => this.noteHolder(thread, holder),
@@ -2765,6 +2935,7 @@ export class OwnedSessions {
       fork: session.id,
       ...(at ? { forkAt: at } : {}),
       env: () => this.environment(key, session.cwd),
+      autoCompact: () => this.autoCompact(agent.id),
       choices: wanted,
       models: await this.models(agent),
       elsewhere: (id) => this.runsElsewhere(id),
@@ -2845,6 +3016,7 @@ export class OwnedSessions {
           holders,
           sessionId: id,
           env: () => this.environment(record.key, record.cwd),
+          autoCompact: () => this.autoCompact(record.preset),
           resume: record.choices,
           attach: true,
           ...(record.forkOf ? { fork: record.forkOf } : {}),
@@ -2904,6 +3076,7 @@ export class OwnedSessions {
             holders,
             ...(this.options.logDirectory ? { logDirectory: this.options.logDirectory } : {}),
             env: () => this.environment(record.key, record.cwd),
+            autoCompact: () => this.autoCompact(record.preset),
             choices: record.choices,
             onAgentSession: (conversation) => this.noteAgentSession(id, conversation),
             ...(pi
@@ -2926,6 +3099,7 @@ export class OwnedSessions {
                 ? await SessionLog.read(join(this.options.logDirectory, `${id}.jsonl`))
                 : [],
             },
+            autoCompact: () => this.autoCompact(record.preset),
             onAgentSession: (agentSessionId) => this.noteAgentSession(id, agentSessionId),
           },
         );

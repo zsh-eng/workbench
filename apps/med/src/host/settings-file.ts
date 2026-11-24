@@ -98,7 +98,7 @@ export function createSettingsFile(path = settingsPath()) {
     }
   }
   let writing: Promise<unknown> = Promise.resolve();
-  async function setNow(key: string, value: SettingValue) {
+  async function setNow(key: string, value: SettingValue | null) {
     await ready;
     let current: Record<string, unknown> = {};
     try {
@@ -108,7 +108,8 @@ export function createSettingsFile(path = settingsPath()) {
     } catch {
       throw new Error(`${path} is not valid JSON; fix it before Med writes to it.`);
     }
-    const next = `${JSON.stringify({ ...current, [key]: value }, null, 2)}\n`;
+    const { [key]: _old, ...rest } = current;
+    const next = `${JSON.stringify(value === null ? rest : { ...current, [key]: value }, null, 2)}\n`;
     await mkdir(dirname(path), { recursive: true });
     const temporary = `${path}.${randomUUID()}.tmp`;
     await writeFile(temporary, next);
@@ -125,10 +126,11 @@ export function createSettingsFile(path = settingsPath()) {
       await read().catch(() => {});
       return { path, settings, error };
     },
-    /** Writes one key, keeping every other key and the file's other text as
-     * JSON. Writes go one at a time, each over the file that the last one
-     * wrote, so two quick changes keep both, and the file stays whole. */
-    set(key: string, value: SettingValue) {
+    /** Writes one key, or takes it out with null, keeping every other key
+     * and the file's other text as JSON. Writes go one at a time, each over
+     * the file that the last one wrote, so two quick changes keep both, and
+     * the file stays whole. */
+    set(key: string, value: SettingValue | null) {
       const write = writing.then(() => setNow(key, value));
       writing = write.catch(() => {});
       return write;

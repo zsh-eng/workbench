@@ -28,6 +28,8 @@ const MODELS = [
 ];
 let model = MODELS[0];
 let level = "medium";
+/** A "Fill" turn fills the context, until a compaction. */
+let filled = false;
 const at = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined);
 const root = join(process.env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent"), "sessions");
 const folder = join(root, `--${process.cwd().replace(/^\//, "").replace(/[/:]/g, "-")}--`);
@@ -80,7 +82,7 @@ async function prompt(text, images) {
       content: [{ type: "text", text: words }],
       provider: model.provider,
       model: model.id,
-      usage: { input: 10, output: 2, cacheRead: 0, cacheWrite: 0, cost: { total: 0.001 } },
+      usage: { input: 10, output: 2, cacheRead: 100, cacheWrite: 0, cost: { total: 0.001 } },
       stopReason,
       timestamp: Date.now(),
       ...extra,
@@ -109,7 +111,10 @@ async function prompt(text, images) {
   };
   if (images.length) say(`Saw ${images.map((image) => image.mimeType).join(", ")}: ${text}`);
   else if (text.includes("Fail")) say("", "error", { errorMessage: "429 Rate limited" });
-  else if (text.includes("Clean")) {
+  else if (text.includes("Fill")) {
+    filled = true;
+    say("Filled.");
+  } else if (text.includes("Clean")) {
     // An extension's question, answered in the client.
     const answer = await new Promise((resolve) => {
       const request = randomUUID();
@@ -184,11 +189,25 @@ function handle(command) {
       return {
         sessionId: id,
         contextUsage: {
-          tokens: 1000 * messages.filter((message) => message.role === "user").length,
+          tokens: filled
+            ? 250_000
+            : 1000 * messages.filter((message) => message.role === "user").length,
           contextWindow: 272000,
           percent: 0,
         },
       };
+    case "compact": {
+      // As Pi does: the events of a manual compaction, then its result.
+      write({ type: "compaction_start", reason: "manual" });
+      const result = {
+        summary: "The user filled the context.",
+        firstKeptEntryId: "e1",
+        tokensBefore: 250_000,
+      };
+      filled = false;
+      write({ type: "compaction_end", reason: "manual", result, aborted: false, willRetry: false });
+      return result;
+    }
     default:
       throw new Error(`Unknown command: ${command.type}`);
   }

@@ -11,6 +11,7 @@ export type SettingsSection =
   | "open-in"
   | "files"
   | "sources"
+  | "agents"
   | "grafana"
   | "file";
 

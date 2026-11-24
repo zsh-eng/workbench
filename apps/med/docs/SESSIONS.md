@@ -37,6 +37,7 @@ source needs a new reader, not a new renderer.
 | `usage_update`                  | Kept in the store; the header reads the transcript ([spend and context](#spend-and-context)) |
 | `notice` (Med)                  | A warning or error line                                                                      |
 | `compaction_update` (Med)       | A "Context compacted" divider with the summary                                               |
+| `token_usage` (Med)             | Nothing: an ACP agent's tokens, for the [spend](#spend-and-context)                          |
 
 ACP has no field for some things that a transcript records. Med adds them
 under ACP's reserved `_meta` key, as `_meta.med`:
@@ -584,10 +585,22 @@ file, so the next call reads only the new lines.
   writes a `token_usage_record` for each response, priced on its own, and
   older rollouts a running total (`token_count`), priced by its growth; a
   subagent's rollout counts too. Codex's cache writes are priced at the
-  30-minute rate. A model that the table lacks shows its tokens and no price.
-  ACP agents' logs, Antigravity's among them, have no token counts and are
-  listed as not in the total; a thread with no counted session shows no
-  spend, since "$0.00" would say that it was free. The figure is an estimate: Claude Code also makes small requests
+  30-minute rate. Gemini models have Google's prices (its `google` entry),
+  with each price's date where it changes, such as Gemini 4 Carbon's on 1
+  December 2026: a request pays the prices of its day.
+  An ACP agent keeps no transcript that Med reads, so Med logs its counts as
+  `token_usage` updates in the session's file (`owned-sessions.ts`): an ACP
+  prompt result's `usage`, such as Antigravity's, is one turn at the
+  session's model, which pays no long-context price; Med's bridge to Pi
+  sends each request, with Pi's own price, which counts where Med's table
+  has no price for the model ("Pi's own price for …"). Pi counts cache reads
+  for every provider, and cache writes for Anthropic's models only; for
+  OpenAI's, which charge for a cache write, it counts those tokens as input
+  (Pi 0.73 too), so their cost is a little under the list price.
+  A model that the table lacks, and that its agent prices not, shows its
+  tokens and no price. An ACP agent that counts no tokens is listed as not in
+  the total; a thread with no counted session shows no spend, since "$0.00"
+  would say that it was free. The figure is an estimate: Claude Code also makes small requests
   that the transcript leaves out (titles, suggestions), so `/usage` reads a
   few percent higher. The note under the figures says only that it is an
   estimate at list prices, with the read date and a link to each price page.
@@ -603,7 +616,14 @@ file, so the next call reads only the new lines.
   project, and user files count in that order. With none, Claude Code's
   default shows as "about 967k" on a native 1M window, else the window's end.
   Med does not read managed settings, `--autocompact`, or a terminal's
-  environment, so a session started with those can differ.
+  environment, so a session started with those can differ. Med's own
+  setting (`claude.autoCompact`, [Settings › Agents](usage/settings.md#agents))
+  is the variable for the sessions that Med starts, and the chip says so.
+  Codex's context is its last `token_count`; an ACP agent's is its last
+  `usage_update` in Med's file, and a compaction after it waits for the next
+  request. Pi compacts at its window less `compaction.reserveTokens` from its
+  settings (16,384 unless they say otherwise), shown as "about"; Med's
+  setting shows where it comes first.
 
 ## Session rail
 

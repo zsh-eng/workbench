@@ -64,8 +64,9 @@ export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {
     resume: true,
     // A subagent is one tool call; agy's ACP server names no transcript.
     subagents: false,
-    // agy reports tokens, but Med has no Gemini prices.
-    usage: false,
+    // agy's prompt results count each turn's tokens; Med prices them at
+    // Google's list prices.
+    usage: true,
   },
   pi: {
     // Med queues a message for the turn's end, as for other ACP agents.
@@ -76,9 +77,9 @@ export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {
     // Its session file: Med's bridge starts Pi on it again (`--session`).
     resume: true,
     subagents: false,
-    // Pi counts tokens and spend, but by its own prices: Med shows the
-    // context that it reports, and no spend.
-    usage: false,
+    // Med's bridge reports each request's tokens; Med prices them, or
+    // takes Pi's price for a model that Med has none for.
+    usage: true,
   },
   acp: {
     steer: false,
@@ -269,6 +270,10 @@ export const ownedStateSchema = z.object({
   context: z
     .object({ used: z.number(), total: z.number(), breakdown: contextBreakdownSchema.optional() })
     .optional(),
+  /** Tokens past which the session compacts, as Med's settings set it
+   * (agent-defaults.ts): what Claude Code and Codex started with, and what
+   * Med applies at a Pi or Antigravity turn's end. None: the agent's own. */
+  autoCompact: z.number().optional(),
   /** Turns sent so far; the first one starts the transcript. */
   turns: z.number().int().nonnegative(),
   /** The agent takes images in a prompt. */

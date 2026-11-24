@@ -19,6 +19,7 @@ import { ChoiceSelect } from "../Controls";
 import { diffSurfaceStyle } from "../diff-surface";
 import { OpenInSettings } from "./OpenInSettings";
 import { GrafanaSettings } from "./GrafanaSettings";
+import { AgentSettings } from "./AgentSettings";
 import { Icon } from "../Icon";
 import { PageHeading, page } from "../PageHeading";
 import { Row, Section, settingStyles, Switch, type SettingsSection } from "./SettingsParts";
@@ -77,6 +78,7 @@ export function SettingsPage({
           <OpenInSettings />
           <Files />
           <Sources setup={setup} onSources={onSources} />
+          <AgentSettings />
           {file && <GrafanaSettings />}
           {file && <FileSection file={file} />}
         </div>

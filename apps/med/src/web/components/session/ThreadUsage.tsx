@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import * as stylex from "@stylexjs/stylex";
 import { Popover } from "@base-ui/react/popover";
 import { canonicalModel, type ThreadUsage } from "../../../shared/model-usage";
@@ -23,12 +24,25 @@ export const tokenCount = (value: number) =>
 export const dollars = (value: number) =>
   value > 0 && value < 0.01 ? "<$0.01" : `$${value.toFixed(2)}`;
 
-/** "claude-opus-5-5" as "Opus 5.5"; another ID as it is. */
+/** "claude-opus-5-5" as "Opus 5.5", "gpt-6.2-sol" as "GPT-6.2 Sol", and
+ * "gemini-4-neon" as "Gemini 4 Neon"; another ID as it is. */
 export function modelName(model: string) {
-  const match = /^claude-([a-z]+)-(\d+)(?:-(\d))?$/.exec(canonicalModel(model));
-  if (!match) return model;
-  const [, family, major, minor] = match;
-  return `${family![0]!.toUpperCase()}${family!.slice(1)} ${major}${minor ? `.${minor}` : ""}`;
+  const id = canonicalModel(model);
+  const words = (rest: string) =>
+    rest
+      .split("-")
+      .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+      .join(" ");
+  const claude = /^claude-([a-z]+)-(\d+)(?:-(\d))?$/.exec(id);
+  if (claude) {
+    const [, family, major, minor] = claude;
+    return `${words(family!)} ${major}${minor ? `.${minor}` : ""}`;
+  }
+  const gpt = /^gpt-(\d+(?:\.\d+)?)(?:-([a-z][a-z-]*))?$/.exec(id);
+  if (gpt) return `GPT-${gpt[1]}${gpt[2] ? ` ${words(gpt[2])}` : ""}`;
+  const gemini = /^gemini-(\d+(?:\.\d+)?)-([a-z][a-z-]*)$/.exec(id);
+  if (gemini) return `Gemini ${gemini[1]} ${words(gemini[2]!)}`;
+  return model;
 }
 
 /** Near enough to compaction, or to the window's end, to say so. */
@@ -106,30 +120,26 @@ export function ContextBlock({ context }: { context: ShownContext }) {
 
 /** The date of the prices, and where they come from. */
 function PriceNote({ prices, short = false }: { prices: ThreadUsage["prices"]; short?: boolean }) {
-  // One date in the note when both price pages were read on the same day.
-  const oneDate = !prices.openai || prices.openai.readAt === prices.readAt;
+  const pages = [
+    { name: "Anthropic", source: prices.source, readAt: prices.readAt },
+    ...(prices.openai ? [{ name: "OpenAI", ...prices.openai }] : []),
+    ...(prices.google ? [{ name: "Google", ...prices.google }] : []),
+  ];
+  // One date in the note when the price pages were read on the same day.
+  const oneDate = pages.every((page) => page.readAt === prices.readAt);
   return (
     <p {...stylex.props(styles.line, styles.note, styles.prose)}>
       {short ? "List prices" : "Estimate at list prices"}
       {oneDate ? ` of ${prices.readAt}` : ""}:{" "}
-      <a href={prices.source} target="_blank" rel="noreferrer" {...stylex.props(styles.link)}>
-        Anthropic
-      </a>
-      {!oneDate && ` ${prices.readAt}`}
-      {prices.openai && (
-        <>
-          {", "}
-          <a
-            href={prices.openai.source}
-            target="_blank"
-            rel="noreferrer"
-            {...stylex.props(styles.link)}
-          >
-            OpenAI
+      {pages.map((page, index) => (
+        <Fragment key={page.name}>
+          {index > 0 && ", "}
+          <a href={page.source} target="_blank" rel="noreferrer" {...stylex.props(styles.link)}>
+            {page.name}
           </a>
-          {!oneDate && ` ${prices.openai.readAt}`}
-        </>
-      )}
+          {!oneDate && ` ${page.readAt}`}
+        </Fragment>
+      ))}
       .
     </p>
   );
@@ -138,8 +148,17 @@ function PriceNote({ prices, short = false }: { prices: ThreadUsage["prices"]; s
 /** What the total leaves out: models without a price, and transcripts without counts. */
 function SpendGaps({ spend }: { spend: ThreadUsage["spend"] }) {
   const unpriced = spend.models.filter((model) => model.cost === null);
+  const theirs = spend.models.filter((model) => model.pricedBy && model.cost !== null);
   return (
     <>
+      {theirs.length > 0 && (
+        <p {...stylex.props(styles.line, styles.note)}>
+          {theirs
+            .map((model) => `${model.pricedBy}'s own price for ${modelName(model.model)}`)
+            .join("; ")}
+          .
+        </p>
+      )}
       {unpriced.length > 0 && (
         <p {...stylex.props(styles.line, styles.note)}>
           No price for {unpriced.map((model) => modelName(model.model)).join(", ")}: not in the

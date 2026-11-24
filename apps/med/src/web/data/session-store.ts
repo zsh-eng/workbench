@@ -419,6 +419,9 @@ export function createSessionStore() {
         if (update.title !== undefined)
           snapshot = { ...snapshot, title: update.title ?? undefined };
         return;
+      // A request's tokens are the thread's spend, which the host counts.
+      case "token_usage":
+        return;
       case "usage_update":
         snapshot = { ...snapshot, usage: { size: update.size, used: update.used } };
         return;

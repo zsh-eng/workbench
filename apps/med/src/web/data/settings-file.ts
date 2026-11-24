@@ -216,10 +216,10 @@ export function startSettingsFile(fetcher: typeof fetch = fetch.bind(globalThis)
 }
 
 /** Writes one key that the page does not keep, such as Open in's, which
- * Med reads on the host. */
+ * Med reads on the host; null takes the key out of the file. */
 export async function writeSetting(
   key: string,
-  value: SettingsFile["settings"][string],
+  value: SettingsFile["settings"][string] | null,
   fetcher: typeof fetch = fetch.bind(globalThis),
 ) {
   const api = createApi(fetcher, readBrowserToken());

@@ -136,9 +136,9 @@ export async function fixture({ key, agy = true }: { key?: string; agy?: boolean
     hosts.push(host);
     return host;
   };
-  const api = async <T>(path: string, body?: unknown) => {
+  const api = async <T>(path: string, body?: unknown, method?: "PUT") => {
     const response = await fetch(`http://127.0.0.1:${host.port}${path}`, {
-      method: body === undefined ? "GET" : "POST",
+      method: method ?? (body === undefined ? "GET" : "POST"),
       headers: { authorization: `Bearer ${host.token}`, "content-type": "application/json" },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
