@@ -4,9 +4,10 @@ import type { Thread } from "../../../shared/threads";
 import { basename, type BarContext } from "../../data/bar-context";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon } from "../Icon";
-import { ToolButton, tooltip } from "../ToolButton";
+import { tooltip } from "../ToolButton";
 import { HistoryArrows } from "./HistoryArrows";
 import { RenameField } from "./RenameField";
+import { SidebarToggleButton } from "./SidebarToggleButton";
 
 export { barContext, type BarContext } from "../../data/bar-context";
 
@@ -69,10 +70,10 @@ export function WorkspaceBar({
           shows, here while it hides, at the same place. */}
       {showSidebar && (
         <>
-          <ToolButton
+          <SidebarToggleButton
+            open={false}
             label={needs > 0 ? `Show sidebar · ${needs} needs you` : "Show sidebar"}
             shortcut="Mod+B"
-            icon="panelLeft"
             dot={needs > 0}
             onClick={showSidebar}
           />

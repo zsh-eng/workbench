@@ -256,3 +256,42 @@ summary:has(.med-context-chevron)::-webkit-details-marker {
     transition: none;
   }
 }
+
+/* Soft accent wash when jumping back to a quoted message from the composer. */
+@keyframes med-cited-flash {
+  0% {
+    background-color: color-mix(in srgb, var(--med-accent) 18%, transparent);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--med-accent) 18%, transparent);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+[data-unit][data-cited-flash] {
+  border-radius: calc(8px * var(--med-round, 1));
+  animation: med-cited-flash 1200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Tactile pop when Copy morphs into a checkmark. */
+@keyframes med-copy-pop {
+  0% {
+    transform: scale(0.75);
+  }
+  60% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+[data-copied] > svg {
+  color: var(--med-green, var(--med-accent));
+  animation: med-copy-pop 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-unit][data-cited-flash],
+  [data-copied] > svg {
+    animation: none;
+  }
+}

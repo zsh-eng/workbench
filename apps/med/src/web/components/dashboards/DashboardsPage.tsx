@@ -29,7 +29,6 @@ import {
   type DashboardInput,
   type DashboardPanel,
 } from "../../../shared/dashboards";
-import { EmptyState } from "../EmptyState";
 import { isRelative, momentRange, rangeLabel, type TimeRange } from "../../../shared/time-range";
 import { useDocumentTitle } from "../../data/document-title";
 import {
@@ -213,16 +212,29 @@ function DashboardList() {
   const groups = new Map<string, DashboardEntry[]>();
   for (const entry of list?.dashboards ?? [])
     groups.set(entry.where, [...(groups.get(entry.where) ?? []), entry]);
+  const [copiedDoc, setCopiedDoc] = useState(false);
+  useEffect(() => {
+    if (!copiedDoc) return;
+    const timer = setTimeout(() => setCopiedDoc(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copiedDoc]);
+  const total = list?.dashboards.length ?? 0;
   return (
     <div {...stylex.props(page.column)}>
       <PageHeading
         title="Dashboards"
+        count={
+          list ? (
+            <span {...stylex.props(page.badge)}>
+              {total} {total === 1 ? "dashboard" : "dashboards"}
+            </span>
+          ) : undefined
+        }
         lead={
           <>
             A dashboard is a <code {...stylex.props(styles.code)}>.dashboard.yaml</code> file that
-            opens as its own page, as an Obsidian Base does: inputs, views, and panels whose data a
-            chart source prints. Med finds them in your repositories and in{" "}
-            <span title={list?.folder}>its own dashboards folder</span>.
+            opens as its own page: inputs, views, and live chart panels found in your repositories
+            and in <span title={list?.folder}>Med&apos;s dashboards folder</span>.
           </>
         }
       >
@@ -239,17 +251,140 @@ function DashboardList() {
         </p>
       )}
       {list && !list.dashboards.length && (
-        <EmptyState
-          page
-          title="No dashboards yet"
-          note={
-            <>
-              Ask an agent for one: it writes the file, checks it with{" "}
-              <code {...stylex.props(styles.code)}>med dashboard check</code>, and it shows here.{" "}
-              <code {...stylex.props(styles.code)}>med docs dashboards</code> has the format.
-            </>
-          }
-        />
+        <div {...stylex.props(page.emptyCard, styles.emptyDash)}>
+          <svg
+            width="164"
+            height="74"
+            viewBox="0 0 164 74"
+            fill="none"
+            aria-hidden="true"
+            {...stylex.props(styles.wireframe)}
+          >
+            <rect
+              x="0.75"
+              y="0.75"
+              width="102"
+              height="72.5"
+              rx="8"
+              stroke="currentColor"
+              strokeOpacity="0.16"
+              fill="currentColor"
+              fillOpacity="0.03"
+            />
+            <rect
+              x="10"
+              y="10"
+              width="36"
+              height="4"
+              rx="2"
+              fill="currentColor"
+              fillOpacity="0.2"
+            />
+            <path
+              d="M12 56 C26 52, 34 34, 48 39 C62 44, 72 24, 92 28"
+              stroke="var(--med-accent)"
+              strokeOpacity="0.75"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+            />
+            <path d="M12 62 H92" stroke="currentColor" strokeOpacity="0.1" strokeWidth="1" />
+            <rect
+              x="110.75"
+              y="0.75"
+              width="52.5"
+              height="33"
+              rx="8"
+              stroke="currentColor"
+              strokeOpacity="0.16"
+              fill="currentColor"
+              fillOpacity="0.03"
+            />
+            <rect
+              x="119"
+              y="10"
+              width="22"
+              height="4"
+              rx="2"
+              fill="currentColor"
+              fillOpacity="0.18"
+            />
+            <rect
+              x="119"
+              y="20"
+              width="32"
+              height="6"
+              rx="2"
+              fill="currentColor"
+              fillOpacity="0.28"
+            />
+            <rect
+              x="110.75"
+              y="40.25"
+              width="52.5"
+              height="33"
+              rx="8"
+              stroke="currentColor"
+              strokeOpacity="0.16"
+              fill="currentColor"
+              fillOpacity="0.03"
+            />
+            <rect
+              x="119"
+              y="59"
+              width="6"
+              height="8"
+              rx="1.5"
+              fill="currentColor"
+              fillOpacity="0.2"
+            />
+            <rect
+              x="128"
+              y="54"
+              width="6"
+              height="13"
+              rx="1.5"
+              fill="currentColor"
+              fillOpacity="0.26"
+            />
+            <rect
+              x="137"
+              y="49"
+              width="6"
+              height="18"
+              rx="1.5"
+              fill="var(--med-accent)"
+              fillOpacity="0.55"
+            />
+            <rect
+              x="146"
+              y="56"
+              width="6"
+              height="11"
+              rx="1.5"
+              fill="currentColor"
+              fillOpacity="0.2"
+            />
+          </svg>
+          <p {...stylex.props(page.emptyTitle)}>No dashboards yet</p>
+          <p {...stylex.props(page.emptyNote)}>
+            Ask an agent for one: it writes a{" "}
+            <code {...stylex.props(styles.code)}>.dashboard.yaml</code>, checks it with{" "}
+            <code {...stylex.props(styles.code)}>med dashboard check</code>, and it appears here.
+          </p>
+          <button
+            type="button"
+            onClick={() =>
+              void navigator.clipboard.writeText("med docs dashboards").then(
+                () => setCopiedDoc(true),
+                () => {},
+              )
+            }
+            {...stylex.props(styles.cmdPill)}
+          >
+            <code {...stylex.props(styles.cmdText)}>med docs dashboards</code>
+            <Icon name={copiedDoc ? "check" : "copy"} size={12} />
+          </button>
+        </div>
       )}
       {[...groups].map(([where, entries]) => (
         <section key={where} aria-label={where} {...stylex.props(page.section)}>
@@ -257,7 +392,7 @@ function DashboardList() {
             {where}
             <span {...stylex.props(page.count)}>{entries.length}</span>
           </h2>
-          <div {...stylex.props(styles.card)}>
+          <div {...stylex.props(page.card)}>
             {entries.map((entry, index) => (
               <button
                 key={entry.id}
@@ -265,8 +400,8 @@ function DashboardList() {
                 {...stylex.props(styles.row, index === 0 && styles.firstRow)}
                 onClick={() => openDashboards(entry.id)}
               >
-                <span {...stylex.props(styles.rowIcon)}>
-                  <Icon name="display" size={16} />
+                <span {...stylex.props(page.iconTile)}>
+                  <Icon name="display" size={14} />
                 </span>
                 <span {...stylex.props(styles.rowText)}>
                   <span {...stylex.props(styles.rowTitle)}>{entry.title}</span>
@@ -279,8 +414,10 @@ function DashboardList() {
                   </span>
                 </span>
                 <span {...stylex.props(styles.rowEnd)}>
-                  {entry.panels} panel{entry.panels === 1 ? "" : "s"}
-                  {entry.views > 1 ? ` · ${entry.views} views` : ""}
+                  <span {...stylex.props(page.pill)}>
+                    {entry.panels} panel{entry.panels === 1 ? "" : "s"}
+                    {entry.views > 1 ? ` · ${entry.views} views` : ""}
+                  </span>
                   <span {...stylex.props(styles.rowWhen)}>{relativeTime(entry.modified, now)}</span>
                 </span>
               </button>
@@ -1039,12 +1176,6 @@ const styles = stylex.create({
     textAlign: "right",
     userSelect: "none",
   },
-  card: {
-    marginInline: -20,
-    overflow: "hidden",
-    borderRadius: `calc(12px * ${tokens.round})`,
-    backgroundColor: `color-mix(in srgb, ${tokens.text} 3.5%, transparent)`,
-  },
   row: {
     position: "relative",
     display: "flex",
@@ -1052,27 +1183,28 @@ const styles = stylex.create({
     gap: 12,
     width: "100%",
     boxSizing: "border-box",
-    minHeight: 64,
+    minHeight: 60,
     paddingBlock: 12,
-    paddingInline: 20,
+    paddingInline: 16,
     borderWidth: 0,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     color: tokens.text,
     font: "inherit",
     textAlign: "start",
     cursor: "pointer",
+    outline: "none",
+    boxShadow: { default: "none", ":focus-visible": `inset 0 0 0 2px ${tokens.accentLine}` },
     "::before": {
       content: '""',
       position: "absolute",
       top: 0,
-      left: 20,
-      right: 20,
+      left: 16,
+      right: 16,
       height: 1,
       backgroundColor: tokens.line,
     },
   },
   firstRow: { "::before": { display: "none" } },
-  rowIcon: { display: "flex", color: tokens.muted },
   rowText: { display: "flex", flexDirection: "column", gap: 3, flex: "1", minWidth: 0 },
   rowTitle: { fontSize: 14, fontWeight: 500 },
   rowFacts: {
@@ -1085,13 +1217,33 @@ const styles = stylex.create({
   rowProblem: { color: tokens.warning },
   rowEnd: {
     display: "flex",
-    alignItems: "baseline",
+    alignItems: "center",
     gap: 10,
     flexShrink: 0,
     color: tokens.muted,
-    fontSize: 12.5,
+    fontSize: 12,
     fontVariantNumeric: "tabular-nums",
   },
   rowWhen: { color: tokens.faint },
+  emptyDash: { gap: 12 },
+  wireframe: { color: tokens.text, marginBottom: 4 },
+  cmdPill: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 4,
+    height: 30,
+    paddingInline: 12,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: { default: tokens.lineStrong, ":hover": tokens.accentLine },
+    borderRadius: 999,
+    backgroundColor: { default: tokens.fill, ":hover": tokens.fillStrong },
+    color: { default: tokens.muted, ":hover": tokens.text },
+    fontFamily: tokens.ui,
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
+  cmdText: { fontFamily: tokens.code, fontSize: 12, color: tokens.text },
   emptyNote: { margin: 0, marginTop: 6, color: tokens.muted, fontSize: 13.5, lineHeight: 1.55 },
 });

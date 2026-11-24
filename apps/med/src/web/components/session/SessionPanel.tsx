@@ -44,6 +44,7 @@ import { ToolButton } from "../ToolButton";
 import { paneHandle } from "../PaneTree";
 import { InTitleBand, useInTitleBand } from "../Workspaces";
 import { ComposerMeta, SessionComposer, type ComposerAttachment } from "./SessionComposer";
+import type { ReplyQuote } from "./reply-quote";
 import { countedSpend, UsageChip, type ShownContext } from "./ThreadUsage";
 import {
   SIDE_PANEL_MIN_PANE,
@@ -515,15 +516,55 @@ export function SessionPanel({
     () => (fileRefs ? { ...fileRefs, cwd: session.cwd || undefined } : null),
     [fileRefs, session.cwd],
   );
+  const agent = agentName(session);
+  const [quotesBySession, setQuotesBySession] = useState<{
+    sessionId: string;
+    items: ReplyQuote[];
+  }>({ sessionId: session.id, items: [] });
+  const quotes = quotesBySession.sessionId === session.id ? quotesBySession.items : [];
+  const addQuote = useCallback(
+    (incoming: Omit<ReplyQuote, "id">) => {
+      const text = incoming.text.trim();
+      if (!text) return;
+      setQuotesBySession((current) => {
+        const list = current.sessionId === session.id ? current.items : [];
+        if (list.some((item) => item.sourceId === incoming.sourceId && item.text === text))
+          return { sessionId: session.id, items: list };
+        const next: ReplyQuote = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          ...incoming,
+          text,
+        };
+        return { sessionId: session.id, items: [...list.slice(-4), next] };
+      });
+      requestAnimationFrame(() =>
+        panel.current?.querySelector<HTMLTextAreaElement>("form textarea")?.focus(),
+      );
+    },
+    [session.id],
+  );
+  const removeQuote = useCallback(
+    (id: string) =>
+      setQuotesBySession((current) =>
+        current.sessionId === session.id
+          ? { sessionId: session.id, items: current.items.filter((item) => item.id !== id) }
+          : current,
+      ),
+    [session.id],
+  );
+  const clearQuotes = useCallback(
+    () => setQuotesBySession({ sessionId: session.id, items: [] }),
+    [session.id],
+  );
   const replyActions = useMemo<ReplyActions | null>(() => {
     // Claude Code forks a session at a message of its transcript.
     const fork =
       onFork && session.agent === "claude"
         ? (item: { id: string }) => onFork(session.id, item.id)
         : undefined;
-    return fork ? { fork } : null;
-  }, [onFork, session.id, session.agent]);
-  const agent = agentName(session);
+    const quote = inbox && !(session.agent === "acp" && !ownedState) ? addQuote : undefined;
+    return fork || quote ? { fork, quote, speaker: agent } : null;
+  }, [onFork, session.id, session.agent, inbox, ownedState, addQuote, agent]);
   const messages = inbox?.state?.messages;
   const streamed = useStreamedReplies(snapshot.items, ownedState?.streaming);
   // Messages on their way to the host show at once, as in a chat app. The
@@ -804,6 +845,10 @@ export function SessionPanel({
             drafts={(inbox.state?.drafts ?? []).filter((draft) => !sending.has(draft.id))}
             attachments={attachments}
             onRemoveAttachment={(id) => onRemoveAttachment?.(id)}
+            quotes={quotes}
+            onRemoveQuote={removeQuote}
+            onClearQuotes={clearQuotes}
+            onJumpToQuote={(sourceId) => setReveal({ id: sourceId, nonce: Date.now() })}
             onSend={send}
             owned={ownedState ? { state: ownedState, act: owned.act } : undefined}
             restore={restore}

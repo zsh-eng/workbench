@@ -819,6 +819,8 @@ export function PaneTree({
               view.entering === pane.id && styles.entering,
               behind && styles.behind,
               zoomed === pane.id && styles.zoomed,
+              focused && styles.paneFocused,
+              several && !zoomed && !focused && styles.paneUnfocused,
             )}
           >
             {pane.render(
@@ -1016,6 +1018,10 @@ function PaneGutter({
       }}
     >
       <span {...stylex.props(resizeLine.line, row ? resizeLine.row : resizeLine.column)} />
+      <span
+        aria-hidden="true"
+        {...stylex.props(styles.grip, row ? styles.gripRow : styles.gripColumn)}
+      />
     </div>
   );
 }
@@ -1046,6 +1052,24 @@ const styles = stylex.create({
     outline: "none",
     contain: "strict",
     pointerEvents: { default: null, ":is(html[data-pane-resizing] *)": "none" },
+    transitionProperty: { default: "opacity", [reduced]: "none" },
+    transitionDuration: "150ms",
+    transitionTimingFunction: tokens.easeOut,
+  },
+  paneFocused: {
+    "::after": {
+      content: '""',
+      position: "absolute",
+      top: 0,
+      insetInline: 0,
+      height: 1.5,
+      backgroundColor: tokens.accentLine,
+      pointerEvents: "none",
+      zIndex: 5,
+    },
+  },
+  paneUnfocused: {
+    opacity: { default: 0.9, ":hover": 1 },
   },
   rect: (left: number, top: number, width: number, height: number) => ({
     left,
@@ -1119,6 +1143,27 @@ const styles = stylex.create({
   },
   gutterRow: { cursor: "col-resize" },
   gutterColumn: { cursor: "row-resize" },
+  grip: {
+    position: "absolute",
+    borderRadius: 999,
+    backgroundColor: tokens.lineStrong,
+    pointerEvents: "none",
+    opacity: {
+      default: 0,
+      [stylex.when.ancestor(":hover")]: 1,
+      [stylex.when.ancestor(":focus-visible")]: 1,
+    },
+    transform: {
+      default: "scale(0.85)",
+      [stylex.when.ancestor(":hover")]: "scale(1)",
+      [stylex.when.ancestor(":focus-visible")]: "scale(1)",
+    },
+    transitionProperty: { default: "opacity, transform, background-color", [reduced]: "none" },
+    transitionDuration: "140ms",
+    transitionTimingFunction: tokens.easeOut,
+  },
+  gripRow: { width: 4, height: 28 },
+  gripColumn: { width: 28, height: 4 },
   header: {
     display: "flex",
     alignItems: "center",

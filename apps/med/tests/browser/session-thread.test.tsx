@@ -1338,3 +1338,49 @@ test("a reply in a comment's thread shows as the reply, under the answer it repl
   await expect.element(page.getByText("tides.ts:12 · reply to Claude")).toBeVisible();
   await expect.element(page.getByText("Renamed it to tidesAt.")).toBeVisible();
 });
+
+test("highlighting text in a reply shows a Quote popover inside the viewport and ReplyBar quotes the reply", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(2);
+  const quoted: { sourceId: string; speaker: string; text: string }[] = [];
+  root!.render(
+    <ReplyActionsContext.Provider
+      value={{
+        speaker: "Claude",
+        quote: (entry) => quoted.push(entry),
+      }}
+    >
+      <SessionThread snapshot={store.getSnapshot()} />
+    </ReplyActionsContext.Provider>,
+  );
+  const replyText = page.getByText("Reply 1.", { exact: false });
+  await expect.element(replyText).toBeVisible();
+
+  // Select text inside Reply 1 and verify the floating Quote popover stays inside the viewport.
+  const range = document.createRange();
+  range.selectNodeContents(replyText.element());
+  const selection = window.getSelection()!;
+  selection.removeAllRanges();
+  selection.addRange(range);
+  document.dispatchEvent(new Event("selectionchange"));
+
+  const popover = page.getByRole("button", { name: "Quote", exact: true });
+  await expect.element(popover).toBeVisible();
+  const popRect = popover.element().getBoundingClientRect();
+  const scrollerRect = document.querySelector(".med-thread-scroller")!.getBoundingClientRect();
+  expect(popRect.top).toBeGreaterThanOrEqual(scrollerRect.top - 1);
+  expect(popRect.left).toBeGreaterThanOrEqual(scrollerRect.left - 1);
+  expect(popRect.right).toBeLessThanOrEqual(scrollerRect.right + 1);
+
+  await popover.click();
+  expect(quoted).toEqual([
+    { sourceId: expect.any(String), speaker: "Claude", text: expect.stringContaining("Reply 1.") },
+  ]);
+
+  // ReplyBar's Quote reply button cites the reply in one click.
+  await page.getByRole("button", { name: "Quote reply" }).last().click();
+  expect(quoted.length).toBe(2);
+  expect(quoted[1]!.speaker).toBe("Claude");
+  expect(quoted[1]!.text).toContain("Reply 1.");
+});

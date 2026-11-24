@@ -22,6 +22,7 @@ type DrawnName =
   | "play"
   | "pause"
   | "turn"
+  | "quote"
   | "usage";
 export type IconName = PierreName | DrawnName;
 
@@ -72,6 +73,8 @@ const drawn: Record<DrawnName, ReactNode> = {
   pause: <path d="M5.5 3.25v9.5M10.5 3.25v9.5" />,
   // Arrows to the right and down from one corner: a diagram's two ways.
   turn: <path d="M3.75 3.75h9M11 1.75l2 2-2 2M3.75 3.75v9M1.75 11l2 2 2-2" />,
+  // Curved reply arrow pointing back-left to a cited passage.
+  quote: <path d="M6.25 4.25 2.75 7.75l3.5 3.5M3.25 7.75h6.25a3.75 3.75 0 0 1 3.75 3.75v1" />,
   // Three columns from one baseline: the Usage page's spend by day.
   usage: <path d="M2.25 13.75h11.5M4.75 11v-2.5M8 11V4.75M11.25 11V7.25" />,
 };

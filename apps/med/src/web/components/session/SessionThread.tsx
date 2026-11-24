@@ -36,6 +36,7 @@ import { TurnRecap, type TurnRecapProps } from "./TurnRecap";
 import type { SessionTurn } from "../../data/session-stream";
 import { ImageThumbs } from "./ImageThumbs";
 import { promptBlocks, type PromptBlock } from "./prompt-blocks";
+import { summarizeQuote, type ReplyQuote } from "./reply-quote";
 import { isSubagent, OpenAgentContext, RowOpen, ToolCall, useRowOpen } from "./ToolCall";
 import {
   finalReplies,
@@ -77,6 +78,10 @@ export interface ReplyActions {
   /** Fork from here: a new thread whose session starts from this one's
    * history up to the reply. This thread stays as it is. */
   fork?(item: AgentItem): Promise<void>;
+  /** Cite a reply or highlighted passage directly into the composer. */
+  quote?(quote: Omit<ReplyQuote, "id">): void;
+  /** Agent display name for citations, e.g. "Claude". */
+  speaker?: string;
 }
 export const ReplyActionsContext = createContext<ReplyActions | null>(null);
 /** The reply that ends the thread's latest turn, whose actions stay in view. */
@@ -381,6 +386,7 @@ function CopyPrompt({ item }: { item: Extract<SessionItem, { kind: "user" }> }) 
       <button
         type="button"
         aria-label={copied ? "Copied" : "Copy prompt"}
+        data-copied={copied ? "" : undefined}
         {...tooltip(copied ? "Copied" : "Copy prompt")}
         onClick={() => copy(text)}
         {...stylex.props(styles.replyAction)}
@@ -419,11 +425,29 @@ function ReplyBar({ item, final }: { item: AgentItem; final: boolean }) {
         <button
           type="button"
           aria-label={copied ? "Copied" : "Copy reply"}
+          data-copied={copied ? "" : undefined}
           {...tooltip(copied ? "Copied" : "Copy reply")}
           onClick={() => copy(item.text)}
           {...stylex.props(styles.replyAction)}
         >
           <Icon name={copied ? "check" : "copy"} size={13} />
+        </button>
+      )}
+      {final && actions?.quote && (
+        <button
+          type="button"
+          aria-label="Quote reply"
+          {...tooltip("Quote reply", undefined, undefined, "Cite this reply in the message box")}
+          onClick={() =>
+            actions.quote!({
+              sourceId: item.id,
+              speaker: actions.speaker ?? "Assistant",
+              text: summarizeQuote(item.text),
+            })
+          }
+          {...stylex.props(styles.replyAction)}
+        >
+          <Icon name="quote" size={13} />
         </button>
       )}
       {fork && (
@@ -1104,11 +1128,31 @@ function AgentView({
   return (
     <section ref={view} aria-label="Subagent" {...stylex.props(styles.agentView)}>
       <div {...stylex.props(styles.agentBar)}>
+        <button
+          type="button"
+          aria-label="Back to main thread"
+          {...tooltip("Back to main thread", "Escape")}
+          onClick={onClose}
+          {...stylex.props(styles.agentBack)}
+        >
+          <Icon name="arrowLeft" size={13} />
+          <span>Main</span>
+        </button>
+        <span aria-hidden="true" {...stylex.props(styles.agentSep)}>
+          /
+        </span>
+        <span {...stylex.props(styles.agentMark)}>
+          <Icon name="agent" size={13} />
+        </span>
         <span {...stylex.props(styles.agentTitle)} title={agent.call.title}>
           {agent.call.title}
         </span>
         <span
-          {...stylex.props(styles.agentState, agent.call.status === "failed" && styles.agentFailed)}
+          {...stylex.props(
+            styles.agentState,
+            live && styles.agentWorking,
+            agent.call.status === "failed" && styles.agentFailed,
+          )}
         >
           {agent.call.status === "failed" ? "Failed" : live ? "Working" : "Done"}
           <Elapsed from={agent.at} now={live ? now : (agent.endedAt ?? agent.at)} prefix=" · " />
@@ -2047,7 +2091,9 @@ export function SessionThread({
   // A turn from the index: its unit goes to the top of the view.
   const [handled, setHandled] = useState<{ nonce: number; key: string } | undefined>(undefined);
   if (reveal && reveal.nonce !== handled?.nonce && metrics) {
-    const key = all.find((unit) => itemsOf(unit).some((item) => item.id === reveal.id))?.key;
+    const key = all.find(
+      (unit) => unit.key === reveal.id || itemsOf(unit).some((item) => item.id === reveal.id),
+    )?.key;
     if (key !== undefined) setHandled({ nonce: reveal.nonce, key });
   }
   const revealed = useRef<number | undefined>(undefined);
@@ -2190,6 +2236,94 @@ export function SessionThread({
   // the clock moves their expiry, so a minute is fine enough.
   const minute = useMinuteClock(now === undefined);
   const scheduleFacts = useScheduleFacts(snapshot.items, now ?? minute);
+  const replyActions = useContext(ReplyActionsContext);
+  // Floating Quote pill when the reader highlights text inside any message.
+  const [selectionQuote, setSelectionQuote] = useState<{
+    sourceId: string;
+    speaker: string;
+    text: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  useEffect(() => {
+    const canQuote = !!replyActions?.quote;
+    if (!canQuote || agent) return;
+    const readSelection = () => {
+      const container = content.current;
+      const box = scroller.current;
+      const sel = window.getSelection();
+      if (!container || !box || !sel || sel.isCollapsed || !sel.rangeCount) {
+        setSelectionQuote(null);
+        return;
+      }
+      const text = sel.toString().trim();
+      if (text.length < 2) {
+        setSelectionQuote(null);
+        return;
+      }
+      const range = sel.getRangeAt(0);
+      const ancestor =
+        range.commonAncestorContainer instanceof Element
+          ? range.commonAncestorContainer
+          : range.commonAncestorContainer.parentElement;
+      if (!ancestor || !container.contains(ancestor)) {
+        setSelectionQuote(null);
+        return;
+      }
+      const unitNode = ancestor.closest<HTMLElement>("[data-quote-source]");
+      if (!unitNode || !container.contains(unitNode)) {
+        setSelectionQuote(null);
+        return;
+      }
+      const rect = range.getBoundingClientRect();
+      const viewRect = box.getBoundingClientRect();
+      if (!rect.width && !rect.height) {
+        setSelectionQuote(null);
+        return;
+      }
+      const center = rect.left + rect.width / 2 - viewRect.left;
+      const clampedX = Math.max(52, Math.min(viewRect.width - 52, center));
+      // Keep the 28 px pill (translated -100% vertically) cleanly inside the viewport.
+      const aboveTop = rect.top - viewRect.top - 8;
+      const y =
+        aboveTop >= 36 ? aboveTop : Math.min(viewRect.height - 16, rect.bottom - viewRect.top + 36);
+      const speakerKind = unitNode.dataset.quoteSpeaker;
+      setSelectionQuote({
+        sourceId: unitNode.dataset.quoteSource!,
+        speaker: speakerKind === "prompt" ? "You" : (replyActions?.speaker ?? "Assistant"),
+        text,
+        x: clampedX,
+        y,
+      });
+    };
+    const clearOnScroll = () => setSelectionQuote(null);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectionQuote(null);
+    };
+    document.addEventListener("selectionchange", readSelection);
+    document.addEventListener("mouseup", readSelection);
+    document.addEventListener("keydown", onKey);
+    const scrollerNode = scroller.current;
+    scrollerNode?.addEventListener("scroll", clearOnScroll, { passive: true });
+    return () => {
+      document.removeEventListener("selectionchange", readSelection);
+      document.removeEventListener("mouseup", readSelection);
+      document.removeEventListener("keydown", onKey);
+      scrollerNode?.removeEventListener("scroll", clearOnScroll);
+    };
+  }, [replyActions?.quote, replyActions?.speaker, agent]);
+
+  const shownQuote = !agent && replyActions?.quote ? selectionQuote : null;
+
+  // Brief accent wash when jumping back to a cited message via `reveal`.
+  const [clearedReveal, setClearedReveal] = useState<number>();
+  const citedFlash = reveal && reveal.nonce !== clearedReveal ? reveal.id : null;
+  useEffect(() => {
+    if (!reveal?.id) return;
+    const nonce = reveal.nonce;
+    const timer = setTimeout(() => setClearedReveal(nonce), 1300);
+    return () => clearTimeout(timer);
+  }, [reveal?.id, reveal?.nonce]);
 
   return (
     <OpenAgentContext.Provider value={setAgentId}>
@@ -2268,11 +2402,23 @@ export function SessionThread({
                       <LatestReplyContext.Provider value={latestReply}>
                         {all.slice(start, end).map((unit, offset) => {
                           const at = start + offset;
+                          const kind = "item" in unit ? unit.item.kind : undefined;
+                          const quoteSource =
+                            kind === "agent" || kind === "user" ? unit.key : undefined;
+                          const flashed =
+                            citedFlash !== null &&
+                            (unit.key === citedFlash ||
+                              ("item" in unit && unit.item.id === citedFlash));
                           return (
                             <div
                               key={unit.key}
                               ref={unitRef}
                               data-unit={unit.key}
+                              data-quote-source={quoteSource}
+                              data-quote-speaker={
+                                kind === "user" ? "prompt" : kind === "agent" ? "reply" : undefined
+                              }
+                              data-cited-flash={flashed ? "" : undefined}
                               data-rise={appended.has(unit.key) ? "" : undefined}
                               data-message={isMessage(unit) ? unit.item.kind : undefined}
                               data-current={unit.key === current ? "" : undefined}
@@ -2354,10 +2500,30 @@ export function SessionThread({
                 <button
                   type="button"
                   onClick={() => list.current?.toEnd(true)}
-                  {...stylex.props(styles.latest, footer !== undefined && styles.above(room + 12))}
+                  {...stylex.props(styles.latest, footer !== undefined && styles.above(room + 6))}
                 >
                   <Icon name="arrowDown" size={12} />
                   Latest
+                </button>
+              )}
+              {shownQuote && replyActions?.quote && (
+                <button
+                  type="button"
+                  data-quote-popover=""
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    replyActions.quote!({
+                      sourceId: shownQuote.sourceId,
+                      speaker: shownQuote.speaker,
+                      text: shownQuote.text,
+                    });
+                    window.getSelection()?.removeAllRanges();
+                    setSelectionQuote(null);
+                  }}
+                  {...stylex.props(styles.quotePopover, styles.quoteAt(shownQuote.x, shownQuote.y))}
+                >
+                  <Icon name="quote" size={12} />
+                  <span>Quote</span>
                 </button>
               )}
             </div>
@@ -2528,10 +2694,22 @@ function ThreadProbe({ probe }: { probe: RefObject<HTMLDivElement | null> }) {
 }
 
 const sendingPulse = stylex.keyframes({ from: { opacity: 0.35 }, to: { opacity: 1 } });
+const latestRise = stylex.keyframes({
+  from: { opacity: 0, transform: "translateY(6px)" },
+  to: { opacity: 1, transform: "translateY(0)" },
+});
+const agentSlide = stylex.keyframes({
+  from: { opacity: 0, transform: "translateX(10px)" },
+  to: { opacity: 1, transform: "translateX(0)" },
+});
+const quotePop = stylex.keyframes({
+  from: { opacity: 0, transform: "translate(-50%, calc(-100% + 4px)) scale(0.96)" },
+  to: { opacity: 1, transform: "translate(-50%, -100%) scale(1)" },
+});
 const styles = stylex.create({
   docks: { display: "contents" },
-  // Over the thread's foot: a fade, then the docks and the message box on the
-  // canvas. It leaves the scroll bar's column to the thread.
+  // Over the thread's foot: a soft fade, then the docks and the message box on
+  // the canvas. It leaves the scroll bar's column to the thread.
   footer: {
     position: "absolute",
     zIndex: 3,
@@ -2541,9 +2719,9 @@ const styles = stylex.create({
     right: 12,
     display: "flex",
     flexDirection: "column",
-    paddingTop: 18,
+    paddingTop: 28,
     pointerEvents: "none",
-    backgroundImage: `linear-gradient(to bottom, transparent, ${tokens.canvas} 18px)`,
+    backgroundImage: `linear-gradient(to bottom, transparent, ${tokens.canvas} 26px)`,
   },
   agentView: {
     position: "absolute",
@@ -2553,19 +2731,42 @@ const styles = stylex.create({
     flexDirection: "column",
     minHeight: 0,
     backgroundColor: tokens.canvas,
+    animationName: { default: agentSlide, "@media (prefers-reduced-motion: reduce)": "none" },
+    animationDuration: "180ms",
+    animationTimingFunction: tokens.easeOut,
   },
   agentBar: {
     display: "flex",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
     flexShrink: 0,
-    minHeight: tokens.bar,
-    paddingInline: 12,
+    height: tokens.bar,
+    boxSizing: "border-box",
+    paddingInline: 10,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
     borderBottomColor: tokens.line,
     fontSize: 12.5,
   },
+  agentBack: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    height: 26,
+    paddingInline: 7,
+    borderWidth: 0,
+    borderRadius: `calc(6px * ${tokens.round})`,
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
+    color: { default: tokens.muted, ":hover": tokens.text },
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    fontWeight: 500,
+    cursor: "pointer",
+    flexShrink: 0,
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
+  agentSep: { color: tokens.faint, fontSize: 12, flexShrink: 0 },
+  agentMark: { display: "inline-flex", color: tokens.accent, flexShrink: 0 },
   agentTitle: {
     flex: "1",
     minWidth: 0,
@@ -2577,18 +2778,27 @@ const styles = stylex.create({
   },
   agentState: {
     flexShrink: 0,
-    color: tokens.faint,
-    fontSize: 11.5,
+    paddingBlock: 2,
+    paddingInline: 8,
+    borderRadius: 999,
+    backgroundColor: tokens.fill,
+    color: tokens.muted,
+    fontSize: 11,
     fontVariantNumeric: "tabular-nums",
   },
-  agentFailed: { color: tokens.red },
+  agentWorking: { backgroundColor: tokens.accentSoft, color: tokens.accent },
+  agentFailed: {
+    backgroundColor: `color-mix(in srgb, ${tokens.red} 14%, transparent)`,
+    color: tokens.red,
+  },
   tabs: {
     display: "flex",
     alignItems: "center",
     gap: 2,
     flexShrink: 0,
-    minHeight: 34,
-    paddingInline: 8,
+    height: tokens.bar,
+    boxSizing: "border-box",
+    paddingInline: 10,
     overflowX: "auto",
     scrollbarWidth: "none",
     borderBottomWidth: 1,
@@ -2958,6 +3168,7 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
   },
   above: (bottom: number) => ({ bottom }),
+  quoteAt: (left: number, top: number) => ({ left, top }),
   loadingPill: {
     position: "absolute",
     top: 10,
@@ -2993,14 +3204,40 @@ const styles = stylex.create({
     paddingInline: 12,
     borderWidth: 0,
     borderRadius: 999,
-    backgroundColor: { default: tokens.menu, ":hover": tokens.fill },
+    backgroundColor: { default: tokens.menu, ":hover": tokens.fillStrong },
     boxShadow: `${tokens.shadow}, inset 0 0 0 1px ${tokens.lineStrong}`,
     color: tokens.text,
     fontFamily: tokens.ui,
     fontSize: 12,
     cursor: "pointer",
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
-    zIndex: 1,
+    zIndex: 4,
+    animationName: { default: latestRise, "@media (prefers-reduced-motion: reduce)": "none" },
+    animationDuration: "160ms",
+    animationTimingFunction: tokens.easeOut,
+  },
+  quotePopover: {
+    position: "absolute",
+    zIndex: 6,
+    transform: "translate(-50%, -100%)",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    height: 28,
+    paddingInline: 10,
+    borderWidth: 0,
+    borderRadius: 999,
+    backgroundColor: { default: tokens.menu, ":hover": tokens.fillStrong },
+    boxShadow: `${tokens.shadow}, inset 0 0 0 1px ${tokens.lineStrong}`,
+    color: tokens.text,
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    fontWeight: 500,
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+    animationName: { default: quotePop, "@media (prefers-reduced-motion: reduce)": "none" },
+    animationDuration: "140ms",
+    animationTimingFunction: tokens.easeOut,
   },
   plan: {
     flexShrink: 0,

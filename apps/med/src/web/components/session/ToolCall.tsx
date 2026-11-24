@@ -317,6 +317,11 @@ function RenderedDiff({ diff }: { diff: DiffContent }) {
   );
 }
 
+const detailsReveal = stylex.keyframes({
+  from: { opacity: 0, transform: "translateY(-3px)" },
+  to: { opacity: 1, transform: "translateY(0)" },
+});
+
 const styles = stylex.create({
   call: { display: "flex", flexDirection: "column", minWidth: 0 },
   head: { cursor: { default: "pointer", ":disabled": "default" } },
@@ -369,6 +374,9 @@ const styles = stylex.create({
     paddingBlock: 4,
     paddingInlineStart: 24,
     minWidth: 0,
+    animationName: { default: detailsReveal, "@media (prefers-reduced-motion: reduce)": "none" },
+    animationDuration: "150ms",
+    animationTimingFunction: tokens.easeOut,
   },
   console: {
     margin: 0,

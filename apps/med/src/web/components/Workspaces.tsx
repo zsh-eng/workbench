@@ -91,7 +91,8 @@ import {
 import type { ReviewCommand } from "./Controls";
 import { barContext, WorkspaceBar } from "./shell/WorkspaceBar";
 import { HistoryArrows, useHistoryKeys } from "./shell/HistoryArrows";
-import { ToolButton, tooltip } from "./ToolButton";
+import { markSidebarToggled, SidebarToggleButton } from "./shell/SidebarToggleButton";
+import { tooltip } from "./ToolButton";
 import { newThreadKeys, useTitleBarOverlay } from "../data/title-bar";
 import { NoticeBar, type TabNotice } from "./shell/NoticeBar";
 import { SessionSidebar } from "./shell/SessionSidebar";
@@ -1333,6 +1334,7 @@ export function WorkspaceHost({
   if (overlay && !narrow) setOverlay(false);
   const showsSidebar = narrow ? overlay : sidebarVisible;
   const toggleSidebar = useCallback(() => {
+    markSidebarToggled();
     if (isNarrow()) return setOverlay((open) => !open);
     setSidebarVisible((visible) => {
       viewSettings.sidebar.set(visible ? "hidden" : "shown");
@@ -2129,12 +2131,12 @@ export function WorkspaceHost({
                         <div {...stylex.props(styles.shellViews)}>
                           {pageTop && (!showsSidebar || narrow) && (
                             <span {...stylex.props(styles.pageToggle)}>
-                              <ToolButton
+                              <SidebarToggleButton
+                                open={false}
                                 label={
                                   needs > 0 ? `Show sidebar · ${needs} needs you` : "Show sidebar"
                                 }
                                 shortcut="Mod+B"
-                                icon="panelLeft"
                                 dot={needs > 0}
                                 onClick={toggleSidebar}
                               />

@@ -22,8 +22,9 @@ import { Icon } from "../Icon";
 import { Shimmer } from "../Shimmer";
 import { RenameField } from "./RenameField";
 import { newThreadKeys } from "../../data/title-bar";
-import { ToolButton, clippedTooltip, tooltip } from "../ToolButton";
+import { clippedTooltip, tooltip } from "../ToolButton";
 import { HistoryArrows } from "./HistoryArrows";
+import { SidebarToggleButton } from "./SidebarToggleButton";
 import { ThreadPeek } from "./ThreadPeek";
 
 /** The lists that keep the reader's order: Pinned, and Later. */
@@ -521,7 +522,7 @@ export function SessionSidebar({
           Forward, as in Claude's desktop app; the title band has them at the
           same place while the sidebar hides. */}
       <div className={`med-title-row ${top.className ?? ""}`} style={top.style}>
-        <ToolButton label="Hide sidebar" shortcut="Mod+B" icon="panelLeft" onClick={onHide} />
+        <SidebarToggleButton open label="Hide sidebar" shortcut="Mod+B" onClick={onHide} />
         <HistoryArrows />
       </div>
       {/* A row like the sessions under it; the open New thread is its current row. */}

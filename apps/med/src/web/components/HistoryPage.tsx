@@ -17,6 +17,7 @@ import { readHistory } from "../data/tabs";
 import { matches, threadFields } from "../data/threads";
 import { picked, tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
+import { page, PageHeading } from "./PageHeading";
 import { tooltip } from "./ToolButton";
 
 // The Archived page: every thread that is not a tab, the ones that you or Med
@@ -92,6 +93,7 @@ export function HistoryPage({
   const [past, setPast] = useState<readonly Thread[] | null>(null);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const [agentFilter, setAgentFilter] = useState<string>("all");
   // Typing stays quick in a long list: the list follows a moment later.
   const searched = useDeferredValue(query);
   const [active, setActive] = useState(0);
@@ -131,10 +133,25 @@ export function HistoryPage({
   }, []);
 
   const words = useMemo(() => searched.toLowerCase().split(/\s+/).filter(Boolean), [searched]);
+  const archivedAll = useMemo(
+    () => (past ?? []).filter((thread) => !open.has(thread.id)),
+    [open, past],
+  );
+  const availableAgents = useMemo(() => {
+    const seen = new Set<string>();
+    for (const thread of archivedAll) if (thread.agent) seen.add(thread.agent);
+    return [...seen];
+  }, [archivedAll]);
+  const activeAgentFilter =
+    agentFilter === "all" || availableAgents.includes(agentFilter) ? agentFilter : "all";
   const rows = useMemo(
     () =>
-      (past ?? []).filter((thread) => !open.has(thread.id) && matches(words, threadFields(thread))),
-    [open, past, words],
+      archivedAll.filter(
+        (thread) =>
+          (activeAgentFilter === "all" || thread.agent === activeAgentFilter) &&
+          matches(words, threadFields(thread)),
+      ),
+    [archivedAll, activeAgentFilter, words],
   );
   const groups = useMemo(() => {
     const result: Group[] = [];
@@ -237,17 +254,20 @@ export function HistoryPage({
       {...stylex.props(styles.page)}
     >
       <div {...stylex.props(styles.scroller)}>
-        <div {...stylex.props(styles.column)}>
-          <div {...stylex.props(styles.heading)}>
-            <h1 {...stylex.props(styles.pageTitle)}>Archived</h1>
-            <span role="status" {...stylex.props(styles.count)}>
-              {past === null
-                ? ""
-                : words.length
-                  ? `${rows.length} of ${past.filter((thread) => !open.has(thread.id)).length}`
-                  : `${rows.length} ${rows.length === 1 ? "thread" : "threads"}`}
-            </span>
-          </div>
+        <div {...stylex.props(page.column)}>
+          <PageHeading
+            title="Archived"
+            count={
+              <span role="status" {...stylex.props(page.badge)}>
+                {past === null
+                  ? "…"
+                  : words.length || activeAgentFilter !== "all"
+                    ? `${rows.length} of ${archivedAll.length}`
+                    : `${rows.length} ${rows.length === 1 ? "thread" : "threads"}`}
+              </span>
+            }
+            lead="Closed threads and past sessions. Press / to filter, or open any row to bring it back into the sidebar."
+          />
           <div {...stylex.props(styles.searchRow)}>
             <span aria-hidden="true" {...stylex.props(styles.searchIcon)}>
               <Icon name="search" size={14} />
@@ -275,7 +295,48 @@ export function HistoryPage({
               }}
               {...stylex.props(styles.search)}
             />
+            {query ? (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => {
+                  setQuery("");
+                  search.current?.focus();
+                }}
+                {...stylex.props(styles.searchClear)}
+              >
+                <Icon name="close" size={11} />
+              </button>
+            ) : (
+              <kbd aria-hidden="true" {...stylex.props(styles.searchKey)}>
+                /
+              </kbd>
+            )}
           </div>
+          {availableAgents.length > 1 && (
+            <div role="group" aria-label="Filter by agent" {...stylex.props(styles.filters)}>
+              {["all", ...availableAgents].map((entry) => {
+                const on = activeAgentFilter === entry;
+                const label =
+                  entry === "all" ? "All" : (agentName(entry as Thread["agent"]) ?? entry);
+                return (
+                  <button
+                    key={entry}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => {
+                      setAgentFilter(entry);
+                      setActive(0);
+                      setConfirming(null);
+                    }}
+                    {...stylex.props(styles.filterChip, on && styles.filterChipOn)}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <div
             ref={list}
             id={`${id}-list`}
@@ -309,10 +370,11 @@ export function HistoryPage({
                   aria-label={label}
                   {...stylex.props(styles.section)}
                 >
-                  <h2 aria-hidden="true" {...stylex.props(styles.day)}>
+                  <h2 aria-hidden="true" {...stylex.props(page.sectionTitle)}>
                     {label}
+                    <span {...stylex.props(page.count)}>{group.rows.length}</span>
                   </h2>
-                  <div {...stylex.props(styles.card)}>
+                  <div {...stylex.props(page.card)}>
                     {group.rows.map(({ thread, index }, at) => (
                       <HistoryRow
                         key={thread.id}
@@ -334,13 +396,25 @@ export function HistoryPage({
               );
             })}
             {!rows.length && !error && (
-              <p {...stylex.props(styles.notice)}>
-                {past === null
-                  ? "Reading archived threads…"
-                  : words.length
-                    ? `Nothing matches “${searched}”.`
-                    : "Nothing is archived. Threads that you archive show here."}
-              </p>
+              <div {...stylex.props(page.emptyCard)}>
+                <span aria-hidden="true" {...stylex.props(page.iconTile, styles.emptyIcon)}>
+                  <Icon name={words.length ? "search" : "history"} size={16} />
+                </span>
+                <p {...stylex.props(page.emptyTitle)}>
+                  {past === null
+                    ? "Reading archived threads…"
+                    : words.length
+                      ? `Nothing matches “${searched}”`
+                      : "Nothing is archived"}
+                </p>
+                {past !== null && (
+                  <p {...stylex.props(page.emptyNote)}>
+                    {words.length
+                      ? "Try another title, branch, repository name, or clear the search filter."
+                      : "Threads that you archive from the sidebar stay searchable here until you delete them."}
+                  </p>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -395,8 +469,8 @@ const HistoryRow = memo(function HistoryRow({
       onClick={() => (asking ? undefined : onOpen(thread))}
       {...stylex.props(styles.row, first && styles.firstRow, selected && [styles.selected, picked])}
     >
-      <span aria-hidden="true" {...stylex.props(styles.mark)}>
-        <Icon name={agentIcon(thread.agent)} size={15} />
+      <span aria-hidden="true" {...stylex.props(page.iconTile)}>
+        <Icon name={agentIcon(thread.agent)} size={14} />
       </span>
       <span {...stylex.props(styles.text)}>
         <span {...stylex.props(styles.title)}>
@@ -475,50 +549,67 @@ const styles = stylex.create({
     WebkitFontSmoothing: "antialiased",
   },
   scroller: { flex: "1", minWidth: 0, overflowY: "auto" },
-  // The Pull requests page's column.
-  column: {
-    boxSizing: "content-box",
-    maxWidth: 720,
-    marginInline: "auto",
-    paddingInline: 44,
-    paddingTop: 56,
-    paddingBottom: "max(72px, 33vh)",
-  },
-  heading: { display: "flex", alignItems: "baseline", gap: 10, minHeight: 32 },
-  pageTitle: {
-    margin: 0,
-    fontSize: 26,
-    lineHeight: 1.2,
-    fontWeight: 550,
-    letterSpacing: "-0.022em",
-  },
-  count: { color: tokens.faint, fontSize: 13, fontVariantNumeric: "tabular-nums" },
-  // The field stays in view over a long list, as wide as the cards.
+  // The field stays in view over a long list, aligned with the framed cards.
   searchRow: {
     position: "sticky",
     top: 0,
     zIndex: 1,
     display: "flex",
     alignItems: "center",
-    marginInline: -20,
+    marginInline: { default: -16, "@media (max-width: 640px)": 0 },
     paddingTop: 20,
-    paddingBottom: 4,
+    paddingBottom: 6,
     backgroundColor: tokens.canvas,
   },
   searchIcon: {
     position: "absolute",
     left: 12,
-    bottom: 14,
+    bottom: 16,
     display: "inline-flex",
     color: tokens.faint,
     pointerEvents: "none",
   },
+  searchKey: {
+    position: "absolute",
+    right: 10,
+    bottom: 13,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 20,
+    height: 20,
+    paddingInline: 5,
+    borderRadius: `calc(5px * ${tokens.round})`,
+    backgroundColor: tokens.fill,
+    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
+    color: tokens.faint,
+    fontFamily: tokens.code,
+    fontSize: 11,
+    pointerEvents: "none",
+  },
+  searchClear: {
+    position: "absolute",
+    right: 8,
+    bottom: 12,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 22,
+    height: 22,
+    padding: 0,
+    borderWidth: 0,
+    borderRadius: 999,
+    backgroundColor: { default: "transparent", ":hover": tokens.fillStrong },
+    color: { default: tokens.faint, ":hover": tokens.text },
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
   search: {
     boxSizing: "border-box",
     width: "100%",
-    height: 34,
-    paddingInlineStart: 34,
-    paddingInlineEnd: 12,
+    height: 36,
+    paddingInlineStart: 36,
+    paddingInlineEnd: 36,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: { default: tokens.line, ":hover": tokens.lineStrong, ":focus": tokens.accentLine },
@@ -531,22 +622,34 @@ const styles = stylex.create({
     boxShadow: { default: "none", ":focus": `0 0 0 3px ${tokens.accentSoft}` },
     "::placeholder": { color: tokens.faint },
   },
+  filters: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 8,
+    marginInline: { default: -16, "@media (max-width: 640px)": 0 },
+  },
+  filterChip: {
+    height: 24,
+    paddingInline: 10,
+    borderWidth: 0,
+    borderRadius: 999,
+    backgroundColor: { default: tokens.fill, ":hover": tokens.fillStrong },
+    color: { default: tokens.muted, ":hover": tokens.text },
+    fontFamily: tokens.ui,
+    fontSize: 11.5,
+    fontWeight: 500,
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
+  filterChipOn: {
+    backgroundColor: { default: tokens.accentSoft, ":hover": tokens.accentSoft },
+    color: { default: tokens.accent, ":hover": tokens.accent },
+    boxShadow: `inset 0 0 0 1px ${tokens.accentLine}`,
+  },
+  emptyIcon: { width: 36, height: 36, borderRadius: `calc(10px * ${tokens.round})` },
   list: { outline: "none" },
   section: { marginTop: 28 },
-  day: {
-    margin: 0,
-    marginBottom: 10,
-    fontSize: 13,
-    fontWeight: 550,
-    color: tokens.muted,
-  },
-  // The Pull requests page's card: 20 pixels past the column on each side.
-  card: {
-    marginInline: -20,
-    overflow: "hidden",
-    borderRadius: `calc(12px * ${tokens.round})`,
-    backgroundColor: `color-mix(in srgb, ${tokens.text} 3.5%, transparent)`,
-  },
   // The rule between rows keeps to the text's edges. A row off screen costs
   // no layout or paint, so hundreds of them scroll as a few do.
   row: {
@@ -556,7 +659,7 @@ const styles = stylex.create({
     gap: 12,
     boxSizing: "border-box",
     height: 56,
-    paddingInline: 20,
+    paddingInline: 16,
     cursor: "pointer",
     contentVisibility: "auto",
     containIntrinsicSize: "auto 56px",
@@ -565,15 +668,14 @@ const styles = stylex.create({
       content: '""',
       position: "absolute",
       top: 0,
-      left: 20,
-      right: 20,
+      left: 16,
+      right: 16,
       height: 1,
       backgroundColor: tokens.line,
     },
   },
   firstRow: { "::before": { content: "none" } },
   selected: { backgroundColor: { default: tokens.pick, ":hover": tokens.pick } },
-  mark: { display: "inline-flex", flexShrink: 0, color: tokens.muted },
   text: { display: "flex", flexDirection: "column", gap: 3, flex: "1", minWidth: 0 },
   title: {
     fontSize: 14,

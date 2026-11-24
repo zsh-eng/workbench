@@ -221,10 +221,10 @@ export function ContextNotes({ context }: { context: ShownContext }) {
   );
 }
 
-/** The thread's spend, when its agents count tokens. An agent that does
- * not, such as Antigravity or another ACP agent, would read "$0.00". */
+/** The thread's spend, when its agents count tokens. An agent or fresh session
+ * with no counted models would read "$0.00". */
 export const countedSpend = (usage: ThreadUsage | null) =>
-  usage && (usage.spend.models.length > 0 || usage.spend.missing.length === 0) ? usage : null;
+  usage && usage.spend.models.length > 0 ? usage : null;
 
 /** The thread's total, its subagents' share, and each model's tokens. */
 export function SpendBlock({ usage, table = true }: { usage: ThreadUsage; table?: boolean }) {

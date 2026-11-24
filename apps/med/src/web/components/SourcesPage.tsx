@@ -172,6 +172,11 @@ export function SourcesView({
           {notice}
           <PageHeading
             title="Sources"
+            count={
+              sources.length > 0 ? (
+                <span {...stylex.props(page.badge)}>{sources.length}</span>
+              ) : undefined
+            }
             lead={
               <>
                 Med keeps a workspace ready for each repository and vault here. To add one from a
@@ -192,12 +197,13 @@ export function SourcesView({
             </button>
           </PageHeading>
           {sources.length > 0 && (
-            // A vault is one more source: one list, by name.
-            <ul aria-label="Sources" {...stylex.props(styles.rows, styles.registered, page.flush)}>
-              {[...sources].sort(byName).map((source) => (
+            // A vault is one more source: one list, by name, inside the shared framed card.
+            <ul aria-label="Sources" {...stylex.props(styles.rows, styles.registered, page.card)}>
+              {[...sources].sort(byName).map((source, index) => (
                 <SourceRow
                   key={source.id}
                   source={source}
+                  first={index === 0}
                   home={home}
                   onOpen={() => onOpen(source)}
                   onRequest={onRequest}
@@ -521,11 +527,13 @@ function status(source: Source) {
 
 function SourceRow({
   source,
+  first = false,
   home,
   onOpen,
   onRequest,
 }: {
   source: Source;
+  first?: boolean;
   home?: string;
   onOpen(): void;
   onRequest(action: "index" | "remove", body: object): Promise<void>;
@@ -574,7 +582,14 @@ function SourceRow({
       </li>
     );
   return (
-    <li {...stylex.props(styles.row, stylex.defaultMarker())}>
+    <li
+      {...stylex.props(
+        styles.row,
+        styles.registeredRow,
+        first && styles.firstRow,
+        stylex.defaultMarker(),
+      )}
+    >
       <a
         href={vault ? `/vault/${source.id}` : "/"}
         title={source.path}
@@ -583,9 +598,9 @@ function SourceRow({
           event.preventDefault();
           onOpen();
         }}
-        {...stylex.props(styles.open)}
+        {...stylex.props(styles.open, styles.registeredOpen)}
       >
-        <span aria-hidden="true" {...stylex.props(styles.icon)}>
+        <span aria-hidden="true" {...stylex.props(page.iconTile, vault && styles.vaultIcon)}>
           <Icon name={vault ? "vault" : "gitBranch"} size={14} />
         </span>
         <span data-row="name" {...stylex.props(styles.name)}>
@@ -594,11 +609,14 @@ function SourceRow({
         <span data-row="path" {...stylex.props(styles.where)}>
           {folderPlace(source, home)}
         </span>
-        {error ? (
-          <span {...stylex.props(styles.status, styles.failed)}>{error}</span>
-        ) : (
-          status(source)
-        )}
+        <span {...stylex.props(styles.metaEnd)}>
+          {error ? (
+            <span {...stylex.props(styles.status, styles.failed)}>{error}</span>
+          ) : (
+            status(source)
+          )}
+          <span {...stylex.props(page.pill)}>{vault ? "Vault" : "Repository"}</span>
+        </span>
       </a>
       <Menu.Root open={menu} onOpenChange={setMenu}>
         <Menu.Trigger
@@ -674,9 +692,10 @@ const styles = stylex.create({
     padding: 0,
     listStyle: "none",
   },
-  registered: { marginTop: 28 },
+  registered: { marginTop: 24, gap: 0 },
   // As the sidebar's workspace rows: a rounded highlight, no rules.
   row: {
+    position: "relative",
     display: "flex",
     alignItems: "center",
     minHeight: 34,
@@ -684,6 +703,21 @@ const styles = stylex.create({
     borderRadius: `calc(7px * ${tokens.round})`,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
   },
+  registeredRow: {
+    minHeight: 52,
+    paddingInlineEnd: 10,
+    borderRadius: 0,
+    "::before": {
+      content: '""',
+      position: "absolute",
+      top: 0,
+      left: 16,
+      right: 16,
+      height: 1,
+      backgroundColor: tokens.line,
+    },
+  },
+  firstRow: { "::before": { content: "none" } },
   // The name column has one width, so every row's location starts at one
   // edge; the status follows its location, as part of one line.
   open: {
@@ -707,6 +741,23 @@ const styles = stylex.create({
     outline: "none",
     borderRadius: `calc(7px * ${tokens.round})`,
     boxShadow: { default: "none", ":focus-visible": `inset 0 0 0 2px ${tokens.accentLine}` },
+  },
+  registeredOpen: {
+    gridTemplateColumns: {
+      default: "28px minmax(0, clamp(120px, 26%, 200px)) minmax(0, 1fr) auto",
+      [narrow]: "28px minmax(0, 1fr) auto",
+    },
+    columnGap: 12,
+    paddingInlineStart: 16,
+    paddingInlineEnd: 8,
+    borderRadius: 0,
+  },
+  vaultIcon: { color: tokens.accent },
+  metaEnd: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 0,
   },
   icon: { display: "flex", color: tokens.faint },
   name: {

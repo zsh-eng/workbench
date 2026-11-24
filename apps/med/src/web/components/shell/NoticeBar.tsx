@@ -50,6 +50,11 @@ export function NoticeBar({
   );
 }
 
+const noticeRise = stylex.keyframes({
+  from: { opacity: 0, transform: "translateY(6px)" },
+  to: { opacity: 1, transform: "translateY(0)" },
+});
+
 const styles = stylex.create({
   notice: {
     display: "flex",
@@ -65,6 +70,9 @@ const styles = stylex.create({
     color: tokens.muted,
     fontSize: 12,
     lineHeight: 1.45,
+    animationName: { default: noticeRise, "@media (prefers-reduced-motion: reduce)": "none" },
+    animationDuration: "180ms",
+    animationTimingFunction: tokens.easeOut,
   },
   problem: { color: tokens.text },
   floating: {
@@ -89,5 +97,6 @@ const styles = stylex.create({
     fontSize: 12,
     fontWeight: 500,
     cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
 });

@@ -36,6 +36,7 @@ import { readDraft, writeDraft } from "../../data/outbox";
 import { optionChoice } from "../../data/owned-session";
 import { ModelPicker } from "../ModelPicker";
 import { column } from "./session-styles";
+import { formatQuotedPrompt, type ReplyQuote } from "./reply-quote";
 import { useViewSetting, viewSettings } from "../../data/view-settings";
 
 export interface ComposerAttachment {
@@ -138,6 +139,10 @@ export function SessionComposer({
   drafts: waiting,
   attachments,
   onRemoveAttachment,
+  quotes = [],
+  onRemoveQuote,
+  onClearQuotes,
+  onJumpToQuote,
   onSend,
   owned,
   notice,
@@ -182,6 +187,11 @@ export function SessionComposer({
   drafts: DraftComment[];
   attachments: ComposerAttachment[];
   onRemoveAttachment(id: string): void;
+  /** Cited passages from the thread that this reply quotes. */
+  quotes?: readonly ReplyQuote[];
+  onRemoveQuote?(id: string): void;
+  onClearQuotes?(): void;
+  onJumpToQuote?(sourceId: string): void;
   /** Shows the message in the thread at once; the thread reports its delivery. */
   onSend(message: {
     text: string;
@@ -319,9 +329,10 @@ export function SessionComposer({
   const send = async (afterTurn = queues()) => {
     if (empty || stopped || blocked) return;
     setError(null);
+    const expanded = await mentions.expand(text.trim());
     onSend({
       // Each mention reaches the agent as its absolute path.
-      text: await mentions.expand(text.trim()),
+      text: formatQuotedPrompt(quotes, expanded),
       noteIds: chosen.map((draft) => draft.id),
       attachments: attachments.map(({ label, text }) => ({ label, text })),
       images: pictures.sent(),
@@ -333,6 +344,7 @@ export function SessionComposer({
     pictures.clear();
     setLeft(new Set());
     setOpen(false);
+    onClearQuotes?.();
     for (const attachment of attachments) onRemoveAttachment(attachment.id);
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -536,6 +548,39 @@ export function SessionComposer({
         }}
         {...stylex.props(styles.box, column.bar)}
       >
+        {quotes.length > 0 && (
+          <div role="list" aria-label="Quoted passages" {...stylex.props(styles.quoteTray)}>
+            {quotes.map((quote) => (
+              <div key={quote.id} role="listitem" {...stylex.props(styles.quoteCard)}>
+                <span aria-hidden="true" {...stylex.props(styles.quoteBar)} />
+                <button
+                  type="button"
+                  disabled={!onJumpToQuote}
+                  onClick={() => onJumpToQuote?.(quote.sourceId)}
+                  {...tooltip(onJumpToQuote ? "Jump to cited message" : undefined)}
+                  {...stylex.props(styles.quoteBody)}
+                >
+                  <span {...stylex.props(styles.quoteMeta)}>
+                    <Icon name="quote" size={11} />
+                    <span>{quote.speaker}</span>
+                  </span>
+                  <span {...stylex.props(styles.quoteText)}>{quote.text}</span>
+                </button>
+                {onRemoveQuote && (
+                  <button
+                    type="button"
+                    aria-label="Remove quote"
+                    {...tooltip("Remove quote")}
+                    onClick={() => onRemoveQuote(quote.id)}
+                    {...stylex.props(styles.quoteRemove)}
+                  >
+                    <Icon name="close" size={11} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
         <PromptImageList images={pictures.images} onRemove={pictures.remove} />
         {(drafts.length > 0 || attachments.length > 0) && (
           <div {...stylex.props(styles.chips)}>
@@ -878,6 +923,11 @@ const CLAUDE = "#d97757";
 const agentIcon = (agent: AgentMessage["agent"]): IconName =>
   agent === "claude" ? "claude" : agent === "codex" ? "codex" : "agent";
 
+const quoteReveal = stylex.keyframes({
+  from: { opacity: 0, transform: "translateY(4px)" },
+  to: { opacity: 1, transform: "translateY(0)" },
+});
+
 const styles = stylex.create({
   // The / and @ lists open over the thread above it.
   box: {
@@ -1190,5 +1240,87 @@ const styles = stylex.create({
     borderRadius: 999,
     color: tokens.text,
     backgroundColor: { default: tokens.fillStrong, ":hover": tokens.pick },
+  },
+  quoteTray: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 5,
+    maxHeight: 140,
+    overflowY: "auto",
+    paddingBottom: 6,
+    marginBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: tokens.line,
+  },
+  quoteCard: {
+    display: "flex",
+    alignItems: "stretch",
+    gap: 8,
+    paddingBlock: 5,
+    paddingInlineStart: 8,
+    paddingInlineEnd: 4,
+    borderRadius: `calc(7px * ${tokens.round})`,
+    backgroundColor: tokens.fill,
+    animationName: { default: quoteReveal, "@media (prefers-reduced-motion: reduce)": "none" },
+    animationDuration: "160ms",
+    animationTimingFunction: tokens.easeOut,
+  },
+  quoteBar: {
+    width: 2.5,
+    flexShrink: 0,
+    borderRadius: 999,
+    backgroundColor: tokens.accent,
+  },
+  quoteBody: {
+    flex: "1",
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    textAlign: "left",
+    fontFamily: tokens.ui,
+    cursor: { default: "pointer", ":disabled": "default" },
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+    borderRadius: `calc(4px * ${tokens.round})`,
+  },
+  quoteMeta: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    color: tokens.accent,
+    fontSize: 10.5,
+    fontWeight: 500,
+    lineHeight: 1.2,
+  },
+  quoteText: {
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+    overflow: "hidden",
+    color: tokens.muted,
+    fontSize: 12,
+    lineHeight: 1.4,
+    whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere",
+  },
+  quoteRemove: {
+    alignSelf: "flex-start",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 20,
+    height: 20,
+    flexShrink: 0,
+    padding: 0,
+    borderWidth: 0,
+    borderRadius: `calc(4px * ${tokens.round})`,
+    backgroundColor: { default: "transparent", ":hover": tokens.fillStrong },
+    color: { default: tokens.faint, ":hover": tokens.text },
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
 });

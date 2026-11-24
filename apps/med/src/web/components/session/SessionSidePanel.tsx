@@ -472,11 +472,14 @@ const styles = stylex.create({
     textDecoration: "none",
   },
   link: {
-    cursor: "default",
+    cursor: "pointer",
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
-  current: { backgroundColor: { default: tokens.fill, ":hover": tokens.fill } },
+  current: {
+    backgroundColor: { default: tokens.fill, ":hover": tokens.fillStrong },
+    boxShadow: `inset 2px 0 0 ${tokens.accent}`,
+  },
   unread: {
     flex: "none",
     width: 7,
