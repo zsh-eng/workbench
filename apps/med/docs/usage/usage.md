@@ -23,10 +23,13 @@ month**, or **Custom** with two dates. The address keeps the range, such as
   two sessions' folders. A request counts once, by its message ID.
 - Codex's rollouts (`~/.codex/sessions`, and `archived_sessions`), each
   response by its usage record or its running total.
-- The ACP sessions that Med ran, such as Antigravity's and Pi's, from Med's
-  file of each session's updates (`<state>/sessions/<id>.jsonl`): each
-  `token_usage` update names its agent. Pi sessions and Antigravity sessions
-  that Med did not run are not counted.
+- Pi's sessions (`~/.pi/agent/sessions`, or under `PI_CODING_AGENT_DIR`),
+  whether Med ran them or not, each assistant message a request. A forked
+  session copies its original's messages, and each counts once.
+- The other ACP sessions that Med ran, such as Antigravity's, from Med's file
+  of each session's updates (`<state>/sessions/<id>.jsonl`): each
+  `token_usage` update names its agent. Antigravity sessions that Med did not
+  run are not counted.
 
 Days are the Mac's days. Each request pays the list prices of its day, as in
 a thread's spend ([Spend and context](../SESSIONS.md#spend-and-context)). A

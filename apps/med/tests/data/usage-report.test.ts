@@ -6,7 +6,7 @@ import { requestCost } from "../../src/shared/model-usage";
 import { createUsageReport, localDay } from "../../src/host/usage-report";
 
 // The Usage page's numbers: every session's spend on this Mac by day, agent
-// and model, from Claude Code's and Codex's files and Med's ACP logs.
+// and model, from Claude Code's, Codex's and Pi's files and Med's ACP logs.
 
 const folders: string[] = [];
 afterEach(async () => {
@@ -104,6 +104,8 @@ async function setUp() {
       turn: true,
     }),
   );
+  // Pi's own file of a session that Med ran has its requests; Med's has
+  // them too, and they count once.
   await writeFile(
     join(logs, "pi-session.jsonl"),
     update("2026-11-03", {
@@ -114,15 +116,41 @@ async function setUp() {
       cacheRead: 0,
       cacheWrite: 0,
       cost: 0.001,
-    }) +
-      update("2026-11-03", {
-        agent: "pi",
-        model: "made-up-model",
-        input: 5,
-        output: 5,
-        cacheRead: 0,
-        cacheWrite: 0,
-      }),
+    }),
+  );
+  const pi = join(home, ".pi", "agent", "sessions", "--work-repo--");
+  await mkdir(pi, { recursive: true });
+  const message = (id: string, model: string, input: number, cost = 0) =>
+    `${JSON.stringify({
+      type: "message",
+      id,
+      parentId: null,
+      timestamp: at("2026-11-03"),
+      message: {
+        role: "assistant",
+        provider: "openrouter",
+        model,
+        usage: {
+          input,
+          output: input / 5,
+          cacheRead: 0,
+          cacheWrite: 0,
+          cost: { total: cost },
+        },
+        timestamp: Date.parse(at("2026-11-03")),
+      },
+    })}\n`;
+  const header = `${JSON.stringify({ type: "session", version: 3, id: "s1", timestamp: at("2026-11-03") })}\n`;
+  await writeFile(
+    join(pi, "2026-11-03T12-00-00-000Z_s1.jsonl"),
+    header +
+      message("a1", "deepseek/deepseek-v4-flash", 100, 0.001) +
+      message("a2", "made-up-model", 5),
+  );
+  // A session that Pi forked from it copies its entries as they were.
+  await writeFile(
+    join(pi, "2026-11-03T13-00-00-000Z_s2.jsonl"),
+    header + message("a1", "deepseek/deepseek-v4-flash", 100, 0.001),
   );
   const report = createUsageReport({
     home: () => home,
@@ -135,8 +163,8 @@ async function setUp() {
 test("a request counts once by its ID across Claude Code's files, on its day, at its model's price", async () => {
   const { report } = await setUp();
   const { rows, files } = await report.report("2026-11-01", "2026-11-30");
-  // Three of Claude Code's files, Codex's rollout, and two of Med's logs.
-  expect(files).toBe(6);
+  // Three of Claude Code's files, Codex's rollout, two of Pi's, and two of Med's logs.
+  expect(files).toBe(8);
   const opus = rows.filter((row) => row.model === "claude-opus-5-5");
   expect(opus).toEqual([
     expect.objectContaining({
@@ -161,7 +189,7 @@ test("a request counts once by its ID across Claude Code's files, on its day, at
   expect(rows.some((row) => row.model === "claude-opus-5-5" && row.output === 1)).toBe(false);
 });
 
-test("Codex's rollouts, and the ACP sessions that Med ran, count by their agent", async () => {
+test("Codex's rollouts, Pi's sessions, and the ACP sessions that Med ran, count by their agent", async () => {
   const { report } = await setUp();
   const { rows } = await report.report("2026-11-03", "2026-11-03");
   expect(rows.find((row) => row.agent === "codex")).toMatchObject({
@@ -179,6 +207,7 @@ test("Codex's rollouts, and the ACP sessions that Med ran, count by their agent"
   // A model without Med's price takes Pi's; one without either counts its tokens only.
   expect(rows.find((row) => row.model === "deepseek/deepseek-v4-flash")).toMatchObject({
     agent: "pi",
+    requests: 1,
     cost: 0.001,
     agentPriced: 1,
     unpriced: 0,

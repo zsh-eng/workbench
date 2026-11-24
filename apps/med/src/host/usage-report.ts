@@ -7,16 +7,17 @@ import { userHome } from "./service/discover";
 
 // What every session on this Mac spent, for the Usage page
 // (docs/usage/usage.md): Claude Code's transcripts and their subagents',
-// Codex's rollouts, and Med's files of the ACP sessions that it ran, such as
-// Antigravity's and Pi's. A file that changed before the range starts has
-// nothing in it. Each file's requests stay as numbers; a file that grows is
+// Codex's rollouts, Pi's sessions, and Med's files of the other ACP sessions
+// that it ran, such as Antigravity's. A file that changed before the range
+// starts has nothing in it. Each file's requests stay as numbers; a file that grows is
 // read from where it ended while it is recent, and again in full after.
 //
 // Claude Code copies requests into other files: a resumed or forked session
 // starts with its original's, and a subagent's file can be in two sessions'
-// folders. A request counts once, by its message ID.
+// folders. A request counts once, by its message ID. Pi copies a forked
+// session's entries the same way, and its requests count once by entry.
 
-type Kind = "claude" | "codex" | "acp";
+type Kind = "claude" | "codex" | "acp" | "pi";
 
 /** A file's requests, `FIELDS` numbers each. */
 const FIELDS = 9;
@@ -31,7 +32,7 @@ const READERS = 6;
 interface Kept {
   size: number;
   modified: number;
-  /** The agent: Claude Code, Codex, or the ACP agent that Med ran. */
+  /** The agent: Claude Code, Codex, Pi, or another ACP agent that Med ran. */
   agent: string;
   models: string[];
   requests: Float64Array;
@@ -69,8 +70,9 @@ function pack(kind: Kind, path: string, read: Read) {
     const { tokens } = request;
     requests.set(
       [
-        // Codex's and Med's keys are their file's own; Claude Code's are the API's.
-        hashOf(kind === "claude" ? id : `${path}\n${id}`),
+        // Codex's and Med's keys are their file's own; Claude Code's and Pi's
+        // are the same in every file that copies the request.
+        hashOf(kind === "claude" || kind === "pi" ? id : `${path}\n${id}`),
         request.at ?? Number.NaN,
         slot,
         tokens.input,
@@ -131,6 +133,16 @@ async function claudeFiles(home: string) {
   return found.flat();
 }
 
+/** Pi's sessions: a folder of each working directory's. */
+async function piFiles(home: string) {
+  const root = join(process.env.PI_CODING_AGENT_DIR || join(home, ".pi", "agent"), "sessions");
+  const folders = await readdir(root, { withFileTypes: true }).catch(() => []);
+  const found = await Promise.all(
+    folders.filter((entry) => entry.isDirectory()).map((entry) => jsonl(join(root, entry.name))),
+  );
+  return found.flat();
+}
+
 /** Codex's rollouts: ~/.codex/sessions/YYYY/MM/DD, and the archived ones. */
 async function codexFiles(home: string) {
   const root = join(home, ".codex", "sessions");
@@ -168,8 +180,12 @@ export function createUsageReport(
       // A file that got shorter, or that Med no longer reads on, is read again.
       const read = known?.read && size >= known.size ? known.read : newRead();
       await readMore(kind, path, read);
-      const { models, requests } = pack(kind, path, read);
       const agent = kind === "acp" ? (read.acp?.agent ?? "acp") : kind;
+      // Pi's own files have the requests of the Pi sessions that Med ran.
+      const { models, requests } =
+        kind === "acp" && agent === "pi"
+          ? { models: [], requests: new Float64Array(0) }
+          : pack(kind, path, read);
       const next: Kept = {
         size: read.offset,
         modified,
@@ -196,6 +212,7 @@ export function createUsageReport(
       const listed = [
         ...(await claudeFiles(root)).map((path) => ({ kind: "claude" as const, path })),
         ...(await codexFiles(root)).map((path) => ({ kind: "codex" as const, path })),
+        ...(await piFiles(root)).map((path) => ({ kind: "pi" as const, path })),
         ...(options.logs ? await jsonl(options.logs) : []).map((path) => ({
           kind: "acp" as const,
           path,

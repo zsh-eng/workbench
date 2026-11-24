@@ -12,6 +12,7 @@ import {
 import { agentName, type AgentSession } from "../shared/saved-review";
 import { AUTO_COMPACT_FROM } from "../shared/agent-defaults";
 import { findTranscript } from "./agent-transcripts";
+import { requestTokens } from "./pi-bridge";
 import { userHome } from "./service/discover";
 import { changedSince, transcriptReads } from "./transcript-reads";
 
@@ -257,11 +258,17 @@ function acpLine(line: string, state: Read, agent: string) {
   }
   if (update?.sessionUpdate !== "token_usage") return;
   if (typeof update.agent === "string") acp.agent = update.agent;
+  state.requests.set(`acp:${index}`, usageRequest(update, at, agent || acp.agent || "acp"));
+}
+
+/** Med's `token_usage` update as a request: its model, tokens, and the
+ * agent's own price where it gives one. */
+function usageRequest(update: Json, at: number | undefined, agent: string): Request {
   const model = typeof update.model === "string" && update.model ? update.model : agent;
   const written = count(update.cacheWrite);
   const hour = update.cacheWriteHour === true;
   const cost = count(update.cost);
-  state.requests.set(`acp:${index}`, {
+  return {
     model,
     tokens: {
       input: count(update.input),
@@ -271,15 +278,42 @@ function acpLine(line: string, state: Read, agent: string) {
       cacheRead: count(update.cacheRead),
       webSearches: 0,
     },
-    ...when,
+    ...(at ? { at } : {}),
     ...(update.turn === true ? { whole: true } : {}),
-    ...(cost ? { agentCost: { cost, agent: agent || acp.agent || "acp" } } : {}),
-  });
+    ...(cost ? { agentCost: { cost, agent } } : {}),
+  };
+}
+
+/**
+ * A line of Pi's own file of a session (~/.pi/agent/sessions): each
+ * assistant message is a request, whether Med ran the session or not. A
+ * forked or branched session copies its original's entries as they were, so
+ * a request's key is its entry's ID and time.
+ */
+function piLine(line: string, state: Read) {
+  if (!line.includes('"assistant"')) return;
+  let entry: Json | undefined;
+  try {
+    entry = record(JSON.parse(line));
+  } catch {
+    return;
+  }
+  const message = record(entry?.message);
+  if (entry?.type !== "message" || message?.role !== "assistant") return;
+  const update = requestTokens(message);
+  if (!update || typeof entry.id !== "string") return;
+  const at =
+    typeof message.timestamp === "number"
+      ? message.timestamp
+      : typeof entry.timestamp === "string"
+        ? Date.parse(entry.timestamp) || undefined
+        : undefined;
+  state.requests.set(`pi:${entry.id}:${at ?? ""}`, usageRequest(update, at, "pi"));
 }
 
 /** Reads the lines that a transcript gained since the last read. */
 export async function readMore(
-  agent: "claude" | "codex" | "acp",
+  agent: "claude" | "codex" | "acp" | "pi",
   path: string,
   state: Read,
   name = "",
@@ -313,6 +347,7 @@ export async function readMore(
       for (const line of bytes.toString("utf8", 0, end).split("\n"))
         if (agent === "claude") claudeLine(line, state);
         else if (agent === "codex") codexLine(line, state);
+        else if (agent === "pi") piLine(line, state);
         else acpLine(line, state, name);
     }
   } finally {

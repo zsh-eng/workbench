@@ -401,7 +401,7 @@ export function UsagePage({ fetcher }: { fetcher?: typeof fetch }) {
                   )}
                   {report && <PriceNote prices={report.prices} />}
                   <p {...stylex.props(styles.note)}>
-                    Claude Code and Codex sessions on this Mac, and the Antigravity and Pi sessions
+                    Claude Code, Codex, and Pi sessions on this Mac, and the Antigravity sessions
                     that Med ran.
                   </p>
                 </footer>
