@@ -93,6 +93,7 @@ export function SessionSidebar({
   onHistory,
   onPullRequests,
   onDashboards,
+  onUsage,
   onSuperagent,
   onArchive,
   onDelete,
@@ -125,6 +126,8 @@ export function SessionSidebar({
   onPullRequests?(): void;
   /** Shows the dashboards: YAML files whose panels chart sources feed. */
   onDashboards?(): void;
+  /** Shows what the agents spent (UsagePage). */
+  onUsage?(): void;
   /** Opens the Superagent's thread, and makes it the first time. */
   onSuperagent?(): void;
   onArchive(thread: Thread): void;
@@ -649,6 +652,12 @@ export function SessionSidebar({
         <button type="button" onClick={onDashboards} {...stylex.props(styles.row, styles.settings)}>
           <Icon name="display" size={15} />
           <span {...stylex.props(styles.name)}>Dashboards</span>
+        </button>
+      )}
+      {onUsage && (
+        <button type="button" onClick={onUsage} {...stylex.props(styles.row, styles.settings)}>
+          <Icon name="usage" size={15} />
+          <span {...stylex.props(styles.name)}>Usage</span>
         </button>
       )}
       <button type="button" onClick={onSettings} {...stylex.props(styles.row, styles.settings)}>

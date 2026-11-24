@@ -58,6 +58,7 @@ export function ModelPicker({
   levels,
   agents,
   icon,
+  harness,
   placeholder,
   disabled,
   align = "end",
@@ -84,6 +85,9 @@ export function ModelPicker({
   };
   /** Before the model's name in the trigger, such as the agent's mark. */
   icon?: ReactNode;
+  /** The agent's name before the model's, where its mark does not say it,
+   * such as Pi's: GPT-5.4 runs in Codex or in Pi. */
+  harness?: string;
   /** The trigger's text while no model is chosen, such as the agent's name. */
   placeholder?: string;
   disabled?: boolean;
@@ -149,6 +153,7 @@ export function ModelPicker({
         {...stylex.props(ui.button, ui.strong, styles.trigger, trigger)}
       >
         {icon}
+        {harness && (chosen || model) && <span {...stylex.props(styles.harness)}>{harness}</span>}
         <span data-choice-value="" {...stylex.props(styles.name)}>
           {chosen?.name ?? (model || placeholder)}
         </span>
@@ -288,6 +293,7 @@ const styles = stylex.create({
   trigger: { gap: 5, minWidth: 0, paddingInlineEnd: 5 },
   name: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   level: { flexShrink: 0, color: tokens.faint, fontWeight: 400 },
+  harness: { flexShrink: 0, color: tokens.muted, fontWeight: 400 },
   chevron: { display: "inline-flex", color: tokens.faint },
   positioner: { zIndex: 100, outline: "none" },
   popup: {

@@ -37,7 +37,7 @@ source needs a new reader, not a new renderer.
 | `usage_update`                  | Kept in the store; the header reads the transcript ([spend and context](#spend-and-context)) |
 | `notice` (Med)                  | A warning or error line                                                                      |
 | `compaction_update` (Med)       | A "Context compacted" divider with the summary                                               |
-| `token_usage` (Med)             | Nothing: an ACP agent's tokens, for the [spend](#spend-and-context)                          |
+| `token_usage` (Med)             | Nothing: an ACP agent's tokens and agent, for the [spend](#spend-and-context) and Usage      |
 
 ACP has no field for some things that a transcript records. Med adds them
 under ACP's reserved `_meta` key, as `_meta.med`:

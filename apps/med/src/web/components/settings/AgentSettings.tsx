@@ -30,7 +30,8 @@ export function AgentSettings({ fetcher }: { fetcher?: typeof fetch }) {
   const agents = AUTO_COMPACT_AGENTS.flatMap(
     (id) => presets?.filter((preset) => preset.id === id && preset.available) ?? [],
   );
-  if (!file || !agents.length) return null;
+  // The section shows while the agents load, so /settings/agents scrolls to it.
+  if (!file || (presets && !agents.length)) return null;
   const write = (key: string, value: number | null) =>
     void writeSetting(key, value, fetcher).then(
       () => setError(null),

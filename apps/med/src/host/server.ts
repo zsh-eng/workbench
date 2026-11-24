@@ -160,6 +160,8 @@ import { createThreadFeed } from "./thread-feed";
 import { createCheckoutChanges } from "./checkout-changes";
 import { createSessionEdits } from "./session-edits";
 import { createSessionUsage } from "./session-usage";
+import { createUsageReport } from "./usage-report";
+import { usageReportRoutes } from "../shared/usage-report";
 import { usageRoutes } from "../shared/model-usage";
 import { chartRoutes } from "../shared/charts";
 import { dashboardPath, dashboardRoutes, type ShownDashboard } from "../shared/dashboards";
@@ -636,6 +638,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // The files that each agent session edited, for "Only this session's files",
   // and the commands that wrote generated files.
   const sessionEdits = createSessionEdits();
+  // The Usage page: every session's spend on this Mac (usage-report.ts).
+  const usageReport = createUsageReport({
+    logs: join(options.stateDir ?? temporaryState!, "sessions"),
+  });
   const sessionUsage = createSessionUsage({
     logs: (sessionId) =>
       join(options.stateDir ?? temporaryState!, "sessions", `${sessionId}.jsonl`),
@@ -1362,6 +1368,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         };
       });
     }),
+    route(usageReportRoutes.report, ({ from, to }) =>
+      from <= to ? usageReport.report(from, to) : usageReport.report(to, from),
+    ),
     // A Grafana panel for a chart in a reply (grafana.ts).
     route(chartRoutes.grafana, (input, { signal }) => grafana.panel(input, signal)),
     route(chartRoutes.link, (input, { signal }) => chartSources.read(input, signal)),
@@ -3976,6 +3985,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         path === "/search" ||
         path === "/pulls" ||
         path === "/dashboards" ||
+        path === "/usage" ||
         path.startsWith("/dashboards/") ||
         path === "/archived" ||
         path === "/history" ||

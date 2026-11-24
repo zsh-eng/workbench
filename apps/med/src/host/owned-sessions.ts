@@ -1596,7 +1596,7 @@ export function startAcp(
           // Med's bridge to Pi counts each request's tokens.
           case "token_usage":
             if (turn) turn.tokens = true;
-            push(update as SessionUpdate);
+            push({ ...update, agent: agent.id } as SessionUpdate);
             return;
           case "compaction_update":
             if (compaction && update.status === "completed") compaction.done = true;
@@ -1654,7 +1654,7 @@ export function startAcp(
         // The turn's tokens, where the agent's answer counts them (agy's
         // does) and it sent none for each request (Pi's bridge does).
         const spent = current?.tokens ? undefined : turnTokens(result?.usage, modelOf());
-        if (spent) push(spent);
+        if (spent) push({ ...spent, agent: agent.id } as SessionUpdate);
       }
       const next = !error && !replaying && current ? compactNext(current, result) : undefined;
       if (next) compact(next);

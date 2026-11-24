@@ -119,7 +119,13 @@ export function ContextBlock({ context }: { context: ShownContext }) {
 }
 
 /** The date of the prices, and where they come from. */
-function PriceNote({ prices, short = false }: { prices: ThreadUsage["prices"]; short?: boolean }) {
+export function PriceNote({
+  prices,
+  short = false,
+}: {
+  prices: ThreadUsage["prices"];
+  short?: boolean;
+}) {
   const pages = [
     { name: "Anthropic", source: prices.source, readAt: prices.readAt },
     ...(prices.openai ? [{ name: "OpenAI", ...prices.openai }] : []),

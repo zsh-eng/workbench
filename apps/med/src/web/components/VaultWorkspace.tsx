@@ -28,6 +28,8 @@ import { settingsCommands } from "./settings/settings-commands";
 import { OPEN_PULL_EVENT, PULLS_PATH, PullRequestsPage, type OpenPull } from "./PullRequestsPage";
 import { DashboardsPage } from "./dashboards/DashboardsPage";
 import { isDashboardsAddress } from "../data/dashboards";
+import { UsagePage } from "./UsagePage";
+import { USAGE_PATH } from "../data/usage-report";
 import { readPullInbox } from "../data/pull-inbox";
 import { useAgentPresets } from "../data/owned-session";
 import { ui } from "../theme.stylex";
@@ -69,12 +71,14 @@ const route = () => ({
   visible:
     location.pathname === "/sources" ||
     location.pathname === PULLS_PATH ||
+    location.pathname === USAGE_PATH ||
     isDashboardsAddress(location.pathname) ||
     location.pathname.startsWith("/vault/") ||
     settingsSection() !== null,
   settings: settingsSection(),
   pulls: location.pathname === PULLS_PATH,
   dashboards: isDashboardsAddress(location.pathname),
+  usage: location.pathname === USAGE_PATH,
   id: location.pathname.startsWith("/vault/") ? decodeURIComponent(location.pathname.slice(7)) : "",
   file: new URLSearchParams(location.search).get("file") ?? "",
 });
@@ -588,7 +592,9 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       {review}
       <div className="med-vault" data-standalone-files>
         {error && locationState.id && notice}
-        {locationState.dashboards ? (
+        {locationState.usage ? (
+          <UsagePage />
+        ) : locationState.dashboards ? (
           <DashboardsPage />
         ) : locationState.pulls ? (
           <PullRequestsPage

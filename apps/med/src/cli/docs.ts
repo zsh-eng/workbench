@@ -11,6 +11,7 @@ import find from "../../docs/usage/find.md" with { type: "text" };
 import editFiles from "../../docs/usage/edit-files.md" with { type: "text" };
 import markdown from "../../docs/usage/markdown.md" with { type: "text" };
 import dashboards from "../../docs/usage/dashboards.md" with { type: "text" };
+import usagePage from "../../docs/usage/usage.md" with { type: "text" };
 import layout from "../../docs/usage/layout.md" with { type: "text" };
 import settings from "../../docs/usage/settings.md" with { type: "text" };
 import keyboard from "../../docs/usage/keyboard.md" with { type: "text" };
@@ -33,6 +34,7 @@ export function runDocsCommand(args: string[], print: (text: string) => void = c
     editFiles,
     markdown,
     dashboards,
+    usagePage,
     layout,
     settings,
     keyboard,

@@ -57,6 +57,7 @@ import { startPull, usePullJob } from "../data/pull-jobs";
 import { HistoryPage, isArchivedAddress, openHistoryPage } from "./HistoryPage";
 import { OPEN_PULL_EVENT, openPullRequests, type OpenPull } from "./PullRequestsPage";
 import { openDashboards } from "../data/dashboards";
+import { openUsage } from "../data/usage-report";
 import {
   startSuperagent as makeSuperagent,
   SuperagentContext,
@@ -2043,6 +2044,11 @@ export function WorkspaceHost({
                                 setOverlay(false);
                                 setNewThread(false);
                                 openDashboards();
+                              }}
+                              onUsage={() => {
+                                setOverlay(false);
+                                setNewThread(false);
+                                openUsage();
                               }}
                               onSuperagent={() => {
                                 setOverlay(false);

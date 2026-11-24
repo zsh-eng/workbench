@@ -21,7 +21,8 @@ type DrawnName =
   | "fork"
   | "play"
   | "pause"
-  | "turn";
+  | "turn"
+  | "usage";
 export type IconName = PierreName | DrawnName;
 
 /** Strokes on the 16-pixel grid, as wide as Pierre's lines. */
@@ -71,6 +72,8 @@ const drawn: Record<DrawnName, ReactNode> = {
   pause: <path d="M5.5 3.25v9.5M10.5 3.25v9.5" />,
   // Arrows to the right and down from one corner: a diagram's two ways.
   turn: <path d="M3.75 3.75h9M11 1.75l2 2-2 2M3.75 3.75v9M1.75 11l2 2 2-2" />,
+  // Three columns from one baseline: the Usage page's spend by day.
+  usage: <path d="M2.25 13.75h11.5M4.75 11v-2.5M8 11V4.75M11.25 11V7.25" />,
 };
 
 const kebab = (name: string) => name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);

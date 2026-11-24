@@ -5,6 +5,7 @@ import { mediaType } from "../shared/media";
 import { ToolButton, tooltip } from "./components/ToolButton";
 import { settingsCommands } from "./components/settings/settings-commands";
 import { openDashboards } from "./data/dashboards";
+import { openUsage } from "./data/usage-report";
 import * as stylex from "@stylexjs/stylex";
 import {
   CodeView,
@@ -4378,6 +4379,15 @@ export function App({
       label: "Dashboards",
       keywords: "charts grafana metrics",
       run: () => openDashboards(),
+    },
+    {
+      id: "usage",
+      icon: "usage" as const,
+      group: "Go to" as const,
+      managesFocus: true,
+      label: "Usage",
+      keywords: "spend cost tokens ccusage",
+      run: () => openUsage(),
     },
     // A session's thread takes a pull request as one more of its reviews.
     ...(addPull.add

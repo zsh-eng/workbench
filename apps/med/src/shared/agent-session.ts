@@ -146,6 +146,8 @@ export type SessionUpdate =
 export interface TurnTokens {
   /** The model's ID, such as gemini-4-neon. */
   model?: string;
+  /** The agent that Med ran, such as agy, which the Usage page counts by. */
+  agent?: string;
   input: number;
   output: number;
   cacheRead: number;

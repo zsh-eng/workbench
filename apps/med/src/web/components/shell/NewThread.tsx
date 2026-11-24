@@ -385,6 +385,9 @@ export function NewThread({
                   onChange: (preset) => chooseAgent({ preset }),
                 }}
                 icon={<AgentMark kind={agent.kind} />}
+                {...(agent.kind === "claude" || agent.kind === "codex"
+                  ? {}
+                  : { harness: agent.name })}
                 trigger={styles.menu}
               />
             )}

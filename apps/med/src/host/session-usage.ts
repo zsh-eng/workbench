@@ -41,7 +41,7 @@ const record = (value: unknown) =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Json) : undefined;
 const count = (value: unknown) => (typeof value === "number" && value > 0 ? value : 0);
 
-interface Request {
+export interface Request {
   model: string;
   tokens: RequestTokens;
   /** When it ran, for a price that changed. */
@@ -53,7 +53,7 @@ interface Request {
 }
 
 /** One transcript, read up to `offset`. */
-interface Read {
+export interface Read {
   offset: number;
   /** A line that the agent has not finished writing. */
   rest: Buffer;
@@ -66,9 +66,18 @@ interface Read {
   /** Codex: the model of the turn, the running totals so far, and the
    * subagents' threads. `file` keeps one rollout's keys apart from another's. */
   codex?: { file: number; model?: string; totals: Json; children: Set<string> };
-  /** An ACP session's file: its lines so far, which key its requests. */
-  acp?: { lines: number };
+  /** An ACP session's file: its lines so far, which key its requests, and
+   * the agent that Med ran. */
+  acp?: { lines: number; agent?: string };
 }
+
+/** A transcript not read yet. */
+export const newRead = (): Read => ({
+  offset: 0,
+  rest: Buffer.alloc(0),
+  requests: new Map(),
+  compacted: false,
+});
 
 let codexFiles = 0;
 /** A running total's size, for its key. */
@@ -247,6 +256,7 @@ function acpLine(line: string, state: Read, agent: string) {
     }
   }
   if (update?.sessionUpdate !== "token_usage") return;
+  if (typeof update.agent === "string") acp.agent = update.agent;
   const model = typeof update.model === "string" && update.model ? update.model : agent;
   const written = count(update.cacheWrite);
   const hour = update.cacheWriteHour === true;
@@ -263,12 +273,17 @@ function acpLine(line: string, state: Read, agent: string) {
     },
     ...when,
     ...(update.turn === true ? { whole: true } : {}),
-    ...(cost ? { agentCost: { cost, agent } } : {}),
+    ...(cost ? { agentCost: { cost, agent: agent || acp.agent || "acp" } } : {}),
   });
 }
 
 /** Reads the lines that a transcript gained since the last read. */
-async function readMore(agent: "claude" | "codex" | "acp", path: string, state: Read, name = "") {
+export async function readMore(
+  agent: "claude" | "codex" | "acp",
+  path: string,
+  state: Read,
+  name = "",
+) {
   // A finished transcript, such as a done subagent's, costs one stat.
   if (!(await changedSince(path, state.offset))) return;
   const handle = await open(path, "r");
@@ -463,12 +478,7 @@ export function createSessionUsage(
   } = {},
 ) {
   const home = options.home ?? userHome;
-  const reads = transcriptReads<Read>(() => ({
-    offset: 0,
-    rest: Buffer.alloc(0),
-    requests: new Map(),
-    compacted: false,
-  }));
+  const reads = transcriptReads<Read>(newRead);
   const running = new Map<string, Promise<Read>>();
 
   const readFile = (agent: "claude" | "codex" | "acp", path: string, name?: string) => {
