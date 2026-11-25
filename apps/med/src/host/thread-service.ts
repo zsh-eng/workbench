@@ -25,7 +25,7 @@ import {
 import { findTranscript, transcriptPrompt } from "./agent-transcripts";
 import { HostError } from "./runtime/errors";
 import type { SavedReviewStore } from "./saved-reviews";
-import type { Checkout, IndexedSession, SessionIndex } from "./session-index";
+import { STALE_MS, type Checkout, type IndexedSession, type SessionIndex } from "./session-index";
 import type { ThreadPlace, ThreadStore } from "./thread-store";
 import type { createThreadSubagents } from "./thread-subagents";
 import type { createCheckoutWork } from "./checkout-work";
@@ -430,7 +430,9 @@ export function createThreadService(options: ThreadServiceOptions) {
     for (const session of options.sessions.found()) {
       if (aliases.has(session.id) || store.known(session.key)) continue;
       // A found session opens as a tab once: when Med first sees it work.
-      if (session.working)
+      // Pi flushes a new session file only after its first assistant message
+      // completes, so a freshly written Pi session opens once too.
+      if (session.working || (session.agent === "pi" && now() - session.mtimeMs < STALE_MS))
         store.open(session.key, {
           session: { agent: session.agent, id: session.id, cwd: session.cwd },
         });

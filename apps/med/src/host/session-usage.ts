@@ -516,7 +516,7 @@ export function createSessionUsage(
   const reads = transcriptReads<Read>(newRead);
   const running = new Map<string, Promise<Read>>();
 
-  const readFile = (agent: "claude" | "codex" | "acp", path: string, name?: string) => {
+  const readFile = (agent: "claude" | "codex" | "pi" | "acp", path: string, name?: string) => {
     let read = running.get(path);
     if (read) return read;
     const current = reads.get(path);
@@ -635,12 +635,12 @@ export function createSessionUsage(
           set && window
             ? { at: Math.min(set, window), from: AUTO_COMPACT_FROM, approximate: false }
             : undefined;
-        if (session.agent === "codex" || session.agent === "acp") {
+        if (session.agent === "codex" || session.agent === "pi" || session.agent === "acp") {
           const compaction =
-            reported?.preset === "pi"
+            session.agent === "pi" || reported?.preset === "pi"
               ? await piCompaction(window, session.cwd, {
                   home: home(),
-                  ...(reported.env ? { env: reported.env } : {}),
+                  ...(reported?.env ? { env: reported.env } : {}),
                   ...(set ? { setting: set } : {}),
                 })
               : medCompacts;

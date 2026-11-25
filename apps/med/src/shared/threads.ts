@@ -5,7 +5,7 @@ import { agentChoicesSchema } from "./owned-session";
 import { agentSessionSchema, pullRequestStateSchema, type PullRequestState } from "./saved-review";
 
 /** The agent of a session, as its key starts. */
-export const SESSION_AGENTS = ["claude", "codex", "acp"] as const;
+export const SESSION_AGENTS = ["claude", "codex", "pi", "acp"] as const;
 export type SessionAgent = (typeof SESSION_AGENTS)[number];
 
 /** A session's key: its agent and the agent's own session ID, such as
@@ -17,7 +17,7 @@ export const threadOfReview = (review: {
   id: string;
   session?: { agent: SessionAgent; id: string };
 }) => (review.session ? sessionKey(review.session) : review.id);
-const SESSION_KEY = /^(claude|codex|acp)-([A-Za-z0-9_-]{1,128})$/;
+const SESSION_KEY = /^(claude|codex|pi|acp)-([A-Za-z0-9_-]{1,128})$/;
 /** The agent and the session ID of a session's key. */
 export function parseSessionKey(key: string) {
   const match = SESSION_KEY.exec(key);
@@ -30,7 +30,7 @@ export const REVIEW_ID = /^r_[a-f0-9]{24}$/;
 export const threadIdSchema = z
   .string()
   .regex(
-    /^(?:r_[a-f0-9]{24}|(?:claude|codex|acp)-[A-Za-z0-9_-]{1,128})$/,
+    /^(?:r_[a-f0-9]{24}|(?:claude|codex|pi|acp)-[A-Za-z0-9_-]{1,128})$/,
     "Choose a thread by its ID.",
   );
 

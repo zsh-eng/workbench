@@ -163,7 +163,7 @@ export const threadUsageSchema = z.object({
     .object({
       sessionId: z.string(),
       /** `acp`: an ACP agent's, from the updates that Med keeps for it. */
-      agent: z.enum(["claude", "codex", "acp"]),
+      agent: z.enum(["claude", "codex", "pi", "acp"]),
       model: z.string().optional(),
       /** Tokens that the last request sent: its input, cache reads, and cache writes. */
       used: z.number(),

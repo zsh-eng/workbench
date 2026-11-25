@@ -304,8 +304,8 @@ const startMode = (mode: string | undefined) =>
 /** The modes that an approved plan can continue in, the first by default,
  * as Claude Code offers them after a plan. */
 const planModes = (bypass: boolean) =>
-  ["acceptEdits", "default", "auto", ...(bypass ? [BYPASS] : [])].map(
-    (value) => CLAUDE_MODES.find((mode) => mode.value === value)!,
+  ["acceptEdits", "default", "auto", ...(bypass ? [BYPASS] : [])].map((value) =>
+    CLAUDE_MODES.find((mode) => mode.value === value)!,
   );
 const questionsSchema = z.array(ownedQuestionSchema).min(1).max(8);
 
@@ -1437,6 +1437,7 @@ export function startAcp(
     onAgentSession,
     attach,
     kind = "acp",
+    sessionAgent = "acp",
     sleeping,
     agentSession,
     history = false,
@@ -1466,6 +1467,8 @@ export function startAcp(
     /** Antigravity or Pi, whose session goes on in a new process after its
      * own ends (`session/resume`): Stop, a closed tab, and a restart keep it. */
     kind?: "acp" | "agy" | "pi";
+    /** The session's agent kind (`"pi"` when resuming a discovered Pi session). */
+    sessionAgent?: AgentSession["agent"];
     /** A session without a process, such as one from before the host
      * restarted: its agent starts with the next prompt. `settings` are the
      * choices it shows until then, and `halt` says that its turn was cut. */
@@ -1485,7 +1488,7 @@ export function startAcp(
   },
 ): OwnedRunner {
   const sessionId = attach?.sessionId ?? sleeping?.sessionId ?? randomUUID();
-  const session: AgentSession = { agent: "acp", name: agent.name, id: sessionId, cwd };
+  const session: AgentSession = { agent: sessionAgent, name: agent.name, id: sessionId, cwd };
   const log = new SessionLog(
     logDirectory ? join(logDirectory, `${sessionId}.jsonl`) : undefined,
     attach?.earlier ?? sleeping?.earlier,
@@ -2385,6 +2388,8 @@ const recordSchema = z.object({
   stopped: z.boolean().optional(),
   /** An agent's own ID for the session: an ACP agent's, or agy's conversation. */
   agentSessionId: z.string().max(200).optional(),
+  /** Set to `"pi"` when Med resumed a discovered Pi session (`pi-<id>`). */
+  sessionAgent: z.literal("pi").optional(),
   /** A fork before its first prompt: the session it starts from. */
   forkOf: z.string().max(128).optional(),
   /** Where its history ends in that session (Fork from here): a message's ID. */
@@ -2898,6 +2903,7 @@ export class OwnedSessions {
     const current = this.runners.get(session.id);
     if (current) return current;
     if (session.agent === "codex") return this.resumeCodex(session, key);
+    if (session.agent === "pi") return this.resumePi(session, key);
     const agent = await this.claude(session.cwd);
     const runner = startClaude(agent, session.cwd, {
       holders: this.options.holderDirectory,
@@ -2915,6 +2921,50 @@ export class OwnedSessions {
       name: agent.name,
       cwd: session.cwd,
       ...(key ? { key } : {}),
+      choices: {},
+      updatedAt: Date.now(),
+    });
+    return runner;
+  }
+  /** A Pi session that Med did not start, such as a discovered or adopted one:
+   * its next prompt starts Pi through Med's bridge on the session's file. */
+  private async resumePi(session: AgentSession, key: string | undefined) {
+    const agent = (await this.options.agents()).find(
+      (entry) => entry.kind === "pi" && entry.available,
+    );
+    if (!agent) throw new HostError("agent-unavailable", "Pi is not installed here.", 409);
+    if (!existsSync(session.cwd))
+      throw new HostError(
+        "session-folder-gone",
+        `The session's folder ${session.cwd} no longer exists, so Pi cannot resume it.`,
+        409,
+      );
+    const runner = startAcp(viaBridge(agent), session.cwd, {
+      kind: "pi",
+      sessionAgent: "pi",
+      holders: this.options.holderDirectory,
+      ...(this.options.logDirectory ? { logDirectory: this.options.logDirectory } : {}),
+      env: () => this.environment(key, session.cwd),
+      autoCompact: () => this.autoCompact(agent.id),
+      onOffer: (settings) => void this.remember(agent.id, settings),
+      onAgentSession: (id) => this.noteAgentSession(session.id, id),
+      agentSession: session.id,
+      sleeping: {
+        sessionId: session.id,
+        earlier: [],
+        // Leave settings empty so session/resume preserves the session's own
+        // model and thinking level instead of applying cached Med defaults.
+        settings: [],
+      },
+    });
+    this.track(runner, {
+      preset: agent.id,
+      kind: "pi",
+      sessionAgent: "pi",
+      name: agent.name,
+      cwd: session.cwd,
+      ...(key ? { key } : {}),
+      agentSessionId: session.id,
       choices: {},
       updatedAt: Date.now(),
     });
@@ -3079,7 +3129,9 @@ export class OwnedSessions {
       if (this.runners.has(id)) continue;
       const agent = agents.find((entry) => entry.id === record.preset);
       const session: AgentSession = {
-        agent: record.kind === "agy" || record.kind === "pi" ? "acp" : record.kind,
+        agent:
+          record.sessionAgent ??
+          (record.kind === "agy" || record.kind === "pi" ? "acp" : record.kind),
         ...(record.kind === "acp" || record.kind === "agy" || record.kind === "pi"
           ? { name: record.name }
           : {}),
@@ -3150,6 +3202,7 @@ export class OwnedSessions {
           record.cwd,
           {
             kind: pi ? "pi" : "agy",
+            ...(record.sessionAgent ? { sessionAgent: record.sessionAgent } : {}),
             holders,
             ...(this.options.logDirectory ? { logDirectory: this.options.logDirectory } : {}),
             env: () => this.environment(record.key, record.cwd),
@@ -3285,14 +3338,19 @@ export class OwnedSessions {
   sessions(): { session: AgentSession; agentId?: string }[] {
     return Object.entries(this.records).map(([id, record]) => ({
       session: {
-        agent: record.kind === "agy" || record.kind === "pi" ? "acp" : record.kind,
+        agent:
+          record.sessionAgent ??
+          (record.kind === "agy" || record.kind === "pi" ? "acp" : record.kind),
         ...(record.kind === "acp" || record.kind === "agy" || record.kind === "pi"
           ? { name: record.name }
           : {}),
         id,
         cwd: record.cwd,
       },
-      ...(record.agentSessionId && { agentId: record.agentSessionId }),
+      ...(record.agentSessionId &&
+        record.agentSessionId !== id && {
+          agentId: record.agentSessionId,
+        }),
     }));
   }
   /** What Med keeps of a session that it started: its agent, its model and

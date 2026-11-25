@@ -63,7 +63,15 @@ const clock = (at: number) =>
 const agentIcon = (agent: Thread["agent"]): IconName =>
   agent === "claude" || agent === "codex" ? agent : "agent";
 const agentName = (agent: Thread["agent"]) =>
-  agent === "claude" ? "Claude" : agent === "codex" ? "Codex" : agent ? "Agent" : undefined;
+  agent === "claude"
+    ? "Claude"
+    : agent === "codex"
+      ? "Codex"
+      : agent === "pi"
+        ? "Pi"
+        : agent
+          ? "Agent"
+          : undefined;
 const place = (thread: Thread) => {
   const repository = thread.repository?.name ?? thread.checkout?.split("/").at(-1);
   return [repository, thread.branch].filter(Boolean).join(" · ");

@@ -176,6 +176,13 @@ export function standaloneSvg(svg: SVGSVGElement) {
   const height = Number(svg.getAttribute("height")) || svg.getBoundingClientRect().height;
   copy.setAttribute("viewBox", `0 0 ${width} ${height}`);
   copy.removeAttribute("tabindex");
+  for (const node of copy.querySelectorAll(
+    "[data-med-orig-fill], [data-med-orig-stroke], [data-med-orig-color]",
+  )) {
+    node.removeAttribute("data-med-orig-fill");
+    node.removeAttribute("data-med-orig-stroke");
+    node.removeAttribute("data-med-orig-color");
+  }
   copy.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   copy.setAttribute("width", String(width));
   copy.setAttribute("height", String(height));

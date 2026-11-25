@@ -565,7 +565,7 @@ function Comment({ comment }: { comment: SentComment }) {
   );
 }
 
-const AGENT_NAMES = { claude: "Claude", codex: "Codex", acp: "the agent" } as const;
+const AGENT_NAMES = { claude: "Claude", codex: "Codex", pi: "Pi", acp: "the agent" } as const;
 
 /**
  * Where a message sent from Med is, while that matters: on its way, waiting

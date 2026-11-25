@@ -6,7 +6,7 @@ import { writeSetting } from "../../src/web/data/settings-file";
 import { createMarkdownModel } from "../../src/web/markdown/model";
 import type { FileRead } from "../../src/shared/local-file";
 import "../../src/web/pierre-theme";
-import { initializeTheme } from "../../src/web/themes";
+import { initializeTheme, themeController } from "../../src/web/themes";
 
 let root: Root | undefined;
 let frame: HTMLDivElement | undefined;
@@ -676,4 +676,153 @@ test("a link chart draws what its source printed, rows or a chart; a Grafana lin
   } finally {
     await writeSetting("charts.sources", {}, settingsFile({}));
   }
+});
+
+function rgbLuminance(css: string) {
+  const srgb = /color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/.exec(css);
+  if (srgb) return 0.2126 * Number(srgb[1]) + 0.7152 * Number(srgb[2]) + 0.0722 * Number(srgb[3]);
+  const match = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(css);
+  if (!match) return -1;
+  const [r, g, b] = [Number(match[1]), Number(match[2]), Number(match[3])].map((c) => c / 255);
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+}
+
+function resolvedColor(value: string, near: Element) {
+  const probe = document.createElement("span");
+  probe.style.color = value;
+  probe.style.display = "none";
+  near.append(probe);
+  const color = getComputedStyle(probe).color;
+  probe.remove();
+  return color;
+}
+
+test("mermaid diagrams hide raw syntax while loading and reveal source only on syntax error", async () => {
+  const text = [
+    "# Diagrams",
+    "",
+    "```mermaid",
+    "flowchart LR",
+    "  Start --> Finish",
+    "```",
+    "",
+    "```mermaid",
+    "not a valid mermaid diagram %%%",
+    "```",
+    "",
+  ].join("\n");
+  const reading = await show(text, 900, "Diagrams");
+  // Even before the valid diagram finishes drawing, its raw source is not
+  // painted in the pre block; once drawn, the SVG replaces it.
+  await expect.element(reading.getByRole("img", { name: "Mermaid diagram" })).toBeVisible();
+  const pres = [...reading.element().querySelectorAll<HTMLElement>('pre[data-mermaid="true"]')];
+  expect(pres).toHaveLength(2);
+  expect(pres[0]!.dataset.rendered).toBe("true");
+  expect(pres[0]!.querySelector("code")).toBeNull();
+  // Invalid syntax shows the error header and its source code.
+  await expect.poll(() => pres[1]!.dataset.diagramError).toBe("true");
+  expect(pres[1]!.querySelector("code")?.textContent).toContain("not a valid mermaid diagram");
+});
+
+test("mermaid dark mode lifts node surfaces and adapts light pastel styles losslessly", async () => {
+  const text = [
+    "# Architecture",
+    "",
+    "```mermaid",
+    "flowchart TD",
+    "  A[Gateway] --> B[Worker]",
+    "  style A fill:#e8f5e9,stroke:#2e7d32,color:#111",
+    "```",
+    "",
+    "```mermaid",
+    "sequenceDiagram",
+    "  participant Client",
+    "  participant API",
+    "  rect rgb(230, 240, 255)",
+    "    Client->>API: Request",
+    "  end",
+    "```",
+    "",
+  ].join("\n");
+  const reading = await show(text, 900, "Architecture");
+  themeController.commit("graphite-dark");
+  await expect.poll(() => document.documentElement.dataset.appearance).toBe("dark");
+  await expect
+    .poll(() => reading.element().querySelectorAll(".med-md-diagram > svg").length)
+    .toBe(2);
+
+  const diagrams = [...reading.element().querySelectorAll<HTMLElement>(".med-md-diagram")];
+  const bgLum = rgbLuminance(resolvedColor("var(--pele-bg)", diagrams[0]!));
+  const surfaceLum = rgbLuminance(resolvedColor("var(--pele-surface)", diagrams[0]!));
+  // Nodes must lift above the diagram backdrop in dark mode, never sink darker.
+  expect(surfaceLum).toBeGreaterThan(bgLum);
+
+  // Custom pastel fill (#e8f5e9) and dark text (#111) adapt for dark mode.
+  const nodeA = diagrams[0]!.querySelector<SVGGElement>('.pele-node[data-id="A"]')!;
+  const rectFillDark = getComputedStyle(nodeA.querySelector("rect")!).fill;
+  const labelFillDark = getComputedStyle(nodeA.querySelector("text")!).fill;
+  expect(rgbLuminance(rectFillDark)).toBeLessThan(0.4);
+  expect(rgbLuminance(labelFillDark)).toBeGreaterThan(0.7);
+
+  // Sequence rect rgb(230, 240, 255) adapts to a dark surface in dark mode.
+  const seqRect = [...diagrams[1]!.querySelectorAll<SVGRectElement>("rect")].find(
+    (rect) => rect.dataset.medOrigFill !== undefined,
+  )!;
+  expect(rgbLuminance(getComputedStyle(seqRect).fill)).toBeLessThan(0.4);
+
+  // Narrowing the pane triggers Pele's ResizeObserver re-render; dark-mode
+  // adaptation must survive via Pele's `onRender` hook.
+  frame!.style.width = "420px";
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  const resizedNodeA = diagrams[0]!.querySelector<SVGGElement>('.pele-node[data-id="A"]')!;
+  expect(rgbLuminance(getComputedStyle(resizedNodeA.querySelector("rect")!).fill)).toBeLessThan(
+    0.4,
+  );
+  expect(rgbLuminance(getComputedStyle(resizedNodeA.querySelector("text")!).fill)).toBeGreaterThan(
+    0.7,
+  );
+  frame!.style.width = "900px";
+
+  // Switching back to light mode restores original author colors cleanly.
+  themeController.commit("graphite-light");
+  await expect.poll(() => document.documentElement.dataset.appearance).toBe("light");
+  await expect
+    .poll(() =>
+      rgbLuminance(
+        getComputedStyle(
+          diagrams[0]!
+            .querySelector<SVGGElement>('.pele-node[data-id="A"]')!
+            .querySelector("rect")!,
+        ).fill,
+      ),
+    )
+    .toBeGreaterThan(0.85);
+  expect(
+    rgbLuminance(
+      getComputedStyle(
+        [...diagrams[1]!.querySelectorAll<SVGRectElement>("rect")].find(
+          (rect) => rect.dataset.medOrigFill !== undefined,
+        )!,
+      ).fill,
+    ),
+  ).toBeGreaterThan(0.85);
+});
+
+test("nested mermaid diagrams inside lists render cleanly without leaving raw code behind", async () => {
+  const text = [
+    "# Nested",
+    "",
+    "- Step one:",
+    "",
+    "  ```mermaid",
+    "  flowchart LR",
+    "    One --> Two",
+    "  ```",
+    "",
+  ].join("\n");
+  const reading = await show(text, 900, "Nested");
+  await expect.element(reading.getByRole("img", { name: "Mermaid diagram" })).toBeVisible();
+  const pre = reading.element().querySelector<HTMLElement>("li pre[data-mermaid]")!;
+  expect(pre.dataset.rendered).toBe("true");
+  expect(pre.querySelector("code")).toBeNull();
 });

@@ -1,12 +1,12 @@
 import { z } from "zod";
 
 /**
- * Agent sessions that Med finds by itself: Claude Code and Codex sessions
+ * Agent sessions that Med finds by itself: Claude Code, Codex, and Pi sessions
  * that worked in a registered repository or one of its worktrees lately. The
  * thread list shows each one as a session thread, like the sessions that Med
  * runs or keeps.
  */
-export type FoundAgent = "claude" | "codex";
+export type FoundAgent = "claude" | "codex" | "pi";
 
 /** The thread list shows a found session when its transcript changed in the
  * last `FOUND_DAYS` days. `med thread find` and `med thread adopt` reach
@@ -25,7 +25,7 @@ export const foundUpdateSchema = z.object({
   shown: z.boolean().optional(),
   hide: z
     .object({
-      id: z.string().regex(/^(?:claude|codex)-[A-Za-z0-9_-]{1,128}$/, "Choose a found session."),
+      id: z.string().regex(/^(?:claude|codex|pi)-[A-Za-z0-9_-]{1,128}$/, "Choose a found session."),
       hidden: z.boolean(),
     })
     .optional(),
@@ -42,9 +42,9 @@ export const sessionFindSchema = z.object({
 });
 export type SessionFind = z.infer<typeof sessionFindSchema>;
 
-/** A Claude Code or Codex session on this computer, at any age. */
+/** A Claude Code, Codex, or Pi session on this computer, at any age. */
 export const sessionEntrySchema = z.object({
-  agent: z.enum(["claude", "codex"]),
+  agent: z.enum(["claude", "codex", "pi"]),
   id: z.string(),
   title: z.string(),
   /** The start of the user's first prompt, on one line. */

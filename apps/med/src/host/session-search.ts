@@ -7,11 +7,13 @@ import {
   codexDayFolders,
   folderNames as names,
   isRollout,
+  piSessionId,
   readEdge,
   readHead,
   rolloutId,
   scanLines,
 } from "./session-index";
+import { piSessionsRoot } from "./agent-transcripts";
 import { userHome } from "./service/discover";
 
 // `med thread find` and `med thread adopt` reach the Claude Code and Codex
@@ -80,6 +82,15 @@ async function listTranscripts(home: string) {
         id: rolloutId(name),
         archived: true,
       });
+  const piRoot = piSessionsRoot(home);
+  for (const folder of await names(piRoot))
+    for (const name of await names(join(piRoot, folder)))
+      if (name.endsWith(".jsonl"))
+        files.push({
+          agent: "pi",
+          path: join(piRoot, folder, name),
+          id: piSessionId(name),
+        });
   return files;
 }
 
@@ -102,6 +113,12 @@ async function transcriptAt(path: string, home: string): Promise<Listed | undefi
     if (archived.length === 1 && isRollout(archived[0]!))
       return { agent: "codex", path: real, id: rolloutId(archived[0]!), archived: true };
   }
+  const piRoot = piSessionsRoot(home);
+  for (const base of new Set([piRoot, await realpath(piRoot).catch(() => piRoot)])) {
+    const pi = parts(base);
+    if (pi.length === 2 && pi[1]!.endsWith(".jsonl"))
+      return { agent: "pi", path: real, id: piSessionId(pi[1]!) };
+  }
   return undefined;
 }
 
@@ -110,10 +127,10 @@ async function readInfo(file: Listed, mtimeMs: number): Promise<SessionInfo | un
   // A Codex rollout has its title in the session index; a long head is not needed.
   const first = scanLines(file.agent, head.lines, { early: file.agent === "codex" });
   const last =
-    file.agent === "claude" && head.size > HEAD_BYTES
-      ? scanLines("claude", (await readEdge(file.path, "tail", TITLE_TAIL_BYTES)).lines)
+    (file.agent === "claude" || file.agent === "pi") && head.size > HEAD_BYTES
+      ? scanLines(file.agent, (await readEdge(file.path, "tail", TITLE_TAIL_BYTES)).lines)
       : undefined;
-  const id = file.agent === "codex" ? (first.id ?? file.id) : file.id;
+  const id = file.agent === "claude" ? file.id : (first.id ?? file.id);
   if (!validId(id)) return undefined;
   const cwd = last?.cwd ?? first.cwd;
   const name = last?.name ?? first.name;
@@ -238,7 +255,7 @@ export function createSessionSearch(options: {
       let agent: FoundAgent | undefined;
       let id = value;
       const found = parseSessionKey(value);
-      const named = /^(claude|codex):(.+)$/.exec(value);
+      const named = /^(claude|codex|pi):(.+)$/.exec(value);
       if (found && found.agent !== "acp") ({ agent, id } = { agent: found.agent, id: found.id });
       else if (named) [agent, id] = [named[1] as FoundAgent, named[2]!];
       if (!validId(id) || id.length < MIN_PREFIX) return [];

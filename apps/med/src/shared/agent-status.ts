@@ -54,7 +54,7 @@ export type SessionHalt = z.infer<typeof sessionHaltSchema>;
 export const agentStatusSchema = z.object({
   reviewId: z.string(),
   sessionId: z.string(),
-  agent: z.enum(["claude", "codex", "acp"]),
+  agent: z.enum(["claude", "codex", "pi", "acp"]),
   name: z.string().optional(),
   /** waiting: a permission request. */
   state: z.enum(["working", "waiting", "idle"]),

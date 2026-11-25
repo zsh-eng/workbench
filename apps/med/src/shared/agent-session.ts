@@ -167,4 +167,4 @@ export interface SessionEvent {
   update: SessionUpdate;
 }
 
-export type SessionAgent = "claude" | "codex";
+export type SessionAgent = "claude" | "codex" | "pi";

@@ -175,9 +175,9 @@ export async function agentSession(
   const home = options.home ?? homedir();
   let wanted: { agent: AgentSession["agent"]; id: string } | undefined;
   if (value !== undefined) {
-    const match = /^(claude|codex):(.+)$/.exec(value.trim());
+    const match = /^(claude|codex|pi):(.+)$/.exec(value.trim());
     if (!match)
-      throw new Error("Use --session claude:<session-id> or --session codex:<session-id>.");
+      throw new Error("Use --session claude:<session-id>, codex:<session-id>, or pi:<session-id>.");
     wanted = { agent: match[1] as AgentSession["agent"], id: match[2]! };
   }
   const running = environment.CLAUDE_CODE_SESSION_ID;

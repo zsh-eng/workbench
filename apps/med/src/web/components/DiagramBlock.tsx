@@ -53,7 +53,7 @@ export function DiagramBlock({ block }: { block: MarkdownBlock }) {
   const host = useRef<HTMLPreElement>(null);
   const target = useRef<HTMLDivElement>(null);
   const mounted = useRef<Mounted>(undefined);
-  const [state, setState] = useState<"source" | "drawn" | "failed">("source");
+  const [state, setState] = useState<"loading" | "drawn" | "failed">("loading");
   // Full screen, with the size that the page drew the diagram at.
   const [large, setLarge] = useState<{ natural?: { width: number; height: number } } | null>(null);
   const [menu, setMenu] = useState<PointMenuState | null>(null);
@@ -78,24 +78,39 @@ export function DiagramBlock({ block }: { block: MarkdownBlock }) {
     if (mounted.current)
       return redrawDiagram(mounted.current, block.diagram!, { turn: turnNow.current });
     let cancelled = false;
+    let started = false;
+    const draw = () => {
+      if (started || cancelled || !target.current) return;
+      started = true;
+      mountDiagram(target.current, block.diagram!, { turn: turnNow.current }).then(
+        (diagram) => {
+          if (cancelled) return diagram.destroy();
+          mounted.current = diagram;
+          // Before the next paint, so the diagram settles cleanly without a gap.
+          flushSync(() => setState("drawn"));
+          DiagramDialog.preload();
+        },
+        () => !cancelled && setState("failed"),
+      );
+    };
+    const el = host.current!;
+    const rect = el.getBoundingClientRect();
+    const nearViewport = rect.bottom >= -300 && rect.top <= (window.innerHeight || 900) + 300;
+    if (nearViewport || typeof IntersectionObserver === "undefined") {
+      draw();
+      return () => {
+        cancelled = true;
+      };
+    }
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
         observer.disconnect();
-        mountDiagram(target.current!, block.diagram!, { turn: turnNow.current }).then(
-          (diagram) => {
-            if (cancelled) return diagram.destroy();
-            mounted.current = diagram;
-            // Before the next paint, so the drawing never shows above its source.
-            flushSync(() => setState("drawn"));
-            DiagramDialog.preload();
-          },
-          () => !cancelled && setState("failed"),
-        );
+        draw();
       },
       { rootMargin: "300px" },
     );
-    observer.observe(host.current!);
+    observer.observe(el);
     return () => {
       cancelled = true;
       observer.disconnect();
@@ -136,6 +151,7 @@ export function DiagramBlock({ block }: { block: MarkdownBlock }) {
         data-mermaid="true"
         data-language="mermaid"
         data-rendered={state === "drawn" ? "true" : undefined}
+        data-diagram-loading={state === "loading" ? "true" : undefined}
         data-diagram-error={state === "failed" ? "true" : undefined}
       >
         <div
@@ -145,7 +161,7 @@ export function DiagramBlock({ block }: { block: MarkdownBlock }) {
           aria-label={state === "drawn" ? "Mermaid diagram" : undefined}
           hidden={state === "failed"}
         />
-        {state !== "drawn" && <code>{block.diagram}</code>}
+        {state === "failed" && <code>{block.diagram}</code>}
         {state === "drawn" && (
           // Not prose: a brief's passages skip the buttons and the note.
           <div

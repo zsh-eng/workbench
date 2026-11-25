@@ -242,6 +242,31 @@
   background: transparent;
   font-size: inherit;
 }
+/* A diagram never flashes raw Mermaid syntax while loading: keep a quiet
+ * placeholder surface until Pele draws it, and reveal source only on syntax
+ * error. Top-level DiagramBlocks mark `data-diagram-loading="true"` everywhere;
+ * nested `<pre data-mermaid>` (serialized as an empty attribute by hast) are
+ * scoped to `.med-markdown` where MarkdownPreview mounts them. */
+.med-md-prose pre[data-diagram-loading="true"],
+.med-markdown
+  .med-md-prose
+  pre[data-mermaid]:not([data-rendered="true"]):not([data-diagram-error="true"]) {
+  padding: 24px 16px;
+  min-height: 120px;
+}
+.med-md-prose pre[data-diagram-loading="true"]::before,
+.med-markdown
+  .med-md-prose
+  pre[data-mermaid]:not([data-rendered="true"]):not([data-diagram-error="true"])::before {
+  content: none;
+}
+.med-md-prose pre[data-diagram-loading="true"] > code,
+.med-markdown
+  .med-md-prose
+  pre[data-mermaid]:not([data-rendered="true"]):not([data-diagram-error="true"])
+  > code {
+  display: none;
+}
 /* A rendered diagram needs no language label; it sits on the code surface. */
 .med-md-prose pre[data-rendered="true"] {
   position: relative;
@@ -283,6 +308,25 @@
   --pele-zoom-right: -8px;
   white-space: normal;
   line-height: normal;
+}
+/* Dark themes need lifted node surfaces (above --pele-bg, never darker than
+ * it), recessed subgraph/note surfaces, crisper borders/edges, and bright
+ * series colors so dark-ink labels inside pie/timeline/gitGraph badges remain
+ * readable. */
+:root[data-appearance="dark"] .med-md-diagram {
+  --pele-surface: color-mix(in srgb, var(--med-text) 9%, var(--pele-bg));
+  --pele-surface-alt: color-mix(in srgb, var(--med-canvas) 48%, var(--pele-bg));
+  --pele-border: color-mix(in srgb, var(--med-text) 28%, var(--pele-bg));
+  --pele-line: color-mix(in srgb, var(--med-text) 54%, var(--pele-bg));
+  --pele-muted: color-mix(in srgb, var(--med-text) 68%, var(--pele-bg));
+  --pele-series-1: color-mix(in srgb, var(--med-accent) 82%, var(--med-text));
+  --pele-series-2: color-mix(in srgb, var(--med-green) 82%, var(--med-text));
+  --pele-series-3: color-mix(in srgb, var(--med-warning) 84%, var(--med-text));
+  --pele-series-4: color-mix(in srgb, var(--med-red) 82%, var(--med-text));
+  --pele-series-5: color-mix(in srgb, var(--med-accent) 52%, var(--med-red));
+  --pele-series-6: color-mix(in srgb, var(--med-accent) 52%, var(--med-green));
+  --pele-series-7: color-mix(in srgb, var(--med-warning) 52%, var(--med-red));
+  --pele-series-8: color-mix(in srgb, var(--med-text) 58%, var(--pele-bg));
 }
 .med-md-diagram > svg {
   display: block;

@@ -2198,6 +2198,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 // Med resumes the thread through Codex's app-server and runs it
                 // from then on.
                 resume = true;
+              } else if (session.agent === "pi" && !live && !runner) {
+                if (
+                  !(await ownedSessions.agents()).some(
+                    (agent) => agent.kind === "pi" && agent.available,
+                  )
+                )
+                  throw new HostError(
+                    "pi-not-found",
+                    "Med could not find the pi command. Install Pi to continue this session.",
+                    409,
+                  );
+                resume = true;
               }
               // A session that stopped in Med takes no message, as one that no
               // agent of Med's can resume.
@@ -2580,7 +2592,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 matches.length ? "session-ambiguous" : "session-not-found",
                 matches.length
                   ? `${JSON.stringify(input.session)} names ${matches.length} sessions. Give a full session ID or a transcript path.`
-                  : `No Claude Code or Codex session matches ${JSON.stringify(input.session)}.`,
+                  : `No Claude Code, Codex, or Pi session matches ${JSON.stringify(input.session)}.`,
                 matches.length ? 409 : 404,
               );
             const info = matches[0]!;
@@ -2912,7 +2924,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 key: z.string().min(1).max(200).optional(),
                 session: z
                   .object({
-                    agent: z.enum(["claude", "codex", "acp"]),
+                    agent: z.enum(["claude", "codex", "pi", "acp"]),
                     id: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
                   })
                   .optional(),

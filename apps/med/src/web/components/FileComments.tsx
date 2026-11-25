@@ -255,7 +255,14 @@ export function FileCommentThread({
         <div key={reply.id} {...stylex.props(styles.reply)}>
           <p {...stylex.props(styles.byline)}>
             {reply.author && (
-              <Icon name={reply.author.agent === "acp" ? "agent" : reply.author.agent} size={12} />
+              <Icon
+                name={
+                  reply.author.agent === "claude" || reply.author.agent === "codex"
+                    ? reply.author.agent
+                    : "agent"
+                }
+                size={12}
+              />
             )}
             <span {...stylex.props(styles.who)}>
               {reply.author ? agentName(reply.author) : "You"}

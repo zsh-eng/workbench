@@ -3,6 +3,7 @@ import { basename, dirname, join } from "node:path";
 import type { SessionEvent, SessionUpdate, ToolCallContent } from "../shared/agent-session";
 import { createClaudeTranscriptReader } from "../shared/agent-session-claude";
 import { createCodexRolloutReader } from "../shared/agent-session-codex";
+import { createPiTranscriptReader } from "../shared/agent-session-pi";
 import type { AgentSession } from "../shared/saved-review";
 import { userHome } from "./service/discover";
 import { summarizeTurn } from "./thread-turns";
@@ -72,11 +73,42 @@ async function codexTranscript(id: string, home: string) {
   return file ? join(archived, file) : undefined;
 }
 
+/** Where Pi keeps its session folders: ~/.pi/agent/sessions, or under
+ * PI_CODING_AGENT_DIR when reading the default home. */
+export function piSessionsRoot(home = userHome()) {
+  const custom = home === userHome() ? process.env.PI_CODING_AGENT_DIR : undefined;
+  return join(custom || join(home, ".pi", "agent"), "sessions");
+}
+
+/** Pi keeps sessions in ~/.pi/agent/sessions/--<cwd>--/<time>_<id>.jsonl. */
+async function piTranscript(id: string, home: string) {
+  const root = piSessionsRoot(home);
+  let folders: string[];
+  try {
+    folders = await readdir(root);
+  } catch {
+    return undefined;
+  }
+  const suffix = `_${id}.jsonl`;
+  for (const folder of folders) {
+    const dir = join(root, folder);
+    let entries: string[];
+    try {
+      entries = await readdir(dir);
+    } catch {
+      continue;
+    }
+    const file = entries.find((name) => name.endsWith(suffix));
+    if (file) return join(dir, file);
+  }
+  return undefined;
+}
+
 /** The transcript file of an agent session, if it is on this computer. */
 export function findTranscript(session: Pick<AgentSession, "agent" | "id">, home = userHome()) {
-  return session.agent === "claude"
-    ? claudeTranscript(session.id, home)
-    : codexTranscript(session.id, home);
+  if (session.agent === "claude") return claudeTranscript(session.id, home);
+  if (session.agent === "pi") return piTranscript(session.id, home);
+  return codexTranscript(session.id, home);
 }
 
 const cut = (value: string, limit: number) =>
@@ -200,10 +232,15 @@ export function shownAt(events: readonly SessionEvent[]): number | undefined {
 /** The tail that tells whether a turn is open, and what the turn does. */
 const STATUS_TAIL_BYTES = 256 * 1024;
 
+function createTranscriptReader(agent: AgentSession["agent"]) {
+  if (agent === "codex") return createCodexRolloutReader();
+  if (agent === "pi") return createPiTranscriptReader();
+  return createClaudeTranscriptReader();
+}
+
 async function readStatusTail(session: Pick<AgentSession, "agent" | "id">, path: string) {
   const { lines } = await readLines(path, 0, STATUS_TAIL_BYTES);
-  const reader =
-    session.agent === "codex" ? createCodexRolloutReader() : createClaudeTranscriptReader();
+  const reader = createTranscriptReader(session.agent);
   const events = lines.flatMap((line) => reader.line(line));
   return { events, idle: reader.idle() };
 }
@@ -232,8 +269,7 @@ export async function transcriptPrompt(session: Pick<AgentSession, "agent" | "id
   } finally {
     await handle.close();
   }
-  const reader =
-    session.agent === "codex" ? createCodexRolloutReader() : createClaudeTranscriptReader();
+  const reader = createTranscriptReader(session.agent);
   for (const line of text.split("\n"))
     for (const { update } of reader.line(line)) {
       if (update.sessionUpdate !== "user_message_chunk" || update.content.type !== "text") continue;
@@ -438,6 +474,17 @@ export async function followTranscript(
         ...(parentToolCallId ? {} : { idle: reader.idle }),
       };
     }
+    if (session.agent === "pi") {
+      const reader = createPiTranscriptReader();
+      return {
+        path: file,
+        offset: 0,
+        mtimeMs: -1,
+        size: -1,
+        line: reader.line,
+        ...(parentToolCallId ? {} : { idle: reader.idle }),
+      };
+    }
     const reader = createClaudeTranscriptReader({
       ...(parentToolCallId ? { parentToolCallId } : {}),
       onSubagent: (agentId, toolCallId) => {
@@ -501,7 +548,7 @@ export async function followTranscript(
   const newest = await read(main, FIRST_BYTES);
   let tail = newest.events;
   let start = newest.first;
-  for (let reach = FIRST_BYTES; start > 0 && reach < TAIL_BYTES; ) {
+  for (let reach = FIRST_BYTES; start > 0 && reach < TAIL_BYTES;) {
     if (shownLines(tail) >= FIRST_LINES) break;
     reach = Math.min(reach * 4, TAIL_BYTES);
     const from = Math.max(0, main.offset - reach);
@@ -743,6 +790,9 @@ export async function readTranscriptPage(
       }),
     );
     for (const list of childEvents) events.push(...list);
+  } else if (session.agent === "pi") {
+    const reader = createPiTranscriptReader();
+    for (const line of lines) events.push(...reader.line(line));
   } else {
     const subagents: [string, string][] = [];
     const reader = createClaudeTranscriptReader({
@@ -784,7 +834,9 @@ const turnIndexes = new Map<
 const promptLine = (agent: AgentSession["agent"], line: string) =>
   agent === "codex"
     ? line.includes('"user_message"')
-    : line.includes('"type":"user"') && !line.includes('"tool_result"');
+    : agent === "pi"
+      ? line.includes('"message"') && line.includes('"user"')
+      : line.includes('"type":"user"') && !line.includes('"tool_result"');
 
 /**
  * Each prompt in a transcript, with its byte offset. One scan reads the file
@@ -804,8 +856,7 @@ export async function transcriptTurns(
     return index.turns;
   }
   const handle = await open(path, "r");
-  const reader =
-    session.agent === "codex" ? createCodexRolloutReader() : createClaudeTranscriptReader();
+  const reader = createTranscriptReader(session.agent);
   try {
     let offset = index.scanned;
     while (offset < info.size) {

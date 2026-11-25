@@ -99,9 +99,9 @@ export const reviewKeySchema = z
 /** An agent session that worked on a review, so a terminal can resume it.
  * `cwd` is the directory the session started in, where resume finds it. */
 export const agentSessionSchema = z.object({
-  /** Claude and Codex keep transcripts that Med reads. Med keeps the updates
-   * of an ACP session itself, because it started the session. */
-  agent: z.enum(["claude", "codex", "acp"]),
+  /** Claude, Codex, and Pi keep transcripts that Med reads. Med keeps the
+   * updates of other ACP sessions itself, because it started them. */
+  agent: z.enum(["claude", "codex", "pi", "acp"]),
   /** The agent's name, for an ACP agent such as OpenCode. */
   name: z.string().max(80).optional(),
   id: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/, "Session IDs use letters, digits, _ and -."),
@@ -112,13 +112,15 @@ export const agentSessionSchema = z.object({
     .regex(/^(?:\/|[A-Za-z]:[\\/])/, "A session directory must be absolute."),
 });
 export type AgentSession = z.infer<typeof agentSessionSchema>;
-/** A session's agent for the UI: Claude, Codex, or an ACP agent's own name. */
+/** A session's agent for the UI: Claude, Codex, Pi, or an ACP agent's own name. */
 export const agentName = (session: { agent: AgentSession["agent"]; name?: string }) =>
   session.agent === "claude"
     ? "Claude"
     : session.agent === "codex"
       ? "Codex"
-      : (session.name ?? "Agent");
+      : session.agent === "pi"
+        ? "Pi"
+        : (session.name ?? "Agent");
 /** At most this many iterations; the oldest comparisons stay. */
 export const MAX_ITERATIONS = 64;
 

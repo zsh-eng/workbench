@@ -1504,11 +1504,10 @@ export function App({
   // The lead session: the latest one. Its agent names the reply controls.
   const leadSession = agentSessions.at(-1);
   const replyAgent = leadSession && agentName(leadSession);
-  const leadIcon: IconName = !leadSession
-    ? "agent"
-    : leadSession.agent === "acp"
-      ? "agent"
-      : leadSession.agent;
+  const leadIcon: IconName =
+    leadSession && (leadSession.agent === "claude" || leadSession.agent === "codex")
+      ? leadSession.agent
+      : "agent";
   const agentReply = useMemo<AgentReplyTarget | null>(
     () =>
       replyAgent
@@ -1537,7 +1536,10 @@ export function App({
     const held = new Set(inboxState.messages.flatMap((message) => message.noteIds));
     return {
       name: replyAgent,
-      mark: leadSession.agent === "acp" ? "agent" : leadSession.agent,
+      mark:
+        leadSession.agent === "claude" || leadSession.agent === "codex"
+          ? leadSession.agent
+          : "agent",
       sent: (id) => held.has(id) && !unsent.has(id),
       send: async (id) => {
         await sendAgentMessage({
@@ -4217,7 +4219,8 @@ export function App({
     [keptRecap, recapKey, thread?.changes, thread?.turn?.checks, recap.unseen, recap.see],
   );
   const ownSession =
-    leadSession && (leadSession.agent === "claude" || leadSession.agent === "codex")
+    leadSession &&
+    (leadSession.agent === "claude" || leadSession.agent === "codex" || leadSession.agent === "pi")
       ? { agent: leadSession.agent, id: leadSession.id }
       : null;
   // A shared checkout holds other sessions' work too. Its Changes can keep
@@ -5266,7 +5269,7 @@ export function App({
   const editSessionId = editSession?.id;
   const transcriptSessions = useMemo(
     () =>
-      editSessionId && (editAgent === "claude" || editAgent === "codex")
+      editSessionId && (editAgent === "claude" || editAgent === "codex" || editAgent === "pi")
         ? [{ agent: editAgent, id: editSessionId }]
         : [],
     [editAgent, editSessionId],

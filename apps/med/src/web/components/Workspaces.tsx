@@ -2938,7 +2938,13 @@ function qualifiers(rows: Workspace[]) {
 }
 
 const agentLabel = (thread: Thread) =>
-  thread.agent === "claude" ? "Claude" : thread.agent === "codex" ? "Codex" : "The agent";
+  thread.agent === "claude"
+    ? "Claude"
+    : thread.agent === "codex"
+      ? "Codex"
+      : thread.agent === "pi"
+        ? "Pi"
+        : "The agent";
 
 /** A small turning arc while the review's agent works. */
 function WorkingMark({ label, hides }: { label: string; hides: boolean }) {

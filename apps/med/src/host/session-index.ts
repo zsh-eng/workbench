@@ -16,6 +16,7 @@ import {
   rolloutSource,
   type RolloutSource,
 } from "../shared/agent-session-codex";
+import { createPiTranscriptReader } from "../shared/agent-session-pi";
 import {
   FOUND_DAYS,
   foundSettingsSchema,
@@ -27,7 +28,7 @@ import type { RegisteredRepository } from "../shared/protocol";
 import type { SessionEvent } from "../shared/agent-session";
 import type { ThreadTurn } from "../shared/agent-status";
 import { sessionKey, threadTitle } from "../shared/threads";
-import { findTranscript, shownAt } from "./agent-transcripts";
+import { findTranscript, piSessionsRoot, shownAt } from "./agent-transcripts";
 import { summarizeTurn } from "./thread-turns";
 import { userHome } from "./service/discover";
 
@@ -94,6 +95,10 @@ export const claudeProjectFolder = (cwd: string) => cwd.replace(/[^A-Za-z0-9-]/g
 /** The session ID in a Codex rollout's file name. */
 export const rolloutId = (name: string) =>
   /([0-9a-f]{8}-[0-9a-f-]{27})$/i.exec(basename(name, ".jsonl"))?.[1];
+
+/** The session ID in a Pi session's file name (`<timestamp>_<id>.jsonl`). */
+export const piSessionId = (name: string) =>
+  /_([A-Za-z0-9_-]{1,128})$/.exec(basename(name, ".jsonl"))?.[1];
 
 /** The complete lines of a file's first `bytes`, or of its last `bytes`. */
 export async function readEdge(path: string, edge: "head" | "tail", bytes: number) {
@@ -163,7 +168,12 @@ export function scanLines(
   lines: readonly string[],
   { turn = false, early = false }: { turn?: boolean; early?: boolean } = {},
 ) {
-  const reader = agent === "codex" ? createCodexRolloutReader() : createClaudeTranscriptReader();
+  const reader =
+    agent === "codex"
+      ? createCodexRolloutReader()
+      : agent === "pi"
+        ? createPiTranscriptReader()
+        : createClaudeTranscriptReader();
   const cwds: string[] = [];
   const found: {
     cwd?: string;
@@ -188,7 +198,11 @@ export function scanLines(
         ? entry.type === "session_meta" || entry.type === "turn_context"
           ? text(payload?.cwd)
           : undefined
-        : text(entry.cwd);
+        : agent === "pi"
+          ? entry.type === "session"
+            ? text(entry.cwd)
+            : undefined
+          : text(entry.cwd);
     if (cwd) {
       found.cwd = cwd;
       if (cwds.at(-1) !== cwd) {
@@ -202,6 +216,12 @@ export function scanLines(
     if (agent === "codex" && entry.type === "session_meta") {
       found.id ??= text(payload?.id);
       found.source ??= rolloutSource(payload);
+    }
+    if (agent === "pi" && entry.type === "session") {
+      found.id ??= text(entry.id);
+    }
+    if (agent === "pi" && entry.type === "session_info") {
+      found.name = text(entry.name) ?? found.name;
     }
     if (entry.type === "custom-title") found.name = text(entry.customTitle) ?? found.name;
     if (entry.type === "agent-name" && !found.name) found.name = text(entry.agentName);
@@ -248,7 +268,11 @@ async function readSession(
   const first = head ? scanLines(agent, head.lines) : undefined;
   const tail = scanLines(agent, (await readEdge(path, "tail", TAIL_BYTES)).lines, { turn: true });
   const id =
-    agent === "claude" ? basename(path, ".jsonl") : (first?.id ?? known?.id ?? rolloutId(path));
+    agent === "claude"
+      ? basename(path, ".jsonl")
+      : agent === "pi"
+        ? (first?.id ?? known?.id ?? piSessionId(path))
+        : (first?.id ?? known?.id ?? rolloutId(path));
   if (!id || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) return undefined;
   const cwd = tail.cwd ?? first?.cwd ?? known?.cwd;
   const cwds = [...(known?.cwds ?? []), ...(first?.cwds ?? []), ...tail.cwds].reduce<string[]>(
@@ -371,6 +395,27 @@ function windowFolders(root: string, now: number) {
     );
   }
   return folders;
+}
+
+/** Pi session files that changed since `since`, across all session folders. */
+async function piFiles(home: string, since: number) {
+  const root = piSessionsRoot(home);
+  const folders = await readdir(root).catch(() => [] as string[]);
+  const files: Listed[] = [];
+  for (const folder of folders) {
+    const entries = await readdir(join(root, folder), { withFileTypes: true }).catch(() => []);
+    await Promise.all(
+      entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+        .map(async (entry) => {
+          const path = join(root, folder, entry.name);
+          const info = await stat(path).catch(() => undefined);
+          if (info && info.mtimeMs >= since)
+            files.push({ agent: "pi", path, mtimeMs: info.mtimeMs, size: info.size });
+        }),
+    );
+  }
+  return files;
 }
 
 /** Codex rollouts in these day folders that changed since `since`. */
@@ -572,7 +617,11 @@ export function createSessionIndex(options: {
     await refreshWorktrees();
     const checkouts = checkoutsOf(options.repositories());
     const since = now() - WINDOW_MS;
-    const listed = [...(await claudeFiles(home(), since)), ...(await recentCodex(since))]
+    const listed = [
+      ...(await claudeFiles(home(), since)),
+      ...(await recentCodex(since)),
+      ...(await piFiles(home(), since)),
+    ]
       .sort((a, b) => b.mtimeMs - a.mtimeMs)
       .slice(0, MAX_READS);
     const names = listed.some((file) => file.agent === "codex")

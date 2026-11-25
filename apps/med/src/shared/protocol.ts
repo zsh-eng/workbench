@@ -3,7 +3,7 @@ import type { GeneratedMark } from "./generated";
 
 /** An agent session whose edited files a comparison can keep (session-edits.ts). */
 export const editSessionSchema = z.object({
-  agent: z.enum(["claude", "codex"]),
+  agent: z.enum(["claude", "codex", "pi"]),
   id: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
 });
 export type EditSession = z.infer<typeof editSessionSchema>;
@@ -354,7 +354,7 @@ export type NoteInput = z.infer<typeof noteInputSchema>;
 /** The agent that wrote a reply with `med review reply`. The user's own
  * comments and replies have no author. */
 export const noteAuthorSchema = z.object({
-  agent: z.enum(["claude", "codex", "acp"]),
+  agent: z.enum(["claude", "codex", "pi", "acp"]),
   /** An ACP agent's own name, such as OpenCode. */
   name: z.string().min(1).max(80).optional(),
   sessionId: z

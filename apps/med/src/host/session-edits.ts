@@ -24,6 +24,8 @@ import { changedSince, transcriptReads } from "./transcript-reads";
 
 /** The tools whose calls edit a file in Claude Code. */
 const CLAUDE_EDITS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+/** The tools whose calls edit a file in Pi. */
+const PI_EDITS = new Set(["edit", "write"]);
 /** At most this many files are kept for a session; the oldest edits go first. */
 const MAX_FILES = 5000;
 /** At most this many shell commands are kept for a session; the oldest go first. */
@@ -73,7 +75,9 @@ function lineCommands(agent: EditSession["agent"], line: string): string[] {
   if (
     agent === "claude"
       ? !line.includes('"Bash"')
-      : !line.includes('"function_call"') && !line.includes('"local_shell_call"')
+      : agent === "pi"
+        ? !line.includes('"bash"') && !line.includes('"bashExecution"')
+        : !line.includes('"function_call"') && !line.includes('"local_shell_call"')
   )
     return [];
   let entry: Json | undefined;
@@ -89,6 +93,21 @@ function lineCommands(agent: EditSession["agent"], line: string): string[] {
       const block = record(part);
       const command =
         block?.type === "tool_use" && block.name === "Bash" && record(block.input)?.command;
+      return typeof command === "string" && command ? [command] : [];
+    });
+  }
+  if (agent === "pi") {
+    const message = record(entry?.message);
+    if (entry?.type !== "message" || !message) return [];
+    if (message.role === "bashExecution") {
+      const command = text(message.command);
+      return command ? [command] : [];
+    }
+    if (message.role !== "assistant" || !Array.isArray(message.content)) return [];
+    return message.content.flatMap((part) => {
+      const block = record(part);
+      const command =
+        block?.type === "toolCall" && block.name === "bash" && record(block.arguments)?.command;
       return typeof command === "string" && command ? [command] : [];
     });
   }
@@ -112,7 +131,13 @@ function lineCommands(agent: EditSession["agent"], line: string): string[] {
 /** The edited files that one transcript line names, as absolute paths. */
 function lineFiles(agent: EditSession["agent"], line: string, state: Read): string[] {
   // Most lines edit nothing; skip their parse.
-  if (agent === "claude" ? !line.includes('"tool_use"') : !line.includes("Begin Patch"))
+  if (
+    agent === "claude"
+      ? !line.includes('"tool_use"')
+      : agent === "pi"
+        ? !line.includes('"toolCall"') && !line.includes('"type":"session"')
+        : !line.includes("Begin Patch")
+  )
     return agent === "codex" && line.includes('"cwd"') ? (codexCwd(line, state), []) : [];
   let entry: Json | undefined;
   try {
@@ -131,6 +156,25 @@ function lineFiles(agent: EditSession["agent"], line: string, state: Read): stri
       const input = record(block.input);
       const path = text(input?.file_path) ?? text(input?.notebook_path);
       return path ? [isAbsolute(path) ? path : resolve(cwd ?? "/", path)] : [];
+    });
+  }
+  if (agent === "pi") {
+    if (entry.type === "session") {
+      state.cwd = text(entry.cwd) ?? state.cwd;
+      return [];
+    }
+    const message = record(entry.message);
+    if (
+      entry.type !== "message" ||
+      message?.role !== "assistant" ||
+      !Array.isArray(message.content)
+    )
+      return [];
+    return message.content.flatMap((part) => {
+      const block = record(part);
+      if (block?.type !== "toolCall" || !PI_EDITS.has(String(block.name))) return [];
+      const path = text(record(block.arguments)?.path);
+      return path ? [isAbsolute(path) ? path : resolve(state.cwd ?? "/", path)] : [];
     });
   }
   const payload = record(entry.payload);

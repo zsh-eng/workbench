@@ -16,7 +16,7 @@ interface WorkspaceBase {
   worktree?: string;
 }
 export interface WorkspaceSession {
-  agent: "claude" | "codex";
+  agent: "claude" | "codex" | "pi";
   id: string;
   cwd: string;
 }
@@ -103,7 +103,7 @@ export interface WorkspaceSnapshot {
 /** A thread's workspace has this id in every window. */
 export const threadWorkspaceId = (threadId: string) => `thread-${threadId}`;
 
-const SESSION_THREAD = /^(?:claude|codex|acp)-[A-Za-z0-9_-]+$/;
+const SESSION_THREAD = /^(?:claude|codex|pi|acp)-[A-Za-z0-9_-]+$/;
 
 /** Tells the workspace of a saved review that the review has new content,
  * such as an agent's next iteration. The event detail is `{ id }`. */
@@ -119,9 +119,9 @@ const quoted = (path: string) => `'${path.replaceAll("'", `'\\''`)}'`;
 /** A shell command that resumes the session in its own directory. */
 export function resumeCommand(session: WorkspaceSession) {
   const directory = quoted(session.cwd);
-  return session.agent === "claude"
-    ? `cd ${directory} && claude --resume ${session.id}`
-    : `cd ${directory} && codex resume ${session.id}`;
+  if (session.agent === "claude") return `cd ${directory} && claude --resume ${session.id}`;
+  if (session.agent === "pi") return `cd ${directory} && pi --session ${session.id}`;
+  return `cd ${directory} && codex resume ${session.id}`;
 }
 
 /** A shell command that opens lazygit in a checkout, for Git work beyond the
@@ -170,7 +170,7 @@ function parse(value: unknown): Workspace | null {
   if (
     entry.kind === "repository" &&
     entry.home !== true &&
-    (found?.agent === "claude" || found?.agent === "codex") &&
+    (found?.agent === "claude" || found?.agent === "codex" || found?.agent === "pi") &&
     optional(found.id)
   ) {
     const threadId = `${found.agent}-${found.id as string}`;

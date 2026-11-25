@@ -21,7 +21,7 @@ import { connectPreviewScroll } from "../markdown/scroll";
 import { folded, useKeptFolds } from "../markdown/folds";
 import RenderWorker from "../markdown/render.worker?worker";
 import type { Mounted } from "pele/lazy";
-import { mountDiagram } from "../markdown/diagrams";
+import { mountDiagram, preloadDiagrams } from "../markdown/diagrams";
 import { DiagramBlock } from "./DiagramBlock";
 import { ChartBlock } from "./chart/ChartBlock";
 import "katex/dist/katex.min.css";
@@ -73,42 +73,71 @@ const Block = memo(
       }
       // A diagram inside a list or a quote; a top-level one is a DiagramBlock.
       const diagrams: Mounted[] = [];
+      const inflight = new Map<HTMLElement, HTMLDivElement>();
+      const drawNested = (pre: HTMLElement) => {
+        if (pre.dataset.rendered || pre.dataset.diagramError || pre.dataset.diagramMounting) return;
+        pre.dataset.diagramMounting = "true";
+        const code = pre.querySelector("code");
+        if (!code) {
+          delete pre.dataset.diagramMounting;
+          return;
+        }
+        const figure = document.createElement("div");
+        figure.className = "med-md-diagram";
+        pre.prepend(figure);
+        inflight.set(pre, figure);
+        mountDiagram(figure, code.textContent ?? "").then(
+          (diagram) => {
+            inflight.delete(pre);
+            if (cancelled) {
+              diagram.destroy();
+              figure.remove();
+              delete pre.dataset.diagramMounting;
+              return;
+            }
+            diagrams.push(diagram);
+            figure.setAttribute("role", "img");
+            figure.setAttribute("aria-label", "Mermaid diagram");
+            code.remove();
+            delete pre.dataset.diagramMounting;
+            pre.dataset.rendered = "true";
+          },
+          () => {
+            inflight.delete(pre);
+            figure.remove();
+            delete pre.dataset.diagramMounting;
+            if (cancelled) return;
+            pre.dataset.diagramError = "true";
+          },
+        );
+      };
       const observer = new IntersectionObserver(
         (entries) => {
           for (const entry of entries) {
             if (!entry.isIntersecting) continue;
             observer.unobserve(entry.target);
-            const pre = entry.target as HTMLElement;
-            const code = pre.querySelector("code")!;
-            const figure = document.createElement("div");
-            figure.className = "med-md-diagram";
-            pre.prepend(figure);
-            mountDiagram(figure, code.textContent ?? "").then(
-              (diagram) => {
-                if (cancelled) return diagram.destroy();
-                diagrams.push(diagram);
-                figure.setAttribute("role", "img");
-                figure.setAttribute("aria-label", "Mermaid diagram");
-                code.remove();
-                pre.dataset.rendered = "true";
-              },
-              () => {
-                if (cancelled) return;
-                figure.remove();
-                pre.dataset.diagramError = "true";
-              },
-            );
+            drawNested(entry.target as HTMLElement);
           }
         },
         { rootMargin: "300px" },
       );
-      host
-        .querySelectorAll("pre[data-mermaid]:not([data-rendered])")
-        .forEach((pre) => observer.observe(pre));
+      const pending = host.querySelectorAll<HTMLElement>("pre[data-mermaid]:not([data-rendered])");
+      if (pending.length) preloadDiagrams();
+      const viewHeight = window.innerHeight || 900;
+      pending.forEach((pre) => {
+        const rect = pre.getBoundingClientRect();
+        if (rect.bottom >= -300 && rect.top <= viewHeight + 300) drawNested(pre);
+        else observer.observe(pre);
+      });
       mounted.current = diagrams;
       return () => {
         cancelled = true;
         observer.disconnect();
+        for (const [pre, figure] of inflight) {
+          figure.remove();
+          delete pre.dataset.diagramMounting;
+        }
+        inflight.clear();
         for (const diagram of diagrams) diagram.destroy();
         mounted.current = [];
       };
@@ -223,6 +252,7 @@ export default function MarkdownPreview({
     };
   }, []);
   useEffect(() => {
+    if (/(?:```|~~~)\s*mermaid\b/i.test(text)) preloadDiagrams();
     const id = ++sequence.current;
     const shown = rendered.get(key);
     if (shown) {

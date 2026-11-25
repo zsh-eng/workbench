@@ -61,7 +61,7 @@ export type SentComment = z.infer<typeof sentCommentSchema>;
 export const agentMessageSchema = z.object({
   id: z.string(),
   sessionId: z.string(),
-  agent: z.enum(["claude", "codex", "acp"]),
+  agent: z.enum(["claude", "codex", "pi", "acp"]),
   /** What the user wrote. */
   text: z.string(),
   noteIds: z.array(z.string()),

@@ -18,6 +18,6 @@ export const CommentAgentContext = createContext<CommentAgent | null>(null);
 export function noteAuthor(author: NoteAuthor) {
   return {
     name: agentName(author),
-    mark: author.agent === "acp" ? ("agent" as const) : author.agent,
+    mark: author.agent === "claude" || author.agent === "codex" ? author.agent : ("agent" as const),
   };
 }
