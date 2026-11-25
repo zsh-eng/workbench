@@ -26,8 +26,11 @@ import {
   type KeyboardEvent,
   type RefObject,
 } from "react";
-import { mentionParts, type Mention } from "../data/mentions";
+import { mentionKind, mentionParts, type Mention, type MentionKind } from "../data/mentions";
+import { iconMarkup } from "./Icon";
+import { QUOTE_ICON } from "./session/prompt-chips";
 import { insertInlineQuote, matchInlineQuotes } from "./session/reply-quote";
+import "./chips.css";
 import "./RichPromptEditor.css";
 
 export interface RichPromptEditorHandle {
@@ -60,19 +63,38 @@ export interface RichPromptEditorProps {
   className?: string;
 }
 
+/** A chip's frame (chips.css): its icon and its label. */
+function chipElement(icon: string, label: string) {
+  const chip = document.createElement("span");
+  chip.className = "med-chip";
+  const mark = document.createElement("span");
+  mark.className = "med-chip-icon";
+  mark.innerHTML = icon;
+  const text = document.createElement("span");
+  text.className = "med-chip-label";
+  text.textContent = label;
+  chip.append(mark, text);
+  return chip;
+}
+
+const MENTION_ICONS = { file: "file", note: "note", thread: "sessions" } as const;
+
 class MentionWidget extends WidgetType {
-  constructor(readonly text: string) {
+  constructor(
+    readonly text: string,
+    readonly kind: MentionKind,
+  ) {
     super();
   }
   override eq(other: MentionWidget) {
-    return other.text === this.text;
+    return other.text === this.text && other.kind === this.kind;
   }
   override toDOM() {
-    const mark = document.createElement("mark");
-    mark.className = "med-rich-mention";
-    mark.dataset.mentionChip = "";
-    mark.textContent = this.text;
-    return mark;
+    // The label without its @: the chip says that it is a mention.
+    const chip = chipElement(iconMarkup(MENTION_ICONS[this.kind], 12), this.text.slice(1));
+    chip.dataset.mentionChip = this.kind;
+    chip.title = this.text.slice(1);
+    return chip;
   }
   override ignoreEvent() {
     return false;
@@ -90,25 +112,16 @@ class QuoteWidget extends WidgetType {
     return other.fullText === this.fullText && other.preview === this.preview;
   }
   override toDOM(view: EditorView) {
-    const chip = document.createElement("span");
-    chip.className = "med-rich-quote";
+    const chip = chipElement(QUOTE_ICON, this.preview);
     chip.dataset.quoteChip = "";
+    chip.dataset.removable = "";
     chip.title = this.fullText;
-
-    const mark = document.createElement("span");
-    mark.className = "med-rich-quote-icon";
-    mark.setAttribute("aria-hidden", "true");
-    mark.textContent = "“";
-
-    const label = document.createElement("span");
-    label.className = "med-rich-quote-text";
-    label.textContent = this.preview;
 
     const remove = document.createElement("button");
     remove.type = "button";
-    remove.className = "med-rich-quote-remove";
+    remove.className = "med-chip-remove";
     remove.setAttribute("aria-label", "Remove quote");
-    remove.textContent = "×";
+    remove.innerHTML = iconMarkup("close", 10);
     remove.addEventListener("mousedown", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -133,13 +146,11 @@ class QuoteWidget extends WidgetType {
       }
     });
 
-    chip.append(mark, label, remove);
+    chip.append(remove);
     return chip;
   }
   override ignoreEvent(event: Event) {
-    return (
-      event.target instanceof HTMLElement && event.target.closest(".med-rich-quote-remove") !== null
-    );
+    return event.target instanceof Element && event.target.closest(".med-chip-remove") !== null;
   }
 }
 
@@ -197,7 +208,9 @@ function buildDecorations(state: EditorState): {
     for (const part of mentionParts(text, mentions)) {
       const next = offset + part.text.length;
       if (part.mention && !overlaps(offset, next, atomicSpans)) {
-        const deco = Decoration.replace({ widget: new MentionWidget(part.text) });
+        const deco = Decoration.replace({
+          widget: new MentionWidget(part.text, mentionKind(part.mention)),
+        });
         ranges.push({ from: offset, to: next, value: deco });
         atomicRanges.push({ from: offset, to: next, value: deco });
         atomicSpans.push({ from: offset, to: next });

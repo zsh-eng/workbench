@@ -1,6 +1,6 @@
-/* Rich text prompt composer (CodeMirror 6): atomic @mention pills, /slash
- * command badges, and live inline Markdown styling inside SessionComposer and
- * NewThread. */
+/* Rich text prompt composer (CodeMirror 6): /slash command badges and live
+ * inline Markdown styling inside SessionComposer and NewThread. Mentions and
+ * quotes are chips (chips.css). */
 
 .med-rich-editor {
   width: 100%;
@@ -11,8 +11,8 @@
   background: transparent;
   color: var(--med-text, #ececef);
   font-family: var(--med-font-prose, var(--med-font-ui, sans-serif));
-  font-size: 13.5px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.55;
   outline: none;
 }
 
@@ -48,94 +48,17 @@
   background-color: color-mix(in srgb, var(--med-accent, #8f9cff) 24%, transparent);
 }
 
-/* Atomic @mention pill */
-.med-rich-mention {
-  display: inline-flex;
-  align-items: baseline;
-  vertical-align: baseline;
-  margin-inline: 1px;
-  padding: 0 5px;
-  border-radius: calc(5px * var(--med-round, 1));
-  background: color-mix(in srgb, var(--med-accent, #8f9cff) 14%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--med-accent, #8f9cff) 28%, transparent);
-  color: var(--med-accent, #8f9cff);
-  font-family: var(--med-font-ui, sans-serif);
-  font-size: 12.5px;
-  font-weight: 500;
-  line-height: 1.45;
-  user-select: all;
-}
-
-/* Atomic inline <quote>...</quote> badge */
-.med-rich-quote {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  vertical-align: -3px;
-  max-width: min(240px, 65%);
-  height: 22px;
-  box-sizing: border-box;
-  margin-inline: 1px;
-  padding: 0 4px 0 6px;
-  border-radius: calc(6px * var(--med-round, 1));
-  background: color-mix(in srgb, var(--med-text, #ececef) 7%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--med-text, #ececef) 14%, transparent);
-  color: var(--med-muted, #9d9da6);
-  font-family: var(--med-font-ui, sans-serif);
-  font-size: 12px;
-  line-height: 1;
-  user-select: none;
-}
-
-.med-rich-quote-icon {
-  flex-shrink: 0;
-  color: var(--med-accent, #8f9cff);
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1;
-  margin-top: 2px;
-}
-
-.med-rich-quote-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--med-text, #ececef);
-  opacity: 0.85;
-}
-
-.med-rich-quote-remove {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border: 0;
-  border-radius: calc(4px * var(--med-round, 1));
-  background: transparent;
-  color: var(--med-faint, #686871);
-  font-size: 13px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.med-rich-quote-remove:hover {
-  background: color-mix(in srgb, var(--med-text, #ececef) 10%, transparent);
-  color: var(--med-text, #ececef);
-}
+/* Mentions and quotes are chips (chips.css). */
 
 /* Leading /command badge */
 .med-rich-slash {
   padding: 1px 5px;
   border-radius: calc(5px * var(--med-round, 1));
-  background: color-mix(in srgb, var(--med-accent, #8f9cff) 14%, transparent);
-  color: var(--med-accent, #8f9cff);
+  background: color-mix(in srgb, var(--med-text, #ececef) 7%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--med-text, #ececef) 8%, transparent);
+  color: var(--med-text, #ececef);
   font-family: "Paper Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 12.5px;
-  font-weight: 500;
 }
 
 /* Live inline Markdown styling */

@@ -25,6 +25,7 @@ export const threadHelp = `Usage: med thread list [--archived] [--json]
        med thread open <id> | --key <key>
        med thread close <id> | --key <key> [--remove-worktree]
        med thread reopen
+       med thread read <id> | --key <key> [--last <n> | --all]
        med thread delete <id> | --key <key>
        med thread send <id> | --key <key> [--after-turn] <message>
        med thread pr <id> | --key <key> <pull request link>
@@ -49,6 +50,13 @@ close        archives a tab. Its agent keeps working; Med stops
              watching it. --remove-worktree also removes the linked worktree
              that Med made for it, if Git can do that without --force.
 reopen       opens the thread that closed last.
+read         prints a thread's conversation as Markdown, whatever agent ran
+             it: each prompt, the agent's replies, and a line of the tools
+             that each turn used. A message that names a thread with @ asks
+             you to read it so. Without a choice it prints the newest turns
+             that fit in about 10,000 tokens, and says when it leaves earlier
+             ones out; --last <n> prints the last n turns, and --all every
+             turn.
 delete       deletes a thread: its reviews, their comments, and its archive
              entry. Its agent session stays in Claude Code or Codex.
 send         sends a message to the thread's agent, which Med runs. While the
@@ -84,7 +92,17 @@ Exit status: 0 when the command did its work, and when a wait ends or times
 out (its first line says which); 2 for wrong usage; 3 when a thread that you
 name does not exist or is not a tab; 4 when no Med server runs; else 1.`;
 
-const actions = ["list", "open", "close", "reopen", "delete", "send", "pr", "wait"] as const;
+const actions = [
+  "list",
+  "open",
+  "close",
+  "reopen",
+  "read",
+  "delete",
+  "send",
+  "pr",
+  "wait",
+] as const;
 
 /** How long `pr` follows the host's job, in minutes. */
 const PULL_MINUTES = 15;
@@ -105,6 +123,9 @@ export interface ThreadCommand {
   afterTurn?: boolean;
   /** pr: the pull request's link. */
   pull?: string;
+  /** read: the last this many turns, or every turn. */
+  last?: number;
+  all?: boolean;
   /** wait: the threads, what it waits for, and for how long, in seconds. */
   ids?: string[];
   keys?: string[];
@@ -134,6 +155,8 @@ export async function parseThreadCommand(
       "after-turn": { type: "boolean" },
       until: { type: "string" },
       timeout: { type: "string" },
+      last: { type: "string" },
+      all: { type: "boolean" },
     },
   });
   values["state-dir"] ??= environment.MED_STATE_DIR || undefined;
@@ -153,6 +176,8 @@ export async function parseThreadCommand(
     throw new UsageError(threadHelp);
   const kind = action as (typeof actions)[number];
   const command: ThreadCommand = { kind, port, stateDir };
+  if ((values.last !== undefined || values.all) && kind !== "read")
+    throw new Error("Use --last and --all with read.");
   if (kind === "list") {
     if (id) throw new Error("Use list without an ID.");
     return { ...command, history: !!(values.archived || values.history), json: !!values.json };
@@ -192,6 +217,16 @@ export async function parseThreadCommand(
     if (kind !== "close") throw new Error("Use --remove-worktree with close.");
     command.removeWorktree = true;
   }
+  if (values.last !== undefined || values.all) {
+    if (values.last !== undefined && values.all) throw new Error("Use --last or --all, not both.");
+    if (values.all) command.all = true;
+    else {
+      const last = Number(values.last);
+      if (!Number.isInteger(last) || last < 1)
+        throw new UsageError("--last takes a number of turns.");
+      command.last = last;
+    }
+  }
   return command;
 }
 
@@ -204,8 +239,9 @@ function parseWait(
   >,
   command: Pick<ThreadCommand, "port" | "stateDir">,
 ): ThreadCommand {
-  for (const option of ["archived", "history", "remove-worktree", "after-turn"])
-    if (values[option]) throw new Error(`Use --${option} without wait.`);
+  for (const option of ["archived", "history", "remove-worktree", "after-turn", "all", "last"])
+    if (values[option] !== undefined && values[option] !== false)
+      throw new Error(`Use --${option} without wait.`);
   const until = values.until ?? "stopped";
   if (until !== "stopped" && !(THREAD_WAITS as readonly string[]).includes(until))
     throw new UsageError(`--until takes ${THREAD_WAITS.join(", ")}.\n\n${threadHelp}`);
@@ -303,6 +339,14 @@ export async function runThreadCommand(
     return;
   }
   const id = command.id ?? (await threadByKey(call, command.key!));
+  if (command.kind === "read") {
+    const query = command.all ? "?all=1" : command.last ? `?last=${command.last}` : "";
+    const { text } = z
+      .object({ text: z.string() })
+      .parse(await call(`/api/sessions/${encodeURIComponent(id)}/read${query}`));
+    print(text.trimEnd());
+    return;
+  }
   if (command.kind === "open") {
     const { thread } = z
       .object({ thread: z.object({ id: z.string(), title: z.string() }) })

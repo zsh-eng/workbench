@@ -605,11 +605,11 @@ export function SessionSidebar({
                 onClick={() => viewSettings.laterSection.set(folded ? "open" : "folded")}
                 {...stylex.props(styles.label, styles.headLabel, styles.fold)}
               >
+                Later
+                {folded && <span {...stylex.props(styles.count)}>{laterShown.length}</span>}
                 <span {...stylex.props(styles.chevron, folded && styles.chevronFolded)}>
                   <Icon name="chevron" size={12} />
                 </span>
-                Later
-                {folded && <span {...stylex.props(styles.count)}>{laterShown.length}</span>}
               </button>
             </div>
             {!folded && laterShown.map(row)}
@@ -1072,8 +1072,8 @@ const styles = stylex.create({
     gap: 4,
     paddingBlock: 0,
     paddingInline: 0,
-    // Its chevron sits in the rows' margin, so its name lines up with theirs.
-    marginInlineStart: -16,
+    // Its name lines up with the rows'; the chevron follows it.
+    flex: "none",
     borderWidth: 0,
     backgroundColor: "transparent",
     fontFamily: tokens.ui,
@@ -1082,7 +1082,12 @@ const styles = stylex.create({
     color: { default: tokens.muted, ":hover": tokens.text },
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
-  chevron: { display: "inline-flex", transition: "transform 120ms ease" },
+  chevron: {
+    display: "inline-flex",
+    marginInlineStart: 1,
+    color: tokens.faint,
+    transition: "transform 160ms cubic-bezier(0.23, 1, 0.32, 1)",
+  },
   chevronFolded: { transform: "rotate(-90deg)" },
   count: { marginInlineStart: 2, color: tokens.faint, fontVariantNumeric: "tabular-nums" },
   dropHint: {

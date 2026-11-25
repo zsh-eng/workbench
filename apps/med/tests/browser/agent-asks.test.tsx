@@ -324,7 +324,7 @@ test("⇧Tab in the message field steps through the modes, and Bypass asks first
   expect(actions.at(-1)).toEqual({ action: "setting", id: "mode", value: "bypassPermissions" });
 });
 
-test("the pickers open from their trigger's right edge, with the check at the row's end", async () => {
+test("the pickers open from their trigger's left edge, with the check at the row's end", async () => {
   // A session pane at the window's left, with room on both sides of each
   // picker: the menu could open either way.
   await page.viewport(1200, 800);
@@ -335,11 +335,10 @@ test("the pickers open from their trigger's right edge, with the check at the ro
     await userEvent.click(picker);
     const list = page.getByRole("listbox");
     await expect.element(list).toBeVisible();
-    // The popup ends where its trigger ends, once it has grown in.
+    // The popup starts where its trigger starts, at the bar's start, once
+    // it has grown in.
     const popup = list.element().closest("[role=dialog]") ?? list.element().parentElement!;
-    await expect
-      .poll(() => Math.abs(box(popup).right - box(picker.element()).right))
-      .toBeLessThan(1);
+    await expect.poll(() => Math.abs(box(popup).left - box(picker.element()).left)).toBeLessThan(1);
     // The chosen row's check is the row's last thing, at its end.
     const chosen = list.getByRole("option", { selected: true }).element();
     const check = chosen.querySelector("[data-check]")!;

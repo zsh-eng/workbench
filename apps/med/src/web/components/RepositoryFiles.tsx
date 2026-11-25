@@ -58,11 +58,10 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
     controls,
   } = props;
   const [showLoading, setShowLoading] = useState(false);
+  // A load that ends hides its note at once; one that lasts shows it.
+  if (!loading && showLoading) setShowLoading(false);
   useEffect(() => {
-    if (!loading) {
-      setShowLoading(false);
-      return;
-    }
+    if (!loading) return;
     const timer = setTimeout(() => setShowLoading(true), 300);
     return () => clearTimeout(timer);
   }, [loading]);

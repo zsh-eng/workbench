@@ -26,7 +26,7 @@ import { Icon } from "../Icon";
 import { tooltip } from "../ToolButton";
 import { LinkedText } from "../FileRefs";
 import { Shimmer } from "../Shimmer";
-import { column, motion, rowStyles } from "./session-styles";
+import { column, floating, motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
 import { SidePanelCard, slim } from "./SessionSidePanel";
 import { Elapsed, formatDuration } from "./Elapsed";
@@ -36,14 +36,15 @@ import { TurnRecap, type TurnRecapProps } from "./TurnRecap";
 import type { SessionTurn } from "../../data/session-stream";
 import { ImageThumbs } from "./ImageThumbs";
 import { promptBlocks, type PromptBlock } from "./prompt-blocks";
+import { closeOpenQuote, summarizeQuote, type ReplyQuote } from "./reply-quote";
 import {
-  closeOpenQuote,
-  hasInlineQuotes,
-  splitInlineQuotes,
-  stripInlineQuotes,
-  summarizeQuote,
-  type ReplyQuote,
-} from "./reply-quote";
+  chipClick,
+  chipTitle,
+  splitChips,
+  withoutChips,
+  ChipActionsContext,
+  type PromptChip,
+} from "./prompt-chips";
 import { isSubagent, OpenAgentContext, RowOpen, ToolCall, useRowOpen } from "./ToolCall";
 import {
   finalReplies,
@@ -73,6 +74,7 @@ import { glideContent } from "./thread-glide";
 import { whenIdle } from "../../data/idle";
 import { closeOpenFence, hasPromptMarkdown, keepLineBreaks } from "../../markdown/user-markdown";
 import "./prose-styles";
+import "../chips.css";
 import "./PromptMarkdown.css";
 
 type AgentItem = Extract<SessionItem, { kind: "agent" }>;
@@ -225,9 +227,15 @@ function PromptText({
   const long = cut || measured;
   const folded = long && !open;
   const shown = folded && cut ? foldedParts(parts) : parts;
+  const chipActions = useContext(ChipActionsContext);
   return (
     <>
+      {/* A chip is a button; a click on one opens what it names. */}
+      {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
       <div
+        onClick={(event) => {
+          if (chipClick(event.target, chipActions, id)) event.stopPropagation();
+        }}
         ref={body}
         {...stylex.props(styles.promptBody, folded && styles.promptFolded(`${PROMPT_LINES}lh`))}
       >
@@ -241,9 +249,9 @@ function PromptText({
                 (at > 0 || images) && styles.userNext,
               )}
             >
-              <InlineQuotedText text={part.text} />
+              <ChipText text={part.text} />
             </blockquote>
-          ) : hasPromptMarkdown(stripInlineQuotes(part.text)) ? (
+          ) : hasPromptMarkdown(withoutChips(part.text)) ? (
             <div
               key={at}
               data-prompt-prose=""
@@ -255,13 +263,13 @@ function PromptText({
                 )}
                 streaming={false}
                 settled
-                inlineQuotes
+                promptChips
                 onOpenLink={onOpenLink}
               />
             </div>
           ) : (
             <p key={at} {...stylex.props(styles.userText, (at > 0 || images) && styles.userNext)}>
-              <InlineQuotedText text={folded && cut ? closeOpenQuote(part.text) : part.text} />
+              <ChipText text={folded && cut ? closeOpenQuote(part.text) : part.text} />
             </p>
           ),
         )}
@@ -283,22 +291,34 @@ function PromptText({
   );
 }
 
-/** Renders prompt text with inline `<quote>...</quote>` spans shown as
- * truncated badges in place, preserving position relative to surrounding text. */
-function InlineQuotedText({ text }: { text: string }) {
-  if (!hasInlineQuotes(text)) return <LinkedText text={text} />;
+/** A quote or a thread in a prompt's text, as a chip (prompt-chips.ts). */
+function ChipView({ chip }: { chip: PromptChip }) {
+  const data =
+    chip.kind === "quote"
+      ? { "data-chip": "quote", "data-quote": chip.text }
+      : { "data-chip": "thread", "data-thread": chip.id };
+  return (
+    <button type="button" className="med-chip" title={chipTitle(chip)} {...data}>
+      <span className="med-chip-icon">
+        <Icon name={chip.kind === "quote" ? "quote" : "sessions"} size={12} />
+      </span>
+      <span className="med-chip-label">{chip.label}</span>
+    </button>
+  );
+}
+
+/** Prompt text with its quotes and threads as chips, and its paths as file
+ * references, in place. */
+function ChipText({ text }: { text: string }) {
+  const segments = splitChips(text);
+  if (!segments.some((segment) => segment.kind === "chip")) return <LinkedText text={text} />;
   return (
     <>
-      {splitInlineQuotes(text).map((segment, index) =>
+      {segments.map((segment, index) =>
         segment.kind === "text" ? (
           <LinkedText key={index} text={segment.text} />
         ) : (
-          <span key={index} className="med-inline-quote" data-inline-quote="" title={segment.text}>
-            <span className="med-inline-quote-icon" aria-hidden="true">
-              “
-            </span>
-            <span className="med-inline-quote-text">{segment.preview}</span>
-          </span>
+          <ChipView key={index} chip={segment.chip} />
         ),
       )}
     </>
@@ -1318,11 +1338,10 @@ export function SessionThread({
   const stuck = useRef(true);
   const [showLoadingEarlier, setShowLoadingEarlier] = useState(false);
   const earlierLoading = !!earlier?.loading;
+  // A load that ends hides its note at once; one that lasts shows it.
+  if (!earlierLoading && showLoadingEarlier) setShowLoadingEarlier(false);
   useEffect(() => {
-    if (!earlierLoading) {
-      setShowLoadingEarlier(false);
-      return;
-    }
+    if (!earlierLoading) return;
     const timer = setTimeout(() => setShowLoadingEarlier(true), 300);
     return () => clearTimeout(timer);
   }, [earlierLoading]);
@@ -2562,7 +2581,11 @@ export function SessionThread({
                 </div>
               </div>
               {!agent && earlierLoading && showLoadingEarlier && (
-                <div role="status" data-loading-earlier="" {...stylex.props(styles.loadingPill)}>
+                <div
+                  role="status"
+                  data-loading-earlier=""
+                  {...stylex.props(floating.pill, styles.loadingPill)}
+                >
                   <span {...stylex.props(motion.spinner)} />
                   <span>Loading earlier work…</span>
                 </div>
@@ -2579,9 +2602,17 @@ export function SessionThread({
                 <button
                   type="button"
                   onClick={() => list.current?.toEnd(true)}
-                  {...stylex.props(styles.latest, footer !== undefined && styles.above(room + 6))}
+                  {...stylex.props(
+                    floating.pill,
+                    floating.button,
+                    floating.withIcon,
+                    styles.latest,
+                    footer !== undefined && styles.above(room + 6),
+                  )}
                 >
-                  <Icon name="arrowDown" size={12} />
+                  <span {...stylex.props(floating.icon)}>
+                    <Icon name="arrowDown" size={12} />
+                  </span>
                   Latest
                 </button>
               )}
@@ -2599,10 +2630,18 @@ export function SessionThread({
                     window.getSelection()?.removeAllRanges();
                     setSelectionQuote(null);
                   }}
-                  {...stylex.props(styles.quotePopover, styles.quoteAt(shownQuote.x, shownQuote.y))}
+                  {...stylex.props(
+                    floating.pill,
+                    floating.button,
+                    floating.withIcon,
+                    styles.quotePopover,
+                    styles.quoteAt(shownQuote.x, shownQuote.y),
+                  )}
                 >
-                  <Icon name="quote" size={12} />
-                  <span>Quote</span>
+                  <span {...stylex.props(floating.icon)}>
+                    <Icon name="quote" size={12} />
+                  </span>
+                  Quote
                 </button>
               )}
             </div>
@@ -3250,25 +3289,17 @@ const styles = stylex.create({
   },
   above: (bottom: number) => ({ bottom }),
   quoteAt: (left: number, top: number) => ({ left, top }),
+  // Floating pills share one look (floating, session-styles.ts); these place them.
   loadingPill: {
     position: "absolute",
     top: 10,
     insetInline: 0,
     marginInline: "auto",
     zIndex: 2,
-    display: "flex",
-    alignItems: "center",
     gap: 7,
     width: "fit-content",
-    height: 28,
-    boxSizing: "border-box",
-    paddingInline: 12,
-    borderRadius: 999,
-    backgroundColor: tokens.menu,
-    boxShadow: `${tokens.shadow}, inset 0 0 0 1px ${tokens.lineStrong}`,
     color: tokens.muted,
-    fontFamily: tokens.ui,
-    fontSize: 12,
+    fontWeight: 400,
     pointerEvents: "none",
   },
   latest: {
@@ -3277,24 +3308,6 @@ const styles = stylex.create({
     bottom: 12,
     marginInline: "auto",
     width: "fit-content",
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    height: 28,
-    boxSizing: "border-box",
-    paddingInline: 12,
-    borderWidth: 0,
-    borderRadius: 999,
-    backgroundColor: {
-      default: tokens.menu,
-      ":hover": `color-mix(in srgb, ${tokens.text} 8%, ${tokens.menu})`,
-    },
-    boxShadow: `${tokens.shadow}, inset 0 0 0 1px ${tokens.lineStrong}`,
-    color: tokens.text,
-    fontFamily: tokens.ui,
-    fontSize: 12,
-    cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
     zIndex: 4,
     animationName: { default: latestRise, "@media (prefers-reduced-motion: reduce)": "none" },
     animationDuration: "160ms",
@@ -3304,24 +3317,6 @@ const styles = stylex.create({
     position: "absolute",
     zIndex: 6,
     transform: "translate(-50%, -100%)",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 5,
-    height: 28,
-    paddingInline: 10,
-    borderWidth: 0,
-    borderRadius: 999,
-    backgroundColor: {
-      default: tokens.menu,
-      ":hover": `color-mix(in srgb, ${tokens.text} 8%, ${tokens.menu})`,
-    },
-    boxShadow: `${tokens.shadow}, inset 0 0 0 1px ${tokens.lineStrong}`,
-    color: tokens.text,
-    fontFamily: tokens.ui,
-    fontSize: 12,
-    fontWeight: 500,
-    cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
     animationName: { default: quotePop, "@media (prefers-reduced-motion: reduce)": "none" },
     animationDuration: "140ms",
     animationTimingFunction: tokens.easeOut,

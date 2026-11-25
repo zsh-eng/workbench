@@ -44,6 +44,7 @@ import { ToolButton } from "../ToolButton";
 import { paneHandle } from "../PaneTree";
 import { InTitleBand, useInTitleBand } from "../Workspaces";
 import { ComposerMeta, SessionComposer, type ComposerAttachment } from "./SessionComposer";
+import { ChipActionsContext, quotedItem, type ChipActions } from "./prompt-chips";
 import type { ReplyQuote } from "./reply-quote";
 import { countedSpend, UsageChip, type ShownContext } from "./ThreadUsage";
 import {
@@ -64,6 +65,7 @@ import { ReplyActionsContext, SessionThread, type ReplyActions } from "./Session
 import { FileRefsContext, type FileRefs } from "../FileRefs";
 import type { TurnRecapProps } from "./TurnRecap";
 import { useViewSetting, viewSettings } from "../../data/view-settings";
+import { openMedReview } from "./HandoffCard";
 import { column } from "./session-styles";
 import { useStreamedReplies, withStreamedReplies } from "./streamed-replies";
 
@@ -512,6 +514,18 @@ export function SessionPanel({
     },
     [root, onOpenPath],
   );
+  // A chip in a prompt opens what it names: the message that a quote came
+  // from, or another thread.
+  const chipActions = useMemo<ChipActions>(
+    () => ({
+      onQuote(text, from) {
+        const item = quotedItem(store.getSnapshot().items, text, from);
+        if (item) setReveal({ id: item.id, nonce: Date.now() });
+      },
+      onThread: (id) => openMedReview(id),
+    }),
+    [store],
+  );
   const sessionFileRefs = useMemo(
     () => (fileRefs ? { ...fileRefs, cwd: session.cwd || undefined } : null),
     [fileRefs, session.cwd],
@@ -620,29 +634,28 @@ export function SessionPanel({
           (message) =>
             message.sessionId === session.id && !outgoing.some((entry) => entry.id === message.id),
         )
-        .map(
-          (message): SentMessage =>
-            message.queued && message.delivery === "pending"
-              ? {
-                  ...message,
-                  edit: () => takeBack([message.id], true),
-                  remove: () => takeBack([message.id], false),
-                  ...(message.afterTurn && takesMidTurn && inbox?.sendNow
-                    ? {
-                        sendNow: () => {
-                          setTakeNote(undefined);
-                          inbox.sendNow!(message.id).catch((error: unknown) =>
-                            setTakeNote({
-                              text:
-                                error instanceof Error ? error.message : "Med did not send it now.",
-                              error: true,
-                            }),
-                          );
-                        },
-                      }
-                    : {}),
-                }
-              : message,
+        .map((message): SentMessage =>
+          message.queued && message.delivery === "pending"
+            ? {
+                ...message,
+                edit: () => takeBack([message.id], true),
+                remove: () => takeBack([message.id], false),
+                ...(message.afterTurn && takesMidTurn && inbox?.sendNow
+                  ? {
+                      sendNow: () => {
+                        setTakeNote(undefined);
+                        inbox.sendNow!(message.id).catch((error: unknown) =>
+                          setTakeNote({
+                            text:
+                              error instanceof Error ? error.message : "Med did not send it now.",
+                            error: true,
+                          }),
+                        );
+                      },
+                    }
+                  : {}),
+              }
+            : message,
         ) ?? []),
       ...outgoing.map((message): SentMessage => {
         const { input } = message;
@@ -913,30 +926,32 @@ export function SessionPanel({
           ) : (
             <div {...stylex.props(styles.thread)}>
               <ReplyActionsContext.Provider value={replyActions}>
-                <FileRefsContext.Provider value={sessionFileRefs}>
-                  <SessionThread
-                    snapshot={shown}
-                    loading={loading}
-                    earlier={earlier}
-                    reveal={reveal}
-                    openAgent={openAgent}
-                    turns={indexed}
-                    onTurn={(turn) => void showTurn(turn).catch(() => {})}
-                    recap={turnRecap}
-                    endMark={endMark}
-                    backgroundIn={side ? background : undefined}
-                    agentsIn={side ? agentsSlot : undefined}
-                    before={
-                      state.truncated && !pageable ? (
-                        <p {...stylex.props(styles.note)}>
-                          The session is long; the thread starts with its latest work.
-                        </p>
-                      ) : undefined
-                    }
-                    onOpenLink={openLink}
-                    footer={bottom}
-                  />
-                </FileRefsContext.Provider>
+                <ChipActionsContext.Provider value={chipActions}>
+                  <FileRefsContext.Provider value={sessionFileRefs}>
+                    <SessionThread
+                      snapshot={shown}
+                      loading={loading}
+                      earlier={earlier}
+                      reveal={reveal}
+                      openAgent={openAgent}
+                      turns={indexed}
+                      onTurn={(turn) => void showTurn(turn).catch(() => {})}
+                      recap={turnRecap}
+                      endMark={endMark}
+                      backgroundIn={side ? background : undefined}
+                      agentsIn={side ? agentsSlot : undefined}
+                      before={
+                        state.truncated && !pageable ? (
+                          <p {...stylex.props(styles.note)}>
+                            The session is long; the thread starts with its latest work.
+                          </p>
+                        ) : undefined
+                      }
+                      onOpenLink={openLink}
+                      footer={bottom}
+                    />
+                  </FileRefsContext.Provider>
+                </ChipActionsContext.Provider>
               </ReplyActionsContext.Provider>
             </div>
           )}

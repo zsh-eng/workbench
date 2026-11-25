@@ -313,13 +313,15 @@ describe("agent session", () => {
     });
     await page.getByRole("button", { name: "Show agent session" }).click();
     const panel = page.getByRole("region", { name: "Agent session" });
-    // The chip is under the message box, at its end, as in Claude Desktop;
-    // its name says its figures.
+    // The chip is in the message box's bar, before Send, as in Claude
+    // Desktop; its name says its figures.
     const chip = panel.getByRole("button", { name: "Context 31% full, $230.62 spent" });
     await expect.element(chip).toMatchTextContent("$230.62");
     const form = panel.getByRole("form", { name: "Message Claude" }).element();
-    expect(chip.element().getBoundingClientRect().top).toBeGreaterThan(
-      form.getBoundingClientRect().bottom - 1,
+    expect(form.contains(chip.element())).toBe(true);
+    const send = panel.getByRole("button", { name: "Send", exact: true }).element();
+    expect(chip.element().getBoundingClientRect().right).toBeLessThanOrEqual(
+      send.getBoundingClientRect().left,
     );
     expect(
       document.querySelector('[aria-label="Workspace"]')?.contains(chip.element()) ?? false,
@@ -614,11 +616,16 @@ describe("agent session", () => {
       .toBeVisible();
     await userEvent.keyboard("{Tab}");
     await expect.element(mentions).not.toBeInTheDocument();
-    // The box keeps short tokens, marked as chips.
+    // The box keeps short tokens, shown as chips with what each names.
     await expect.element(input).toHaveAttribute("data-value", "Read @alpha.ts and @Plan.md ");
-    expect([...document.querySelectorAll("form mark")].map((mark) => mark.textContent)).toEqual([
-      "@alpha.ts",
-      "@Plan.md",
+    expect(
+      [...document.querySelectorAll<HTMLElement>("form [data-mention-chip]")].map((chip) => [
+        chip.dataset.mentionChip,
+        chip.textContent,
+      ]),
+    ).toEqual([
+      ["file", "alpha.ts"],
+      ["note", "Plan.md"],
     ]);
     // Escape keeps a typed @ as text.
     await userEvent.keyboard("@be");
@@ -1001,10 +1008,10 @@ describe("agent session", () => {
     await userEvent.click(page.getByRole("button", { name: "Compact now" }));
     await expect.poll(() => agentMessages).toMatchObject([{ text: "/compact", afterTurn: true }]);
     await expect.element(page.getByRole("button", { name: "Compact now" })).not.toBeInTheDocument();
-    // Model, effort, and mode are pickers, not commands.
-    // They are under the message box, as in Claude Desktop.
+    // Model, effort, and mode are pickers, not commands, in the message
+    // box's bar, as in Claude Desktop.
     const model = page.getByRole("combobox", { name: "Model", exact: true });
-    expect(composer.element().contains(model.element())).toBe(false);
+    expect(composer.element().contains(model.element())).toBe(true);
     await expect.element(model).toHaveTextContent("Default");
     await userEvent.click(model);
     await page.getByRole("option", { name: "Haiku" }).click();

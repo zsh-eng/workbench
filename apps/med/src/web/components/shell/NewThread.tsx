@@ -6,7 +6,7 @@ import { createApi } from "../../data/api";
 import { readBrowserToken } from "../../data/auth";
 import type { AgentChoices, AgentOptions } from "../../../shared/owned-session";
 import { useAgentOptions, useAgentPresets } from "../../data/owned-session";
-import { tokens } from "../../theme.stylex";
+import { tokens, ui } from "../../theme.stylex";
 import { ActionMenu, FlipChoice, type Choice as Option } from "../Controls";
 import { ModelPicker } from "../ModelPicker";
 import { Icon, type IconName } from "../Icon";
@@ -18,6 +18,8 @@ import { findSources } from "../../data/setup";
 import type { BrowseSource } from "../../../shared/browse";
 import { readHistory } from "../../data/tabs";
 import { AddImagesButton, PromptImageList, usePromptImages } from "../session/PromptImages";
+import { composer } from "../session/session-styles";
+import { tooltip } from "../ToolButton";
 import { WhereToWork } from "./WhereToWork";
 
 const CLAUDE = "#d97757";
@@ -280,7 +282,7 @@ export function NewThread({
           onAdd={addFolder}
         />
         <div {...stylex.props(styles.composer)}>
-          <div {...stylex.props(styles.card)}>
+          <div {...stylex.props(composer.card, styles.card)}>
             {mentions.menu}
             {pictures.images.length > 0 && (
               <div {...stylex.props(styles.images)}>
@@ -326,7 +328,21 @@ export function NewThread({
               />
             </div>
             <div {...stylex.props(styles.tray)}>
-              <AddImagesButton onAdd={(files) => void pictures.add(files)} disabled={busy} />
+              <AddImagesButton
+                onAdd={(files) => void pictures.add(files)}
+                disabled={busy}
+                style={[composer.tool, composer.icon]}
+              />
+              <button
+                type="button"
+                aria-label="Start"
+                {...tooltip("Start the agent", "↵")}
+                disabled={!ready}
+                onClick={() => void start()}
+                {...stylex.props(ui.button, ui.iconButton, ui.pressable, composer.send)}
+              >
+                <Icon name="arrowUp" size={15} />
+              </button>
             </div>
           </div>
           <div {...stylex.props(styles.menus)}>
@@ -523,14 +539,6 @@ const styles = stylex.create({
     position: "relative",
     display: "flex",
     flexDirection: "column",
-    borderRadius: 12,
-    backgroundColor: tokens.canvas,
-    boxShadow: {
-      default: `0 0 0 1px ${tokens.line}, 0 8px 24px -12px #00000040`,
-      ":focus-within": `0 0 0 1px ${tokens.lineStrong}, 0 8px 24px -12px #00000040`,
-    },
-    transitionProperty: "box-shadow",
-    transitionDuration: "150ms",
   },
   editor: {
     boxSizing: "border-box",
@@ -543,9 +551,10 @@ const styles = stylex.create({
   // The composer's own buttons, under the text.
   tray: {
     display: "flex",
-    justifyContent: "flex-end",
-    paddingInline: 10,
-    paddingBottom: 10,
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingInline: 8,
+    paddingBottom: 8,
   },
   // One line of menus under the composer; wraps cleanly on narrow screens so
   // the model and worktree pickers never crush to a few pixels.

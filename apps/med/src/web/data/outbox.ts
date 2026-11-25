@@ -24,15 +24,24 @@ const OUTBOX = "med:outbox:";
  * without them, and says so. */
 const MOST_KEPT = 1_000_000;
 
-/** A message box's text, and the paths of its @ mentions. */
+/** A message box's text, and the paths of its @ mentions with what each
+ * names: a thread's path is its reference, which a draft keeps as it is. */
 export interface Draft {
   text: string;
-  mentions: { label: string; path: string }[];
+  mentions: { label: string; path: string; kind?: "file" | "note" | "thread" }[];
 }
 
 const draftSchema = z.object({
   text: z.string().max(1_000_000),
-  mentions: z.array(z.object({ label: z.string(), path: z.string() })).max(200),
+  mentions: z
+    .array(
+      z.object({
+        label: z.string(),
+        path: z.string(),
+        kind: z.enum(["file", "note", "thread"]).optional(),
+      }),
+    )
+    .max(200),
 });
 
 export function readDraft(key: string): Draft | undefined {

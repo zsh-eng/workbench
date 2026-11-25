@@ -139,9 +139,12 @@ off a review only if the user asks, or if the change is one to review.
 
 ## Threads and other agents
 
-`med thread list | open | close | send | pr | wait`, and `med thread find` /
-`adopt` to bring an earlier session into Med. Act only on threads the user
-names. To follow other threads, `med thread wait` waits until one needs the
+`med thread list | open | close | read | send | pr | wait`, and
+`med thread find` / `adopt` to bring an earlier session into Med. Act only on
+threads the user names. A message that names a thread, as
+“Title” (Med thread; read it with `med thread read <id>`), means that thread:
+run the command for its prompts and replies, whatever agent ran it, before
+you answer about it. `--last <n>` and `--all` read more of a long one. To follow other threads, `med thread wait` waits until one needs the
 user or finishes its work; its timeout is a check-in, so wait again rather
 than list in a loop.
 

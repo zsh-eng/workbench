@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { tokens } from "../../theme.stylex";
+import { floating } from "./session-styles";
 
 /** A request of the thread: where the reader is, and where they can go. */
 export interface ThreadPlace {
@@ -142,7 +143,12 @@ export function PlacePill({
             menu.current?.querySelector<HTMLElement>('[aria-current="true"]')?.focus();
           }
         }}
-        {...stylex.props(styles.pill, (hidden || (!visible && !open)) && styles.faded)}
+        {...stylex.props(
+          floating.pill,
+          floating.button,
+          styles.pill,
+          (hidden || (!visible && !open)) && styles.faded,
+        )}
       >
         <span {...stylex.props(styles.count)}>
           {shown + 1} of {places.length}
@@ -207,24 +213,11 @@ const styles = stylex.create({
     insetInline: 0,
     marginInline: "auto",
     zIndex: 2,
-    display: "flex",
-    alignItems: "center",
     gap: 8,
     width: "fit-content",
     maxWidth: "min(460px, calc(100% - 32px))",
-    height: 28,
-    boxSizing: "border-box",
-    paddingInline: 12,
-    borderWidth: 0,
-    borderRadius: 999,
-    backgroundColor: { default: tokens.menu, ":hover": tokens.fill },
-    boxShadow: `${tokens.shadow}, inset 0 0 0 1px ${tokens.lineStrong}`,
-    color: tokens.text,
-    fontFamily: tokens.ui,
-    fontSize: 12,
-    cursor: "pointer",
+    fontWeight: 400,
     opacity: 1,
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
   // It shows at once, and fades out.
   faded: {

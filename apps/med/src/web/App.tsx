@@ -875,10 +875,14 @@ export function App({
   const wantMentions = useCallback(() => setMentionRound((round) => round + 1), []);
   const vaults = useVaults(browseApi, filePickerOpen || vaultTab || mentionRound > 0);
   const readThreads = useThreadReader();
-  const ownThread = state.savedReview?.id;
+  // @ names other threads: not the one that the message box is in.
+  const ownThreads = useMemo(
+    () => new Set([threadId, state.savedReview?.id].filter((id): id is string => !!id)),
+    [threadId, state.savedReview?.id],
+  );
   const otherThreads = useCallback(
-    () => readThreads().filter((thread) => thread.id !== ownThread),
-    [readThreads, ownThread],
+    () => readThreads().filter((thread) => !ownThreads.has(thread.id)),
+    [readThreads, ownThreads],
   );
   // File references in the session link to the checkout's files, which the
   // workspace lists anyway; they open at their lines.
@@ -2650,13 +2654,11 @@ export function App({
             ),
             // The agent's comments come before the reader's: a note can answer
             // one, and then shows in its card (GuideThread).
-            ...guideNotes.map(
-              (note): DiffLineAnnotation<Annotation> => ({
-                side: note.side === "old" ? "deletions" : "additions",
-                lineNumber: noteLine(file.metadata, note),
-                metadata: { guide: note },
-              }),
-            ),
+            ...guideNotes.map((note): DiffLineAnnotation<Annotation> => ({
+              side: note.side === "old" ? "deletions" : "additions",
+              lineNumber: noteLine(file.metadata, note),
+              metadata: { guide: note },
+            })),
             ...notes
               .filter(
                 (note) =>
@@ -2666,13 +2668,11 @@ export function App({
                   note.resolution !== "stale" &&
                   !guideNotes.some((guide) => answersGuideNote(note, guide)),
               )
-              .map(
-                (note): DiffLineAnnotation<Annotation> => ({
-                  side: note.side === "old" ? "deletions" : "additions",
-                  lineNumber: noteLine(file.metadata, note),
-                  metadata: { note },
-                }),
-              ),
+              .map((note): DiffLineAnnotation<Annotation> => ({
+                side: note.side === "old" ? "deletions" : "additions",
+                lineNumber: noteLine(file.metadata, note),
+                metadata: { note },
+              })),
           ]
         : [];
       if (visibleDraft?.path === file.path)

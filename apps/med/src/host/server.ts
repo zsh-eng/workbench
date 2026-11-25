@@ -207,6 +207,7 @@ import {
 } from "../shared/agent-inbox";
 import type { SessionEvent } from "../shared/agent-session";
 import {
+  agentName,
   fileCommentMutationSchema,
   reviewKeySchema,
   savedReviewCreateSchema,
@@ -218,6 +219,7 @@ import {
   type SavedReviewCreate,
 } from "../shared/saved-review";
 import { defaultStateDirectory, getPersistentToken, publishConnection } from "./runtime/connection";
+import { readEnough, readTurns, threadText, transcriptEvents } from "./thread-read";
 import { medCommand } from "./runtime/med-command";
 import { ownedEnvironment, writeMedCommand } from "./thread-agents";
 import { lastSaid } from "../shared/comment-thread";
@@ -1594,6 +1596,46 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           );
           streams.set(response, eventRepo);
           response.once("close", () => streams.delete(response));
+          return;
+        }
+        // A thread as text, for another agent: `med thread read` (thread-read.ts).
+        const readRoute = /^\/api\/sessions\/([A-Za-z0-9_-]+)\/read$/.exec(url.pathname);
+        if (readRoute && request.method === "GET") {
+          const threadId = readRoute[1]!;
+          const session = await requireSession(threadId);
+          const last = url.searchParams.get("last");
+          const choice = {
+            ...(last !== null
+              ? { last: z.coerce.number().int().min(1).max(10_000).parse(last) }
+              : {}),
+            ...(url.searchParams.get("all") === "1" ? { all: true } : {}),
+          };
+          let read: { events: SessionEvent[]; complete: boolean };
+          if (session.agent === "acp")
+            read = { events: await ownedSessions.events(session.id), complete: true };
+          else {
+            const path = await findTranscript(session);
+            if (!path)
+              throw new HostError(
+                "transcript-not-found",
+                "The session's transcript is not on this computer.",
+                404,
+              );
+            read = await transcriptEvents(session, path, (events) => readEnough(events, choice));
+          }
+          const entry = threads.entry(threadId);
+          const text = threadText(
+            readTurns(read.events),
+            {
+              title: entry?.name ?? entry?.title ?? "Thread",
+              agent: agentName(session),
+              cwd: session.cwd,
+              command: `med thread read ${threadId}`,
+            },
+            choice,
+            read.complete,
+          );
+          send({ text });
           return;
         }
         // Earlier work of a long session: a page before a byte offset, and the

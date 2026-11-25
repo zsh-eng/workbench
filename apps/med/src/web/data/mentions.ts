@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import type { BrowseEntry } from "../../shared/browse";
 import type { Thread } from "../../shared/threads";
 import { useVaultsFiles, type BrowseApi, type Vault } from "./browse";
@@ -25,14 +25,35 @@ export interface MentionSources {
   /** The most recent first, read when @ lists them, so the list does not
    * render the message box again each time a thread changes. */
   threads(): readonly Thread[];
-  /** The absolute path that names a thread to an agent: its session's transcript. */
-  resolveThread(thread: Thread): Promise<string>;
 }
-/** A mention in the message box: its token, and the path that replaces it. */
+/** A mention in the message box: its token, and the text that replaces it:
+ * a file's absolute path, or a thread's reference (threadReference). */
 export interface Mention {
   label: string;
   path: string | Promise<string>;
+  kind?: MentionKind;
 }
+
+/**
+ * How a message names a thread to its agent: its title, and the command that
+ * prints it, whatever agent ran it (`med thread read`, the med skill). The
+ * thread shows the same text as the thread's chip (threadMentionPattern).
+ */
+export const threadReference = (thread: Pick<Thread, "id" | "title">) =>
+  `“${thread.title
+    .replace(/[“”]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()}” (Med thread; read it with \`med thread read ${thread.id}\`)`;
+
+/** What a mention names. A draft kept before mentions had a kind knows a
+ * thread by its reference. */
+export const mentionKind = (mention: Mention): MentionKind =>
+  mention.kind ??
+  (typeof mention.path === "string" && mention.path.startsWith("“") ? "thread" : "file");
+
+/** A thread's reference in a sent message: its title, then its ID. */
+export const threadMentionPattern =
+  /“([^“”\n]{1,300})” \(Med thread; read it with `med thread read ([A-Za-z0-9_-]{1,200})`\)/g;
 
 const MARKDOWN = /\.(?:md|markdown|mdown|mkd)$/i;
 const join = (root: string, path: string) => `${root.replace(/\/+$/, "")}/${path}`;
@@ -134,20 +155,20 @@ export function startsWithMention(query: string, mentions: readonly Mention[]) {
 
 /** The parts of the text, with the tokens of its mentions marked. */
 export function mentionParts(text: string, mentions: readonly Mention[]) {
-  const marks: { start: number; end: number }[] = [];
+  const marks: { start: number; end: number; mention: Mention }[] = [];
   for (const mention of mentions)
     for (const match of text.matchAll(tokenPattern(mention.label)))
-      marks.push({ start: match.index, end: match.index + match[0].length });
+      marks.push({ start: match.index, end: match.index + match[0].length, mention });
   marks.sort((a, b) => a.start - b.start || b.end - a.end);
-  const parts: { text: string; mention: boolean }[] = [];
+  const parts: { text: string; mention?: Mention }[] = [];
   let at = 0;
   for (const mark of marks) {
     if (mark.start < at) continue;
-    if (mark.start > at) parts.push({ text: text.slice(at, mark.start), mention: false });
-    parts.push({ text: text.slice(mark.start, mark.end), mention: true });
+    if (mark.start > at) parts.push({ text: text.slice(at, mark.start) });
+    parts.push({ text: text.slice(mark.start, mark.end), mention: mark.mention });
     at = mark.end;
   }
-  if (at < text.length) parts.push({ text: text.slice(at), mention: false });
+  if (at < text.length) parts.push({ text: text.slice(at) });
   return parts;
 }
 
@@ -160,23 +181,10 @@ export async function expandMentions(text: string, mentions: readonly Mention[])
     const pattern = tokenPattern(mention.label);
     if (!pattern.test(message)) continue;
     const path = await mention.path;
-    const quoted = /\s/.test(path) ? `\`${path}\`` : path;
+    const quoted = mentionKind(mention) !== "thread" && /\s/.test(path) ? `\`${path}\`` : path;
     message = message.replace(tokenPattern(mention.label), () => quoted);
   }
   return message;
-}
-
-/** The absolute path that names a thread to an agent: its session's
- * transcript, or else its checkout. */
-export async function threadPath(api: BrowseApi, thread: Thread) {
-  const session = thread.session;
-  const transcript =
-    session && session.agent !== "acp" && api.transcript
-      ? await api.transcript(thread.id).catch(() => undefined)
-      : undefined;
-  const path = transcript ?? thread.checkout;
-  if (!path) throw new Error("This thread has no transcript or checkout on this computer.");
-  return path;
 }
 
 /** What @ names in a message box: a checkout's files, the vaults' notes, and
@@ -189,9 +197,5 @@ export function useMentionSources(
   round: number,
 ): MentionSources {
   const notes = useVaultsFiles(api, vaults, round);
-  const resolveThread = useCallback((thread: Thread) => threadPath(api, thread), [api]);
-  return useMemo(
-    () => ({ files, notes, threads, resolveThread }),
-    [files, notes, threads, resolveThread],
-  );
+  return useMemo(() => ({ files, notes, threads }), [files, notes, threads]);
 }

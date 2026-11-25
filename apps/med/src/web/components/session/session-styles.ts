@@ -89,3 +89,80 @@ export const column = stylex.create({
    * its text keeps to the thread's edge, as a card in Settings does. */
   bar: { marginInline: `max(12px, calc((100% - ${COLUMN}px) / 2 + 12px))` },
 });
+
+/** A pill that floats over the thread: Latest, Quote, the request in view,
+ * and Loading earlier work. One surface, one height, one type. */
+export const floating = stylex.create({
+  pill: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    height: 28,
+    boxSizing: "border-box",
+    paddingInline: 12,
+    borderWidth: 0,
+    borderRadius: 999,
+    backgroundColor: tokens.menu,
+    boxShadow: `${tokens.shadow}, inset 0 0 0 1px ${tokens.lineStrong}`,
+    color: tokens.text,
+    fontFamily: tokens.ui,
+    fontSize: 12,
+    fontWeight: 500,
+    lineHeight: 1,
+    whiteSpace: "nowrap",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
+  button: {
+    cursor: "pointer",
+    backgroundColor: {
+      default: tokens.menu,
+      ":hover": `color-mix(in srgb, ${tokens.text} 7%, ${tokens.menu})`,
+    },
+    transitionProperty: "background-color",
+    transitionDuration: "140ms",
+    transitionTimingFunction: tokens.easeOut,
+  },
+  // An icon before the label: the pill's left edge is as far from the icon
+  // as the label's right edge is from the pill's.
+  withIcon: { paddingInlineStart: 10 },
+  icon: { display: "flex", flexShrink: 0, color: tokens.muted },
+});
+
+/** The message box: the thread's and the new thread's. A card above the
+ * page, a hairline that firms while it has the focus, and a soft shadow
+ * under it. Its tools sit in its own bottom bar. */
+export const composer = stylex.create({
+  card: {
+    borderRadius: `calc(16px * ${tokens.round})`,
+    // Lifted in both: the raised surface in a dark theme, the page's own
+    // white in a light one, where a grey would read as a well.
+    backgroundColor: tokens.menu,
+    boxShadow: {
+      default: `0 0 0 1px ${tokens.line}, 0 1px 2px #0000001a, 0 10px 28px -16px #00000066`,
+      ":focus-within": `0 0 0 1px ${tokens.lineStrong}, 0 1px 2px #0000001a, 0 10px 28px -16px #00000066`,
+    },
+    transitionProperty: "box-shadow",
+    transitionDuration: "160ms",
+    transitionTimingFunction: tokens.easeOut,
+  },
+  // A quiet control in the bar: an icon, or a picker's name.
+  tool: {
+    minHeight: 30,
+    height: 30,
+    borderRadius: 999,
+    fontSize: 12.5,
+  },
+  icon: { width: 30, minWidth: 30, paddingInline: 0 },
+  send: {
+    width: 30,
+    minWidth: 30,
+    minHeight: 30,
+    height: 30,
+    borderRadius: 999,
+    color: { default: tokens.primaryText, ":hover:not(:disabled)": tokens.primaryText },
+    backgroundColor: {
+      default: tokens.primary,
+      ":hover:not(:disabled)": `color-mix(in srgb, ${tokens.primary} 86%, ${tokens.canvas})`,
+    },
+  },
+});

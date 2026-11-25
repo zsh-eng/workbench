@@ -216,8 +216,9 @@ test("A Claude Code session that started before Med's autocompact compacts past 
   const { api, home, start } = await fixture();
   const claude = await start("claude");
   const ready = await claude.until((state) => state.status === "idle" && state.commands.length > 0);
-  // Claude Code's list leaves out its built-in commands; Med offers /compact.
-  expect(ready.commands.map((command) => command.name)).toEqual(["review", "compact"]);
+  // Claude Code's own commands, then its built-ins; its list leaves out
+  // /compact, which Med offers.
+  expect(ready.commands.map((command) => command.name)).toEqual(["review", "clear", "compact"]);
   const boundaries = async () =>
     (
       await readFile(join(home, ".claude", "projects", "-fake-repo", `${claude.id}.jsonl`), "utf8")

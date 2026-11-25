@@ -649,7 +649,14 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   expect(box.bottom).toBeLessThan(dialog.element().getBoundingClientRect().height * 0.8);
   expect(model.element().getBoundingClientRect().top).toBeGreaterThanOrEqual(box.bottom);
   expect(box.right - model.element().getBoundingClientRect().right).toBeLessThan(16);
-  await expect.element(dialog.getByRole("button", { name: /^Start/ })).not.toBeInTheDocument();
+  // The task's bar, as a thread's message box: images at its start, and
+  // Start at its end, which Enter also does.
+  const start = dialog.getByRole("button", { name: "Start", exact: true });
+  await expect.element(start).toBeEnabled();
+  expect(start.element().getBoundingClientRect().top).toBeGreaterThanOrEqual(box.bottom - 1);
+  expect(start.element().getBoundingClientRect().bottom).toBeLessThan(
+    model.element().getBoundingClientRect().top,
+  );
   // An image pastes into the task, as into a thread's message box, and goes
   // with it; × takes one back.
   await expect.element(dialog.getByRole("button", { name: "Add images" })).toBeVisible();

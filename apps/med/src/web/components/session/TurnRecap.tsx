@@ -134,11 +134,8 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     gap: 10,
-    marginTop: 14,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: tokens.line,
+    // Under the turn's "Worked" rule, which already closes the turn.
+    marginTop: 12,
     fontFamily: tokens.ui,
   },
   // Seen: out of sight, in the same place, so nothing in the thread moves.

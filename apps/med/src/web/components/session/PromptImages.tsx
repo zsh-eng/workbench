@@ -137,9 +137,11 @@ export function PromptImageList({
 export function AddImagesButton({
   onAdd,
   disabled,
+  style,
 }: {
   onAdd(files: File[]): void;
   disabled?: boolean;
+  style?: stylex.StyleXStyles;
 }) {
   const input = useRef<HTMLInputElement>(null);
   return (
@@ -161,9 +163,9 @@ export function AddImagesButton({
         {...tooltip("Add images, or paste them")}
         disabled={disabled}
         onClick={() => input.current?.click()}
-        {...stylex.props(ui.button, ui.iconButton, styles.attach)}
+        {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.attach, style)}
       >
-        <Icon name="image" size={15} />
+        <Icon name="plus" size={15} />
       </button>
     </>
   );

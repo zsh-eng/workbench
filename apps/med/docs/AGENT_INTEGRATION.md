@@ -491,6 +491,8 @@ med thread open claude-5f0c…             # opens an archived thread as a tab
 med thread close claude-5f0c…            # archives a tab; its agent keeps working
 med thread close --key "$MED_THREAD_KEY" --remove-worktree
 med thread reopen                        # opens the tab that closed last
+med thread read claude-5f0c…             # prints the thread as Markdown: prompts, replies, tools
+med thread read claude-5f0c… --last 3    # its last 3 turns; --all prints every turn
 med thread delete claude-5f0c…           # deletes the thread with its reviews and their comments
 med thread pr claude-5f0c… https://github.com/owner/repo/pull/333
                                          # adds the pull request as one more review of the thread
@@ -511,6 +513,13 @@ repository, hand off a review with that checkout's `--repo` and its own
 `--key`, or name the branch in your message. A fork of a session (**Continue
 in Med**, **Fork from here**) starts in Auto permission mode, whatever the
 mode of the session that it forks.
+
+A message that names another thread with `@` reads, in its text,
+``“Title” (Med thread; read it with `med thread read <id>`)``: run that command
+before you answer. It prints the thread, whichever agent ran it, as Markdown:
+each prompt, the agent's replies, and a line of each turn's tools. Without a
+choice it prints the newest turns that fit in about 10,000 tokens and says
+when it leaves earlier ones out.
 
 The lines have tabs between the fields. The state is, as `⌘0` ranks them,
 `needs-you` (a permission request, a question, or work that stopped), `done`

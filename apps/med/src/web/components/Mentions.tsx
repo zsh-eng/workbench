@@ -14,6 +14,7 @@ import {
   findMentions,
   mentionLabel,
   startsWithMention,
+  threadReference,
   type Mention,
   type MentionCandidate,
   type MentionSources,
@@ -87,21 +88,11 @@ export function useMentions({
     const start = caret - at[0].length + (at[0].startsWith("@") ? 0 : 1);
     const token = `@${label} `;
     setText(text.slice(0, start) + token + text.slice(caret));
-    const thread = candidate.thread;
-    const path =
-      candidate.path ??
-      sources.resolveThread(thread!).catch(() => thread!.checkout ?? candidate.name);
+    const path = candidate.path ?? threadReference(candidate.thread!);
     setMentioned((current) => [
       ...current.filter((entry) => entry.label !== label),
-      { label, path },
+      { label, path, kind: candidate.kind },
     ]);
-    // A thread's path comes later; the mention keeps it, so a draft can too.
-    if (typeof path !== "string")
-      void path.then((resolved) =>
-        setMentioned((current) =>
-          current.map((entry) => (entry.path === path ? { label, path: resolved } : entry)),
-        ),
-      );
     placeCaret.current = start + token.length;
     setCaret(start + token.length);
     setHighlight(0);
@@ -204,7 +195,7 @@ export function useMentions({
     expand: (message: string) => expandMentions(message, mentioned),
     /** The chosen mentions whose paths Med has. */
     known: mentioned.filter(
-      (entry): entry is { label: string; path: string } => typeof entry.path === "string",
+      (entry): entry is Mention & { path: string } => typeof entry.path === "string",
     ),
     clear: () => setMentioned([]),
   };

@@ -550,9 +550,15 @@ checkout, a note in a registered vault, or another thread. A query can have
 spaces, as note names do. The best match comes first; `↵` or `Tab` adds it, and
 `Esc` keeps the `@` as text. The list opens over the page above the box, so the
 box keeps its size; the `/` commands do the same. The box shows a short name as
-a chip,
-and the agent gets the absolute path, which it reads itself: a file's or a
-note's path, or another thread's session transcript.
+a chip. The agent gets a file's or a note's absolute path, which it reads
+itself, and another thread as its title and the command that prints it,
+`med thread read <id>`, which reads any agent's thread, Claude Code's, Codex's,
+Pi's, or an ACP agent's.
+
+A sent message shows the same chips: a quoted passage, a thread, and a file
+by its absolute path. A click on one opens what it names: the reply or prompt
+that the quote came from, the other thread, or the file beside the thread. A
+file outside the thread's folder is a chip that opens nothing.
 
 Paste or drop images into the message box, or use its image button. Claude
 Code and ACP agents that take images get them with the message, up to ten of 5

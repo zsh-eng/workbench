@@ -27,7 +27,7 @@ import {
   medDashboardPath,
   openDashboardPath,
 } from "./DashboardLinkCard";
-import { protectInlineQuotes } from "./reply-quote";
+import { decorateChips, protectChips } from "./prompt-chips";
 import "../MarkdownPreview.css";
 
 /**
@@ -40,7 +40,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   text,
   streaming,
   settled = false,
-  inlineQuotes = false,
+  promptChips = false,
   imageRepo,
   onOpenLink,
   at,
@@ -51,8 +51,8 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   /** A streamed reply's text is whole: its render is kept for the
    * transcript's copy, which then shows at once. */
   settled?: boolean;
-  /** Renders inline `<quote>...</quote>` spans as compact badges (for user prompts). */
-  inlineQuotes?: boolean;
+  /** A prompt's quotes and threads show as chips (prompt-chips.ts). */
+  promptChips?: boolean;
   /** The checkout that an image's relative path starts from. A thread loads no images. */
   imageRepo?: string;
   /** A link to a file in the repository, such as src/summary.ts:5. */
@@ -62,8 +62,8 @@ export const SessionMarkdown = memo(function SessionMarkdown({
 }) {
   const { active: theme } = useTheme();
   const protectedInput = useMemo(
-    () => (inlineQuotes ? protectInlineQuotes(text) : null),
-    [inlineQuotes, text],
+    () => (promptChips ? protectChips(text) : null),
+    [promptChips, text],
   );
   const renderText = protectedInput ? protectedInput.text : text;
   const [rendered, setRendered] = useState<MarkdownResult>();
@@ -81,8 +81,8 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   const refBlocks = useFileRefBlocks(result?.blocks);
   const blocks = useMemo(
     () =>
-      protectedInput && protectedInput.quotes.size > 0 && refBlocks
-        ? decorateInlineQuotes(refBlocks, protectedInput.quotes)
+      protectedInput && protectedInput.chips.size > 0 && refBlocks
+        ? decorateChips(refBlocks, protectedInput.chips)
         : refBlocks,
     [protectedInput, refBlocks],
   );
@@ -273,30 +273,6 @@ function useReveal(
       node.children[index]?.classList.add("med-reveal");
     });
   }, [host, blocks, streaming]);
-}
-
-const escapeAttr = (value: string) =>
-  value
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-
-/** Restores protected inline `<quote>` placeholder tokens in rendered
- * user-prompt HTML as compact inline quote badges. */
-function decorateInlineQuotes(
-  blocks: readonly MarkdownResult["blocks"][number][],
-  quotes: ReadonlyMap<string, { full: string; preview: string }>,
-): MarkdownResult["blocks"][number][] {
-  return blocks.map((block) => {
-    let html = block.html;
-    for (const [token, { full, preview }] of quotes) {
-      if (!html.includes(token)) continue;
-      const badge = `<span class="med-inline-quote" data-inline-quote="" title="${escapeAttr(full)}"><span class="med-inline-quote-icon" aria-hidden="true">“</span><span class="med-inline-quote-text">${escapeAttr(preview)}</span></span>`;
-      html = html.replaceAll(token, badge);
-    }
-    return html === block.html ? block : { ...block, html };
-  });
 }
 
 const dashboardLinks = new Map<string, { path: string; text: string } | null>();

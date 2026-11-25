@@ -36,7 +36,7 @@ import type { MentionSources } from "../../data/mentions";
 import { readDraft, writeDraft } from "../../data/outbox";
 import { optionChoice } from "../../data/owned-session";
 import { ModelPicker } from "../ModelPicker";
-import { column } from "./session-styles";
+import { column, composer } from "./session-styles";
 import { insertInlineQuote } from "./reply-quote";
 import { useViewSetting, viewSettings } from "../../data/view-settings";
 
@@ -439,6 +439,67 @@ export function SessionComposer({
         ? `${name} stopped. Start a new session to continue.`
         : (owned?.state.error ?? openThere);
 
+  // What Med's runner can change, in the box's bar: the model and its level
+  // as one picker, and the mode.
+  const pickers = owned && settings.length > 0 && (
+    <div {...stylex.props(styles.pickers)}>
+      {settings.map((setting) => {
+        const model = settings.find((entry) => entry.category === "model");
+        const level = settings.find((entry) => entry.category === "effort");
+        // The model and its level are one picker; other settings,
+        // such as the mode, keep a menu each.
+        if (setting === level && model) return null;
+        if (setting === model)
+          return (
+            <ModelPicker
+              key={setting.id}
+              label={setting.name}
+              models={setting.options.map((option) => ({
+                value: option.value,
+                name: optionChoice(option).label,
+                ...(option.group ? { group: option.group } : {}),
+              }))}
+              model={setting.value}
+              onModel={(value) => choose(setting, value)}
+              {...(level
+                ? {
+                    levels: {
+                      label: level.name,
+                      value: level.value,
+                      options: level.options.map((option) => ({
+                        value: option.value,
+                        name: optionChoice(option).label,
+                      })),
+                      onChange: (value: string) => choose(level, value),
+                      disabled: stopped || (level.idleOnly && working),
+                    },
+                  }
+                : {})}
+              side="top"
+              align="start"
+              disabled={stopped || (setting.idleOnly && working)}
+              trigger={styles.picker}
+            />
+          );
+        return (
+          <ChoiceSelect
+            key={setting.id}
+            label={setting.name}
+            value={setting.value}
+            choices={setting.options.map(optionChoice)}
+            // The pickers sit at the bar's start, so each menu lines up
+            // with its trigger's left edge and opens upward over the thread.
+            align="start"
+            side="top"
+            disabled={stopped || (setting.idleOnly && working)}
+            onChange={(value) => choose(setting, value)}
+            trigger={styles.picker}
+          />
+        );
+      })}
+    </div>
+  );
+
   // A session that a terminal or another app has open: no box, since Med
   // can't type there. One centred line says where, beside a fork that Med
   // runs; context and spend stay where they are under a box.
@@ -567,7 +628,7 @@ export function SessionComposer({
           event.preventDefault();
           void send();
         }}
-        {...stylex.props(styles.box, column.bar)}
+        {...stylex.props(composer.card, styles.box, column.bar)}
       >
         <PromptImageList images={pictures.images} onRemove={pictures.remove} />
         {(drafts.length > 0 || attachments.length > 0) && (
@@ -743,8 +804,8 @@ export function SessionComposer({
             matches.length ? `${menuId}-${active}` : mentions.ariaActiveDescendant
           }
           ariaAutoComplete={owned || mentionSources ? "list" : undefined}
-          minHeight={40}
-          maxHeight={200}
+          minHeight={44}
+          maxHeight={220}
           onChange={(next, pos) => {
             setText(next);
             mentions.changed(pos);
@@ -768,6 +829,14 @@ export function SessionComposer({
           </span>
         )}
         <div {...stylex.props(styles.footer)}>
+          <div {...stylex.props(styles.tools)}>
+            <AddImagesButton
+              onAdd={(files) => void pictures.add(files)}
+              disabled={stopped}
+              style={[composer.tool, composer.icon]}
+            />
+            {pickers}
+          </div>
           {/* Empty until a send fails; it keeps the buttons at the end. */}
           {!owned && (
             <span role="status" {...stylex.props(styles.status, error !== null && styles.error)}>
@@ -776,7 +845,7 @@ export function SessionComposer({
           )}
           {/* The buttons stay together, at the end, when the line wraps. */}
           <div {...stylex.props(styles.actions)}>
-            <AddImagesButton onAdd={(files) => void pictures.add(files)} disabled={stopped} />
+            {usage}
             {working && (
               <button
                 type="button"
@@ -787,10 +856,10 @@ export function SessionComposer({
                   ui.button,
                   ui.iconButton,
                   ui.pressable,
-                  empty ? styles.send : styles.stopBeside,
+                  empty ? composer.send : [composer.send, styles.stopBeside],
                 )}
               >
-                <Icon name="stop" size={14} />
+                <Icon name="stop" size={13} />
               </button>
             )}
             {/* While the agent works, the message goes at its next step, or
@@ -816,78 +885,14 @@ export function SessionComposer({
                         : "⇧⌘↵ queues it for the turn's end;\n↑ takes it back",
                 )}
                 disabled={empty || stopped}
-                {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.send)}
+                {...stylex.props(ui.button, ui.iconButton, ui.pressable, composer.send)}
               >
-                <Icon name={queues() ? "clock" : "arrowUp"} size={14} />
+                <Icon name={queues() ? "clock" : "arrowUp"} size={15} />
               </button>
             )}
           </div>
         </div>
       </form>
-      {/* Under the box: what Med's runner can change, and the thread's
-          context and spend. */}
-      {((owned && settings.length > 0) || usage) && (
-        <ComposerMeta>
-          {owned && (
-            <div {...stylex.props(styles.pickers)}>
-              {settings.map((setting) => {
-                const model = settings.find((entry) => entry.category === "model");
-                const level = settings.find((entry) => entry.category === "effort");
-                // The model and its level are one picker; other settings,
-                // such as the mode, keep a menu each.
-                if (setting === level && model) return null;
-                if (setting === model)
-                  return (
-                    <ModelPicker
-                      key={setting.id}
-                      label={setting.name}
-                      models={setting.options.map((option) => ({
-                        value: option.value,
-                        name: optionChoice(option).label,
-                        ...(option.group ? { group: option.group } : {}),
-                      }))}
-                      model={setting.value}
-                      onModel={(value) => choose(setting, value)}
-                      {...(level
-                        ? {
-                            levels: {
-                              label: level.name,
-                              value: level.value,
-                              options: level.options.map((option) => ({
-                                value: option.value,
-                                name: optionChoice(option).label,
-                              })),
-                              onChange: (value: string) => choose(level, value),
-                              disabled: stopped || (level.idleOnly && working),
-                            },
-                          }
-                        : {})}
-                      side="top"
-                      disabled={stopped || (setting.idleOnly && working)}
-                      trigger={styles.picker}
-                    />
-                  );
-                return (
-                  <ChoiceSelect
-                    key={setting.id}
-                    label={setting.name}
-                    value={setting.value}
-                    choices={setting.options.map(optionChoice)}
-                    // The pickers sit at the row's end, so each menu lines up
-                    // with its trigger's right edge and opens upward over the composer.
-                    align="end"
-                    side="top"
-                    disabled={stopped || (setting.idleOnly && working)}
-                    onChange={(value) => choose(setting, value)}
-                    trigger={styles.picker}
-                  />
-                );
-              })}
-            </div>
-          )}
-          {usage}
-        </ComposerMeta>
-      )}
     </>
   );
 }
@@ -921,39 +926,41 @@ const styles = stylex.create({
     flexShrink: 0,
     display: "flex",
     flexDirection: "column",
-    gap: 6,
+    gap: 8,
     marginInline: 12,
     marginBottom: 12,
-    paddingTop: 8,
-    paddingBottom: 6,
-    paddingInline: 10,
-    borderRadius: `calc(12px * ${tokens.round})`,
-    backgroundColor: tokens.raised,
-    boxShadow: {
-      default: `inset 0 0 0 1px ${tokens.line}`,
-      ":focus-within": `inset 0 0 0 1px ${tokens.accentLine}`,
-    },
+    paddingTop: 12,
+    paddingBottom: 8,
+    paddingInline: 14,
   },
   chips: { display: "flex", flexWrap: "wrap", gap: 4 },
+  // As a prompt's chips (chips.css): neutral, the icon saying what it is.
   chip: {
     display: "inline-flex",
     alignItems: "center",
     gap: 5,
     maxWidth: "100%",
-    height: 22,
+    height: 24,
+    boxSizing: "border-box",
     paddingInline: 8,
     borderWidth: 0,
-    borderRadius: 999,
-    backgroundColor: tokens.fill,
+    borderRadius: `calc(7px * ${tokens.round})`,
+    backgroundColor: {
+      default: `color-mix(in srgb, ${tokens.text} 7%, transparent)`,
+      ":hover": `color-mix(in srgb, ${tokens.text} 12%, transparent)`,
+    },
+    boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${tokens.text} 8%, transparent)`,
     color: tokens.muted,
     fontFamily: tokens.ui,
-    fontSize: 11.5,
+    fontSize: 12,
+    fontWeight: 450,
     cursor: "pointer",
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
-  chipOn: { backgroundColor: tokens.accentSoft, color: tokens.accent },
+  chipOn: { color: tokens.text },
   sendComments: {
     marginInlineStart: "auto",
+    boxShadow: "none",
     backgroundColor: { default: "transparent", ":hover": tokens.accentSoft },
     color: tokens.accent,
     fontWeight: 500,
@@ -1053,7 +1060,27 @@ const styles = stylex.create({
     outline: "none",
     "::placeholder": { color: tokens.faint },
   },
-  footer: { display: "flex", alignItems: "center", gap: 8 },
+  // The box's bar: images and the pickers at its start, context and send at
+  // its end. The ghost buttons reach past the text's edge by their padding,
+  // so their icons and names line up with it.
+  footer: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    columnGap: 8,
+    rowGap: 4,
+    marginInlineStart: -8,
+    marginInlineEnd: -6,
+  },
+  tools: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: "auto",
+    minWidth: 0,
+    display: "flex",
+    alignItems: "center",
+    gap: 2,
+  },
   // Under the box, at its end: the pickers, then context and spend.
   meta: {
     display: "flex",
@@ -1071,19 +1098,20 @@ const styles = stylex.create({
     flexShrink: 1,
     minWidth: 0,
     display: "flex",
-    flexWrap: "wrap",
     alignItems: "center",
     gap: 2,
   },
   picker: {
     flexShrink: 1,
     minWidth: 0,
-    maxWidth: 160,
-    minHeight: 24,
-    paddingInlineStart: 6,
+    maxWidth: 180,
+    height: 30,
+    minHeight: 30,
+    paddingInlineStart: 10,
+    borderRadius: 999,
     color: tokens.muted,
-    fontSize: 11.5,
-    fontWeight: 400,
+    fontSize: 12.5,
+    fontWeight: 450,
   },
   ownedStatus: { flex: "none", whiteSpace: "normal" },
   // A session that a terminal or another app has open: one centred line
@@ -1123,7 +1151,7 @@ const styles = stylex.create({
   actions: {
     display: "flex",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
     flexShrink: 0,
     marginInlineStart: "auto",
   },
@@ -1226,24 +1254,9 @@ const styles = stylex.create({
     textOverflow: "ellipsis",
   },
   error: { color: tokens.red, whiteSpace: "normal" },
-  send: {
-    width: 26,
-    minWidth: 26,
-    minHeight: 26,
-    borderRadius: 999,
-    color: { default: tokens.primaryText, ":hover:not(:disabled)": tokens.primaryText },
-    backgroundColor: {
-      default: tokens.primary,
-      ":hover:not(:disabled)": `color-mix(in srgb, ${tokens.primary} 86%, ${tokens.canvas})`,
-    },
-  },
   // Stop beside Queue, while the agent works and the box has a message.
   stopBeside: {
-    width: 26,
-    minWidth: 26,
-    minHeight: 26,
-    borderRadius: 999,
-    color: tokens.text,
-    backgroundColor: { default: tokens.fillStrong, ":hover": tokens.pick },
+    color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
+    backgroundColor: { default: tokens.fillStrong, ":hover:not(:disabled)": tokens.pick },
   },
 });

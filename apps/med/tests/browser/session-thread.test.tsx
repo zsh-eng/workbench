@@ -2,6 +2,11 @@ import { afterEach, expect, test } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { HandoffContext } from "../../src/web/components/session/HandoffCard";
 import {
+  ChipActionsContext,
+  type ChipActions,
+} from "../../src/web/components/session/prompt-chips";
+import { threadReference } from "../../src/web/data/mentions";
+import {
   ReplyActionsContext,
   SessionThread,
   type ReplyActions,
@@ -1432,13 +1437,52 @@ test("inline <quote> tags render as truncated badges in place inside user prompt
   ]);
   root!.render(<SessionThread snapshot={store.getSnapshot()} />);
   const bubble = () => document.querySelector('[data-message="user"]');
-  await expect.poll(() => bubble()?.querySelector("[data-inline-quote]")).toBeTruthy();
-  const badge = bubble()!.querySelector<HTMLElement>("[data-inline-quote]")!;
+  await expect.poll(() => bubble()?.querySelector('[data-chip="quote"]')).toBeTruthy();
+  const badge = bubble()!.querySelector<HTMLElement>('[data-chip="quote"]')!;
   expect(badge.title).toBe(
     "Updated src.ts to clamp discountBps between 0 and 10_000 and enforce minimum charge",
   );
   expect(badge.textContent).toContain("…");
   expect(bubble()!.textContent).toMatch(/About .* why not use Math\.clamp\?/);
+});
+
+test("a prompt's quote and thread chips open what they name", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  const reference = threadReference({ id: "codex-tides", title: "Tide tables" });
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "user_message_chunk" as const,
+        content: {
+          type: "text" as const,
+          text: `About <quote>the moon</quote>, compare ${reference}.`,
+        },
+      },
+    },
+  ]);
+  const opened: unknown[] = [];
+  const actions: ChipActions = {
+    onQuote: (text, from) => opened.push(["quote", text, typeof from]),
+    onThread: (id) => opened.push(["thread", id]),
+  };
+  root!.render(
+    <ChipActionsContext.Provider value={actions}>
+      <SessionThread snapshot={store.getSnapshot()} />
+    </ChipActionsContext.Provider>,
+  );
+  // Each chip's name is its label; its tooltip says the rest.
+  await page.getByRole("button", { name: "the moon" }).click();
+  await page.getByRole("button", { name: "Tide tables" }).click();
+  expect(opened).toEqual([
+    ["quote", "the moon", "string"],
+    ["thread", "codex-tides"],
+  ]);
+  expect(document.querySelector('[data-message="user"]')!.textContent).toBe(
+    "About the moon, compare Tide tables.",
+  );
 });
 
 test("multi-line inline <quote> tags stay intact inside Markdown user prompts", async () => {
@@ -1460,7 +1504,7 @@ test("multi-line inline <quote> tags stay intact inside Markdown user prompts", 
   root!.render(<SessionThread snapshot={store.getSnapshot()} />);
   const bubble = () => document.querySelector('[data-message="user"]');
   await expect.poll(() => bubble()?.querySelector("strong")?.textContent).toBe("clamping");
-  const badge = bubble()!.querySelector<HTMLElement>("[data-inline-quote]")!;
+  const badge = bubble()!.querySelector<HTMLElement>('[data-chip="quote"]')!;
   expect(badge).not.toBeNull();
   expect(badge.title).toBe("First line with `code`\n> quoted inner line");
   expect(bubble()!.querySelector("code")?.textContent).toBe("Math.clamp");

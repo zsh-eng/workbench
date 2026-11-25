@@ -421,6 +421,39 @@ test("a session's hand-off joins its thread; med thread show says to hand off in
   );
 });
 
+test("read prints another agent's thread as Markdown, the newest turns first to go", async () => {
+  const { run, adopted, handOff } = await fixture();
+  const tides = adopted(await run("adopt", ids.tides));
+  const feet = adopted(await run("adopt", ids.feet, "--title", "Heights in feet"));
+
+  // A Claude Code session: its title, where it ran, and each turn.
+  const text = await run("read", tides.id);
+  expect(text.split("\n\n").slice(0, 1)).toEqual([
+    "# Explain the tide prediction model in the README",
+  ]);
+  expect(text).toMatch(/^A Claude session in .*tide, 1 turn\.$/m);
+  expect(text).toMatch(/^## You · \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/m);
+  expect(text).toContain("Explain the tide prediction model in the README.\n\n## Claude\n\nDone.");
+  // A Codex session reads the same way.
+  const codexText = await run("read", feet.id);
+  expect(codexText).toContain("# Heights in feet");
+  expect(codexText).toContain("Readers in the US want heights in feet.");
+  // --last says what it left out, and how to read more.
+  expect(await run("read", tides.id, "--last", "1")).toContain("A Claude session in");
+  expect(await run("read", tides.id, "--all")).toBe(text);
+  // The key of a session's review names its thread too.
+  await handOff(`claude:${ids.tides}`, "tides");
+  expect(await run("read", "--key", "tides")).toBe(text);
+
+  await expect(run("read", tides.id, "--last", "0")).rejects.toThrow(
+    "--last takes a number of turns.",
+  );
+  await expect(run("read", tides.id, "--last", "2", "--all")).rejects.toThrow(
+    "Use --last or --all, not both.",
+  );
+  await expect(run("list", "--all")).rejects.toThrow("Use --last and --all with read.");
+});
+
 test("list, close, reopen, open, and delete tabs from the command line", async () => {
   const { run, api, adopted, handOff } = await fixture();
   const tides = adopted(await run("adopt", ids.tides));

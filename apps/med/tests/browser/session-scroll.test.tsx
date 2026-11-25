@@ -458,7 +458,7 @@ test("a scroll event that comes before the units report a new height keeps the v
   scroller.scrollTop -= 1500;
   await expect.poll(() => document.querySelector("[data-unit] .med-session-plain")).toBeNull();
   // The view stands still before it is read.
-  for (let last = Number.NaN; scroller.scrollTop !== last; ) {
+  for (let last = Number.NaN; scroller.scrollTop !== last;) {
     last = scroller.scrollTop;
     await afterFrames(3);
   }
