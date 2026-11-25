@@ -192,6 +192,7 @@ import {
   threadSlug,
   threadStartSchema,
   threadTitle,
+  intoWorktree,
   parseSessionKey,
   sessionKey,
   REVIEW_ID,
@@ -2724,6 +2725,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const slug = threadSlug(title);
             let cwd = await requireRepo(entry.path);
             let key = `${slug}-${randomUUID().slice(0, 4)}`;
+            let prompt = input.prompt;
             if (input.worktree) {
               const git = (args: string[]) =>
                 runProcess("git", args, { cwd: entry.path, timeoutMs: 120_000 });
@@ -2743,15 +2745,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               assertRequestAccess();
               await git(["worktree", "add", "-b", name, join(base, name)]);
               await registry.refreshOwner(entry.path);
+              const checkout = cwd;
               cwd = await requireRepo(join(base, name));
               key = name;
+              prompt = intoWorktree(prompt, [entry.path, checkout], cwd);
             }
             assertRequestAccess();
             const runner = await ownedSessions.start(input.preset, cwd, {
               key,
               ...(input.choices ? { choices: input.choices } : {}),
             });
-            const thread = await threads.keep(runner.session, { prompt: input.prompt, title });
+            const thread = await threads.keep(runner.session, { prompt, title });
             // As with a message: an agent that takes images gets them in the
             // prompt; any other gets the paths of saved copies.
             const native = runner.state().images ? input.images : [];
@@ -2759,7 +2763,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               input.images.length && !native.length
                 ? imagesText(await saveImages(imageDirectory, input.images))
                 : "";
-            await runner.prompt([input.prompt, saved].filter(Boolean).join("\n\n"), native);
+            await runner.prompt([prompt, saved].filter(Boolean).join("\n\n"), native);
             send({ thread });
             return;
           }

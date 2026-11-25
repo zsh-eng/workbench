@@ -6,6 +6,8 @@ import { SessionMarkdown } from "../../src/web/components/session/SessionMarkdow
 import "../../src/web/components/session/prose-styles";
 import "../../src/web/pierre-theme";
 import { initializeTheme } from "../../src/web/themes";
+import { COPY_PAD, fontFaces, standaloneSvg } from "../../src/web/markdown/copy";
+import { chartPicture } from "../../src/web/components/chart/chart-copy";
 
 let root: Root | undefined;
 let frame: HTMLDivElement | undefined;
@@ -210,11 +212,12 @@ test("a reply's diagram: right-click and Copy beside Full screen offer an image,
   await expect
     .element(page.getByRole("status").filter({ hasText: "Diagram copied" }))
     .toBeVisible();
+  // At twice its size, with room around all it draws.
   const png = await createImageBitmap(await items[0]!.getType("image/png"));
-  expect([png.width, png.height]).toEqual([
-    Number(svg.getAttribute("width")) * 2,
-    Number(svg.getAttribute("height")) * 2,
-  ]);
+  const { width, height } = standaloneSvg(svg, COPY_PAD);
+  expect([png.width, png.height]).toEqual([width * 2, height * 2]);
+  expect(width).toBeGreaterThanOrEqual(Number(svg.getAttribute("width")) + 2 * COPY_PAD);
+  expect(height).toBeGreaterThanOrEqual(Number(svg.getAttribute("height")) + 2 * COPY_PAD);
 });
 
 test("Full screen opens in the click's frame, and its copies show over the dialog", async () => {
@@ -249,4 +252,81 @@ test("Full screen opens in the click's frame, and its copies show over the dialo
   await expect.element(dialog).toBeVisible();
   await userEvent.keyboard("{Escape}");
   await expect.element(dialog).not.toBeInTheDocument();
+});
+
+test("a copied picture carries the page's fonts for the families it names, so its labels keep their widths", async () => {
+  const style = document.createElement("style");
+  style.textContent = `@font-face { font-family: "Copy Face"; src: url("/fonts/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; }`;
+  document.head.append(style);
+  try {
+    const faces = await fontFaces(
+      '<svg xmlns="http://www.w3.org/2000/svg"><text style="font-family:&quot;Copy Face&quot;, sans-serif">a</text></svg>',
+    );
+    expect(faces).toContain('font-family: "Copy Face"');
+    expect(faces).toMatch(/src: url\("data:[^;]*;base64,[A-Za-z0-9+/]{100}/);
+    // A family it does not name stays out.
+    expect(await fontFaces('<svg xmlns="http://www.w3.org/2000/svg"><text>a</text></svg>')).toBe(
+      "",
+    );
+  } finally {
+    style.remove();
+  }
+});
+
+test("a copied chart lays out as the page does: a wrapped title wraps, and a key's value sits past its name", async () => {
+  const title = "Checkout requests per second in Singapore and Frankfurt after the deploy";
+  const text = [
+    "```chart",
+    `title: ${title}`,
+    "unit: req/s",
+    "",
+    "time,Singapore checkout (primary),Frankfurt checkout (secondary region)",
+    "2026-11-25T10:00:00,120,80",
+    "2026-11-25T10:10:00,131,85",
+    "2026-11-25T10:20:00,138,92",
+    "```",
+    "",
+    "Done.",
+  ].join("\n");
+  await show(text);
+  frame!.style.width = "420px";
+  const chart = await vi.waitUntil(() =>
+    document.querySelector<HTMLElement>("[data-chart]:has(svg[data-chart-plot])"),
+  );
+  const texts = () => [
+    ...new DOMParser()
+      .parseFromString(chartPicture(chart).svg, "image/svg+xml")
+      .querySelectorAll(":scope > text"),
+  ];
+  const titleLines = () =>
+    texts().filter((node) => node.textContent!.length > 12 && title.includes(node.textContent!));
+  // The narrow column wraps the title, and so does the picture.
+  await expect.poll(() => titleLines().length).toBe(2);
+  expect(
+    titleLines()
+      .map((node) => node.textContent)
+      .join(" "),
+  ).toBe(title);
+  const [first, second] = titleLines().map((node) => Number(node.getAttribute("y")));
+  expect(second).toBeGreaterThan(first! + 10);
+
+  const at = (said: string) =>
+    Number(
+      texts()
+        .find((node) => node.textContent === said)!
+        .getAttribute("x"),
+    );
+  const onPage = (selector: string) =>
+    chart.querySelector(`[data-chart-key] ${selector}`)!.getBoundingClientRect().left;
+  // Where the page puts them, so a name never runs into its value.
+  expect(at("138") - at("Singapore checkout (primary)")).toBeCloseTo(
+    onPage("[data-key-value]") - onPage("[data-key-name]"),
+    0,
+  );
+  expect(at("req/s")).toBeGreaterThan(at("138"));
+  const { height } = chartPicture(chart);
+  for (const node of texts()) {
+    expect(Number(node.getAttribute("x"))).toBeGreaterThanOrEqual(COPY_PAD - 1);
+    expect(Number(node.getAttribute("y"))).toBeLessThan(height - COPY_PAD);
+  }
 });

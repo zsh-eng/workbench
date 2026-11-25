@@ -428,3 +428,23 @@ export function threadSlug(title: string) {
   }
   return slug || "thread";
 }
+
+/**
+ * A task's paths moved into the worktree that its thread runs in: an @ names
+ * a file by its path in the checkout, which the thread then leaves. `checkout`
+ * lists each way that its root is written, as registered and as resolved.
+ */
+export function intoWorktree(prompt: string, checkout: readonly string[], worktree: string) {
+  const roots = [...new Set(checkout.map((root) => root.replace(/\/+$/, "")))]
+    .filter((root) => root && root !== worktree)
+    // The longest first, so one root that holds another is not cut short.
+    .sort((a, b) => b.length - a.length)
+    .map((root) => root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (!roots.length) return prompt;
+  // Only a whole root: `/repo` is not the start of `/repo-old`, nor of `/repo.git`.
+  const path = new RegExp(
+    `(^|[\\s\`'"(\\[<])(?:${roots.join("|")})(?=$|[/\\s\`'")\\]>:,;!?]|\\.(?:\\s|$))`,
+    "g",
+  );
+  return prompt.replace(path, (_, before: string) => `${before}${worktree}`);
+}

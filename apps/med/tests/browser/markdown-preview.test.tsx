@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import MarkdownPreview from "../../src/web/components/MarkdownPreview";
 import { writeSetting } from "../../src/web/data/settings-file";
 import { createMarkdownModel } from "../../src/web/markdown/model";
+import { COPY_PAD, standaloneSvg } from "../../src/web/markdown/copy";
 import type { FileRead } from "../../src/shared/local-file";
 import "../../src/web/pierre-theme";
 import { initializeTheme, themeController } from "../../src/web/themes";
@@ -356,12 +357,10 @@ test("a diagram's right-click offers it as an image, as an SVG, and its text; te
   await expect
     .element(reading.getByRole("status").filter({ hasText: "Diagram copied" }))
     .toBeVisible();
-  // Drawn at twice its size, on the diagram's surface.
+  // Drawn at twice its size, with room around it, on the diagram's surface.
   const png = await createImageBitmap(await items[0]!.getType("image/png"));
-  expect([png.width, png.height]).toEqual([
-    Number(svg.getAttribute("width")) * 2,
-    Number(svg.getAttribute("height")) * 2,
-  ]);
+  const { width, height } = standaloneSvg(svg as SVGSVGElement, COPY_PAD);
+  expect([png.width, png.height]).toEqual([width * 2, height * 2]);
 });
 
 test("a code block has Copy, as in a session's replies; it copies the code as its fence holds it", async () => {

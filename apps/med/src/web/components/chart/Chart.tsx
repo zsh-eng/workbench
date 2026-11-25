@@ -558,7 +558,7 @@ export function LineChart({
           )}
         </div>
         {single && (
-          <div {...stylex.props(styles.big)}>
+          <div data-chart-big="" {...stylex.props(styles.big)}>
             <span {...stylex.props(styles.bigValue)}>
               {single0 === null ? "–" : formatValue(single0, spec.unit)}
             </span>
@@ -604,7 +604,7 @@ export function LineChart({
                 lit !== null && lit !== entry.name && styles.keyDim,
               )}
             >
-              <span {...stylex.props(styles.swatch)} />
+              <span data-key-swatch="" {...stylex.props(styles.swatch)} />
               <span data-key-name="" {...stylex.props(styles.keyName)}>
                 {entry.name}
               </span>
@@ -621,6 +621,7 @@ export function LineChart({
         })}
         {drawn && (
           <span
+            data-chart-moment=""
             aria-hidden={hoverTime !== null || undefined}
             {...stylex.props(styles.moment, hoverTime !== null && styles.hiddenSlot)}
           >
