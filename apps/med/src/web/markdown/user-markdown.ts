@@ -6,6 +6,7 @@
 export function keepLineBreaks(text: string): string {
   const lines = text.split("\n");
   let fence: string | undefined;
+  let inQuote = false;
   return lines
     .map((line, index) => {
       if (fence) {
@@ -13,6 +14,22 @@ export function keepLineBreaks(text: string): string {
         if (close && close[0] === fence[0] && close.length >= fence.length) fence = undefined;
         return line;
       }
+      const startedInQuote = inQuote;
+      let cursor = 0;
+      while (cursor < line.length) {
+        if (!inQuote) {
+          const open = line.indexOf("<quote>", cursor);
+          if (open < 0) break;
+          inQuote = true;
+          cursor = open + 7;
+        } else {
+          const close = line.indexOf("</quote>", cursor);
+          if (close < 0) break;
+          inQuote = false;
+          cursor = close + 8;
+        }
+      }
+      if (startedInQuote || inQuote) return line;
       fence = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
       if (fence || !line.trim() || !lines[index + 1]?.trim() || / {2}$|\\$/.test(line)) return line;
       return `${line}  `;

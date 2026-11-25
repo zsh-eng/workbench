@@ -36,7 +36,14 @@ import { TurnRecap, type TurnRecapProps } from "./TurnRecap";
 import type { SessionTurn } from "../../data/session-stream";
 import { ImageThumbs } from "./ImageThumbs";
 import { promptBlocks, type PromptBlock } from "./prompt-blocks";
-import { summarizeQuote, type ReplyQuote } from "./reply-quote";
+import {
+  closeOpenQuote,
+  hasInlineQuotes,
+  splitInlineQuotes,
+  stripInlineQuotes,
+  summarizeQuote,
+  type ReplyQuote,
+} from "./reply-quote";
 import { isSubagent, OpenAgentContext, RowOpen, ToolCall, useRowOpen } from "./ToolCall";
 import {
   finalReplies,
@@ -234,24 +241,27 @@ function PromptText({
                 (at > 0 || images) && styles.userNext,
               )}
             >
-              <LinkedText text={part.text} />
+              <InlineQuotedText text={part.text} />
             </blockquote>
-          ) : hasPromptMarkdown(part.text) ? (
+          ) : hasPromptMarkdown(stripInlineQuotes(part.text)) ? (
             <div
               key={at}
               data-prompt-prose=""
               {...stylex.props((at > 0 || images) && styles.userNext)}
             >
               <SessionMarkdown
-                text={keepLineBreaks(folded && cut ? closeOpenFence(part.text) : part.text)}
+                text={keepLineBreaks(
+                  folded && cut ? closeOpenQuote(closeOpenFence(part.text)) : part.text,
+                )}
                 streaming={false}
                 settled
+                inlineQuotes
                 onOpenLink={onOpenLink}
               />
             </div>
           ) : (
             <p key={at} {...stylex.props(styles.userText, (at > 0 || images) && styles.userNext)}>
-              <LinkedText text={part.text} />
+              <InlineQuotedText text={folded && cut ? closeOpenQuote(part.text) : part.text} />
             </p>
           ),
         )}
@@ -268,6 +278,28 @@ function PromptText({
         >
           {open ? "Show less" : "Show more"}
         </button>
+      )}
+    </>
+  );
+}
+
+/** Renders prompt text with inline `<quote>...</quote>` spans shown as
+ * truncated badges in place, preserving position relative to surrounding text. */
+function InlineQuotedText({ text }: { text: string }) {
+  if (!hasInlineQuotes(text)) return <LinkedText text={text} />;
+  return (
+    <>
+      {splitInlineQuotes(text).map((segment, index) =>
+        segment.kind === "text" ? (
+          <LinkedText key={index} text={segment.text} />
+        ) : (
+          <span key={index} className="med-inline-quote" data-inline-quote="" title={segment.text}>
+            <span className="med-inline-quote-icon" aria-hidden="true">
+              “
+            </span>
+            <span className="med-inline-quote-text">{segment.preview}</span>
+          </span>
+        ),
       )}
     </>
   );
@@ -1479,8 +1511,9 @@ export function SessionThread({
   if (previous !== all) {
     setPrevious(all);
     // A unit that was there under another key — such as a message that Med
-    // learns it sent, or a streamed reply replaced by its transcript copy — is
-    // not new and must not replay its enter animation.
+    // learns it sent, or a streamed reply replaced by its transcript copy
+    // (which often gets a different transcript ID) — is not new and must not
+    // replay its enter animation.
     const known = new Set(
       previous.flatMap((unit) => {
         if (!("item" in unit)) return [unit.key];
@@ -1490,7 +1523,25 @@ export function SessionThread({
           : [unit.key, id];
       }),
     );
-    const seen = (unit: Unit) => known.has(unit.key) || ("item" in unit && known.has(unit.item.id));
+    const streamedHeads: string[] = [];
+    for (const unit of previous) {
+      if ("item" in unit && unit.item.kind === "agent" && unit.item.id.startsWith("streaming-")) {
+        const head = unit.item.text.trim().slice(0, 200);
+        if (head) streamedHeads.push(head);
+      }
+    }
+    const seen = (unit: Unit) => {
+      if (known.has(unit.key) || ("item" in unit && known.has(unit.item.id))) return true;
+      if (streamedHeads.length && "item" in unit && unit.item.kind === "agent") {
+        const trimmed = unit.item.text.trim();
+        if (
+          trimmed &&
+          streamedHeads.some((head) => trimmed.startsWith(head) || head.startsWith(trimmed))
+        )
+          return true;
+      }
+      return false;
+    };
     const next = new Set<string>();
     if (previous.length)
       for (let at = all.length - 1; at >= 0 && !seen(all[at]!); at--) next.add(all[at]!.key);
@@ -3234,7 +3285,10 @@ const styles = stylex.create({
     paddingInline: 12,
     borderWidth: 0,
     borderRadius: 999,
-    backgroundColor: { default: tokens.menu, ":hover": tokens.fillStrong },
+    backgroundColor: {
+      default: tokens.menu,
+      ":hover": `color-mix(in srgb, ${tokens.text} 8%, ${tokens.menu})`,
+    },
     boxShadow: `${tokens.shadow}, inset 0 0 0 1px ${tokens.lineStrong}`,
     color: tokens.text,
     fontFamily: tokens.ui,
@@ -3257,7 +3311,10 @@ const styles = stylex.create({
     paddingInline: 10,
     borderWidth: 0,
     borderRadius: 999,
-    backgroundColor: { default: tokens.menu, ":hover": tokens.fillStrong },
+    backgroundColor: {
+      default: tokens.menu,
+      ":hover": `color-mix(in srgb, ${tokens.text} 8%, ${tokens.menu})`,
+    },
     boxShadow: `${tokens.shadow}, inset 0 0 0 1px ${tokens.lineStrong}`,
     color: tokens.text,
     fontFamily: tokens.ui,

@@ -1413,3 +1413,94 @@ test("user prompts render Markdown formatting cleanly in the thread", async () =
   ]);
   expect(bubble()!.querySelector("pre")?.textContent).toContain("export const ms = 1000;");
 });
+
+test("inline <quote> tags render as truncated badges in place inside user prompts", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "user_message_chunk" as const,
+        content: {
+          type: "text" as const,
+          text: "About <quote>Updated src.ts to clamp discountBps between 0 and 10_000 and enforce minimum charge</quote> why not use Math.clamp?",
+        },
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  const bubble = () => document.querySelector('[data-message="user"]');
+  await expect.poll(() => bubble()?.querySelector("[data-inline-quote]")).toBeTruthy();
+  const badge = bubble()!.querySelector<HTMLElement>("[data-inline-quote]")!;
+  expect(badge.title).toBe(
+    "Updated src.ts to clamp discountBps between 0 and 10_000 and enforce minimum charge",
+  );
+  expect(badge.textContent).toContain("…");
+  expect(bubble()!.textContent).toMatch(/About .* why not use Math\.clamp\?/);
+});
+
+test("multi-line inline <quote> tags stay intact inside Markdown user prompts", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "user_message_chunk" as const,
+        content: {
+          type: "text" as const,
+          text: "Check **clamping** around <quote>First line with `code`\n> quoted inner line</quote> and `Math.clamp`.",
+        },
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  const bubble = () => document.querySelector('[data-message="user"]');
+  await expect.poll(() => bubble()?.querySelector("strong")?.textContent).toBe("clamping");
+  const badge = bubble()!.querySelector<HTMLElement>("[data-inline-quote]")!;
+  expect(badge).not.toBeNull();
+  expect(badge.title).toBe("First line with `code`\n> quoted inner line");
+  expect(bubble()!.querySelector("code")?.textContent).toBe("Math.clamp");
+});
+
+test("streamed reply replaced by its transcript copy with a new ID does not replay rise animation", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(1);
+  const base = store.getSnapshot();
+  const replyText = "Finished updating the retry backoff logic cleanly.";
+  const streamingSnapshot = {
+    ...base,
+    running: true,
+    items: [
+      ...base.items,
+      {
+        kind: "agent" as const,
+        id: "streaming-live-1",
+        at: Date.now(),
+        text: replyText,
+        settled: true,
+      },
+    ],
+  };
+  root!.render(<SessionThread snapshot={streamingSnapshot} />);
+  await expect.poll(() => document.querySelector('[data-unit="streaming-live-1"]')).not.toBeNull();
+
+  const transcriptSnapshot = {
+    ...base,
+    running: false,
+    items: [
+      ...base.items,
+      { kind: "agent" as const, id: "transcript-uuid-99", at: Date.now(), text: `${replyText}\n` },
+    ],
+  };
+  root!.render(<SessionThread snapshot={transcriptSnapshot} />);
+  await expect
+    .poll(() => document.querySelector('[data-unit="transcript-uuid-99"]'))
+    .not.toBeNull();
+  const unit = document.querySelector<HTMLElement>('[data-unit="transcript-uuid-99"]')!;
+  expect(unit.dataset.rise).toBeUndefined();
+});

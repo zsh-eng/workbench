@@ -44,10 +44,11 @@ const resolved = new Map<string, Awaited<ReturnType<typeof resolveSyntaxTheme>>>
 let sequence = 0;
 const replies = new Map<number, (data: MarkdownResult & { error?: string }) => void>();
 
-const keyOf = (theme: string, text: string) => `${theme}\0${text}`;
+const keyOf = (theme: string, text: string, cache: RenderCache) =>
+  `${theme}\0${cache === "session" ? text.trimEnd() : text}`;
 
 export function renderedBrief(theme: string, text: string, cache: RenderCache = "brief") {
-  return results[cache].get(keyOf(theme, text));
+  return results[cache].get(keyOf(theme, text, cache));
 }
 
 /** Stores an already-rendered result in `cache`, so a streaming reply that
@@ -58,7 +59,7 @@ export function keepBrief(
   result: MarkdownResult,
   cache: RenderCache = "brief",
 ) {
-  const key = keyOf(theme, text);
+  const key = keyOf(theme, text, cache);
   const kept = results[cache];
   kept.delete(key);
   kept.set(key, result);
@@ -107,9 +108,9 @@ function enqueue(
   urgent: boolean,
   { cache = "brief", keep = true }: { cache?: RenderCache; keep?: boolean },
 ) {
-  const done = results[cache].get(keyOf(theme, text));
+  const done = results[cache].get(keyOf(theme, text, cache));
   if (done) return Promise.resolve(done);
-  const key = `${cache}\0${keep}\0${keyOf(theme, text)}`;
+  const key = `${cache}\0${keep}\0${keyOf(theme, text, cache)}`;
   const queued = queue.findIndex((task) => task.key === key);
   if (queued > 0 && urgent) queue.unshift({ ...queue.splice(queued, 1)[0]!, urgent });
   const existing = waiting.get(key);
@@ -168,7 +169,7 @@ async function send(tasks: Task[]) {
             milliseconds: data.milliseconds,
           };
           if (task.keep) {
-            const key = keyOf(task.theme, task.text);
+            const key = keyOf(task.theme, task.text, task.cache);
             const kept = results[task.cache];
             kept.delete(key);
             kept.set(key, result);

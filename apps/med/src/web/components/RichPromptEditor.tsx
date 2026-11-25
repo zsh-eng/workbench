@@ -27,11 +27,13 @@ import {
   type RefObject,
 } from "react";
 import { mentionParts, type Mention } from "../data/mentions";
+import { insertInlineQuote, matchInlineQuotes } from "./session/reply-quote";
 import "./RichPromptEditor.css";
 
 export interface RichPromptEditorHandle {
   focus(): void;
   setSelection(pos: number): void;
+  insertQuote?(quotedText: string): void;
   element(): HTMLElement | null;
 }
 
@@ -77,6 +79,70 @@ class MentionWidget extends WidgetType {
   }
 }
 
+class QuoteWidget extends WidgetType {
+  constructor(
+    readonly fullText: string,
+    readonly preview: string,
+  ) {
+    super();
+  }
+  override eq(other: QuoteWidget) {
+    return other.fullText === this.fullText && other.preview === this.preview;
+  }
+  override toDOM(view: EditorView) {
+    const chip = document.createElement("span");
+    chip.className = "med-rich-quote";
+    chip.dataset.quoteChip = "";
+    chip.title = this.fullText;
+
+    const mark = document.createElement("span");
+    mark.className = "med-rich-quote-icon";
+    mark.setAttribute("aria-hidden", "true");
+    mark.textContent = "“";
+
+    const label = document.createElement("span");
+    label.className = "med-rich-quote-text";
+    label.textContent = this.preview;
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "med-rich-quote-remove";
+    remove.setAttribute("aria-label", "Remove quote");
+    remove.textContent = "×";
+    remove.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    remove.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (view.state.readOnly) return;
+      const pos = view.posAtDOM(chip);
+      const doc = view.state.doc.toString();
+      for (const match of matchInlineQuotes(doc)) {
+        if (pos >= match.from && pos < match.to) {
+          // Eat one adjacent trailing space so removing a badge leaves tidy prose.
+          const end = doc[match.to] === " " ? match.to + 1 : match.to;
+          view.dispatch({
+            changes: { from: match.from, to: end, insert: "" },
+            selection: { anchor: match.from, head: match.from },
+          });
+          view.focus();
+          return;
+        }
+      }
+    });
+
+    chip.append(mark, label, remove);
+    return chip;
+  }
+  override ignoreEvent(event: Event) {
+    return (
+      event.target instanceof HTMLElement && event.target.closest(".med-rich-quote-remove") !== null
+    );
+  }
+}
+
 const setMentionsEffect = StateEffect.define<readonly Mention[]>();
 const externalSync = Annotation.define<boolean>();
 
@@ -114,22 +180,36 @@ function buildDecorations(state: EditorState): {
   const text = doc.toString();
   const mentions = state.field(mentionsField);
   const ranges: { from: number; to: number; value: Decoration }[] = [];
-  const atomicBuilder = new RangeSetBuilder<Decoration>();
-  const mentionSpans: Span[] = [];
+  const atomicRanges: { from: number; to: number; value: Decoration }[] = [];
+  const atomicSpans: Span[] = [];
+
+  for (const match of matchInlineQuotes(text)) {
+    const deco = Decoration.replace({
+      widget: new QuoteWidget(match.fullText, match.preview),
+    });
+    ranges.push({ from: match.from, to: match.to, value: deco });
+    atomicRanges.push({ from: match.from, to: match.to, value: deco });
+    atomicSpans.push({ from: match.from, to: match.to });
+  }
 
   if (mentions.length && text.includes("@")) {
     let offset = 0;
     for (const part of mentionParts(text, mentions)) {
       const next = offset + part.text.length;
-      if (part.mention) {
+      if (part.mention && !overlaps(offset, next, atomicSpans)) {
         const deco = Decoration.replace({ widget: new MentionWidget(part.text) });
         ranges.push({ from: offset, to: next, value: deco });
-        atomicBuilder.add(offset, next, deco);
-        mentionSpans.push({ from: offset, to: next });
+        atomicRanges.push({ from: offset, to: next, value: deco });
+        atomicSpans.push({ from: offset, to: next });
       }
       offset = next;
     }
   }
+
+  atomicRanges.sort((a, b) => a.from - b.from || a.to - b.to);
+  const atomicBuilder = new RangeSetBuilder<Decoration>();
+  for (const range of atomicRanges) atomicBuilder.add(range.from, range.to, range.value);
+  const mentionSpans = atomicSpans;
 
   // Leading /command badge on line 1.
   const slashMatch = /^\/[^\s/]+/.exec(text);
@@ -154,7 +234,7 @@ function buildDecorations(state: EditorState): {
     }
 
     const openFence = /^\s*(`{3,}|~{3,})/.exec(content)?.[1];
-    if (openFence) {
+    if (openFence && !overlaps(line.from, line.to, mentionSpans)) {
       fence = openFence;
       ranges.push({ from: line.from, to: line.from, value: codeLineDeco });
       if (line.to > line.from) ranges.push({ from: line.from, to: line.to, value: syntaxDeco });
@@ -171,11 +251,10 @@ function buildDecorations(state: EditorState): {
     }
 
     const quote = /^(>+)(\s?)/.exec(content);
-    if (quote) {
+    if (quote && !overlaps(line.from, line.to, mentionSpans)) {
       ranges.push({ from: line.from, to: line.from, value: quoteLineDeco });
       const markerEnd = line.from + quote[0].length;
-      if (markerEnd > line.from && !overlaps(line.from, markerEnd, mentionSpans))
-        ranges.push({ from: line.from, to: markerEnd, value: syntaxDeco });
+      if (markerEnd > line.from) ranges.push({ from: line.from, to: markerEnd, value: syntaxDeco });
     }
 
     const bullet = /^(\s*(?:[-*+]|\d+\.))(\s+)/.exec(content);
@@ -324,6 +403,19 @@ export function RichPromptEditor({
         if (!view) return;
         const clamped = Math.max(0, Math.min(pos, view.state.doc.length));
         view.dispatch({ selection: { anchor: clamped, head: clamped } });
+        view.focus();
+      },
+      insertQuote(quotedText: string) {
+        const view = viewRef.current;
+        if (!view || view.state.readOnly) return;
+        const current = view.state.doc.toString();
+        const { from, to } = view.state.selection.main;
+        const base = current.slice(0, from) + current.slice(to);
+        const inserted = insertInlineQuote(base, from, quotedText);
+        view.dispatch({
+          changes: { from: 0, to: current.length, insert: inserted.value },
+          selection: { anchor: inserted.caret, head: inserted.caret },
+        });
         view.focus();
       },
       element() {

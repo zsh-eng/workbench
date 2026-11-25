@@ -160,6 +160,14 @@
 .med-session-plain {
   margin: 0;
   white-space: pre-wrap;
+  /* Delay showing the plain-text fallback so fast worker Markdown renders
+     never flash raw syntax when a newly completed reply arrives. */
+  animation: med-reveal 120ms 180ms both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .med-session-plain {
+    animation-duration: 0ms;
+  }
 }
 
 /* The message that [ and ] reached: a bar on the edge it keeps to, beside a

@@ -287,42 +287,44 @@ export function NewThread({
                 <PromptImageList images={pictures.images} onRemove={pictures.remove} />
               </div>
             )}
-            <RichPromptEditor
-              editorRef={input}
-              value={prompt}
-              mentions={mentions.mentioned}
-              disabled={busy}
-              minHeight={72}
-              maxHeight={220}
-              placeholder="Describe the task, and @ to name files, notes, or threads. Enter starts the agent."
-              ariaLabel="Task"
-              inputRole="combobox"
-              ariaControls={mentions.ariaControls}
-              ariaActiveDescendant={mentions.ariaActiveDescendant}
-              ariaExpanded={mentions.open}
-              ariaAutoComplete="list"
-              onChange={(next, pos) => {
-                setPrompt(next);
-                mentions.changed(pos);
-              }}
-              onSelect={mentions.onSelect}
-              onKeyDown={(event) => {
-                if (mentions.onKeyDown(event)) return;
-                // Enter starts, ⇧Enter adds a line; ⌘↵ starts from anywhere.
-                if (
-                  event.key === "Enter" &&
-                  !event.shiftKey &&
-                  !event.metaKey &&
-                  !event.ctrlKey &&
-                  !event.altKey &&
-                  !event.nativeEvent.isComposing
-                ) {
-                  event.preventDefault();
-                  void start();
-                }
-              }}
-              {...pictures.field}
-            />
+            <div {...stylex.props(styles.editor)}>
+              <RichPromptEditor
+                editorRef={input}
+                value={prompt}
+                mentions={mentions.mentioned}
+                disabled={busy}
+                minHeight={72}
+                maxHeight={220}
+                placeholder="Describe the task, and @ to name files, notes, or threads. Enter starts the agent."
+                ariaLabel="Task"
+                inputRole="combobox"
+                ariaControls={mentions.ariaControls}
+                ariaActiveDescendant={mentions.ariaActiveDescendant}
+                ariaExpanded={mentions.open}
+                ariaAutoComplete="list"
+                onChange={(next, pos) => {
+                  setPrompt(next);
+                  mentions.changed(pos);
+                }}
+                onSelect={mentions.onSelect}
+                onKeyDown={(event) => {
+                  if (mentions.onKeyDown(event)) return;
+                  // Enter starts, ⇧Enter adds a line; ⌘↵ starts from anywhere.
+                  if (
+                    event.key === "Enter" &&
+                    !event.shiftKey &&
+                    !event.metaKey &&
+                    !event.ctrlKey &&
+                    !event.altKey &&
+                    !event.nativeEvent.isComposing
+                  ) {
+                    event.preventDefault();
+                    void start();
+                  }
+                }}
+                {...pictures.field}
+              />
+            </div>
             <div {...stylex.props(styles.tray)}>
               <AddImagesButton onAdd={(files) => void pictures.add(files)} disabled={busy} />
             </div>
@@ -508,7 +510,7 @@ const styles = stylex.create({
     boxSizing: "border-box",
     width: "min(680px, 100%)",
     height: "100%",
-    gap: 20,
+    gap: 16,
     paddingTop: 24,
     paddingBottom: "min(10vh, 80px)",
     animationName: { default: enter, "@media (prefers-reduced-motion: reduce)": "none" },
@@ -530,31 +532,20 @@ const styles = stylex.create({
     transitionProperty: "box-shadow",
     transitionDuration: "150ms",
   },
-  input: {
+  editor: {
     boxSizing: "border-box",
     width: "100%",
-    minHeight: 88,
-    resize: "none",
     paddingInline: 16,
-    paddingTop: 14,
-    paddingBottom: 12,
-    borderWidth: 0,
-    backgroundColor: "transparent",
-    color: tokens.text,
-    fontFamily: tokens.ui,
-    fontSize: 14,
-    lineHeight: 1.55,
-    outline: "none",
-    "::placeholder": { color: tokens.faint },
+    paddingTop: 12,
+    paddingBottom: 6,
   },
   images: { paddingInline: 16, paddingTop: 14 },
   // The composer's own buttons, under the text.
   tray: {
     display: "flex",
     justifyContent: "flex-end",
-    paddingInline: 8,
-    paddingBottom: 8,
-    marginTop: -8,
+    paddingInline: 10,
+    paddingBottom: 10,
   },
   // One line of menus under the composer; wraps cleanly on narrow screens so
   // the model and worktree pickers never crush to a few pixels.

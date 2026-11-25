@@ -2310,15 +2310,21 @@ export function App({
   }, [filesRailShown, selectTab]);
   // A file, or Commit, that opens while the review is hidden shows the
   // review. Review (or its Guide) and Changes take each other's place as a
-  // saved review loads, which leaves the thread alone; their pages show it
-  // themselves.
+  // saved review loads, and hydrating a workspace's stored tabs on mount
+  // leaves a new thread on its session alone.
+  const revealedWorkspaceKey = useRef(fileState.key);
   const revealedTab = useRef(fileState.active);
   useEffect(() => {
+    if (revealedWorkspaceKey.current !== fileState.key) {
+      revealedWorkspaceKey.current = fileState.key;
+      revealedTab.current = fileState.active;
+      return;
+    }
     if (revealedTab.current === fileState.active) return;
     revealedTab.current = fileState.active;
     if (["review", "changes", "guide"].includes(fileState.active)) return;
     if (!reviewVisible) showPane("review");
-  }, [fileState.active, reviewVisible, showPane]);
+  }, [fileState.key, fileState.active, reviewVisible, showPane]);
   /** q: open the Commit tab, or go back to the tab that showed before it,
    * by the rule that a closed tab follows. */
   const toggleCommit = useCallback(() => {

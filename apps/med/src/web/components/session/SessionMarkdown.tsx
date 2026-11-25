@@ -27,6 +27,7 @@ import {
   medDashboardPath,
   openDashboardPath,
 } from "./DashboardLinkCard";
+import { protectInlineQuotes } from "./reply-quote";
 import "../MarkdownPreview.css";
 
 /**
@@ -39,6 +40,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   text,
   streaming,
   settled = false,
+  inlineQuotes = false,
   imageRepo,
   onOpenLink,
   at,
@@ -49,6 +51,8 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   /** A streamed reply's text is whole: its render is kept for the
    * transcript's copy, which then shows at once. */
   settled?: boolean;
+  /** Renders inline `<quote>...</quote>` spans as compact badges (for user prompts). */
+  inlineQuotes?: boolean;
   /** The checkout that an image's relative path starts from. A thread loads no images. */
   imageRepo?: string;
   /** A link to a file in the repository, such as src/summary.ts:5. */
@@ -57,19 +61,31 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   at?: number;
 }) {
   const { active: theme } = useTheme();
+  const protectedInput = useMemo(
+    () => (inlineQuotes ? protectInlineQuotes(text) : null),
+    [inlineQuotes, text],
+  );
+  const renderText = protectedInput ? protectedInput.text : text;
   const [rendered, setRendered] = useState<MarkdownResult>();
   // A reply that rendered before, as when it scrolls back into a list, shows at once.
-  const result = renderedBrief(theme.pierreTheme, text, "session") ?? rendered;
+  const result = renderedBrief(theme.pierreTheme, renderText, "session") ?? rendered;
   const host = useRef<HTMLDivElement>(null);
   // The newest request; a render that finishes starts the next one from here.
-  const latest = useRef({ text, theme: theme.pierreTheme, streaming, settled });
+  const latest = useRef({ text: renderText, theme: theme.pierreTheme, streaming, settled });
   const pump = useRef({ running: false, mounted: true });
   const lastRendered = useRef<{ text: string; theme: string; result: MarkdownResult } | null>(null);
   const open = useRef(onOpenLink);
   // Paths that name a file of the thread's checkout are links to it.
   const refs = useFileRefs();
   const fileRefs = useRef(refs);
-  const blocks = useFileRefBlocks(result?.blocks);
+  const refBlocks = useFileRefBlocks(result?.blocks);
+  const blocks = useMemo(
+    () =>
+      protectedInput && protectedInput.quotes.size > 0 && refBlocks
+        ? decorateInlineQuotes(refBlocks, protectedInput.quotes)
+        : refBlocks,
+    [protectedInput, refBlocks],
+  );
   const reviewLinks = useMemo(() => blocks?.map((block) => reviewLinkOf(block.html)), [blocks]);
   const dashboardLinks = useMemo(
     () => blocks?.map((block) => dashboardLinkOf(block.html)),
@@ -89,11 +105,11 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   useReveal(host, blocks, streaming);
 
   useEffect(() => {
-    if (/(?:```|~~~)\s*mermaid\b/i.test(text)) preloadDiagrams(text);
-  }, [text]);
+    if (/(?:```|~~~)\s*mermaid\b/i.test(renderText)) preloadDiagrams(renderText);
+  }, [renderText]);
 
   useLayoutEffect(() => {
-    latest.current = { text, theme: theme.pierreTheme, streaming, settled };
+    latest.current = { text: renderText, theme: theme.pierreTheme, streaming, settled };
     open.current = onOpenLink;
     fileRefs.current = refs;
     reviews.current = handoff;
@@ -110,16 +126,16 @@ export const SessionMarkdown = memo(function SessionMarkdown({
 
   useEffect(() => {
     const state = pump.current;
-    if (renderedBrief(theme.pierreTheme, text, "session")) return;
+    if (renderedBrief(theme.pierreTheme, renderText, "session")) return;
     // If the exact text and theme were already rendered while streaming,
     // promote that result into the cache instead of running a duplicate worker pass.
     if (
       (!streaming || settled) &&
       lastRendered.current &&
-      lastRendered.current.text === text &&
+      lastRendered.current.text.trimEnd() === renderText.trimEnd() &&
       lastRendered.current.theme === theme.pierreTheme
     ) {
-      keepBrief(theme.pierreTheme, text, lastRendered.current.result, "session");
+      keepBrief(theme.pierreTheme, renderText, lastRendered.current.result, "session");
       return;
     }
     if (state.running) return;
@@ -147,7 +163,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({
           if (
             kept &&
             lastRendered.current &&
-            lastRendered.current.text === next.text &&
+            lastRendered.current.text.trimEnd() === next.text.trimEnd() &&
             lastRendered.current.theme === next.theme
           ) {
             keepBrief(next.theme, next.text, lastRendered.current.result, "session");
@@ -157,7 +173,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({
         });
     };
     run(latest.current);
-  }, [text, streaming, settled, theme.pierreTheme]);
+  }, [renderText, streaming, settled, theme.pierreTheme]);
 
   // Links to files open in Med; web links open in a new tab from the worker's HTML.
   useEffect(() => {
@@ -257,6 +273,30 @@ function useReveal(
       node.children[index]?.classList.add("med-reveal");
     });
   }, [host, blocks, streaming]);
+}
+
+const escapeAttr = (value: string) =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+
+/** Restores protected inline `<quote>` placeholder tokens in rendered
+ * user-prompt HTML as compact inline quote badges. */
+function decorateInlineQuotes(
+  blocks: readonly MarkdownResult["blocks"][number][],
+  quotes: ReadonlyMap<string, { full: string; preview: string }>,
+): MarkdownResult["blocks"][number][] {
+  return blocks.map((block) => {
+    let html = block.html;
+    for (const [token, { full, preview }] of quotes) {
+      if (!html.includes(token)) continue;
+      const badge = `<span class="med-inline-quote" data-inline-quote="" title="${escapeAttr(full)}"><span class="med-inline-quote-icon" aria-hidden="true">“</span><span class="med-inline-quote-text">${escapeAttr(preview)}</span></span>`;
+      html = html.replaceAll(token, badge);
+    }
+    return html === block.html ? block : { ...block, html };
+  });
 }
 
 const dashboardLinks = new Map<string, { path: string; text: string } | null>();
