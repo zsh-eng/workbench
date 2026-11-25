@@ -632,6 +632,7 @@ const styles = stylex.create({
   footer: {
     flexShrink: 0,
     display: "flex",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
@@ -664,5 +665,5 @@ const styles = stylex.create({
   then: { color: tokens.muted, fontSize: 12 },
   picker: { minHeight: 27, fontSize: 12 },
   end: { marginInlineStart: "auto" },
-  feedback: { flexGrow: 1, minWidth: 160, minHeight: 27, fontSize: 12 },
+  feedback: { flexGrow: 1, minWidth: 0, minHeight: 27, fontSize: 12 },
 });

@@ -1462,7 +1462,11 @@ export default function CommitView({
                         </span>
                       )}
                       {kind && <ChangeLetter kind={kind} />}
-                      {entry.note && <span {...stylex.props(ui.faint)}>{entry.note}</span>}
+                      {entry.note && (
+                        <span {...stylex.props(ui.faint, entry.note === "Loading…" && ui.delayed)}>
+                          {entry.note}
+                        </span>
+                      )}
                       <span {...stylex.props(ui.grow)} />
                       {entry.info && !entry.part && (
                         <span {...stylex.props(styles.stats)}>

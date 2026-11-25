@@ -12,6 +12,7 @@ import { flushSync } from "react-dom";
 import type { Mounted } from "pele/lazy";
 import {
   mountDiagram,
+  mountDiagramSync,
   redrawDiagram,
   turnDiagram,
   turnDrawn,
@@ -70,7 +71,7 @@ export function DiagramBlock({ block }: { block: MarkdownBlock }) {
   // What the copies give: the diagram as it shows.
   const source = (turn === "turned" && turnDiagram(written)) || written;
   const figure = useCallback(() => target.current, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     // An edit draws again in place, turned as the reader left it. After a
     // mistake Pele keeps the last drawing, dimmed, above a line that names
     // it, so the text does not jump.
@@ -82,6 +83,18 @@ export function DiagramBlock({ block }: { block: MarkdownBlock }) {
     const draw = () => {
       if (started || cancelled || !target.current) return;
       started = true;
+      try {
+        const sync = mountDiagramSync(target.current, block.diagram!, { turn: turnNow.current });
+        if (sync) {
+          mounted.current = sync;
+          setState("drawn");
+          DiagramDialog.preload();
+          return;
+        }
+      } catch {
+        setState("failed");
+        return;
+      }
       mountDiagram(target.current, block.diagram!, { turn: turnNow.current }).then(
         (diagram) => {
           if (cancelled) return diagram.destroy();

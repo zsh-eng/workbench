@@ -248,14 +248,17 @@ const styles = stylex.create({
     backgroundColor: tokens.canvas,
     boxShadow: `inset 0 1px 0 ${tokens.line}`,
   },
-  // The tabs narrow as more open and never scroll.
+  // The tabs narrow as more open, and scroll horizontally on narrow panes
+  // rather than clipping unreachable tabs.
   list: {
     display: "flex",
     alignItems: "center",
     gap: 2,
     flex: "1",
     minWidth: 0,
-    overflow: "hidden",
+    overflowX: "auto",
+    overflowY: "hidden",
+    scrollbarWidth: "none",
   },
   // Longhands win over the list's flex shorthand. In a narrow row the tabs
   // narrow before the row's last controls shrink.

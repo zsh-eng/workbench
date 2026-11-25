@@ -297,7 +297,7 @@ export function UsagePage({ fetcher }: { fetcher?: typeof fetch }) {
           >
             <p {...stylex.props(styles.period)}>{period}</p>
             {!shown ? (
-              <p {...stylex.props(styles.reading)}>Reading the transcripts…</p>
+              <p {...stylex.props(styles.reading, ui.delayed)}>Reading the transcripts…</p>
             ) : (
               <>
                 <p {...stylex.props(styles.hero)}>{money(shown.total.cost)}</p>
@@ -548,88 +548,90 @@ function SpendTable({
   rows: { key: string; name: string; detail?: string; colors: string[]; sum: Sum }[];
 }) {
   return (
-    <table {...stylex.props(styles.table)}>
-      <thead>
-        <tr>
-          <th scope="col" {...stylex.props(styles.th, styles.nameCell)}>
-            {label}
-          </th>
-          <th scope="col" {...stylex.props(styles.th, styles.number, styles.wide)}>
-            Requests
-          </th>
-          <th scope="col" {...stylex.props(styles.th, styles.number, styles.wide)}>
-            Input
-          </th>
-          <th scope="col" {...stylex.props(styles.th, styles.number, styles.wide)}>
-            Output
-          </th>
-          <th scope="col" {...stylex.props(styles.th, styles.number, styles.wide)}>
-            Cache read
-          </th>
-          <th scope="col" {...stylex.props(styles.th, styles.number, styles.wide)}>
-            Cache write
-          </th>
-          <th scope="col" {...stylex.props(styles.th, styles.number)}>
-            Spend
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map(({ key, name, detail, colors, sum }) => (
-          <tr key={key} {...stylex.props(styles.row)}>
-            <th scope="row" {...stylex.props(styles.td, styles.nameCell)}>
-              <span {...stylex.props(styles.name)}>
-                <span aria-hidden="true" {...stylex.props(styles.dots)}>
-                  {colors.map((color, index) => (
-                    <span key={index} {...stylex.props(styles.dot, set.fill(color))} />
-                  ))}
-                </span>
-                <span {...stylex.props(styles.nameText)}>{name}</span>
-                {detail && <span {...stylex.props(styles.detail)}>{detail}</span>}
-              </span>
-              <span aria-hidden="true" {...stylex.props(styles.shareTrack)}>
-                <span
-                  {...stylex.props(
-                    styles.share,
-                    set.share(`${total > 0 ? (sum.cost / total) * 100 : 0}%`, colors[0] ?? ""),
-                  )}
-                />
-              </span>
+    <div {...stylex.props(styles.tableScroll)}>
+      <table {...stylex.props(styles.table)}>
+        <thead>
+          <tr>
+            <th scope="col" {...stylex.props(styles.th, styles.nameCell)}>
+              {label}
             </th>
-            <td {...stylex.props(styles.td, styles.number, styles.wide)}>
-              {whole.format(sum.requests)}
-            </td>
-            <td
-              title={whole.format(sum.input)}
-              {...stylex.props(styles.td, styles.number, styles.wide)}
-            >
-              {compact.format(sum.input)}
-            </td>
-            <td
-              title={whole.format(sum.output)}
-              {...stylex.props(styles.td, styles.number, styles.wide)}
-            >
-              {compact.format(sum.output)}
-            </td>
-            <td
-              title={whole.format(sum.cacheRead)}
-              {...stylex.props(styles.td, styles.number, styles.wide)}
-            >
-              {compact.format(sum.cacheRead)}
-            </td>
-            <td
-              title={whole.format(sum.cacheWrite)}
-              {...stylex.props(styles.td, styles.number, styles.wide)}
-            >
-              {compact.format(sum.cacheWrite)}
-            </td>
-            <td {...stylex.props(styles.td, styles.number, styles.spend)}>
-              {sum.unpriced === sum.requests ? "—" : money(sum.cost)}
-            </td>
+            <th scope="col" {...stylex.props(styles.th, styles.number, styles.wide)}>
+              Requests
+            </th>
+            <th scope="col" {...stylex.props(styles.th, styles.number, styles.wide)}>
+              Input
+            </th>
+            <th scope="col" {...stylex.props(styles.th, styles.number, styles.wide)}>
+              Output
+            </th>
+            <th scope="col" {...stylex.props(styles.th, styles.number, styles.wide)}>
+              Cache read
+            </th>
+            <th scope="col" {...stylex.props(styles.th, styles.number, styles.wide)}>
+              Cache write
+            </th>
+            <th scope="col" {...stylex.props(styles.th, styles.number)}>
+              Spend
+            </th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map(({ key, name, detail, colors, sum }) => (
+            <tr key={key} {...stylex.props(styles.row)}>
+              <th scope="row" {...stylex.props(styles.td, styles.nameCell)}>
+                <span {...stylex.props(styles.name)}>
+                  <span aria-hidden="true" {...stylex.props(styles.dots)}>
+                    {colors.map((color, index) => (
+                      <span key={index} {...stylex.props(styles.dot, set.fill(color))} />
+                    ))}
+                  </span>
+                  <span {...stylex.props(styles.nameText)}>{name}</span>
+                  {detail && <span {...stylex.props(styles.detail)}>{detail}</span>}
+                </span>
+                <span aria-hidden="true" {...stylex.props(styles.shareTrack)}>
+                  <span
+                    {...stylex.props(
+                      styles.share,
+                      set.share(`${total > 0 ? (sum.cost / total) * 100 : 0}%`, colors[0] ?? ""),
+                    )}
+                  />
+                </span>
+              </th>
+              <td {...stylex.props(styles.td, styles.number, styles.wide)}>
+                {whole.format(sum.requests)}
+              </td>
+              <td
+                title={whole.format(sum.input)}
+                {...stylex.props(styles.td, styles.number, styles.wide)}
+              >
+                {compact.format(sum.input)}
+              </td>
+              <td
+                title={whole.format(sum.output)}
+                {...stylex.props(styles.td, styles.number, styles.wide)}
+              >
+                {compact.format(sum.output)}
+              </td>
+              <td
+                title={whole.format(sum.cacheRead)}
+                {...stylex.props(styles.td, styles.number, styles.wide)}
+              >
+                {compact.format(sum.cacheRead)}
+              </td>
+              <td
+                title={whole.format(sum.cacheWrite)}
+                {...stylex.props(styles.td, styles.number, styles.wide)}
+              >
+                {compact.format(sum.cacheWrite)}
+              </td>
+              <td {...stylex.props(styles.td, styles.number, styles.spend)}>
+                {sum.unpriced === sum.requests ? "—" : money(sum.cost)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -691,7 +693,8 @@ const styles = stylex.create({
     backgroundColor: { default: tokens.segment, ":hover": tokens.segment },
     boxShadow: `0 0 0 1px ${tokens.lineStrong}, 0 1px 2px #0000001f`,
   },
-  dates: { display: "flex", alignItems: "center", gap: 8 },
+  dates: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 },
+  tableScroll: { overflowX: "auto", maxWidth: "100%" },
   date: { height: 30, width: 150, fontVariantNumeric: "tabular-nums" },
   to: { color: tokens.faint, fontSize: 13 },
   error: { margin: 0, marginTop: 16, color: tokens.red, fontSize: 13, lineHeight: 1.5 },
@@ -699,8 +702,9 @@ const styles = stylex.create({
     marginTop: 36,
     transitionProperty: "opacity",
     transitionDuration: { default: "160ms", "@media (prefers-reduced-motion: reduce)": "0ms" },
+    transitionDelay: "0ms",
   },
-  stale: { opacity: 0.55 },
+  stale: { opacity: 0.55, transitionDelay: "250ms" },
   period: { margin: 0, color: tokens.muted, fontSize: 13 },
   reading: { margin: 0, marginTop: 10, color: tokens.faint, fontSize: 15 },
   hero: {

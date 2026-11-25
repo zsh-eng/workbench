@@ -242,17 +242,21 @@
   background: transparent;
   font-size: inherit;
 }
-/* A diagram never flashes raw Mermaid syntax while loading: keep a quiet
- * placeholder surface until Pele draws it, and reveal source only on syntax
- * error. Top-level DiagramBlocks mark `data-diagram-loading="true"` everywhere;
- * nested `<pre data-mermaid>` (serialized as an empty attribute by hast) are
- * scoped to `.med-markdown` where MarkdownPreview mounts them. */
+/* A diagram never flashes raw Mermaid syntax or a placeholder loading box:
+ * when Pele's chunk is already loaded it draws synchronously before first
+ * paint; during a cold chunk fetch keep the surface invisible rather than
+ * painting a box that immediately jumps to the diagram's real height. Source
+ * reveals only on syntax error. */
 .med-md-prose pre[data-diagram-loading="true"],
 .med-markdown
   .med-md-prose
   pre[data-mermaid]:not([data-rendered="true"]):not([data-diagram-error="true"]) {
-  padding: 24px 16px;
-  min-height: 120px;
+  padding: 0 16px;
+  margin-block: 0;
+  min-height: 1px;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
 .med-md-prose pre[data-diagram-loading="true"]::before,
 .med-markdown

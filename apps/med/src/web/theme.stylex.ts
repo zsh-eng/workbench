@@ -91,6 +91,11 @@ const fill12 = "color-mix(in srgb, var(--med-text, #ececef) 12%, transparent)";
 const paletteRule =
   "color-mix(in srgb, var(--med-line-from, var(--med-text, #ececef)) 7%, transparent)";
 
+const delayedReveal = stylex.keyframes({
+  from: { opacity: 0 },
+  to: { opacity: 1 },
+});
+
 export const ui = stylex.create({
   // Keyboard-opened palettes and high-frequency surfaces appear immediately.
   instant: {
@@ -192,6 +197,7 @@ export const ui = stylex.create({
   popup: {
     boxSizing: "border-box",
     minWidth: 200,
+    maxWidth: "calc(100vw - 16px)",
     maxHeight: "min(420px, 70vh)",
     overflowY: "auto",
     backgroundColor: tokens.menu,
@@ -624,6 +630,14 @@ export const ui = stylex.create({
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
+  },
+  // Only a read long enough to notice shows a loading state; fast local reads
+  // finish before the delay elapses, avoiding a brief visual jump.
+  delayed: {
+    animationName: delayedReveal,
+    animationDuration: { default: "150ms", [reduced]: "0ms" },
+    animationDelay: "300ms",
+    animationFillMode: "both",
   },
   grow: { flex: "1" },
   row: { display: "flex", alignItems: "center", gap: 7, minWidth: 0 },

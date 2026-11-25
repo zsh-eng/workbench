@@ -3,7 +3,15 @@ import { Icon } from "./Icon";
 import * as stylex from "@stylexjs/stylex";
 import { prepareFileTreeInput } from "@pierre/trees";
 import { StableFileTree, useStableFileTree } from "./StableFileTree";
-import { memo, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import type { BrowseEntry } from "../../shared/browse";
 import { tokens, ui } from "../theme.stylex";
 import { treeIcons } from "./tree-icons";
@@ -49,6 +57,15 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
     onRefresh,
     controls,
   } = props;
+  const [showLoading, setShowLoading] = useState(false);
+  useEffect(() => {
+    if (!loading) {
+      setShowLoading(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowLoading(true), 300);
+    return () => clearTimeout(timer);
+  }, [loading]);
   // Parse and sort once per manifest, not on sidebar toggles or file selection.
   const preparedInput = useMemo(
     () =>
@@ -134,7 +151,7 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
         </ActionMenu>
         {controls}
       </div>
-      {loading && (
+      {loading && showLoading && (
         <p role="status" {...stylex.props(styles.message)}>
           Loading files…
         </p>

@@ -484,7 +484,10 @@ export function LineChart({
       </span>
       {/* On a dashboard the page names the range; a chart zoomed on its own says its own. */}
       {board && status && (
-        <span data-chart-status="" {...stylex.props(styles.fetching, styles.headStatus)}>
+        <span
+          data-chart-status=""
+          {...stylex.props(styles.fetching, styles.headStatus, ui.delayed)}
+        >
           {status}
         </span>
       )}
@@ -743,7 +746,9 @@ export function LineChart({
               ))}
 
               {state === "loading" && (
-                <path d={breath(right, flat)} {...stylex.props(styles.breath)} />
+                <g {...stylex.props(ui.delayed)}>
+                  <path d={breath(right, flat)} {...stylex.props(styles.breath)} />
+                </g>
               )}
 
               {paths.map(({ line, area }, index) => {
@@ -905,7 +910,7 @@ export function LineChart({
                   </>
                 )}
                 {status && (
-                  <span data-chart-status="" {...stylex.props(styles.fetching)}>
+                  <span data-chart-status="" {...stylex.props(styles.fetching, ui.delayed)}>
                     · {status}
                   </span>
                 )}

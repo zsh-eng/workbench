@@ -527,7 +527,7 @@ const styles = stylex.create({
   // The same weight on and off, so the pages keep their places.
   pageOn: { backgroundColor: tokens.fill, color: tokens.text },
   positioner: { zIndex: 100, outline: "none" },
-  popup: { width: 280, paddingBlock: 6, paddingInline: 6 },
+  popup: { width: 280, maxWidth: "calc(100vw - 16px)", paddingBlock: 6, paddingInline: 6 },
   line: { display: "flex", alignItems: "center", gap: 10, paddingInline: 8 },
   row: { width: "100%", height: 34, fontSize: 13, color: tokens.text },
   // A button centres its text; a row's name starts at its left, as in Pierre's.

@@ -51,7 +51,7 @@ function Footer({
       <span {...stylex.props(styles.source)}>
         {/* While it reads, what it does comes first: a narrow panel cuts the host. */}
         {status && (
-          <span data-panel-status="">
+          <span data-panel-status="" {...stylex.props(ui.delayed)}>
             {status}
             {(footer?.label || extra) && <span aria-hidden="true"> · </span>}
           </span>
@@ -138,7 +138,7 @@ function BoardHead({
         {extra && <span {...stylex.props(styles.extra)}>{extra}</span>}
       </figcaption>
       {status && (
-        <span data-panel-status="" {...stylex.props(styles.headStatus)}>
+        <span data-panel-status="" {...stylex.props(styles.headStatus, ui.delayed)}>
           {status}
         </span>
       )}
@@ -355,7 +355,12 @@ export function StatPanel({
         state === "loading" && (
           <span
             aria-hidden="true"
-            {...stylex.props(styles.spark, styles.sparkWaiting, board && styles.sparkLater)}
+            {...stylex.props(
+              styles.spark,
+              styles.sparkWaiting,
+              board && styles.sparkLater,
+              ui.delayed,
+            )}
           />
         )
       )}
@@ -439,7 +444,11 @@ export function TablePanel({
         </p>
       ) : !table ? (
         // Rows to come, as tall as a short table's, so the page keeps its place.
-        <div aria-hidden="true" data-table-waiting="" {...stylex.props(styles.tableScroll)}>
+        <div
+          aria-hidden="true"
+          data-table-waiting=""
+          {...stylex.props(styles.tableScroll, ui.delayed)}
+        >
           {Array.from({ length: 7 }, (_, index) => (
             <span
               key={index}

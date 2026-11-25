@@ -42,12 +42,13 @@ export const page = stylex.create({
     maxWidth: 720,
     marginInline: "auto",
     paddingInline: { default: 44, "@media (max-width: 640px)": 16 },
-    paddingTop: { default: 56, "@media (max-width: 640px)": 24 },
+    paddingTop: 56,
     // Room below the end, so the last section scrolls up out of the bottom third.
     paddingBottom: "max(72px, 33vh)",
   },
   heading: {
     display: "flex",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,

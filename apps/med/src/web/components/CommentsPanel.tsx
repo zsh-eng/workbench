@@ -208,6 +208,7 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     width: 360,
+    maxWidth: "calc(100vw - 16px)",
     maxHeight: "min(560px, 70vh)",
     padding: 0,
     overflow: "hidden",

@@ -120,7 +120,7 @@ import { useMentionSources } from "./data/mentions";
 import { isBrowseFile, type FileRead } from "../shared/local-file";
 import { createFileWorkspace, isFileTab, sourceKey, useFileWorkspace } from "./data/file-workspace";
 import { FilesRail } from "./components/FilesRail";
-import { PaneTree, usePaneTree, type PaneSpec } from "./components/PaneTree";
+import { PaneTree, usePaneShown, usePaneTree, type PaneSpec } from "./components/PaneTree";
 import type { PaneNode, Side } from "./data/pane-tree";
 import { FilePicker } from "./components/FilePicker";
 import { SEARCH_OPEN_EVENT, SearchView, type SearchOpen } from "./components/SearchView";
@@ -555,11 +555,15 @@ export function App({
   );
   const panes = usePaneTree({ key: layoutKey, initial: initialPanes });
   const sessionVisible = panes.isOpen("session");
-  // A review behind a pane that fills the room, as an expanded thread, is
-  // not on screen: a page shows it again.
-  const reviewVisible = panes.isOpen("review") && (!panes.zoom || panes.zoom === "review");
+  const reviewFits = usePaneShown(panes, "review");
+  const sessionFits = usePaneShown(panes, "session");
+  // A review behind a pane that fills the room, as an expanded thread or
+  // narrow single-pane fit, is not on screen: a page shows it again.
+  const reviewVisible =
+    panes.isOpen("review") && (!panes.zoom || panes.zoom === "review") && reviewFits;
   // So is a session behind an expanded review: ⌘⇧B shows it, at one press.
-  const sessionOnScreen = sessionVisible && (!panes.zoom || panes.zoom === "session");
+  const sessionOnScreen =
+    sessionVisible && (!panes.zoom || panes.zoom === "session") && sessionFits;
   // Markdown files now read rendered or show their source in the file view
   // (FullFileView), so a saved layout's Preview pane has nothing to show;
   // the changed files are the Changes page's sidebar, not a pane.
@@ -2640,11 +2644,13 @@ export function App({
             ),
             // The agent's comments come before the reader's: a note can answer
             // one, and then shows in its card (GuideThread).
-            ...guideNotes.map((note): DiffLineAnnotation<Annotation> => ({
-              side: note.side === "old" ? "deletions" : "additions",
-              lineNumber: noteLine(file.metadata, note),
-              metadata: { guide: note },
-            })),
+            ...guideNotes.map(
+              (note): DiffLineAnnotation<Annotation> => ({
+                side: note.side === "old" ? "deletions" : "additions",
+                lineNumber: noteLine(file.metadata, note),
+                metadata: { guide: note },
+              }),
+            ),
             ...notes
               .filter(
                 (note) =>
@@ -2654,11 +2660,13 @@ export function App({
                   note.resolution !== "stale" &&
                   !guideNotes.some((guide) => answersGuideNote(note, guide)),
               )
-              .map((note): DiffLineAnnotation<Annotation> => ({
-                side: note.side === "old" ? "deletions" : "additions",
-                lineNumber: noteLine(file.metadata, note),
-                metadata: { note },
-              })),
+              .map(
+                (note): DiffLineAnnotation<Annotation> => ({
+                  side: note.side === "old" ? "deletions" : "additions",
+                  lineNumber: noteLine(file.metadata, note),
+                  metadata: { note },
+                }),
+              ),
           ]
         : [];
       if (visibleDraft?.path === file.path)

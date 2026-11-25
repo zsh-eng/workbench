@@ -39,6 +39,8 @@ async function show(
 ) {
   await page.viewport(1600, 900);
   initializeTheme();
+  root?.unmount();
+  frame?.remove();
   frame = document.createElement("div");
   Object.assign(frame.style, { width: `${width}px`, height: "600px", display: "flex" });
   document.body.append(frame);
@@ -722,6 +724,23 @@ test("mermaid diagrams hide raw syntax while loading and reveal source only on s
   // Invalid syntax shows the error header and its source code.
   await expect.poll(() => pres[1]!.dataset.diagramError).toBe("true");
   expect(pres[1]!.querySelector("code")?.textContent).toContain("not a valid mermaid diagram");
+});
+
+test("warm mermaid diagrams draw synchronously before paint with no loading state", async () => {
+  // First diagram ensures Pele + flowchart chunk are loaded.
+  const first = await show("# One\n\n```mermaid\nflowchart LR\n  A --> B\n```\n", 900, "One");
+  await expect.element(first.getByRole("img", { name: "Mermaid diagram" })).toBeVisible();
+  // Second distinct flowchart mounts synchronously in useLayoutEffect — already
+  // drawn immediately after render with no loading attribute or placeholder jump.
+  const second = await show(
+    "# Two\n\n```mermaid\nflowchart LR\n  X --> Y --> Z\n```\n",
+    900,
+    "Two",
+  );
+  const pre = second.element().querySelector<HTMLElement>('pre[data-mermaid="true"]')!;
+  expect(pre.dataset.rendered).toBe("true");
+  expect(pre.dataset.diagramLoading).toBeUndefined();
+  expect(pre.querySelector(".med-md-diagram > svg")).not.toBeNull();
 });
 
 test("mermaid dark mode lifts node surfaces and adapts light pastel styles losslessly", async () => {

@@ -40,7 +40,7 @@ export interface Gutter {
 export const isSplit = (node: PaneNode): node is PaneSplit => "axis" in node;
 
 /** The smallest pane, in pixels, along each axis. */
-export const MIN_WIDTH = 220;
+export const MIN_WIDTH = 300;
 export const MIN_HEIGHT = 120;
 
 export function leaves(node: PaneNode | null): string[] {

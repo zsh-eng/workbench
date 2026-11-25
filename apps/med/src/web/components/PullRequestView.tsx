@@ -338,7 +338,7 @@ function CheckRow({
           {open ? "Hide failed log" : "Show failed log"}
         </button>
       )}
-      {log.step === "reading" && <p {...stylex.props(styles.note)}>Reading the log…</p>}
+      {log.step === "reading" && <p {...stylex.props(styles.note, ui.delayed)}>Reading the log…</p>}
       {log.step === "failed" && (
         <p role="alert" {...stylex.props(styles.problem)}>
           {log.message}
@@ -550,7 +550,9 @@ export default function PullRequestView({
             </div>
           )}
           <div className="med-pull-main">
-            {!pull && !error && <p {...stylex.props(styles.note)}>Reading the pull request…</p>}
+            {!pull && !error && (
+              <p {...stylex.props(styles.note, ui.delayed)}>Reading the pull request…</p>
+            )}
             {pull &&
               (pull.body.trim() ? (
                 <Fold>

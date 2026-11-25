@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { keepBrief, renderBrief, renderedBrief } from "../../markdown/brief-render";
+import { preloadDiagrams } from "../../markdown/diagrams";
 import { useKeptFolds } from "../../markdown/folds";
 import { loadMarkdownImages, markdownImageUrl } from "../../markdown/images";
 import type { MarkdownResult } from "../../markdown/model";
@@ -86,6 +87,10 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   useCodeCopy(host, streaming);
   useKeptFolds(host);
   useReveal(host, blocks, streaming);
+
+  useEffect(() => {
+    if (/(?:```|~~~)\s*mermaid\b/i.test(text)) preloadDiagrams(text);
+  }, [text]);
 
   useLayoutEffect(() => {
     latest.current = { text, theme: theme.pierreTheme, streaming, settled };

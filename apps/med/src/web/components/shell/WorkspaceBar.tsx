@@ -151,7 +151,13 @@ function Checkout({
     stylex.props(ui.button, ui.pressable, styles.part, copied === which && styles.copied);
   const folder = basename(path);
   return (
-    <span {...stylex.props(styles.checkout, secondary && styles.secondary)}>
+    <span
+      {...stylex.props(
+        styles.checkout,
+        after && !secondary && styles.checkoutAfter,
+        secondary && styles.secondary,
+      )}
+    >
       <button
         type="button"
         aria-label={`${repository}. Copy the path`}
@@ -161,6 +167,7 @@ function Checkout({
         <span
           {...stylex.props(
             styles.name,
+            styles.ellipsis,
             after && styles.nameAfter,
             copied === "repository" && styles.copied,
           )}
@@ -213,6 +220,7 @@ const styles = stylex.create({
     gap: 4,
     flexShrink: 0,
     minWidth: 0,
+    overflow: "hidden",
     height: "var(--med-top-row)",
     // The checkout's name starts close to the band's start (12 pixels in).
     paddingInlineStart: 6,
@@ -239,8 +247,16 @@ const styles = stylex.create({
     display: "inline-flex",
     alignItems: "center",
     gap: 2,
+    flexShrink: 1,
     minWidth: 0,
+    overflow: "hidden",
     whiteSpace: "nowrap",
+  },
+  // Alongside the thread title (sidebar hidden), yield space on very narrow
+  // windows so the title stays readable instead of colliding with repo/branch.
+  checkoutAfter: {
+    display: { default: "inline-flex", "@container (max-width: 560px)": "none" },
+    maxWidth: "44cqi",
   },
   // After a workspace's own title, the checkout keeps its width up to a
   // limit, and goes where the band is narrow.
@@ -306,6 +322,7 @@ const styles = stylex.create({
     alignItems: "center",
     gap: 5,
     minWidth: 0,
+    overflow: "hidden",
     height: 26,
     paddingInline: 6,
     borderWidth: 0,

@@ -150,6 +150,25 @@ function createPaneView() {
   };
 }
 
+/** Which panes fit on screen now, updated by `PaneTree` after layout fit/zoom. */
+function createShownStore() {
+  let value: readonly string[] | null = null;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => value,
+    set(next: readonly string[]) {
+      if (value && value.length === next.length && value.every((id, index) => id === next[index]))
+        return;
+      value = next;
+      for (const listener of listeners) listener();
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+  };
+}
+
 /** Where a dragged pane lands: a side of another pane, or its place (a swap). */
 type DropSide = Side | "center";
 interface PaneDrag {
@@ -258,6 +277,7 @@ export function usePaneTree({
   // in. Only the tree reads them, so a click in another pane renders the tree
   // alone, not the workspace.
   const [view] = useState(createPaneView);
+  const [shown] = useState(createShownStore);
   // A pane stays mounted once shown, so it keeps its scroll and its stream.
   const [mounted, setMounted] = useState<ReadonlySet<string>>(() => new Set(leaves(root)));
   const open = useMemo(() => leaves(root), [root]);
@@ -402,6 +422,7 @@ export function usePaneTree({
       zoom: zoom && open.includes(zoom) ? zoom : null,
       open,
       view,
+      shown,
       /** The focused pane now: the chosen one, else the first. */
       focused: () => {
         const chosen = view.get().focused;
@@ -429,6 +450,7 @@ export function usePaneTree({
       zoom,
       open,
       view,
+      shown,
       mounted,
       isOpen,
       show,
@@ -447,6 +469,12 @@ export function usePaneTree({
   );
 }
 export type PaneTreeState = ReturnType<typeof usePaneTree>;
+
+/** Whether a pane currently fits on screen (not hidden by `zoom` or narrow-width `fit`). */
+export function usePaneShown(state: PaneTreeState, id: string) {
+  const visible = useSyncExternalStore(state.shown.subscribe, state.shown.get);
+  return visible ? visible.includes(id) : state.isOpen(id);
+}
 
 /**
  * Marks a pane's header. Like a window's title bar, its empty space and its
@@ -620,6 +648,10 @@ export function PaneTree({
     [shownTree, box],
   );
   const zoomed = state.zoom;
+  const shownIds = useMemo(() => (zoomed ? [zoomed] : leaves(shownTree)), [zoomed, shownTree]);
+  useLayoutEffect(() => {
+    state.shown.set(shownIds);
+  }, [state.shown, shownIds]);
   const several = rects.size > 1;
   const rectsRef = useRef(rects);
   useLayoutEffect(() => {

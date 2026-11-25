@@ -238,7 +238,11 @@ export function ComparisonActions({
                   </Menu.Group>
                 ) : null,
               )}
-              {!targets && <p {...stylex.props(styles.menuHint)}>{error || "Loading branches…"}</p>}
+              {!targets && (
+                <p {...stylex.props(styles.menuHint, !error && ui.delayed)}>
+                  {error || "Loading branches…"}
+                </p>
+              )}
               {targets && !refs.length && (
                 <p {...stylex.props(styles.menuHint)}>No matching branches.</p>
               )}

@@ -468,8 +468,12 @@ const styles = stylex.create({
     maxHeight: "calc(100vh - 80px)",
   },
   dockedList: { maxHeight: "none" },
-  // Beside the preview, as in Find file.
-  split: { flexGrow: 0, flexShrink: 0, flexBasis: "42%" },
+  // Beside the preview, as in Find file; full width when preview hides.
+  split: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: { default: "42%", "@media (max-width: 700px)": "100%" },
+  },
   body: { display: "flex", flex: "1", minHeight: 0, overflow: "hidden" },
   results: { minWidth: 0 },
   // The list's label scrolls with its rows. A path keeps its case in a theme

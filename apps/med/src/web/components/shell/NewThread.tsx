@@ -345,53 +345,57 @@ export function NewThread({
                 </span>
               )
             )}
-            <span {...stylex.props(styles.grow)} />
-            <FlipChoice
-              label="Where the agent works"
-              value={choice.worktree ? "worktree" : "checkout"}
-              choices={[
-                { value: "worktree", label: `New worktree · ${branch}` },
-                {
-                  value: "checkout",
-                  label: repository?.branch ? `Checkout · ${repository.branch}` : "Checkout",
-                },
-              ]}
-              onChange={(value) => remember({ worktree: value === "worktree" })}
-              trigger={styles.menu}
-            >
-              <MenuLabel icon="branch" text={choice.worktree ? "New worktree" : "Checkout"} />
-            </FlipChoice>
-            {agent && (
-              <ModelPicker
-                models={models}
-                model={model ?? ""}
-                placeholder={agent.name}
-                onModel={(value) => chooseAgent({ model: value })}
-                {...(effort
-                  ? {
-                      levels: {
-                        label: options?.effort?.name ?? "Effort",
-                        value: effort,
-                        options: efforts.map((option) => ({
-                          value: option.value,
-                          name: optionName(option),
-                        })),
-                        onChange: (value: string) => chooseAgent({ effort: value }),
-                      },
-                    }
-                  : {})}
-                agents={{
-                  value: agent.id,
-                  options: (agents ?? []).map((entry) => ({ value: entry.id, label: entry.name })),
-                  onChange: (preset) => chooseAgent({ preset }),
-                }}
-                icon={<AgentMark kind={agent.kind} />}
-                {...(agent.kind === "claude" || agent.kind === "codex"
-                  ? {}
-                  : { harness: agent.name })}
+            <div {...stylex.props(styles.rightMenus)}>
+              <FlipChoice
+                label="Where the agent works"
+                value={choice.worktree ? "worktree" : "checkout"}
+                choices={[
+                  { value: "worktree", label: `New worktree · ${branch}` },
+                  {
+                    value: "checkout",
+                    label: repository?.branch ? `Checkout · ${repository.branch}` : "Checkout",
+                  },
+                ]}
+                onChange={(value) => remember({ worktree: value === "worktree" })}
                 trigger={styles.menu}
-              />
-            )}
+              >
+                <MenuLabel icon="branch" text={choice.worktree ? "New worktree" : "Checkout"} />
+              </FlipChoice>
+              {agent && (
+                <ModelPicker
+                  models={models}
+                  model={model ?? ""}
+                  placeholder={agent.name}
+                  onModel={(value) => chooseAgent({ model: value })}
+                  {...(effort
+                    ? {
+                        levels: {
+                          label: options?.effort?.name ?? "Effort",
+                          value: effort,
+                          options: efforts.map((option) => ({
+                            value: option.value,
+                            name: optionName(option),
+                          })),
+                          onChange: (value: string) => chooseAgent({ effort: value }),
+                        },
+                      }
+                    : {})}
+                  agents={{
+                    value: agent.id,
+                    options: (agents ?? []).map((entry) => ({
+                      value: entry.id,
+                      label: entry.name,
+                    })),
+                    onChange: (preset) => chooseAgent({ preset }),
+                  }}
+                  icon={<AgentMark kind={agent.kind} />}
+                  {...(agent.kind === "claude" || agent.kind === "codex"
+                    ? {}
+                    : { harness: agent.name })}
+                  trigger={styles.menu}
+                />
+              )}
+            </div>
           </div>
           <p {...stylex.props(styles.hint)} aria-live="polite">
             {error ? (
@@ -492,7 +496,7 @@ const styles = stylex.create({
     zIndex: 30,
     display: "flex",
     justifyContent: "center",
-    paddingInline: 24,
+    paddingInline: { default: 24, "@media (max-width: 640px)": 16 },
     backgroundColor: tokens.canvas,
   },
   // The list, and the composer right under it, in the page's middle, a
@@ -552,13 +556,34 @@ const styles = stylex.create({
     paddingBottom: 8,
     marginTop: -8,
   },
-  // One line of menus under the composer.
-  menus: { display: "flex", alignItems: "center", gap: 2, minWidth: 0, marginTop: 6 },
-  grow: { flex: "1" },
+  // One line of menus under the composer; wraps cleanly on narrow screens so
+  // the model and worktree pickers never crush to a few pixels.
+  menus: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    rowGap: 4,
+    columnGap: 2,
+    minWidth: 0,
+    marginTop: 6,
+  },
+  rightMenus: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    rowGap: 4,
+    columnGap: 2,
+    marginInlineStart: "auto",
+    minWidth: 0,
+    maxWidth: "100%",
+  },
   menu: {
     display: "inline-flex",
     alignItems: "center",
     gap: 6,
+    flexShrink: 1,
+    maxWidth: "100%",
     minWidth: 0,
     height: 28,
     paddingInline: 8,

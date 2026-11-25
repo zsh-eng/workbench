@@ -1140,8 +1140,12 @@ const styles = stylex.create({
   searchNotice: { margin: 0, minHeight: 36, color: tokens.faint, fontSize: 12 },
   body: { display: "flex", flex: "1", minHeight: 0, overflow: "hidden" },
   results: { display: "flex", flexDirection: "column", flex: "1", minWidth: 0, overflow: "hidden" },
-  // Beside the preview, the list takes 42 % of the width.
-  split: { flexGrow: 0, flexShrink: 0, flexBasis: "42%" },
+  // Beside the preview, the list takes 42 % of the width; full width when preview hides.
+  split: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: { default: "42%", "@media (max-width: 700px)": "100%" },
+  },
   preview: {
     display: { default: "flex", "@media (max-width: 700px)": "none" },
     flexDirection: "column",

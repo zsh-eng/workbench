@@ -1284,6 +1284,16 @@ export function SessionThread({
   const probe = useRef<HTMLDivElement>(null);
   const head = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
+  const [showLoadingEarlier, setShowLoadingEarlier] = useState(false);
+  const earlierLoading = !!earlier?.loading;
+  useEffect(() => {
+    if (!earlierLoading) {
+      setShowLoadingEarlier(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowLoadingEarlier(true), 300);
+    return () => clearTimeout(timer);
+  }, [earlierLoading]);
   const [atBottom, setAtBottom] = useState(true);
   const { active: theme } = useTheme();
   const themeId = theme.id;
@@ -2500,7 +2510,7 @@ export function SessionThread({
                   </div>
                 </div>
               </div>
-              {!agent && earlier?.loading && (
+              {!agent && earlierLoading && showLoadingEarlier && (
                 <div role="status" data-loading-earlier="" {...stylex.props(styles.loadingPill)}>
                   <span {...stylex.props(motion.spinner)} />
                   <span>Loading earlier work…</span>
@@ -2511,7 +2521,7 @@ export function SessionThread({
                   scroller={scroller}
                   places={places}
                   at={placeAt}
-                  hidden={!!earlier?.loading}
+                  hidden={earlierLoading && showLoadingEarlier}
                 />
               )}
               {!atBottom && (
@@ -2890,6 +2900,7 @@ const styles = stylex.create({
     flex: "1",
     minHeight: 0,
     overflowY: "auto",
+    overflowX: "hidden",
     // The thread keeps its own anchor; see SessionThread.
     overflowAnchor: "none",
     overscrollBehavior: "contain",
@@ -2990,10 +3001,11 @@ const styles = stylex.create({
     gap: 4,
     marginBlock: 10,
   },
-  // Its text ends at the thread's edge; the bubble reaches past it.
+  // Its text ends at the thread's edge; the bubble reaches past it while
+  // leaving room on the left for the copy/fork action buttons on narrow panes.
   user: {
     position: "relative",
-    maxWidth: "86%",
+    maxWidth: "min(86%, calc(100% - 28px))",
     marginInlineEnd: -10,
     paddingBlock: 9,
     paddingInline: 10,

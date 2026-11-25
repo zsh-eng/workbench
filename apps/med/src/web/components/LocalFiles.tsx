@@ -48,6 +48,15 @@ export function LocalFiles({ children }: { children: ReactNode }) {
   const [path, setPath] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showLoading, setShowLoading] = useState(false);
+  useEffect(() => {
+    if (!loading) {
+      setShowLoading(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowLoading(true), 300);
+    return () => clearTimeout(timer);
+  }, [loading]);
   const [dragging, setDragging] = useState(false);
   const [themes, setThemes] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -379,7 +388,7 @@ export function LocalFiles({ children }: { children: ReactNode }) {
               {error}
             </div>
           )}
-          {loading && (
+          {loading && showLoading && (
             <div className="med-local-notice" role="status">
               Opening file…
             </div>

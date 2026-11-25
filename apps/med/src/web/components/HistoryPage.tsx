@@ -403,25 +403,22 @@ export function HistoryPage({
                 </section>
               );
             })}
-            {!rows.length && !error && (
+            {!rows.length && !error && past === null && (
+              <p {...stylex.props(styles.notice, ui.delayed)}>Reading archived threads…</p>
+            )}
+            {!rows.length && !error && past !== null && (
               <div {...stylex.props(page.emptyCard)}>
                 <span aria-hidden="true" {...stylex.props(page.iconTile, styles.emptyIcon)}>
                   <Icon name={words.length ? "search" : "history"} size={16} />
                 </span>
                 <p {...stylex.props(page.emptyTitle)}>
-                  {past === null
-                    ? "Reading archived threads…"
-                    : words.length
-                      ? `Nothing matches “${searched}”`
-                      : "Nothing is archived"}
+                  {words.length ? `Nothing matches “${searched}”` : "Nothing is archived"}
                 </p>
-                {past !== null && (
-                  <p {...stylex.props(page.emptyNote)}>
-                    {words.length
-                      ? "Try another title, branch, repository name, or clear the search filter."
-                      : "Threads that you archive from the sidebar stay searchable here until you delete them."}
-                  </p>
-                )}
+                <p {...stylex.props(page.emptyNote)}>
+                  {words.length
+                    ? "Try another title, branch, repository name, or clear the search filter."
+                    : "Threads that you archive from the sidebar stay searchable here until you delete them."}
+                </p>
               </div>
             )}
           </div>
@@ -487,7 +484,7 @@ const HistoryRow = memo(function HistoryRow({
         {!asking && (where || agent) && (
           <span {...stylex.props(styles.facts)}>
             {where && <span {...stylex.props(styles.fact)}>{where}</span>}
-            {agent && <span {...stylex.props(styles.fact)}>{agent}</span>}
+            {agent && <span {...stylex.props(styles.agentFact)}>{agent}</span>}
           </span>
         )}
       </span>
@@ -701,6 +698,7 @@ const styles = stylex.create({
     fontSize: 12.5,
   },
   fact: { overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 },
+  agentFact: { flexShrink: 0 },
   end: { display: "flex", alignItems: "center", gap: 6, flexShrink: 0 },
   time: {
     minWidth: 40,

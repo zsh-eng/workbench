@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { createApi, openInHostsSchema, type OpenInHosts } from "../../data/api";
 import { readBrowserToken } from "../../data/auth";
 import { useSettingsFile, writeSetting } from "../../data/settings-file";
-import { tokens } from "../../theme.stylex";
+import { tokens, ui } from "../../theme.stylex";
 import { ChoiceSelect } from "../Controls";
 import { Group, Row, Section, settingStyles, Switch } from "./SettingsParts";
 
@@ -73,7 +73,11 @@ export function OpenInSettings() {
         </p>
       )}
       <Group title="Code hosts">
-        {!found && <Row label="Reading your remotes…" />}
+        {!found && (
+          <div {...stylex.props(ui.delayed)}>
+            <Row label="Reading your remotes…" />
+          </div>
+        )}
         {found && found.hosts.length === 0 && (
           <Row label="No code hosts yet" note="A repository with a remote adds its host here." />
         )}
@@ -311,12 +315,19 @@ const styles = stylex.create({
     fontFamily: tokens.code,
     fontSize: 12.5,
     outline: "none",
-    width: 280,
+    width: "min(280px, 100%)",
   },
   invalid: { borderColor: { default: tokens.red, ":focus": tokens.red } },
-  newLink: { display: "flex", gap: 8, alignItems: "center" },
-  name: { width: 140, flexShrink: 0, fontFamily: tokens.ui, fontSize: 13 },
-  template: { flex: "1", width: "auto" },
+  newLink: { display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" },
+  name: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 120,
+    maxWidth: { default: 140, "@media (max-width: 520px)": "100%" },
+    fontFamily: tokens.ui,
+    fontSize: 13,
+  },
+  template: { flexGrow: 2, flexShrink: 1, flexBasis: 180, width: "auto" },
   add: {
     opacity: { default: 1, ":disabled": 0.45 },
     cursor: { default: "pointer", ":disabled": "default" },

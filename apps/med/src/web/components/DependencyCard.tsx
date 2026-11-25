@@ -76,7 +76,7 @@ export function DependencyCard({
           {manifest.state === "loading" ? (
             // A review that opens waits out of sight for its table, rather
             // than show the line and push the diffs down when the table comes.
-            <p data-pending="" {...stylex.props(styles.note)}>
+            <p data-pending="" {...stylex.props(styles.note, ui.delayed)}>
               Reading the manifest…
             </p>
           ) : manifest.state === "unavailable" ? (

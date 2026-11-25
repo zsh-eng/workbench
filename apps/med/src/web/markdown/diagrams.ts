@@ -44,16 +44,41 @@ function drawing(source: string, { zoom, turn }: DrawOptions) {
 }
 
 let peleModule: Promise<typeof import("pele/lazy")> | undefined;
+let peleResolved: typeof import("pele/lazy") | undefined;
 function loadPele() {
-  return (peleModule ??= import("pele/lazy").catch((error) => {
-    peleModule = undefined;
-    throw error;
-  }));
+  return (peleModule ??= import("pele/lazy")
+    .then((mod) => {
+      peleResolved = mod;
+      return mod;
+    })
+    .catch((error) => {
+      peleModule = undefined;
+      throw error;
+    }));
 }
 
-/** Preloads Pele's lazy module so diagrams mount without an extra import stall. */
-export function preloadDiagrams() {
-  void loadPele();
+const MERMAID_FENCE = /(?:```|~~~)\s*mermaid[^\n]*\n([\s\S]*?)(?:\n[ \t]*(?:```|~~~)|$)/gi;
+
+/** Preloads Pele's lazy module — and any diagram types found in `markdown` —
+ * so diagrams mount synchronously before first paint without a loading jump. */
+export function preloadDiagrams(markdown?: string) {
+  void loadPele()
+    .then((pele) => {
+      if (!markdown) return;
+      MERMAID_FENCE.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = MERMAID_FENCE.exec(markdown))) {
+        const source = match[1]?.trim();
+        if (!source) continue;
+        try {
+          const type = pele.detectType(source);
+          if (type && !pele.registered(type)) void pele.load(type).catch(() => {});
+        } catch {
+          /* Invalid syntax will be surfaced when the block mounts. */
+        }
+      }
+    })
+    .catch(() => {});
 }
 
 const SKIP_COLOR = /^(?:none|transparent|currentcolor|inherit|initial|unset|var\(|url\()/i;
@@ -254,21 +279,7 @@ function adaptText(raw: string): string {
 
 const mountedElements = new WeakMap<Mounted, HTMLElement>();
 
-/**
- * Draws a diagram in `element`. Pele keeps it fitted to the element's width
- * (a narrow pane can turn a left-to-right flowchart downward) and offers zoom
- * when a diagram has to shrink. Rejects when the source does not draw, so the
- * caller shows it as code; Pele's own error text stays out of the page.
- */
-export async function mountDiagram(
-  element: HTMLElement,
-  source: string,
-  draw: DrawOptions = {},
-): Promise<Mounted> {
-  const { mountAsync } = await loadPele();
-  const { text, options } = drawing(source, draw);
-  const onRender = () => themeDiagramSvg(element);
-  const mounted = await mountAsync(element, text, { ...options, onRender });
+function wrapMounted(mounted: Mounted, element: HTMLElement, onRender: () => void): Mounted {
   if (mounted.error !== undefined) {
     mounted.destroy();
     element.replaceChildren();
@@ -304,6 +315,49 @@ export async function mountDiagram(
   };
   mountedElements.set(wrapped, element);
   return wrapped;
+}
+
+/**
+ * Draws a diagram synchronously when Pele and the diagram's renderer are
+ * already loaded in memory; returns `null` when an async chunk load is still
+ * needed. Throws synchronously when the source cannot draw.
+ */
+export function mountDiagramSync(
+  element: HTMLElement,
+  source: string,
+  draw: DrawOptions = {},
+): Mounted | null {
+  const pele = peleResolved;
+  if (!pele) return null;
+  const { text, options } = drawing(source, draw);
+  let type: ReturnType<typeof pele.detectType> = null;
+  try {
+    type = pele.detectType(text);
+  } catch {
+    /* Let mount() report the syntax error below. */
+  }
+  if (type !== null && !pele.registered(type)) return null;
+  const onRender = () => themeDiagramSvg(element);
+  const mounted = pele.mount(element, text, { ...options, onRender });
+  return wrapMounted(mounted, element, onRender);
+}
+
+/**
+ * Draws a diagram in `element`. Pele keeps it fitted to the element's width
+ * (a narrow pane can turn a left-to-right flowchart downward) and offers zoom
+ * when a diagram has to shrink. Rejects when the source does not draw, so the
+ * caller shows it as code; Pele's own error text stays out of the page.
+ */
+export async function mountDiagram(
+  element: HTMLElement,
+  source: string,
+  draw: DrawOptions = {},
+): Promise<Mounted> {
+  const { mountAsync } = await loadPele();
+  const { text, options } = drawing(source, draw);
+  const onRender = () => themeDiagramSvg(element);
+  const mounted = await mountAsync(element, text, { ...options, onRender });
+  return wrapMounted(mounted, element, onRender);
 }
 
 /** Draws a mounted diagram again, for an edit to its source or a turn. */

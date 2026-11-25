@@ -166,7 +166,7 @@ interface WorkspaceActions {
   getSnapshot(): WorkspaceSnapshot;
 }
 
-const NARROW = "(max-width: 760px)";
+const NARROW = "(max-width: 880px)";
 const isNarrow = () => typeof matchMedia === "function" && matchMedia(NARROW).matches;
 const subscribeNarrow = (listener: () => void) => {
   if (typeof matchMedia !== "function") return () => {};
@@ -659,6 +659,13 @@ const SIDEBAR_MIN = 220;
 const SIDEBAR_MAX = 440;
 const clampSidebar = (width: number) =>
   Math.round(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, width)));
+const clampSidebarDrag = (width: number) => {
+  const viewportCap =
+    typeof window !== "undefined" && window.innerWidth > 0
+      ? Math.max(SIDEBAR_MIN, Math.round(window.innerWidth * 0.42))
+      : SIDEBAR_MAX;
+  return clampSidebar(Math.min(viewportCap, width));
+};
 function readStored(key: string) {
   try {
     return localStorage.getItem(key);
@@ -1323,7 +1330,10 @@ export function WorkspaceHost({
   const [sidebarWidth, setSidebarWidth] = useState(() =>
     clampSidebar(Number(readStored(SIDEBAR_WIDTH_KEY)) || SIDEBAR_WIDTH),
   );
-  const resizeSidebar = useCallback((width: number) => setSidebarWidth(clampSidebar(width)), []);
+  const resizeSidebar = useCallback(
+    (width: number) => setSidebarWidth(clampSidebarDrag(width)),
+    [],
+  );
   useEffect(() => {
     const timer = setTimeout(() => writeStored(SIDEBAR_WIDTH_KEY, String(sidebarWidth)), 200);
     return () => clearTimeout(timer);
@@ -2140,7 +2150,7 @@ export function WorkspaceHost({
                                 dot={needs > 0}
                                 onClick={toggleSidebar}
                               />
-                              <HistoryArrows />
+                              <HistoryArrows narrow="hide" />
                             </span>
                           )}
                           <div
@@ -3376,7 +3386,12 @@ function WorkspaceSwitcher({
             ];
           })}
           {!rows.length && (
-            <p {...stylex.props(ui.paletteEmpty)}>
+            <p
+              {...stylex.props(
+                ui.paletteEmpty,
+                past === null && (historyMode || words.length > 0) && ui.delayed,
+              )}
+            >
               {past === null && (historyMode || words.length)
                 ? "Reading archived threads…"
                 : words.length
@@ -3426,7 +3441,7 @@ const styles = stylex.create({
     fontSize: 12,
     WebkitFontSmoothing: "antialiased",
   },
-  width: (width: number) => ({ width }),
+  width: (width: number) => ({ width, maxWidth: "max(220px, 42vw)" }),
   // The sidebar on the panel's color, with a line at its edge.
   shellSidebar: {
     display: "flex",
@@ -3480,6 +3495,7 @@ const styles = stylex.create({
     flex: "1",
     minWidth: 0,
     minHeight: 0,
+    containerType: "inline-size",
   },
   shellOverlay: {
     position: "absolute",
