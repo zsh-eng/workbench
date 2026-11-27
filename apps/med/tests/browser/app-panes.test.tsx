@@ -46,14 +46,27 @@ describe("graphical review", () => {
     expect(page.getByRole("tab").elements()).toHaveLength(0);
     window.dispatchEvent(
       new KeyboardEvent("keydown", {
-        key: "K",
+        key: "o",
         ctrlKey: true,
-        shiftKey: true,
         bubbles: true,
       }),
     );
     await expect
       .element(page.getByRole("combobox", { name: "Find file", exact: true }))
+      .toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    // ⌘⌥O opens the repository picker (even when macOS produces 'ø' for Alt+O).
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "ø",
+        code: "KeyO",
+        metaKey: true,
+        altKey: true,
+        bubbles: true,
+      }),
+    );
+    await expect
+      .element(page.getByRole("dialog", { name: "Open repository" }))
       .toBeVisible();
   });
 
@@ -229,7 +242,7 @@ describe("graphical review", () => {
     await page.viewport(1280, 800);
     const { vaultWrites } = await mountApp({ vault: true });
     window.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "K", metaKey: true, shiftKey: true, bubbles: true }),
+      new KeyboardEvent("keydown", { key: "o", metaKey: true, bubbles: true }),
     );
     const find = page.getByRole("combobox", { name: "Find file", exact: true });
     await find.fill("notes");
@@ -272,7 +285,7 @@ describe("graphical review", () => {
     await mountApp({ vault: true });
     const open = () =>
       window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "K", metaKey: true, shiftKey: true, bubbles: true }),
+        new KeyboardEvent("keydown", { key: "o", metaKey: true, bubbles: true }),
       );
     open();
     const find = page.getByRole("combobox", { name: "Find file", exact: true });

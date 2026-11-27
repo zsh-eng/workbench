@@ -22,6 +22,16 @@ import type { SessionItem, SessionSnapshot } from "../../data/session-store";
 import { renderBrief } from "../../markdown/brief-render";
 import { tokens } from "../../theme.stylex";
 import { useTheme } from "../../themes";
+import { visibleElement } from "../../data/palette-focus";
+import { findPattern } from "../../data/search-highlights";
+import {
+  applyDomHighlights,
+  clearDomHighlights,
+  scrollRangeIntoPane,
+  useFindHighlightStyle,
+} from "../../data/dom-find";
+import { FindBar, NO_FIND_OPTIONS, type FindCount, type FindOptions } from "../FindBar";
+import { findThreadMatches, type ThreadMatch } from "./thread-find";
 import { Icon } from "../Icon";
 import { tooltip } from "../ToolButton";
 import { LinkedText } from "../FileRefs";
@@ -1277,6 +1287,7 @@ export function SessionThread({
   recap,
   endMark,
   onOpenLink,
+  onFindReady,
   backgroundIn,
   agentsIn,
   footer,
@@ -1320,6 +1331,7 @@ export function SessionThread({
    * scroll bar runs the pane's height, and its end clears the box. */
   footer?: ReactNode;
   onOpenLink?(href: string): void;
+  onFindReady?(open: (() => void) | null): void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   // The footer's height, which the thread's end keeps clear.
@@ -2176,15 +2188,230 @@ export function SessionThread({
   };
   // A task in the Background dock: the unit that holds its call, in work
   // that opens first if it is folded.
+  const openWorkUnit = useCallback(
+    (workKey: string) => {
+      flushSync(() =>
+        setFlipped((keys) => {
+          const next = new Set(keys);
+          if (showWork) next.delete(workKey);
+          else next.add(workKey);
+          return next;
+        }),
+      );
+    },
+    [showWork],
+  );
   const showCall = (id: string) => {
     const has = (unit: Unit) => itemsOf(unit).some((item) => holds(item, id));
     const unit = latest.current.model.all.find(has);
     if (unit && "work" in unit) {
       const inner = unit.work.find(has)!;
-      flushSync(() => setFlipped((keys) => new Set(keys).add(unit.key)));
+      openWorkUnit(unit.key);
       list.current?.go(inner.key);
     } else if (unit) list.current?.go(unit.key);
   };
+
+  // Find within the loaded transcript (⌘F): searches all loaded units including
+  // virtualized and folded turns, and highlights mounted DOM ranges.
+  const SESSION_FIND_HIGHLIGHT = "med-session-find";
+  const SESSION_FIND_CURRENT = "med-session-find-current";
+  const findInput = useRef<HTMLInputElement>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findOptions, setFindOptions] = useState<FindOptions>(NO_FIND_OPTIONS);
+  const [findCount, setFindCount] = useState<FindCount | null>(null);
+  const findState = useRef<{ matches: ThreadMatch[]; index: number }>({ matches: [], index: -1 });
+  const findOwner = useRef(Symbol("session-find"));
+  const findJumpIntent = useRef<"stay" | "first">("stay");
+  const pendingReveal = useRef<{ unitKey: string; occurrence: number } | null>(null);
+  const findRevealRaf = useRef(0);
+  useFindHighlightStyle(findOpen, "session-thread", {
+    match: SESSION_FIND_HIGHLIGHT,
+    current: SESSION_FIND_CURRENT,
+  });
+
+  const syncThreadFind = useCallback(
+    (
+      open: boolean,
+      query: string,
+      options: FindOptions,
+      jump: "stay" | "first" | "next" | "prev" = "stay",
+    ) => {
+      const owner = findOwner.current;
+      if (jump !== "stay") {
+        cancelAnimationFrame(findRevealRaf.current);
+        pendingReveal.current = null;
+      }
+      if (!open || !query.trim()) {
+        cancelAnimationFrame(findRevealRaf.current);
+        pendingReveal.current = null;
+        findState.current = { matches: [], index: -1 };
+        clearDomHighlights(SESSION_FIND_HIGHLIGHT, SESSION_FIND_CURRENT, owner);
+        setFindCount(null);
+        return;
+      }
+      const pattern = findPattern(query, options);
+      if (!pattern) {
+        cancelAnimationFrame(findRevealRaf.current);
+        pendingReveal.current = null;
+        findState.current = { matches: [], index: -1 };
+        clearDomHighlights(SESSION_FIND_HIGHLIGHT, SESSION_FIND_CURRENT, owner);
+        setFindCount(null);
+        return;
+      }
+      if (!(pattern instanceof RegExp)) {
+        cancelAnimationFrame(findRevealRaf.current);
+        pendingReveal.current = null;
+        findState.current = { matches: [], index: -1 };
+        clearDomHighlights(SESSION_FIND_HIGHLIGHT, SESSION_FIND_CURRENT, owner);
+        setFindCount({ error: pattern.error });
+        return;
+      }
+
+      const { matches, mountedRanges } = findThreadMatches(
+        latest.current.model.all,
+        pattern,
+        content.current,
+      );
+      let index = findState.current.index;
+      if (!matches.length) {
+        index = -1;
+      } else if (jump === "first") {
+        index = 0;
+      } else if (jump === "next") {
+        index = index < 0 ? 0 : (index + 1) % matches.length;
+      } else if (jump === "prev") {
+        index = index < 0 ? matches.length - 1 : (index - 1 + matches.length) % matches.length;
+      } else if (index < 0 || index >= matches.length) {
+        index = 0;
+      }
+      findState.current = { matches, index };
+      const active = index >= 0 ? matches[index] : undefined;
+      const allRanges: globalThis.Range[] = [];
+      for (const listRanges of mountedRanges.values()) allRanges.push(...listRanges);
+      const currentRange = active ? mountedRanges.get(active.unitKey)?.[active.occurrence] : null;
+      const visible = !!scroller.current && scroller.current.getClientRects().length > 0;
+      if (visible) {
+        applyDomHighlights(
+          SESSION_FIND_HIGHLIGHT,
+          SESSION_FIND_CURRENT,
+          allRanges,
+          currentRange,
+          owner,
+        );
+      }
+      setFindCount({ current: index >= 0 ? index + 1 : 0, total: matches.length });
+
+      // Fulfill a pending reveal once the target unit mounts and renders its DOM ranges.
+      if (jump === "stay" && pendingReveal.current && scroller.current) {
+        const target = pendingReveal.current;
+        const targetRange =
+          mountedRanges.get(target.unitKey)?.[target.occurrence] ??
+          mountedRanges.get(target.unitKey)?.[0];
+        if (targetRange) {
+          pendingReveal.current = null;
+          scrollRangeIntoPane(scroller.current, targetRange, 72, Math.max(36, room + 20));
+        }
+      }
+
+      if (active && jump !== "stay") {
+        if (active.workKey) openWorkUnit(active.workKey);
+        list.current?.go(active.unitKey);
+        pendingReveal.current = { unitKey: active.unitKey, occurrence: active.occurrence };
+        findRevealRaf.current = requestAnimationFrame(() => {
+          const after = findThreadMatches(latest.current.model.all, pattern, content.current);
+          const refreshed: globalThis.Range[] = [];
+          for (const listRanges of after.mountedRanges.values()) refreshed.push(...listRanges);
+          const targetRange =
+            after.mountedRanges.get(active.unitKey)?.[active.occurrence] ??
+            after.mountedRanges.get(active.unitKey)?.[0] ??
+            null;
+          if (scroller.current && scroller.current.getClientRects().length > 0) {
+            applyDomHighlights(
+              SESSION_FIND_HIGHLIGHT,
+              SESSION_FIND_CURRENT,
+              refreshed,
+              targetRange,
+              owner,
+            );
+          }
+          if (targetRange && scroller.current) {
+            pendingReveal.current = null;
+            scrollRangeIntoPane(scroller.current, targetRange, 72, Math.max(36, room + 20));
+          }
+        });
+      }
+    },
+    [openWorkUnit, room],
+  );
+
+  useLayoutEffect(() => {
+    if (!findOpen) return;
+    const intent = findJumpIntent.current;
+    findJumpIntent.current = "stay";
+    syncThreadFind(true, findQuery, findOptions, intent);
+  }, [findOpen, findQuery, findOptions, all, start, end, syncThreadFind]);
+
+  // Re-apply highlights when async SessionMarkdown finishes rendering a mounted unit.
+  useEffect(() => {
+    if (!findOpen || !findQuery.trim()) return;
+    const node = content.current;
+    if (!node) return;
+    let raf = 0;
+    const observer = new MutationObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => syncThreadFind(true, findQuery, findOptions, "stay"));
+    });
+    observer.observe(node, { childList: true, subtree: true });
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+    };
+  }, [findOpen, findQuery, findOptions, syncThreadFind]);
+
+  useEffect(() => {
+    const owner = findOwner.current;
+    return () => {
+      cancelAnimationFrame(findRevealRaf.current);
+      clearDomHighlights(SESSION_FIND_HIGHLIGHT, SESSION_FIND_CURRENT, owner);
+    };
+  }, []);
+
+  const openThreadFind = useCallback(() => {
+    setFindOpen(true);
+    requestAnimationFrame(() => {
+      findInput.current?.focus();
+      findInput.current?.select();
+    });
+  }, []);
+
+  const closeThreadFind = useCallback(() => {
+    setFindOpen(false);
+    pendingReveal.current = null;
+    clearDomHighlights(SESSION_FIND_HIGHLIGHT, SESSION_FIND_CURRENT, findOwner.current);
+    scroller.current?.focus({ preventScroll: true });
+  }, []);
+
+  useLayoutEffect(() => {
+    onFindReady?.(openThreadFind);
+    return () => onFindReady?.(null);
+  }, [onFindReady, openThreadFind]);
+
+  // Allow ⌘F inside standalone SessionThread (when no parent App routes it).
+  useEffect(() => {
+    if (onFindReady) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) return;
+      if (event.key.toLowerCase() !== "f") return;
+      if (visibleElement('[role="dialog"]')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openThreadFind();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [onFindReady, openThreadFind]);
 
   // A turn from the index: its unit goes to the top of the view.
   const [handled, setHandled] = useState<{ nonce: number; key: string } | undefined>(undefined);
@@ -2446,6 +2673,26 @@ export function SessionThread({
               />
             ))}
           <div {...stylex.props(styles.body)}>
+            {findOpen && !agent && (
+              <FindBar
+                inputRef={findInput}
+                query={findQuery}
+                options={findOptions}
+                count={findCount}
+                placeholder="Find in thread"
+                onQuery={(next) => {
+                  findJumpIntent.current = "first";
+                  setFindQuery(next);
+                }}
+                onOptions={(next) => {
+                  findJumpIntent.current = "first";
+                  setFindOptions(next);
+                }}
+                onNext={() => syncThreadFind(true, findQuery, findOptions, "next")}
+                onPrevious={() => syncThreadFind(true, findQuery, findOptions, "prev")}
+                onClose={closeThreadFind}
+              />
+            )}
             <div inert={!!agent} {...stylex.props(styles.viewport)}>
               <div
                 ref={scroller}

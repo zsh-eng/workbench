@@ -87,6 +87,10 @@
 .med-session-prose code {
   padding: 0.1em 0.3em;
 }
+.med-session-prose .katex-display {
+  margin: 0.85em 0;
+  padding: 4px 0;
+}
 /* Tables in a pane or a guide column keep their cells compact, so more of
    them fit before the table scrolls. Every cell has the same padding, as the
    thread's height estimate expects (thread-heights.ts). */

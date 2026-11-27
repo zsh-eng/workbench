@@ -355,17 +355,18 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       if (event.isComposing || event.repeat) return;
       if ((event.metaKey || event.ctrlKey) && !event.altKey) {
         const key = event.key.toLowerCase();
-        if (key === "k") {
+        if (key === "o" && !event.shiftKey && locationState.id) {
           event.preventDefault();
           event.stopImmediatePropagation();
           setThemes(false);
-          if (event.shiftKey && locationState.id) {
-            setCommandsOpen(false);
-            setPickerOpen((value) => !value);
-          } else {
-            setPickerOpen(false);
-            setCommandsOpen((value) => !value);
-          }
+          setCommandsOpen(false);
+          setPickerOpen((value) => !value);
+        } else if (key === "k" && !event.shiftKey) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          setThemes(false);
+          setPickerOpen(false);
+          setCommandsOpen((value) => !value);
         }
       } else if (
         event.altKey &&
@@ -440,7 +441,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       group: "Go to",
       label: "Find file",
       keywords: "in this workspace",
-      shortcut: "⌘⇧K",
+      shortcut: "⌘ O",
       disabled: !locationState.id,
       managesFocus: true,
       run: () => setPickerOpen(true),
@@ -749,7 +750,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                 ) : (
                   <div className="med-vault-empty">
                     <button {...stylex.props(ui.button)} onClick={() => setPickerOpen(true)}>
-                      Find file… <span>⌘⇧K</span>
+                      Find file… <span>⌘O</span>
                     </button>
                   </div>
                 )}

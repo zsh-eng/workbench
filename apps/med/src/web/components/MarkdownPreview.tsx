@@ -1,5 +1,6 @@
 import {
   memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -18,7 +19,17 @@ import type {
   MarkdownResult,
 } from "../markdown/model";
 import { connectPreviewScroll } from "../markdown/scroll";
-import { folded, useKeptFolds } from "../markdown/folds";
+import { folded, unfold, useKeptFolds } from "../markdown/folds";
+import { visibleElement } from "../data/palette-focus";
+import { findPattern } from "../data/search-highlights";
+import {
+  applyDomHighlights,
+  clearDomHighlights,
+  scrollRangeIntoPane,
+  textRangesIn,
+  useFindHighlightStyle,
+} from "../data/dom-find";
+import { FindBar, NO_FIND_OPTIONS, type FindCount, type FindOptions } from "./FindBar";
 import RenderWorker from "../markdown/render.worker?worker";
 import type { Mounted } from "pele/lazy";
 import { mountDiagram, mountDiagramSync, preloadDiagrams } from "../markdown/diagrams";
@@ -226,15 +237,20 @@ function keep(key: string, result: MarkdownResult) {
   if (rendered.size > 12) rendered.delete(rendered.keys().next().value!);
 }
 
+const MD_FIND_HIGHLIGHT = "med-md-find";
+const MD_FIND_CURRENT = "med-md-find-current";
+
 export default function MarkdownPreview({
   model,
   file,
   onOpenFile,
+  onFindReady,
   tools,
 }: {
   model: MarkdownModel;
   file: FileRead;
   onOpenFile?(path: string, line?: number): void;
+  onFindReady?(open: (() => void) | null): void;
   /** The page's own tools, such as Copy and Edit, at its top corner. */
   tools?: ReactNode;
 }) {
@@ -250,7 +266,132 @@ export default function MarkdownPreview({
   const [menu, setMenu] = useState<PointMenuState | null>(null);
   // What a copy put on the clipboard, briefly, at the foot of the page.
   const [copied, say] = useCopyNote();
+  const rootRef = useRef<HTMLElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const prose = useRef<HTMLElement>(null);
+  const findInput = useRef<HTMLInputElement>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findOptions, setFindOptions] = useState<FindOptions>(NO_FIND_OPTIONS);
+  const [findCount, setFindCount] = useState<FindCount | null>(null);
+  const findState = useRef<{ ranges: Range[]; index: number }>({ ranges: [], index: -1 });
+  const findOwner = useRef(Symbol("markdown-find"));
+  useFindHighlightStyle(findOpen, "markdown-preview", {
+    match: MD_FIND_HIGHLIGHT,
+    current: MD_FIND_CURRENT,
+  });
+
+  const revealMatch = useCallback((range: Range) => {
+    const startEl =
+      range.startContainer instanceof Element
+        ? range.startContainer
+        : range.startContainer.parentElement;
+    if (startEl) unfold(startEl);
+    if (scroller.current) scrollRangeIntoPane(scroller.current, range, 64, 36);
+  }, []);
+
+  const syncFind = useCallback(
+    (
+      open: boolean,
+      query: string,
+      options: FindOptions,
+      jump: "stay" | "first" | "next" | "prev" = "stay",
+    ) => {
+      const owner = findOwner.current;
+      if (!open || !query.trim()) {
+        findState.current = { ranges: [], index: -1 };
+        clearDomHighlights(MD_FIND_HIGHLIGHT, MD_FIND_CURRENT, owner);
+        setFindCount(null);
+        return;
+      }
+      const pattern = findPattern(query, options);
+      if (!pattern) {
+        findState.current = { ranges: [], index: -1 };
+        clearDomHighlights(MD_FIND_HIGHLIGHT, MD_FIND_CURRENT, owner);
+        setFindCount(null);
+        return;
+      }
+      if (!(pattern instanceof RegExp)) {
+        findState.current = { ranges: [], index: -1 };
+        clearDomHighlights(MD_FIND_HIGHLIGHT, MD_FIND_CURRENT, owner);
+        setFindCount({ error: pattern.error });
+        return;
+      }
+      const article = prose.current;
+      const blocks = article ? article.querySelectorAll(".med-md-block") : [];
+      const ranges = textRangesIn(blocks, pattern);
+      let index = findState.current.index;
+      if (!ranges.length) {
+        index = -1;
+      } else if (jump === "first") {
+        index = 0;
+      } else if (jump === "next") {
+        index = index < 0 ? 0 : (index + 1) % ranges.length;
+      } else if (jump === "prev") {
+        index = index < 0 ? ranges.length - 1 : (index - 1 + ranges.length) % ranges.length;
+      } else if (index < 0 || index >= ranges.length) {
+        index = 0;
+      }
+      findState.current = { ranges, index };
+      const current = index >= 0 ? ranges[index] : null;
+      if (rootRef.current && rootRef.current.getClientRects().length > 0) {
+        applyDomHighlights(MD_FIND_HIGHLIGHT, MD_FIND_CURRENT, ranges, current, owner);
+      }
+      setFindCount({ current: index >= 0 ? index + 1 : 0, total: ranges.length });
+      if (current && jump !== "stay") revealMatch(current);
+    },
+    [revealMatch],
+  );
+
+  useLayoutEffect(() => {
+    if (!findOpen) return;
+    syncFind(true, findQuery, findOptions, "stay");
+  }, [findOpen, findQuery, findOptions, result, syncFind]);
+
+  useEffect(() => {
+    const owner = findOwner.current;
+    return () => clearDomHighlights(MD_FIND_HIGHLIGHT, MD_FIND_CURRENT, owner);
+  }, []);
+
+  const openFindBar = useCallback(() => {
+    setFindOpen(true);
+    requestAnimationFrame(() => {
+      findInput.current?.focus();
+      findInput.current?.select();
+    });
+  }, []);
+
+  const closeFindBar = useCallback(() => {
+    setFindOpen(false);
+    clearDomHighlights(MD_FIND_HIGHLIGHT, MD_FIND_CURRENT, findOwner.current);
+    scroller.current?.focus({ preventScroll: true });
+  }, []);
+
+  // Register in layout phase so unmounting Preview cleans up BEFORE mounting FileEditor registers.
+  useLayoutEffect(() => {
+    onFindReady?.(openFindBar);
+    return () => onFindReady?.(null);
+  }, [onFindReady, openFindBar]);
+
+  // Support ⌘F directly in standalone Markdown views (Vaults / LocalFiles) where
+  // App.tsx's workspace shortcut handler is bypassed.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) return;
+      if (event.key.toLowerCase() !== "f") return;
+      if (visibleElement('[role="dialog"]')) return;
+      const el = rootRef.current;
+      if (!el || !el.closest("[data-standalone-files]")) return;
+      if (el.getClientRects().length === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openFindBar();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [openFindBar]);
+
   useTableCopy(scroller, model.getText, say);
   useCodeCopy(scroller, false, say);
   useKeptFolds(scroller);
@@ -465,7 +606,32 @@ export default function MarkdownPreview({
   }, [heading]);
   const read = toc.findIndex(({ id }) => id === heading);
   return (
-    <section className="med-markdown" aria-label="Markdown preview">
+    <section
+      ref={rootRef}
+      className="med-markdown"
+      aria-label="Markdown preview"
+      data-find-open={findOpen ? "" : undefined}
+    >
+      {findOpen && (
+        <FindBar
+          inputRef={findInput}
+          query={findQuery}
+          options={findOptions}
+          count={findCount}
+          placeholder="Find in page"
+          onQuery={(next) => {
+            setFindQuery(next);
+            syncFind(true, next, findOptions, "first");
+          }}
+          onOptions={(next) => {
+            setFindOptions(next);
+            syncFind(true, findQuery, next, "first");
+          }}
+          onNext={() => syncFind(true, findQuery, findOptions, "next")}
+          onPrevious={() => syncFind(true, findQuery, findOptions, "prev")}
+          onClose={closeFindBar}
+        />
+      )}
       {tools && (
         <div className="med-md-tools" role="toolbar" aria-label="Page">
           {tools}
@@ -479,6 +645,7 @@ export default function MarkdownPreview({
       <div
         className="med-md-scroll"
         ref={scroller}
+        tabIndex={-1}
         onScroll={updateHeading}
         data-render-ms={result?.milliseconds}
       >
@@ -506,7 +673,7 @@ export default function MarkdownPreview({
               </ol>
             </nav>
           )}
-          <article className="med-md-prose">
+          <article ref={prose} className="med-md-prose">
             {result?.blocks.map((block, index) => (
               <Block
                 key={index}

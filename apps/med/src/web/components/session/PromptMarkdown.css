@@ -19,8 +19,14 @@
 [data-prompt-prose] > .med-md-prose.med-session-prose ul:last-child,
 [data-prompt-prose] > .med-md-prose.med-session-prose ol:last-child,
 [data-prompt-prose] > .med-md-prose.med-session-prose pre:last-child,
-[data-prompt-prose] > .med-md-prose.med-session-prose blockquote:last-child {
+[data-prompt-prose] > .med-md-prose.med-session-prose blockquote:last-child,
+[data-prompt-prose] > .med-md-prose.med-session-prose .katex-display:last-child {
   margin-bottom: 0;
+}
+
+[data-prompt-prose] > .med-md-prose.med-session-prose .katex-display {
+  margin-block: 0.5em;
+  padding: 2px 0;
 }
 
 [data-prompt-prose] > .med-md-prose.med-session-prose h1,

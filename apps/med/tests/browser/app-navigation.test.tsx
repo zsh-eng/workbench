@@ -94,7 +94,7 @@ describe("graphical review", () => {
 
   test("Find file says why it can't open files when the checkout did not load", async () => {
     await mountApp({ sessionFails: "Permission denied: /test/repo" });
-    await userEvent.keyboard("{Meta>}{Shift>}K{/Shift}{/Meta}");
+    await userEvent.keyboard("{Meta>}o{/Meta}");
     await expect
       .element(page.getByRole("status").filter({ hasText: "Permission denied: /test/repo" }))
       .toBeVisible();
@@ -440,9 +440,8 @@ describe("graphical review", () => {
     const find = async (name: string, keys: string) => {
       window.dispatchEvent(
         new KeyboardEvent("keydown", {
-          key: "K",
+          key: "o",
           metaKey: true,
-          shiftKey: true,
           bubbles: true,
         }),
       );
@@ -541,13 +540,12 @@ describe("graphical review", () => {
       .not.toBeInTheDocument();
   });
 
-  test("Command Shift K opens a scoped file picker and binary files show metadata", async () => {
+  test("Command O opens a scoped file picker and binary files show metadata", async () => {
     const { fileRequests } = await mountApp({ branches: true });
     window.dispatchEvent(
       new KeyboardEvent("keydown", {
-        key: "K",
+        key: "o",
         metaKey: true,
-        shiftKey: true,
         bubbles: true,
         cancelable: true,
       }),
@@ -564,9 +562,8 @@ describe("graphical review", () => {
     await openBranch("feature");
     window.dispatchEvent(
       new KeyboardEvent("keydown", {
-        key: "K",
+        key: "o",
         metaKey: true,
-        shiftKey: true,
         bubbles: true,
       }),
     );

@@ -518,7 +518,7 @@ export class ZoektSearchService {
     const base: SymbolSearch = { source, query, matches: [], truncated: false, engine: "zoekt" };
     if (!query.trim()) return base;
     // The index answers at a commit, and in a checkout too large for Ctags.
-    const fileSymbols = "Symbols in this file (⌘O) still work.";
+    const fileSymbols = "Symbols in this file (⌘⇧O) still work.";
     if (this.notSetUp)
       return {
         ...base,

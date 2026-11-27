@@ -5,6 +5,8 @@ import rehypeStringify from "rehype-stringify";
 import { renderWords } from "../../src/web/markdown/words/words";
 import { parseWords } from "../../src/web/markdown/words/hast";
 import { wordsTree } from "../../src/web/markdown/words/tree";
+import { closeOpenFence, hasPromptMarkdown, keepLineBreaks } from "../../src/web/markdown/user-markdown";
+import { finishedBlocks } from "../../src/web/components/session/streamed-replies";
 
 const stringify = unified().use(rehypeStringify);
 const toHtml = (node: Root | RootContent) =>
@@ -105,4 +107,49 @@ test("wiki links and images in a note, but not in code or after a backslash", ()
   expect(toHtml(tree)).toBe(
     '<p>See <a href="med-vault:wiki:Plan">the plan</a>, <img src="med-vault:wiki:chart.png" alt="chart.png" width="200" height="100">, <code>[[code]]</code>, and [[escaped]].</p>',
   );
+});
+
+test("session math handles \\(...\\), \\[...\\], standalone $$...$$, and safe single-$ without corrupting currency or shell vars", () => {
+  const doc = [
+    "Inline $x^2 + 1$, \\(\\alpha + \\beta\\), $O(n \\log n)$, and $10^6$ work.",
+    "",
+    "Keep $HOME, $HOME/$USER, $10 and $20, $10-$20, ($5 + $10), and `$a^2$` as text.",
+    "",
+    "$$E = mc^2$$",
+    "",
+    "\\[\\int_0^1 x\\,dx\\]",
+    "",
+    "\\[",
+    "a = 1",
+    "",
+    "b = 2",
+    "\\]",
+  ].join("\n");
+  const tree = wordsTree(doc, { plainDollars: true, smartDollars: true });
+  const html = toHtml(tree);
+  expect(html).toContain('<code class="language-math math-inline">x^2 + 1</code>');
+  expect(html).toContain('<code class="language-math math-inline">\\alpha + \\beta</code>');
+  expect(html).toContain('<code class="language-math math-inline">O(n \\log n)</code>');
+  expect(html).toContain('<code class="language-math math-inline">10^6</code>');
+  expect(html).toContain("Keep $HOME, $HOME/$USER, $10 and $20, $10-$20, ($5 + $10), and <code>$a^2$</code> as text.");
+  // Standalone single-line $$...$$ and \[...\] promote to display math without shifting lines.
+  const pres = find(tree, "pre");
+  expect(pres).toHaveLength(3);
+  expect(lines(pres[0]!)).toEqual([5, 5]);
+  expect(lines(pres[1]!)).toEqual([7, 7]);
+  expect(lines(pres[2]!)).toEqual([9, 13]);
+  expect(toHtml(pres[0]!)).toContain('class="language-math math-display"');
+  expect(toHtml(pres[1]!)).toContain('class="language-math math-display"');
+  expect(toHtml(pres[2]!)).toContain('class="language-math math-display"');
+});
+
+test("user prompt math helpers and streaming splitter preserve display math blocks", () => {
+  expect(hasPromptMarkdown("Solve $x^2 + 1 = 0$")).toBe(true);
+  expect(hasPromptMarkdown("Check \\(\\alpha\\)")).toBe(true);
+  expect(hasPromptMarkdown("Costs $10 to $20")).toBe(false);
+  expect(hasPromptMarkdown("echo $HOME/$USER")).toBe(false);
+  expect(keepLineBreaks("$$\na = 1\nb = 2\n$$")).toBe("$$\na = 1\nb = 2\n$$");
+  expect(closeOpenFence("$$\nx = 1")).toBe("$$\nx = 1\n$$");
+  expect(finishedBlocks("Intro\n\n$$\na = 1\n\nb = 2\n")).toBe("Intro");
+  expect(finishedBlocks("Intro\n\n$$\na = 1\n\nb = 2\n$$\n")).toBe("Intro\n\n$$\na = 1\n\nb = 2\n$$");
 });

@@ -147,7 +147,7 @@ test("without the index, a search that answered says nothing about it; a slow on
   // Project symbols at a commit need the index: the reader learns why, and
   // what still works.
   expect((await quiet.symbols({ kind: "commit", repo, oid }, "needle")).unavailable).toBe(
-    "At a commit, project symbols come from the Zoekt index, which is not set up; see Search file contents in med docs usage. Symbols in this file (⌘O) still work.",
+    "At a commit, project symbols come from the Zoekt index, which is not set up; see Search file contents in med docs usage. Symbols in this file (⌘⇧O) still work.",
   );
   await quiet.close();
   // Every search counts as slow here.

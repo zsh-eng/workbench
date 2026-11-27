@@ -1548,3 +1548,141 @@ test("streamed reply replaced by its transcript copy with a new ID does not repl
   const unit = document.querySelector<HTMLElement>('[data-unit="transcript-uuid-99"]')!;
   expect(unit.dataset.rise).toBeUndefined();
 });
+
+test("session threads render LaTeX inline and display math with KaTeX styles loaded on demand", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "user_message_chunk" as const,
+        content: { type: "text" as const, text: "Solve $x^2 + 1 = 0$ and check \\(\\alpha\\)." },
+      },
+    },
+    {
+      at: 1000,
+      update: {
+        sessionUpdate: "agent_message_chunk" as const,
+        messageId: "latex-reply",
+        content: {
+          type: "text" as const,
+          text: [
+            "Using $E = mc^2$ and \\(O(n \\log n)\\), keep $HOME/$USER and $10-$20 plain.",
+            "",
+            "$$\\int_0^1 x\\,dx = \\frac{1}{2}$$",
+          ].join("\n"),
+        },
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  await expect
+    .poll(() => document.querySelectorAll('[data-message="agent"] .katex').length)
+    .toBeGreaterThanOrEqual(3);
+  await expect
+    .poll(() => document.querySelectorAll('[data-message="user"] .katex').length)
+    .toBe(2);
+  expect(document.querySelector('[data-message="agent"] .katex-display')).not.toBeNull();
+  expect(document.querySelector('[data-message="agent"]')!.textContent).toContain("$HOME/$USER");
+  expect(document.querySelector('[data-message="agent"]')!.textContent).toContain("$10-$20");
+  // KaTeX stylesheet loaded on demand hides .katex-mathml visually so formulas never duplicate.
+  const mathml = document.querySelector<HTMLElement>('[data-message="agent"] .katex-mathml')!;
+  expect(getComputedStyle(mathml).position).toBe("absolute");
+});
+
+test("Cmd+F opens the Find bar in SessionThread, highlights matches, and steps across messages", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "user_message_chunk" as const,
+        content: { type: "text" as const, text: "Inspect the cache invalidation strategy." },
+      },
+    },
+    {
+      at: 1000,
+      update: {
+        sessionUpdate: "agent_message_chunk" as const,
+        messageId: "m-find-1",
+        content: {
+          type: "text" as const,
+          text: "The cache invalidation resets when the revision changes, and the cache stays warm otherwise.",
+        },
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  await expect
+    .poll(() => document.querySelector('[data-message="agent"]')?.textContent)
+    .toContain("revision");
+
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", metaKey: true, bubbles: true }));
+  const search = page.getByRole("search", { name: "Find" });
+  await expect.element(search).toBeVisible();
+  const input = search.getByRole("textbox");
+  await input.fill("cache");
+  await expect.element(search.getByText("1 of 3")).toBeVisible();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(search.getByText("2 of 3")).toBeVisible();
+  if (typeof CSS !== "undefined" && CSS.highlights) {
+    expect(CSS.highlights.get("med-session-find")?.size).toBe(3);
+    expect(CSS.highlights.get("med-session-find-current")?.size).toBe(1);
+  }
+  await userEvent.keyboard("{Escape}");
+  await expect.element(search).not.toBeInTheDocument();
+});
+
+test("SessionThread Find unfolds a folded WorkUnit to reveal a match inside it", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "user_message_chunk" as const,
+        content: { type: "text" as const, text: "Check the telemetry exporter." },
+      },
+    },
+    {
+      at: 1000,
+      update: {
+        sessionUpdate: "agent_message_chunk" as const,
+        messageId: "hidden-work-step",
+        content: { type: "text" as const, text: "Found unique needle hyperion-telemetry in worker." },
+      },
+    },
+    {
+      at: 2000,
+      update: {
+        sessionUpdate: "tool_call" as const,
+        toolCallId: "t-exec",
+        title: "Run tests",
+        kind: "execute" as const,
+        status: "completed" as const,
+      },
+    },
+    {
+      at: 4000,
+      update: {
+        sessionUpdate: "agent_message_chunk" as const,
+        messageId: "final-turn-reply",
+        content: { type: "text" as const, text: "All checks green." },
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={{ ...store.getSnapshot(), running: false }} />);
+  await expect.element(page.getByText("All checks green.")).toBeVisible();
+  expect(page.getByText(/hyperion-telemetry/).query()).toBeNull();
+
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", metaKey: true, bubbles: true }));
+  const search = page.getByRole("search", { name: "Find" });
+  await search.getByRole("textbox").fill("hyperion-telemetry");
+  await expect.element(search.getByText("1 of 1")).toBeVisible();
+  await expect.element(page.getByText(/hyperion-telemetry/)).toBeVisible();
+});

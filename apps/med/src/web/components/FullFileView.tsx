@@ -123,6 +123,7 @@ export interface FullFileViewProps {
   vimEnabled?: boolean;
   onSymbolPreviewReady?(begin: BeginFileSymbolPreview | null): void;
   onNavigationReady?(command: FileNavigationCommand | null): void;
+  onFindReady?(open: (() => void) | null): void;
   onSelectionReaderReady?(read: (() => string) | null): void;
   onDefinition?(name: string): void;
   /** A name's definitions, for the card that a hover or `K` shows. */
@@ -1158,6 +1159,7 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
             key={sourceKey}
             model={markdownModel}
             onOpenFile={props.onOpenFile}
+            onFindReady={props.onFindReady}
             file={draft?.editing ? draft.file : shown}
             tools={
               <>

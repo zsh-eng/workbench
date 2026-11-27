@@ -30,7 +30,7 @@ import {
   indentWithTab,
 } from "@codemirror/commands";
 import { searchKeymap } from "@codemirror/search";
-import { findInFile, findPanelTheme } from "./editor-find";
+import { findInFile, findPanelTheme, openFind } from "./editor-find";
 import { vim, Vim, getCM } from "@replit/codemirror-vim";
 import { getFiletypeFromFileName } from "@pierre/diffs";
 import { resolveSyntaxTheme, HIGHLIGHTER } from "../pierre-theme";
@@ -376,8 +376,14 @@ export default function FileEditor({
   useLayoutEffect(() => {
     hoverRef.current = hoverSource ? symbolHover : undefined;
   });
-  const { loadChanges, stale, onNavigationReady, onSymbolPreviewReady, onSelectionReaderReady } =
-    context;
+  const {
+    loadChanges,
+    stale,
+    onNavigationReady,
+    onFindReady,
+    onSymbolPreviewReady,
+    onSelectionReaderReady,
+  } = context;
   // The file as Med last read it, when it is not the text that the draft
   // started from: another program changed it.
   const disk =
@@ -500,6 +506,11 @@ export default function FileEditor({
       editor.focus();
       Vim.handleKey(getCM(editor)!, control ? `<C-${key}>` : key, "user");
     });
+    onFindReady?.(() => {
+      const editor = view.current;
+      if (!editor) return;
+      openFind(editor);
+    });
     onSymbolPreviewReady?.(() => {
       const editor = view.current!;
       const selection = editor.state.selection;
@@ -526,9 +537,10 @@ export default function FileEditor({
     return () => {
       onSelectionReaderReady?.(null);
       onNavigationReady?.(null);
+      onFindReady?.(null);
       onSymbolPreviewReady?.(null);
     };
-  }, [onNavigationReady, onSymbolPreviewReady, onSelectionReaderReady]);
+  }, [onNavigationReady, onFindReady, onSymbolPreviewReady, onSelectionReaderReady]);
   useLayoutEffect(
     () =>
       markdownNavigation?.subscribeNavigation((line) => {

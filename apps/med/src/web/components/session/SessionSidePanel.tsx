@@ -297,7 +297,7 @@ export function SessionSidePanel({
                 icon="repository"
                 label={place.repository}
                 onOpen={place.onRepository}
-                tip={place.onRepository && { label: "Show another repository", keys: "Mod+O" }}
+                tip={place.onRepository && { label: "Show another repository", keys: "Mod+Alt+O" }}
               />
             )}
             {place.branch && (

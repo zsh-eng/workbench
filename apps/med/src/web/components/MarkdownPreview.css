@@ -33,6 +33,10 @@
   padding: 2px;
   border-radius: calc(8px * var(--med-round, 1));
   background: var(--med-canvas);
+  transition: top 140ms ease;
+}
+.med-markdown[data-find-open] .med-md-tools {
+  top: 50px;
 }
 /* The pane's size: its table of contents keeps to the pane's height. */
 .med-md-scroll {
@@ -626,6 +630,9 @@ pre[data-rendered="true"]:is(:hover, :focus-within) :is(.med-md-diagram-tools, .
       transparent
     );
   }
+}
+.med-md-prose .katex {
+  overflow-wrap: normal;
 }
 .med-md-prose .katex-display {
   overflow-x: auto;

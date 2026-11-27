@@ -844,3 +844,52 @@ test("nested mermaid diagrams inside lists render cleanly without leaving raw co
   expect(pre.dataset.rendered).toBe("true");
   expect(pre.querySelector("code")).toBeNull();
 });
+
+test("Find bar in MarkdownPreview highlights visible matches, skips hidden MathML, and unfolds details", async () => {
+  const text = [
+    "# Overview",
+    "",
+    "The theorem uses $alpha + beta$ and mentions theorem once more.",
+    "",
+    "<details>",
+    "<summary>Hidden proof</summary>",
+    "",
+    "Final theorem proof inside details.",
+    "",
+    "</details>",
+  ].join("\n");
+  let openFind: (() => void) | null = null;
+  const reading = await show(text, 900, "Overview");
+  // Re-mount directly with onFindReady to verify the exact App integration callback.
+  const model = createMarkdownModel(text);
+  root!.render(
+    <MarkdownPreview
+      model={model}
+      onFindReady={(fn) => {
+        openFind = fn;
+      }}
+      file={{
+        kind: "text",
+        path: "notes.md",
+        text,
+        size: text.length,
+        identity: "id-find",
+        source: { kind: "worktree", repo: "/repo" },
+      }}
+    />,
+  );
+  await expect.element(reading.getByRole("heading", { name: "Overview" })).toBeVisible();
+  await expect.poll(() => openFind).not.toBeNull();
+  openFind!();
+
+  const search = page.getByRole("search", { name: "Find" });
+  await expect.element(search).toBeVisible();
+  await search.getByRole("textbox").fill("theorem");
+  await expect.element(search.getByText("1 of 3")).toBeVisible();
+  // Stepping to the 3rd match automatically unfolds <details>.
+  await userEvent.keyboard("{Enter}{Enter}");
+  await expect.element(search.getByText("3 of 3")).toBeVisible();
+  expect(document.querySelector("details")?.open).toBe(true);
+  await userEvent.keyboard("{Escape}");
+  await expect.element(search).not.toBeInTheDocument();
+});

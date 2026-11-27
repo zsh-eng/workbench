@@ -318,7 +318,7 @@ export function decorateFileRefs<T extends { html: string }>(
       if (!template) continue;
       const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
       for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        if (node.parentElement?.closest("pre, code, a")) continue;
+        if (node.parentElement?.closest("pre, code, a, .katex")) continue;
         const parts = textFileRefs(node.textContent ?? "", index, cwd);
         if (parts) texts.push({ at, node: node as Text, parts });
       }

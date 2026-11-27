@@ -111,8 +111,10 @@ type Task = {
   briefLinks?: boolean;
   /** Web links are pills with their site's icon, as in an agent's replies. */
   webLinks?: boolean;
-  /** Only $$ starts math; a single dollar stays text, as in an agent's replies. */
+  /** Only $$ starts math in Words; a single dollar stays text unless smartDollars promotes it. */
   plainDollars?: boolean;
+  /** Safely promotes tight inline $...$ formulas while keeping currency and shell variables as text. */
+  smartDollars?: boolean;
   /** A pull request's description: its <img> tags are images. */
   htmlImages?: boolean;
 };

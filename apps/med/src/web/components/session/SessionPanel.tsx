@@ -213,7 +213,9 @@ export function SessionPanel({
   reviews,
   pulls,
   place,
+  onFindReady,
 }: {
+  onFindReady?(open: (() => void) | null): void;
   /** The session rail's Reviews, and its Pull requests. */
   reviews?: ThreadLink[];
   pulls?: ThreadLink[];
@@ -634,28 +636,29 @@ export function SessionPanel({
           (message) =>
             message.sessionId === session.id && !outgoing.some((entry) => entry.id === message.id),
         )
-        .map((message): SentMessage =>
-          message.queued && message.delivery === "pending"
-            ? {
-                ...message,
-                edit: () => takeBack([message.id], true),
-                remove: () => takeBack([message.id], false),
-                ...(message.afterTurn && takesMidTurn && inbox?.sendNow
-                  ? {
-                      sendNow: () => {
-                        setTakeNote(undefined);
-                        inbox.sendNow!(message.id).catch((error: unknown) =>
-                          setTakeNote({
-                            text:
-                              error instanceof Error ? error.message : "Med did not send it now.",
-                            error: true,
-                          }),
-                        );
-                      },
-                    }
-                  : {}),
-              }
-            : message,
+        .map(
+          (message): SentMessage =>
+            message.queued && message.delivery === "pending"
+              ? {
+                  ...message,
+                  edit: () => takeBack([message.id], true),
+                  remove: () => takeBack([message.id], false),
+                  ...(message.afterTurn && takesMidTurn && inbox?.sendNow
+                    ? {
+                        sendNow: () => {
+                          setTakeNote(undefined);
+                          inbox.sendNow!(message.id).catch((error: unknown) =>
+                            setTakeNote({
+                              text:
+                                error instanceof Error ? error.message : "Med did not send it now.",
+                              error: true,
+                            }),
+                          );
+                        },
+                      }
+                    : {}),
+                }
+              : message,
         ) ?? []),
       ...outgoing.map((message): SentMessage => {
         const { input } = message;
@@ -948,6 +951,7 @@ export function SessionPanel({
                         ) : undefined
                       }
                       onOpenLink={openLink}
+                      onFindReady={onFindReady}
                       footer={bottom}
                     />
                   </FileRefsContext.Provider>

@@ -8,12 +8,12 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Action                                 | Shortcut                     |
 | -------------------------------------- | ---------------------------- |
 | Command palette                        | `⌘K`                         |
-| Find a file                            | `⌘⇧K`                        |
+| Find a file                            | `⌘O`                         |
 | Search file contents                   | `⌘⇧F`                        |
-| Find in the diff or a file             | `⌘F`                         |
+| Find in diff, page, file, or thread    | `⌘F`                         |
 | Find in a file, in Vim                 | `/` / `?`                    |
 | Find's case / whole word / expression  | `⌥C` `⌥W` `⌥R`               |
-| Open a repository                      | `⌘O`                         |
+| Open a repository                      | `⌘⌥O`                        |
 | Symbols in this file                   | `⌘⇧O`                        |
 | Open a branch or worktree              | `⌘⇧G`                        |
 | Open tab 1–9                           | `⌘1`–`⌘9`                    |
@@ -46,7 +46,7 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Close all files in the workspace       | `⌥⇧W`                        |
 | Close other files                      | `⌥⇧O`                        |
 
-In a thread, `⌘O` and `⌘⇧G` show the repository, branch, or worktree inside
+In a thread, `⌘⌥O` and `⌘⇧G` show the repository, branch, or worktree inside
 the thread; `⌘↵` in the picker opens a new workspace.
 
 Close actions keep the Changes tab and other workspaces. `⌥1`–`⌥4` are always

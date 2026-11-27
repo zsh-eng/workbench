@@ -30,6 +30,9 @@ export interface StreamedReply {
 
 const FENCE = /^\s*(`{3,}|~{3,})/;
 const HEADING = /^ {0,3}#{1,6}(?:\s|$)/;
+const MATH_DOLLAR_OPEN = /^\s*\$\$\s*$/;
+const MATH_BRACKET_OPEN = /^\s*\\\[\s*$/;
+const MATH_BRACKET_CLOSE = /(?<!\\)(?:\\\\)*\\\]\s*$/;
 
 /** The start of `text` that ends with a finished block, without the blank
  * line after it; empty while the first block is still arriving. */
@@ -37,7 +40,8 @@ export function finishedBlocks(text: string) {
   let end = 0;
   // The marker of the code block that is open, such as "```".
   let fence = "";
-  for (let at = 0; ;) {
+  let math: "$$" | "\\[" | "" = "";
+  for (let at = 0; ; ) {
     const next = text.indexOf("\n", at);
     // The last line is still arriving.
     if (next < 0) break;
@@ -54,7 +58,17 @@ export function finishedBlocks(text: string) {
         fence = "";
         end = at;
       }
+    } else if (math) {
+      if (
+        (math === "$$" && MATH_DOLLAR_OPEN.test(line)) ||
+        (math === "\\[" && MATH_BRACKET_CLOSE.test(line))
+      ) {
+        math = "";
+        end = at;
+      }
     } else if (FENCE.test(line)) fence = FENCE.exec(line)![1]!;
+    else if (MATH_DOLLAR_OPEN.test(line)) math = "$$";
+    else if (MATH_BRACKET_OPEN.test(line)) math = "\\[";
     else if (!line.trim() || HEADING.test(line)) end = at;
   }
   return text.slice(0, end).trimEnd();

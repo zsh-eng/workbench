@@ -654,6 +654,14 @@ export function App({
     },
     [],
   );
+  const fileFind = useRef<(() => void) | null>(null);
+  const onFileFindReady = useCallback((open: (() => void) | null) => {
+    fileFind.current = open;
+  }, []);
+  const sessionFind = useRef<(() => void) | null>(null);
+  const onSessionFindReady = useCallback((open: (() => void) | null) => {
+    sessionFind.current = open;
+  }, []);
   // The blame gutter opens for one file tab; another tab starts without it.
   const [blameTab, setBlameTab] = useState<string | null>(null);
   const [branchPickerOpen, setBranchPickerOpen] = useState(false);
@@ -2654,11 +2662,13 @@ export function App({
             ),
             // The agent's comments come before the reader's: a note can answer
             // one, and then shows in its card (GuideThread).
-            ...guideNotes.map((note): DiffLineAnnotation<Annotation> => ({
-              side: note.side === "old" ? "deletions" : "additions",
-              lineNumber: noteLine(file.metadata, note),
-              metadata: { guide: note },
-            })),
+            ...guideNotes.map(
+              (note): DiffLineAnnotation<Annotation> => ({
+                side: note.side === "old" ? "deletions" : "additions",
+                lineNumber: noteLine(file.metadata, note),
+                metadata: { guide: note },
+              }),
+            ),
             ...notes
               .filter(
                 (note) =>
@@ -2668,11 +2678,13 @@ export function App({
                   note.resolution !== "stale" &&
                   !guideNotes.some((guide) => answersGuideNote(note, guide)),
               )
-              .map((note): DiffLineAnnotation<Annotation> => ({
-                side: note.side === "old" ? "deletions" : "additions",
-                lineNumber: noteLine(file.metadata, note),
-                metadata: { note },
-              })),
+              .map(
+                (note): DiffLineAnnotation<Annotation> => ({
+                  side: note.side === "old" ? "deletions" : "additions",
+                  lineNumber: noteLine(file.metadata, note),
+                  metadata: { note },
+                }),
+              ),
           ]
         : [];
       if (visibleDraft?.path === file.path)
@@ -3252,6 +3264,22 @@ export function App({
         if (!event.repeat) toggleRail();
         return;
       }
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.altKey &&
+        !event.shiftKey &&
+        (event.code === "KeyO" || event.key.toLowerCase() === "o")
+      ) {
+        if (!gitAvailable || modal) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat) return;
+        setCommandsOpen(false);
+        setBranchPickerNew(false);
+        setBranchPickerRepos(true);
+        setBranchPickerOpen((open) => !open);
+        return;
+      }
       if (event.altKey) return;
       // On macOS, Command runs Med shortcuts. Leave unshifted Control+B/F/O in
       // the editor to Vim (page up/down, jump back) instead of Med's sidebar,
@@ -3323,20 +3351,19 @@ export function App({
         selectTab(order[(index + step + order.length) % order.length]!);
         return;
       }
-      // ⌘O opens a repository, and ⌘⇧O the symbols of the file, or of the
-      // project with no file open; the browser never opens its own file dialog.
+      // ⌘O finds a file (like Obsidian), and ⌘⇧O opens symbols in the file or
+      // project; ⌘⌥O opens a repository. The browser never opens its own file dialog.
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
-        if (event.shiftKey ? !browseSource : !gitAvailable) return;
         event.preventDefault();
         event.stopPropagation();
         if (event.repeat) return;
+        if (!browseSource) return showToast(cannotBrowse);
         if (event.shiftKey)
           openSymbols(activeFile && fileState.file?.kind === "text" ? "file" : "project");
         else {
           setCommandsOpen(false);
-          setBranchPickerNew(false);
-          setBranchPickerRepos(true);
-          setBranchPickerOpen(true);
+          setBranchPickerOpen(false);
+          openFilePicker();
         }
         return;
       }
@@ -3352,16 +3379,11 @@ export function App({
         openSearch();
         return;
       }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "k") {
         event.preventDefault();
         event.stopPropagation();
         if (event.repeat) return;
-        // Find file says why it can't, rather than do nothing.
-        if (event.shiftKey && !browseSource) return showToast(cannotBrowse);
-        if (event.shiftKey) {
-          setCommandsOpen(false);
-          openFilePicker();
-        } else setCommandsOpen((open) => !open);
+        setCommandsOpen((open) => !open);
         return;
       }
       // G for Git: branches and worktrees, beside ⌘⇧K for files.
@@ -3376,9 +3398,32 @@ export function App({
         setBranchPickerOpen((open) => !open);
         return;
       }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "f") {
         if (commandsOpen || branchPickerOpen) return;
+        const target = event.target instanceof HTMLElement ? event.target : null;
+        const inReview = !!target?.closest('[data-pane="review"]');
+        const shownPanes = panes.shown.get() ?? panes.open;
+        const sessionShown = shownPanes.includes("session");
+        const reviewShown = shownPanes.includes("review");
+        const inSession =
+          !inReview &&
+          sessionShown &&
+          (!!target?.closest('[data-pane="session"], [data-session-panel]') ||
+            panes.focused() === "session" ||
+            !reviewShown);
+        if (inSession && sessionFind.current) {
+          event.preventDefault();
+          event.stopPropagation();
+          sessionFind.current();
+          return;
+        }
         if (!streamShown) {
+          if (fileFind.current) {
+            event.preventDefault();
+            event.stopPropagation();
+            fileFind.current();
+            return;
+          }
           if (fileState.file?.kind === "text") {
             event.preventDefault();
             event.stopPropagation();
@@ -4296,8 +4341,22 @@ export function App({
       label: "Find text in current file",
       shortcut: "⌘ F",
       disabled: !activeFile || fileState.file?.kind !== "text",
-      run: () => runFileNavigation("/"),
+      run: () => (fileFind.current ? fileFind.current() : runFileNavigation("/")),
     },
+    ...(sessionVisible
+      ? [
+          {
+            id: "find-thread",
+            icon: "search" as const,
+            group: "Threads" as const,
+            managesFocus: true,
+            label: "Find in thread",
+            shortcut: "⌘ F",
+            disabled: !sessionFind.current,
+            run: () => sessionFind.current?.(),
+          },
+        ]
+      : []),
     {
       id: "find-file-backward",
       icon: "search" as const,
@@ -4375,7 +4434,7 @@ export function App({
       group: "Go to" as const,
       managesFocus: true,
       label: "Open repository",
-      shortcut: "⌘ O",
+      shortcut: "⌘ ⌥ O",
       disabled: !gitAvailable,
       run: () => openBranchPicker(false, true),
     },
@@ -4697,7 +4756,7 @@ export function App({
             managesFocus: true,
             label: "Find file",
             keywords: "in this workspace",
-            shortcut: "⌘⇧K",
+            shortcut: "⌘ O",
             run: openFilePicker,
           },
           {
@@ -6567,6 +6626,7 @@ export function App({
                     }
                     onOpenPath={openFromPane}
                     onOpenComment={openComment}
+                    onFindReady={onSessionFindReady}
                     fileRefs={sessionRefs}
                     onSideRoom={setSessionSideRoom}
                     bandTools={sessionBandTools}
@@ -7173,7 +7233,7 @@ export function App({
                 {fileState.active === "files" && (
                   <EmptyState
                     title="No file open"
-                    note="Choose a file in the tree, or find one with ⌘⇧K."
+                    note="Choose a file in the tree, or find one with ⌘O."
                   />
                 )}
                 {fileState.search !== undefined && browseSource && searchRepository && (
@@ -7227,6 +7287,7 @@ export function App({
                     revealed={activeFile.revealed}
                     vimEnabled={vimEnabled}
                     onNavigationReady={onNavigationReady}
+                    onFindReady={onFileFindReady}
                     onSelectionReaderReady={onSelectionReaderReady}
                     onDefinition={goToDefinition}
                     loadHover={loadHover}

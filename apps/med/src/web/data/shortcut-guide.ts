@@ -46,7 +46,7 @@ export const guideContexts: GuideContext[] = [
           { label: "Open command palette", keys: ["Mod+K"], command: "commands" },
           {
             label: "Find file",
-            keys: ["Mod+Shift+K"],
+            keys: ["Mod+O"],
             note: "Type part of a repository name, then Tab to search it",
             command: "open-file",
           },
@@ -70,7 +70,7 @@ export const guideContexts: GuideContext[] = [
           },
           {
             label: "Open a repository",
-            keys: ["Mod+O"],
+            keys: ["Mod+Alt+O"],
             note: "Tab searches its branches; Shift+Tab goes back",
             command: "open-repository",
           },

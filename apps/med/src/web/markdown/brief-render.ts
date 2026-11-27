@@ -1,4 +1,5 @@
 import { resolveSyntaxTheme } from "../pierre-theme";
+import { ensureKatexStyles, katexStylesReady } from "./katex-styles";
 import type { MarkdownResult } from "./model";
 import RenderWorker from "./render.worker?worker";
 
@@ -168,19 +169,29 @@ async function send(tasks: Task[]) {
             headings: data.headings,
             milliseconds: data.milliseconds,
           };
-          if (task.keep) {
-            const key = keyOf(task.theme, task.text, task.cache);
-            const kept = results[task.cache];
-            kept.delete(key);
-            kept.set(key, result);
-            while (kept.size > MAX_RESULTS[task.cache]) kept.delete(kept.keys().next().value!);
+          const finish = () => {
+            if (task.keep) {
+              const key = keyOf(task.theme, task.text, task.cache);
+              const kept = results[task.cache];
+              kept.delete(key);
+              kept.set(key, result);
+              while (kept.size > MAX_RESULTS[task.cache]) kept.delete(kept.keys().next().value!);
+            }
+            task.resolve(result);
+          };
+          const hasMath =
+            !katexStylesReady() && data.blocks.some((block) => block.html.includes('class="katex'));
+          if (hasMath) {
+            void ensureKatexStyles().then(finish, finish);
+            return;
           }
-          task.resolve(result);
+          finish();
         }),
       ),
   );
-  // Replies show web links as pills with their site's icon. In replies,
-  // comments, answers, and descriptions, $HOME and $3 are text: only $$ starts math.
+  // Replies show web links as pills with their site's icon. In session replies,
+  // smartDollars promotes unambiguous inline $...$ formulas while keeping $HOME
+  // and $3 as text; descriptions keep plain dollars only.
   worker.postMessage({
     batch: sent.map(({ task, id, theme }) => {
       const known = workerThemes.has(task.theme);
@@ -192,6 +203,7 @@ async function send(tasks: Task[]) {
         briefLinks: true,
         webLinks: task.cache === "session",
         plainDollars: task.cache !== "brief",
+        smartDollars: task.cache === "session",
         htmlImages: task.cache === "description",
       };
     }),

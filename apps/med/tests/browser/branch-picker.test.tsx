@@ -362,7 +362,7 @@ test("removes the final repository and starts with fresh branch tabs when it is 
   expect(document.querySelectorAll('[role="tab"]')).toHaveLength(0);
 });
 
-test("⌘O's picker ranks repositories as zoxide does, and Tab searches one's branches", async () => {
+test("⌘⌥O's picker ranks repositories as zoxide does, and Tab searches one's branches", async () => {
   localStorage.setItem(
     "med:repository-opens",
     JSON.stringify({ backend: { count: 3, last: Date.now() - 60_000 } }),
