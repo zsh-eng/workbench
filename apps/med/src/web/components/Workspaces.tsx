@@ -2037,6 +2037,12 @@ export function WorkspaceHost({
                                 setOverlay(false);
                                 openTab(thread);
                               }}
+                              fetcher={fetcher}
+                              onOpenPull={(url, agent) => {
+                                setOverlay(false);
+                                setNewThread(false);
+                                actions.openPull(url, agent);
+                              }}
                               onNewThread={() => {
                                 setOverlay(false);
                                 setNewThread(true);
@@ -2050,6 +2056,7 @@ export function WorkspaceHost({
                               }}
                               onPullRequests={() => {
                                 setOverlay(false);
+                                setNewThread(false);
                                 openPullRequests();
                               }}
                               onDashboards={() => {

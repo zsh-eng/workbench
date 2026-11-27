@@ -579,10 +579,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const codex = await Promise.all(
       sessions
         .filter((session) => session.agent === "codex" && !ownedSessions.get(session.id))
-        .map(async (session): Promise<[string, SessionPlace][]> =>
-          (await ownedSessions.lockedElsewhere("codex", session.id).catch(() => false))
-            ? [[session.id, "other-app"]]
-            : [],
+        .map(
+          async (session): Promise<[string, SessionPlace][]> =>
+            (await ownedSessions.lockedElsewhere("codex", session.id).catch(() => false))
+              ? [[session.id, "other-app"]]
+              : [],
         ),
     );
     return {
@@ -1808,6 +1809,70 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             abort.signal,
             has,
           ).catch(() => response.end());
+          return;
+        }
+        // Agent replies to diff and file comments across open threads, for sidebar notifications.
+        if (url.pathname === "/api/notifications/comments" && request.method === "GET") {
+          const { threads: openThreads } = await threads.list();
+          const groups = await Promise.all(
+            openThreads.map(async (thread) => {
+              const reviews = await threads.reviewsOf(thread.id).catch(() => []);
+              const withComments = reviews.filter((review) => review.commentCount > 0);
+              const [diffReplies, fileComments] = await Promise.all([
+                Promise.all(
+                  withComments.map((review) =>
+                    savedReviews.answeredComments(review.id).catch(() => []),
+                  ),
+                ),
+                threadComments.list(thread.id).catch(() => []),
+              ]);
+              const repo = thread.repository?.name;
+              const branch = thread.branch;
+              const fromDiff = diffReplies.flat().map((entry) => ({
+                threadId: thread.id,
+                threadTitle: thread.title,
+                ...(repo ? { repository: repo } : {}),
+                ...(branch ? { branch } : {}),
+                commentId: entry.id,
+                kind: "diff" as const,
+                path: entry.path,
+                line: entry.line,
+                ...(entry.endLine ? { endLine: entry.endLine } : {}),
+                question: entry.question,
+                answer: entry.answer,
+                answeredBy: entry.answeredBy,
+                answeredAt: entry.answeredAt,
+                resolved: entry.resolved,
+              }));
+              const fromFiles = fileComments.flatMap((comment) => {
+                const latest = comment.replies.at(-1);
+                if (!latest?.author) return [];
+                return [
+                  {
+                    threadId: thread.id,
+                    threadTitle: thread.title,
+                    ...(repo ? { repository: repo } : {}),
+                    ...(branch ? { branch } : {}),
+                    commentId: comment.id,
+                    kind: "file" as const,
+                    path: comment.path,
+                    line: comment.line,
+                    ...(comment.endLine ? { endLine: comment.endLine } : {}),
+                    question: comment.text,
+                    answer: latest.text,
+                    answeredBy: agentName(latest.author),
+                    answeredAt: latest.createdAt,
+                    resolved: !!comment.resolved,
+                  },
+                ];
+              });
+              return [...fromDiff, ...fromFiles];
+            }),
+          );
+          const replies = groups
+            .flat()
+            .sort((a, b) => Date.parse(b.answeredAt) - Date.parse(a.answeredAt));
+          send({ replies });
           return;
         }
         // The pull requests page: open ones that wait on you, and yours.
@@ -3270,7 +3335,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             }
             if (request.method === "POST" && action === "read") {
               const input = z
-                .object({ version: z.number().int().positive() })
+                .object({ version: z.number().int().positive().optional() })
                 .parse(await readBody(request));
               assertRequestAccess();
               send(await savedReviews.markRead(id!, input.version, assertRequestAccess));

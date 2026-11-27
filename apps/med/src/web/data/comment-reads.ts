@@ -26,11 +26,16 @@ let reads: CommentReads | undefined;
 const listeners = new Set<() => void>();
 const current = () => (reads ??= load());
 
-/** Another window opened a comment. */
+/** Another window opened a comment, or cleared storage. */
 function follow(event: StorageEvent) {
-  if (event.key !== KEY) return;
+  if (event.key !== KEY && event.key !== null) return;
   reads = load();
   for (const listener of listeners) listener();
+}
+
+/** Resets the in-memory cache so tests can isolate storage state. */
+export function resetCommentReadsCache() {
+  reads = undefined;
 }
 
 function subscribe(listener: () => void) {
@@ -59,6 +64,20 @@ export function markCommentsRead(comments: readonly Pick<ListedComment, "id" | "
   }
   const entries = Object.entries(next);
   reads = Object.fromEntries(entries.slice(Math.max(0, entries.length - MOST)));
+  try {
+    localStorage.setItem(KEY, JSON.stringify(reads));
+  } catch {
+    /* The reads last for this page. */
+  }
+  for (const listener of listeners) listener();
+}
+
+/** Marks a comment's latest answer as unread again. */
+export function unmarkCommentRead(id: string) {
+  if (!(id in current())) return;
+  const next: Record<string, string> = { ...current() };
+  delete next[id];
+  reads = next;
   try {
     localStorage.setItem(KEY, JSON.stringify(reads));
   } catch {

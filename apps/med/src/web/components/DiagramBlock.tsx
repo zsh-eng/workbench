@@ -13,6 +13,7 @@ import type { Mounted } from "pele/lazy";
 import {
   mountDiagram,
   mountDiagramSync,
+  preloadDiagrams,
   redrawDiagram,
   turnDiagram,
   turnDrawn,
@@ -50,11 +51,24 @@ const DiagramDialog = preloadable(async () => ({
  * focus is on it; right-click offers the same copies. Turn draws it top to
  * bottom for left to right, and back, where its kind has a direction.
  * Previews and briefs share it; the styles are in MarkdownPreview.css. */
-export function DiagramBlock({ block }: { block: MarkdownBlock }) {
+export function DiagramBlock({
+  block,
+  streaming,
+}: {
+  block: MarkdownBlock;
+  /** `true` while a parent reply is streaming in, `false` once settled/static
+   * (so truncated historical replies do not pulse forever), or `undefined` in
+   * live-editable previews where an unclosed fence indicates an in-flight edit. */
+  streaming?: boolean;
+}) {
   const host = useRef<HTMLPreElement>(null);
   const target = useRef<HTMLDivElement>(null);
   const mounted = useRef<Mounted>(undefined);
-  const [state, setState] = useState<"loading" | "drawn" | "failed">("loading");
+  const lastDrawn = useRef<{ source: string; turn: Turn | undefined } | null>(null);
+  const unclosed = !!block.diagramStreaming && streaming !== false;
+  const [state, setState] = useState<"loading" | "streaming" | "drawn" | "failed">(() =>
+    unclosed ? "streaming" : "loading",
+  );
   // Full screen, with the size that the page drew the diagram at.
   const [large, setLarge] = useState<{ natural?: { width: number; height: number } } | null>(null);
   const [menu, setMenu] = useState<PointMenuState | null>(null);
@@ -72,14 +86,34 @@ export function DiagramBlock({ block }: { block: MarkdownBlock }) {
   const source = (turn === "turned" && turnDiagram(written)) || written;
   const figure = useCallback(() => target.current, []);
   useLayoutEffect(() => {
+    // While a Mermaid fence is still open (streaming or mid-edit), warm Pele
+    // and the detected diagram renderer in the background without flashing a
+    // syntax error; keep any already-drawn SVG undisturbed until it closes.
+    if (unclosed) {
+      preloadDiagrams(`\`\`\`mermaid\n${block.diagram!}\n\`\`\``);
+      if (!mounted.current) setState("streaming");
+      return;
+    }
     // An edit draws again in place, turned as the reader left it. After a
     // mistake Pele keeps the last drawing, dimmed, above a line that names
-    // it, so the text does not jump.
+    // it, so the text does not jump. Skip redraw when only `streaming` settled.
     if (turnNow.current) turns.set(block.diagram!, turnNow.current);
-    if (mounted.current)
+    if (mounted.current) {
+      if (
+        lastDrawn.current?.source === block.diagram! &&
+        lastDrawn.current?.turn === turnNow.current
+      ) {
+        return;
+      }
+      lastDrawn.current = { source: block.diagram!, turn: turnNow.current };
       return redrawDiagram(mounted.current, block.diagram!, { turn: turnNow.current });
+    }
     let cancelled = false;
     let started = false;
+    const onFail = () => {
+      if (cancelled) return;
+      setState(streaming ? "streaming" : "failed");
+    };
     const draw = () => {
       if (started || cancelled || !target.current) return;
       started = true;
@@ -87,24 +121,23 @@ export function DiagramBlock({ block }: { block: MarkdownBlock }) {
         const sync = mountDiagramSync(target.current, block.diagram!, { turn: turnNow.current });
         if (sync) {
           mounted.current = sync;
+          lastDrawn.current = { source: block.diagram!, turn: turnNow.current };
           setState("drawn");
           DiagramDialog.preload();
           return;
         }
       } catch {
-        setState("failed");
+        onFail();
         return;
       }
-      mountDiagram(target.current, block.diagram!, { turn: turnNow.current }).then(
-        (diagram) => {
-          if (cancelled) return diagram.destroy();
-          mounted.current = diagram;
-          // Before the next paint, so the diagram settles cleanly without a gap.
-          flushSync(() => setState("drawn"));
-          DiagramDialog.preload();
-        },
-        () => !cancelled && setState("failed"),
-      );
+      mountDiagram(target.current, block.diagram!, { turn: turnNow.current }).then((diagram) => {
+        if (cancelled) return diagram.destroy();
+        mounted.current = diagram;
+        lastDrawn.current = { source: block.diagram!, turn: turnNow.current };
+        // Before the next paint, so the diagram settles cleanly without a gap.
+        flushSync(() => setState("drawn"));
+        DiagramDialog.preload();
+      }, onFail);
     };
     const el = host.current!;
     const rect = el.getBoundingClientRect();
@@ -128,7 +161,7 @@ export function DiagramBlock({ block }: { block: MarkdownBlock }) {
       cancelled = true;
       observer.disconnect();
     };
-  }, [block.diagram]);
+  }, [block.diagram, unclosed, streaming]);
   useEffect(
     () => () => {
       mounted.current?.destroy();
@@ -165,6 +198,7 @@ export function DiagramBlock({ block }: { block: MarkdownBlock }) {
         data-language="mermaid"
         data-rendered={state === "drawn" ? "true" : undefined}
         data-diagram-loading={state === "loading" ? "true" : undefined}
+        data-diagram-streaming={state === "streaming" ? "true" : undefined}
         data-diagram-error={state === "failed" ? "true" : undefined}
       >
         <div
@@ -172,8 +206,23 @@ export function DiagramBlock({ block }: { block: MarkdownBlock }) {
           className="med-md-diagram"
           role={state === "drawn" ? "img" : undefined}
           aria-label={state === "drawn" ? "Mermaid diagram" : undefined}
-          hidden={state === "failed"}
         />
+        {state === "streaming" && (
+          <div className="med-md-diagram-stream" data-passage-ui="">
+            <div className="med-md-diagram-stream-head">
+              <span className="med-md-diagram-stream-lang">Mermaid</span>
+              <span className="med-md-diagram-stream-status" role="status" aria-live="polite">
+                <span className="med-md-diagram-stream-dot" aria-hidden="true" />
+                Drawing diagram
+              </span>
+            </div>
+            {written.trim() ? (
+              <div className="med-md-diagram-stream-body">
+                <code className="med-md-diagram-stream-code">{written}</code>
+              </div>
+            ) : null}
+          </div>
+        )}
         {state === "failed" && <code>{block.diagram}</code>}
         {state === "drawn" && (
           // Not prose: a brief's passages skip the buttons and the note.
@@ -201,6 +250,7 @@ export function DiagramBlock({ block }: { block: MarkdownBlock }) {
                   // In a thread, the diagram stays where the reader turned it.
                   host.current?.dispatchEvent(new Event(HOLD_PLACE, { bubbles: true }));
                   const next = turnDrawn(mounted.current, written, { turn });
+                  lastDrawn.current = { source: written, turn: next };
                   turns.set(written, next);
                   setTurn(next);
                 }}

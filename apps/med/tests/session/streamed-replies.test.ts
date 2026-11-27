@@ -33,6 +33,16 @@ test("a code block shows once its fence closes, blank lines and all", () => {
   );
   // A heading-like line inside a fence is code.
   expect(finishedBlocks("```sh\n# install\n")).toBe("");
+  // A fenced Mermaid block inside a blockquote also waits for its closing fence.
+  expect(finishedBlocks("Intro.\n\n> ```mermaid\n> flowchart LR\n>   A -->\n")).toBe("Intro.");
+  expect(finishedBlocks("Intro.\n\n> ```mermaid\n> flowchart LR\n>   A --> B\n> ```\n")).toBe(
+    "Intro.\n\n> ```mermaid\n> flowchart LR\n>   A --> B\n> ```",
+  );
+  // CRLF fenced blocks close properly, and inline triple-backtick spans do not open fences.
+  expect(finishedBlocks("```mermaid\r\nflowchart LR\r\n  A --> B\r\n```\r\nAfter")).toBe(
+    "```mermaid\r\nflowchart LR\r\n  A --> B\r\n```",
+  );
+  expect(finishedBlocks("- ```foo``` is a helper\n\nNext")).toBe("- ```foo``` is a helper");
 });
 
 test("session store prepend preserves unchanged item references while merging orphaned tool updates", () => {

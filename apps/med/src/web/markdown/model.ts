@@ -48,6 +48,8 @@ export function createMarkdownModel(text: string) {
 export type MarkdownModel = ReturnType<typeof createMarkdownModel>;
 export interface MarkdownBlock {
   diagram?: string;
+  /** True when the Mermaid fence is still open (streaming or mid-edit). */
+  diagramStreaming?: boolean;
   /** A `chart` block's text, which ChartBlock draws. */
   chart?: string;
   html: string;

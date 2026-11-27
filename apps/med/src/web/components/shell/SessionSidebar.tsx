@@ -24,8 +24,11 @@ import { RenameField } from "./RenameField";
 import { newThreadKeys } from "../../data/title-bar";
 import { clippedTooltip, tooltip } from "../ToolButton";
 import { HistoryArrows } from "./HistoryArrows";
+import { SidebarNotifications } from "./SidebarNotifications";
 import { SidebarToggleButton } from "./SidebarToggleButton";
 import { ThreadPeek } from "./ThreadPeek";
+import { browserFetch } from "../../data/live";
+import { useNotificationReads } from "../../data/notifications";
 
 /** The lists that keep the reader's order: Pinned, and Later. */
 type Shelf = "pinned" | "later";
@@ -104,6 +107,8 @@ export function SessionSidebar({
   onPin,
   onLater,
   onArchiveAll,
+  fetcher = browserFetch,
+  onOpenPull,
 }: {
   /** The open sessions; their order here does not matter. */
   threads: readonly Thread[];
@@ -146,7 +151,13 @@ export function SessionSidebar({
   onLater(thread: Thread, later: boolean, at?: number): void;
   /** Archives these sessions of Recent. */
   onArchiveAll?(threads: readonly Thread[]): void;
+  /** Authenticated host fetcher for sidebar notifications (comment replies & PRs). */
+  fetcher?: typeof fetch;
+  /** Opens a pull request directly in the workspace beside the sidebar. */
+  onOpenPull?(url: string, agent?: string): void;
 }) {
+  const [view, setView] = useState<"threads" | "notifications">("threads");
+  const notifReads = useNotificationReads();
   // A move shows at once: Pinned and Later as the reader left them, until the
   // host's list agrees.
   const [placed, setPlaced] = useState<{
@@ -514,6 +525,13 @@ export function SessionSidebar({
   // What Archive all takes: Recent, but the sessions at work and those that
   // need the reader.
   const archivable = recent.filter((thread) => thread.state !== "working" && !needsYou(thread));
+  const unreadThreads = threads.filter((thread) => {
+    if (notifReads.dismissed[`thread:${thread.id}`] === String(thread.updatedAt)) return false;
+    if (needsYou(thread)) return true;
+    if (thread.state === "working") return false;
+    return read.isUnread(thread) || thread.reviews.some((review) => review.unread);
+  }).length;
+  const showingNotifications = view === "notifications";
   const top = stylex.props(styles.top);
   return (
     <nav ref={nav} aria-label="Sessions" {...stylex.props(styles.list)}>
@@ -529,96 +547,139 @@ export function SessionSidebar({
       <button
         type="button"
         aria-label="New thread"
-        aria-pressed={newThread}
-        onClick={onNewThread}
+        aria-pressed={newThread && !showingNotifications}
+        onClick={() => {
+          setView("threads");
+          onNewThread();
+        }}
         {...tooltip("New thread", newThreadKeys())}
-        {...stylex.props(styles.row, newThread && styles.current)}
+        {...stylex.props(styles.row, newThread && !showingNotifications && styles.current)}
       >
         <span {...stylex.props(styles.mark, styles.plus)}>
           <Icon name="plus" size={14} />
         </span>
         <span {...stylex.props(styles.name)}>New</span>
       </button>
+      <button
+        type="button"
+        aria-label={
+          showingNotifications
+            ? "Notifications, active"
+            : unreadThreads > 0
+              ? `Notifications, ${unreadThreads} unread`
+              : "Notifications"
+        }
+        aria-pressed={showingNotifications}
+        onClick={() =>
+          setView((currentView) => (currentView === "notifications" ? "threads" : "notifications"))
+        }
+        {...tooltip(showingNotifications ? "Back to threads" : "Notifications")}
+        {...stylex.props(styles.row, showingNotifications && styles.current)}
+      >
+        <span {...stylex.props(styles.mark, styles.plus)}>
+          <Icon name="bell" size={14} />
+        </span>
+        <span {...stylex.props(styles.name)}>Notifications</span>
+        {unreadThreads > 0 && !showingNotifications && (
+          <span aria-hidden="true" {...stylex.props(styles.dot, styles.fresh)} />
+        )}
+      </button>
       <div ref={scroller} {...stylex.props(styles.scroll, drag && styles.dragging)}>
-        {onSuperagent && (
-          // The Superagent is a pinned session; this opens it, and makes it
-          // the first time.
-          <SuperagentRow
-            thread={superagent}
-            current={!newThread && !!superagent && superagent.id === current}
-            unread={!!superagent && read.isUnread(superagent)}
-            onOpen={onSuperagent}
+        {showingNotifications ? (
+          <SidebarNotifications
+            threads={threads}
+            current={current}
+            read={read}
+            fetcher={fetcher}
+            onOpenThread={onOpen}
+            onOpenPull={onOpenPull}
           />
-        )}
-        {/* While a row drags, Pinned shows even with no pins, to drop into. */}
-        {(pinnedShown.length > 0 || drag) && (
-          <section ref={pinnedBox} aria-label="Pinned">
-            <h2 data-glide="" {...stylex.props(styles.label)}>
-              Pinned
-            </h2>
-            {pinnedShown.map(row)}
-            {drag && pinnedShown.length === 0 && (
-              <div aria-hidden="true" {...stylex.props(styles.dropHint)}>
-                Drop here to pin
-              </div>
+        ) : (
+          <>
+            {onSuperagent && (
+              // The Superagent is a pinned session; this opens it, and makes it
+              // the first time.
+              <SuperagentRow
+                thread={superagent}
+                current={!newThread && !!superagent && superagent.id === current}
+                unread={!!superagent && read.isUnread(superagent)}
+                onOpen={onSuperagent}
+              />
             )}
-          </section>
-        )}
-        <section aria-label="Recent">
-          {(pinnedShown.length > 0 || recentShown.length > 0 || laterShown.length > 0 || drag) && (
-            <div data-glide="" {...stylex.props(styles.head)}>
-              <h2 {...stylex.props(styles.label, styles.headLabel)}>Recent</h2>
-              {onArchiveAll && archivable.length > 0 && !drag && (
-                <button
-                  type="button"
-                  onClick={() => onArchiveAll(archivable)}
-                  {...tooltip(
-                    `Archive ${archivable.length === 1 ? "1 session" : `${archivable.length} sessions`}`,
-                    undefined,
-                    undefined,
-                    "Sessions at work, and\nthose that need you, stay.",
+            {/* While a row drags, Pinned shows even with no pins, to drop into. */}
+            {(pinnedShown.length > 0 || drag) && (
+              <section ref={pinnedBox} aria-label="Pinned">
+                <h2 data-glide="" {...stylex.props(styles.label)}>
+                  Pinned
+                </h2>
+                {pinnedShown.map(row)}
+                {drag && pinnedShown.length === 0 && (
+                  <div aria-hidden="true" {...stylex.props(styles.dropHint)}>
+                    Drop here to pin
+                  </div>
+                )}
+              </section>
+            )}
+            <section aria-label="Recent">
+              {(pinnedShown.length > 0 ||
+                recentShown.length > 0 ||
+                laterShown.length > 0 ||
+                drag) && (
+                <div data-glide="" {...stylex.props(styles.head)}>
+                  <h2 {...stylex.props(styles.label, styles.headLabel)}>Recent</h2>
+                  {onArchiveAll && archivable.length > 0 && !drag && (
+                    <button
+                      type="button"
+                      onClick={() => onArchiveAll(archivable)}
+                      {...tooltip(
+                        `Archive ${archivable.length === 1 ? "1 session" : `${archivable.length} sessions`}`,
+                        undefined,
+                        undefined,
+                        "Sessions at work, and\nthose that need you, stay.",
+                      )}
+                      {...stylex.props(styles.headAction)}
+                    >
+                      Archive all
+                    </button>
                   )}
-                  {...stylex.props(styles.headAction)}
-                >
-                  Archive all
-                </button>
+                </div>
               )}
-            </div>
-          )}
-          {recentShown.map(row)}
-          {loaded && threads.length === 0 && (
-            <p {...stylex.props(styles.empty)}>Sessions you start or hand off show here.</p>
-          )}
-        </section>
-        {/* While a row drags, Later shows even empty, to drop into. */}
-        {(laterShown.length > 0 || drag) && (
-          <section ref={laterBox} aria-label="Later">
-            <div data-glide="" {...stylex.props(styles.head)}>
-              <button
-                type="button"
-                aria-expanded={!folded}
-                aria-label={
-                  folded
-                    ? `Later, ${laterShown.length} ${laterShown.length === 1 ? "session" : "sessions"}`
-                    : "Later"
-                }
-                onClick={() => viewSettings.laterSection.set(folded ? "open" : "folded")}
-                {...stylex.props(styles.label, styles.headLabel, styles.fold)}
-              >
-                Later
-                {folded && <span {...stylex.props(styles.count)}>{laterShown.length}</span>}
-                <span {...stylex.props(styles.chevron, folded && styles.chevronFolded)}>
-                  <Icon name="chevron" size={12} />
-                </span>
-              </button>
-            </div>
-            {!folded && laterShown.map(row)}
-            {drag && (folded || laterShown.length === 0) && (
-              <div aria-hidden="true" {...stylex.props(styles.dropHint)}>
-                Drop here for later
-              </div>
+              {recentShown.map(row)}
+              {loaded && threads.length === 0 && (
+                <p {...stylex.props(styles.empty)}>Sessions you start or hand off show here.</p>
+              )}
+            </section>
+            {/* While a row drags, Later shows even empty, to drop into. */}
+            {(laterShown.length > 0 || drag) && (
+              <section ref={laterBox} aria-label="Later">
+                <div data-glide="" {...stylex.props(styles.head)}>
+                  <button
+                    type="button"
+                    aria-expanded={!folded}
+                    aria-label={
+                      folded
+                        ? `Later, ${laterShown.length} ${laterShown.length === 1 ? "session" : "sessions"}`
+                        : "Later"
+                    }
+                    onClick={() => viewSettings.laterSection.set(folded ? "open" : "folded")}
+                    {...stylex.props(styles.label, styles.headLabel, styles.fold)}
+                  >
+                    Later
+                    {folded && <span {...stylex.props(styles.count)}>{laterShown.length}</span>}
+                    <span {...stylex.props(styles.chevron, folded && styles.chevronFolded)}>
+                      <Icon name="chevron" size={12} />
+                    </span>
+                  </button>
+                </div>
+                {!folded && laterShown.map(row)}
+                {drag && (folded || laterShown.length === 0) && (
+                  <div aria-hidden="true" {...stylex.props(styles.dropHint)}>
+                    Drop here for later
+                  </div>
+                )}
+              </section>
             )}
-          </section>
+          </>
         )}
       </div>
       {drag && dragging && (

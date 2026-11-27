@@ -23,7 +23,8 @@ type DrawnName =
   | "pause"
   | "turn"
   | "quote"
-  | "usage";
+  | "usage"
+  | "bell";
 export type IconName = PierreName | DrawnName;
 
 /** Strokes on the 16-pixel grid, as wide as Pierre's lines. */
@@ -77,6 +78,10 @@ const drawn: Record<DrawnName, ReactNode> = {
   quote: <path d="M6.25 4.25 2.75 7.75l3.5 3.5M3.25 7.75h6.25a3.75 3.75 0 0 1 3.75 3.75v1" />,
   // Three columns from one baseline: the Usage page's spend by day.
   usage: <path d="M2.25 13.75h11.5M4.75 11v-2.5M8 11V4.75M11.25 11V7.25" />,
+  // A quiet notification bell on the 16-pixel grid.
+  bell: (
+    <path d="M12.25 9.75V6.5a4.25 4.25 0 1 0-8.5 0v3.25l-1.25 1.75h11zM6.5 13.25a1.6 1.6 0 0 0 3 0" />
+  ),
 };
 
 const kebab = (name: string) => name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);

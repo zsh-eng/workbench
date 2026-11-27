@@ -28,7 +28,8 @@ export interface StreamedReply {
   settled: boolean;
 }
 
-const FENCE = /^\s*(`{3,}|~{3,})/;
+const FENCE_OPEN = /^(?:[ \t]*(?:>|[-*+]|\d+[.)])[ \t]*)*[ \t]*(?:(`{3,})(?!.*`)|(~{3,}))/;
+const FENCE_CLOSE = /^(?:[ \t]*>[ \t]?)*[ \t]*(`{3,}|~{3,})[ \t]*$/;
 const HEADING = /^ {0,3}#{1,6}(?:\s|$)/;
 const MATH_DOLLAR_OPEN = /^\s*\$\$\s*$/;
 const MATH_BRACKET_OPEN = /^\s*\\\[\s*$/;
@@ -45,16 +46,11 @@ export function finishedBlocks(text: string) {
     const next = text.indexOf("\n", at);
     // The last line is still arriving.
     if (next < 0) break;
-    const line = text.slice(at, next);
+    const line = text.slice(at, next).replace(/\r$/, "");
     at = next + 1;
     if (fence) {
-      const close = FENCE.exec(line)?.[1];
-      if (
-        close &&
-        close[0] === fence[0] &&
-        close.length >= fence.length &&
-        !line.trim().slice(close.length)
-      ) {
+      const close = FENCE_CLOSE.exec(line)?.[1];
+      if (close && close[0] === fence[0] && close.length >= fence.length) {
         fence = "";
         end = at;
       }
@@ -66,10 +62,13 @@ export function finishedBlocks(text: string) {
         math = "";
         end = at;
       }
-    } else if (FENCE.test(line)) fence = FENCE.exec(line)![1]!;
-    else if (MATH_DOLLAR_OPEN.test(line)) math = "$$";
-    else if (MATH_BRACKET_OPEN.test(line)) math = "\\[";
-    else if (!line.trim() || HEADING.test(line)) end = at;
+    } else {
+      const open = FENCE_OPEN.exec(line);
+      if (open) fence = (open[1] ?? open[2])!;
+      else if (MATH_DOLLAR_OPEN.test(line)) math = "$$";
+      else if (MATH_BRACKET_OPEN.test(line)) math = "\\[";
+      else if (!line.trim() || HEADING.test(line)) end = at;
+    }
   }
   return text.slice(0, end).trimEnd();
 }

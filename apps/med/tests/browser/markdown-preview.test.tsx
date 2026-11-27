@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import MarkdownPreview from "../../src/web/components/MarkdownPreview";
+import { SessionMarkdown } from "../../src/web/components/session/SessionMarkdown";
 import { writeSetting } from "../../src/web/data/settings-file";
 import { createMarkdownModel } from "../../src/web/markdown/model";
 import { COPY_PAD, standaloneSvg } from "../../src/web/markdown/copy";
@@ -892,4 +893,102 @@ test("Find bar in MarkdownPreview highlights visible matches, skips hidden MathM
   expect(document.querySelector("details")?.open).toBe(true);
   await userEvent.keyboard("{Escape}");
   await expect.element(search).not.toBeInTheDocument();
+});
+
+test("streaming Mermaid diagrams show a calm drawing state instead of check syntax until the fence closes", async () => {
+  const partial = ["# Streaming", "", "```mermaid", "flowchart LR", "  Client -->"].join("\n");
+  const complete = [
+    "# Streaming",
+    "",
+    "```mermaid",
+    "flowchart LR",
+    "  Client --> Server",
+    "```",
+    "",
+  ].join("\n");
+
+  initializeTheme();
+  await page.viewport(960, 720);
+  frame = document.createElement("div");
+  frame.style.cssText = "position:fixed;inset:0;";
+  document.body.append(frame);
+  root = createRoot(frame);
+
+  const model = createMarkdownModel(partial);
+  root.render(
+    <MarkdownPreview
+      model={model}
+      file={{
+        kind: "text",
+        path: "streaming.md",
+        text: partial,
+        size: partial.length,
+        identity: "id-stream",
+        source: { kind: "worktree", repo: "/repo" },
+      }}
+    />,
+  );
+
+  const reading = page.getByRole("region", { name: "Markdown preview" });
+  await expect.element(reading.getByText("Drawing diagram")).toBeVisible();
+  const streamingPre = reading.element().querySelector<HTMLElement>('pre[data-mermaid="true"]')!;
+  expect(streamingPre.dataset.diagramStreaming).toBe("true");
+  expect(streamingPre.dataset.diagramError).toBeUndefined();
+
+  // Once the closing fence arrives, the block transitions straight into the rendered SVG.
+  model.setText(complete);
+  await expect.element(reading.getByRole("img", { name: "Mermaid diagram" })).toBeVisible();
+  const drawnPre = reading.element().querySelector<HTMLElement>('pre[data-mermaid="true"]')!;
+  expect(drawnPre.dataset.rendered).toBe("true");
+  expect(drawnPre.dataset.diagramStreaming).toBeUndefined();
+  expect(drawnPre.dataset.diagramError).toBeUndefined();
+  expect(drawnPre.querySelector(".med-md-diagram > svg")).not.toBeNull();
+
+  // In SessionMarkdown, an incomplete diagram while streaming={true} also suppresses check syntax,
+  // and only reports an error if still invalid once streaming finishes.
+  const broken = ["```mermaid", "flowchart LR", "  A -->", "```"].join("\n");
+  root.render(<SessionMarkdown text={broken} streaming />);
+  await expect.element(page.getByText("Drawing diagram")).toBeVisible();
+  const sessionPre = frame.querySelector<HTMLElement>('pre[data-mermaid="true"]')!;
+  expect(sessionPre.dataset.diagramStreaming).toBe("true");
+  expect(sessionPre.dataset.diagramError).toBeUndefined();
+
+  root.render(<SessionMarkdown text={broken} streaming={false} />);
+  await expect
+    .poll(() => frame!.querySelector<HTMLElement>('pre[data-mermaid="true"]')?.dataset.diagramError)
+    .toBe("true");
+
+  // A truncated unclosed Mermaid fence in a settled reply (streaming={false}) does not pulse forever.
+  const truncated = ["```mermaid", "flowchart LR", "  A -->"].join("\n");
+  root.render(<SessionMarkdown text={truncated} streaming={false} />);
+  await expect
+    .poll(() => frame!.querySelector<HTMLElement>('pre[data-mermaid="true"]')?.dataset.diagramError)
+    .toBe("true");
+  expect(
+    frame!.querySelector<HTMLElement>('pre[data-mermaid="true"]')?.dataset.diagramStreaming,
+  ).toBeUndefined();
+
+  // CRLF closed Mermaid fences render immediately (not stuck streaming), and drawn diagrams keep position: relative.
+  const crlfDoc = ["# CRLF", "", "```mermaid", "flowchart LR", "  One --> Two", "```", ""].join(
+    "\r\n",
+  );
+  const crlfModel = createMarkdownModel(crlfDoc);
+  root.render(
+    <MarkdownPreview
+      model={crlfModel}
+      file={{
+        kind: "text",
+        path: "crlf.md",
+        text: crlfDoc,
+        size: crlfDoc.length,
+        identity: "id-crlf",
+        source: { kind: "worktree", repo: "/repo" },
+      }}
+    />,
+  );
+  await expect.element(reading.getByRole("img", { name: "Mermaid diagram" })).toBeVisible();
+  const crlfPre = reading.element().querySelector<HTMLElement>('pre[data-mermaid="true"]')!;
+  expect(crlfPre.dataset.rendered).toBe("true");
+  expect(crlfPre.dataset.diagramStreaming).toBeUndefined();
+  expect(getComputedStyle(crlfPre.querySelector(".med-md-diagram")!).position).toBe("relative");
 });

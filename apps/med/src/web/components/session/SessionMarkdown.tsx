@@ -226,7 +226,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({
       {blocks ? (
         blocks.map((block, index) =>
           block.diagram !== undefined ? (
-            <DiagramBlock key={index} block={block} />
+            <DiagramBlock key={index} block={block} streaming={streaming && !settled} />
           ) : block.chart !== undefined ? (
             <ChartBlock key={`${index}:${block.chart}`} text={block.chart} at={at} />
           ) : reviewLinks?.[index] ? (

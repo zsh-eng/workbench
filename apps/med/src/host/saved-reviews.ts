@@ -982,17 +982,18 @@ export class SavedReviewStore {
     return this.serial(async () => this.describe(await this.read(id)));
   }
 
-  /** Record that the reader read a version: they opened it.
-   * "Since" then starts from it, as from an approved version. */
-  markRead(id: string, version: number, beforeCommit?: () => void): Promise<SavedReview> {
+  /** Record that the reader read a version: they opened it (or its latest
+   * version when omitted). "Since" then starts from it, as from an approved version. */
+  markRead(id: string, version?: number, beforeCommit?: () => void): Promise<SavedReview> {
     return this.writing(async () => {
       const record = await this.read(id, true);
       const versions = record.saved.iterations?.map((entry) => entry.number) ?? [1];
-      if (!versions.includes(version))
-        throw new HostError("version-not-found", `This review has no version ${version}.`, 404);
+      const target = version ?? versions.at(-1)!;
+      if (!versions.includes(target))
+        throw new HostError("version-not-found", `This review has no version ${target}.`, 404);
       const read = record.saved.readVersions ?? [];
-      if (!read.includes(version)) {
-        record.saved.readVersions = [...read, version].sort((a, b) => a - b);
+      if (!read.includes(target)) {
+        record.saved.readVersions = [...read, target].sort((a, b) => a - b);
         await this.write(record, beforeCommit);
       }
       return this.describe(record);
@@ -1680,6 +1681,47 @@ export class SavedReviewStore {
               replies: replies.filter((item) => !item.author).length,
               said: lastSaid(note, replies),
             };
+          }),
+      );
+    });
+  }
+
+  /** Top-level comments whose newest reply came from an agent, for sidebar notifications. */
+  answeredComments(id: string): Promise<
+    {
+      id: string;
+      path: string;
+      line: number;
+      endLine?: number;
+      question: string;
+      answer: string;
+      answeredBy: string;
+      answeredAt: string;
+      resolved: boolean;
+    }[]
+  > {
+    return this.serial(async () => {
+      const record = await this.read(id);
+      return record.captures.flatMap((target) =>
+        target.notes.notes
+          .filter((note) => !note.parentId)
+          .flatMap((note) => {
+            const replies = target.notes.notes.filter((item) => item.parentId === note.id);
+            const latest = replies.at(-1);
+            if (!latest?.author) return [];
+            return [
+              {
+                id: note.id,
+                path: note.path,
+                line: note.line,
+                ...(note.endLine ? { endLine: note.endLine } : {}),
+                question: note.text,
+                answer: latest.text,
+                answeredBy: agentName(latest.author),
+                answeredAt: latest.createdAt,
+                resolved: false,
+              },
+            ];
           }),
       );
     });

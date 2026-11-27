@@ -254,7 +254,9 @@
 .med-md-prose pre[data-diagram-loading="true"],
 .med-markdown
   .med-md-prose
-  pre[data-mermaid]:not([data-rendered="true"]):not([data-diagram-error="true"]) {
+  pre[data-mermaid]:not([data-rendered="true"]):not([data-diagram-error="true"]):not(
+    [data-diagram-streaming="true"]
+  ) {
   padding: 0 16px;
   margin-block: 0;
   min-height: 1px;
@@ -265,15 +267,112 @@
 .med-md-prose pre[data-diagram-loading="true"]::before,
 .med-markdown
   .med-md-prose
-  pre[data-mermaid]:not([data-rendered="true"]):not([data-diagram-error="true"])::before {
+  pre[data-mermaid]:not([data-rendered="true"]):not([data-diagram-error="true"]):not(
+    [data-diagram-streaming="true"]
+  )::before {
   content: none;
 }
 .med-md-prose pre[data-diagram-loading="true"] > code,
 .med-markdown
   .med-md-prose
-  pre[data-mermaid]:not([data-rendered="true"]):not([data-diagram-error="true"])
+  pre[data-mermaid]:not([data-rendered="true"]):not([data-diagram-error="true"]):not(
+    [data-diagram-streaming="true"]
+  )
   > code {
   display: none;
+}
+/* Keep the SVG mount target measurable at full width without taking height until drawn. */
+.med-md-prose pre[data-mermaid]:not([data-rendered="true"]) > .med-md-diagram {
+  position: absolute;
+  inset-inline: 16px;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+/* While a Mermaid block is still streaming in (or its fence is open), show a
+ * calm drawing surface instead of flashing "Mermaid · check syntax". */
+.med-md-prose pre[data-diagram-streaming="true"] {
+  padding: 14px 18px 16px;
+  overflow: hidden;
+}
+.med-md-prose pre[data-diagram-streaming="true"]:has(.med-md-diagram-stream)::before {
+  content: none;
+}
+.med-md-prose pre[data-diagram-streaming="true"]:not(:has(.med-md-diagram-stream)) {
+  padding: 32px 20px 16px;
+}
+.med-md-prose pre[data-diagram-streaming="true"]:not(:has(.med-md-diagram-stream))::before {
+  content: "Mermaid · drawing";
+}
+.med-md-prose pre[data-diagram-streaming="true"]:not(:has(.med-md-diagram-stream)) > code {
+  display: block;
+  color: var(--med-muted);
+  max-height: 148px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 58%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 58%, transparent 100%);
+}
+.med-md-diagram-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.med-md-diagram-stream-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: var(--med-font-ui);
+  line-height: 1.2;
+}
+.med-md-diagram-stream-lang {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--med-muted);
+}
+.med-md-diagram-stream-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--med-muted);
+}
+.med-md-diagram-stream-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--med-accent);
+  animation: med-diagram-pulse 1.5s ease-in-out infinite;
+}
+@keyframes med-diagram-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .med-md-diagram-stream-dot {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+.med-md-diagram-stream-body {
+  max-height: 148px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 62%, transparent 100%);
+}
+.med-md-diagram-stream-code {
+  display: block;
+  color: var(--med-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 /* A rendered diagram needs no language label; it sits on the code surface. */
 .med-md-prose pre[data-rendered="true"] {
@@ -289,6 +388,7 @@
 /* Pele draws in these colors and fonts, so a diagram matches the theme. It
  * sits on the code-block surface, and its nodes are raised cards on it. */
 .med-md-diagram {
+  position: relative;
   --pele-bg: var(--med-md-surface, var(--med-panel));
   --pele-fg: var(--med-text);
   --pele-muted: var(--med-muted);

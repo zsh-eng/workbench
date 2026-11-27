@@ -122,6 +122,29 @@ type Task = {
 // renders each task in order and replies to each.
 let latest: Task | undefined;
 const queue: Task[] = [];
+const FENCE_OPEN = /^(?:[ \t]*(?:>|[-*+]|\d+[.)])[ \t]*)*[ \t]*(?:(`{3,})(?!.*`)|(~{3,}))/;
+const FENCE_CLOSE = /^(?:[ \t]*>[ \t]?)*[ \t]*(`{3,}|~{3,})[ \t]*$/;
+
+/** True when a fenced code block at `position` has no closing fence line yet
+ * and nothing follows it (so an implicit blockquote close is not streaming). */
+function isUnclosedFence(
+  lines: readonly string[],
+  position?: { start?: { line?: number }; end?: { line?: number } },
+): boolean {
+  const start = position?.start?.line;
+  const end = position?.end?.line;
+  if (!start || !end) return false;
+  const match = FENCE_OPEN.exec(lines[start - 1] ?? "");
+  const open = match?.[1] ?? match?.[2];
+  if (!open) return false;
+  for (let i = end; i < lines.length; i++) {
+    if (lines[i]?.trim()) return false;
+  }
+  if (end <= start) return true;
+  const close = FENCE_CLOSE.exec(lines[end - 1] ?? "")?.[1];
+  return !(close && close[0] === open[0] && close.length >= open.length);
+}
+
 const themes = new Map<string, SyntaxThemeData>();
 let running = false;
 self.onmessage = (event: MessageEvent<Task | { batch: Task[] }>) => {
@@ -143,6 +166,7 @@ async function drain() {
       const headings: MarkdownHeading[] = [];
       const slugs = new Map<string, number>();
       const slots: string[] = [];
+      const markdownLines = task.text.split(/\r?\n/);
       const slot = (html: string, position: Element["position"]): Element => ({
         type: "element",
         tagName: "med-slot",
@@ -273,6 +297,9 @@ async function drain() {
             node.properties.dataLanguage = language;
             if (language === "mermaid") {
               node.properties.dataMermaid = true;
+              if (isUnclosedFence(markdownLines, node.position)) {
+                node.properties.dataDiagramStreaming = "true";
+              }
               return;
             }
             // A chart that Med draws (ChartBlock), from its keys and rows.
@@ -327,7 +354,10 @@ async function drain() {
             start,
             end,
             ...(node.type === "element" && node.properties.dataMermaid
-              ? { diagram: textOf(node) }
+              ? {
+                  diagram: textOf(node),
+                  ...(node.properties.dataDiagramStreaming ? { diagramStreaming: true } : {}),
+                }
               : {}),
             ...(node.type === "element" && node.properties.dataChart
               ? { chart: textOf(node) }

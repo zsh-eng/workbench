@@ -92,7 +92,13 @@ const Block = memo(
       }[] = [];
       const inflight = new Map<HTMLElement, HTMLDivElement>();
       const drawNested = (pre: HTMLElement) => {
-        if (pre.dataset.rendered || pre.dataset.diagramError || pre.dataset.diagramMounting) return;
+        if (
+          pre.dataset.rendered ||
+          pre.dataset.diagramError ||
+          pre.dataset.diagramMounting ||
+          pre.dataset.diagramStreaming
+        )
+          return;
         pre.dataset.diagramMounting = "true";
         const code = pre.querySelector("code");
         if (!code) {
@@ -154,7 +160,9 @@ const Block = memo(
         },
         { rootMargin: "300px" },
       );
-      const pending = host.querySelectorAll<HTMLElement>("pre[data-mermaid]:not([data-rendered])");
+      const pending = host.querySelectorAll<HTMLElement>(
+        "pre[data-mermaid]:not([data-rendered]):not([data-diagram-streaming])",
+      );
       if (pending.length) preloadDiagrams();
       const viewHeight = window.innerHeight || 900;
       pending.forEach((pre) => {
@@ -207,6 +215,7 @@ const Block = memo(
   },
   (a, b) =>
     a.block.html === b.block.html &&
+    a.block.diagramStreaming === b.block.diagramStreaming &&
     a.block.start === b.block.start &&
     a.block.end === b.block.end &&
     a.source === b.source &&
