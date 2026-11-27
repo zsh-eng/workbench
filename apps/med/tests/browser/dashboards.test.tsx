@@ -1,7 +1,10 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
+import { flushSync } from "react-dom";
 import { DashboardsPage } from "../../src/web/components/dashboards/DashboardsPage";
+import { BarList } from "../../src/web/components/chart/BarList";
+import { LineChart } from "../../src/web/components/chart/Chart";
 import type { Dashboard, DashboardFile, DashboardPanel } from "../../src/shared/dashboards";
 import type { Thread } from "../../src/shared/threads";
 import type { SuperagentLink } from "../../src/web/data/superagent";
@@ -667,3 +670,69 @@ test("a dashboard's charts share a cursor, and History lists the values Med kept
   history.back();
   await expect.poll(shownValue("Service")).toBe("checkout");
 }, 20_000);
+
+test("LineChart and BarList render immediately at their final values on first load without entrance animation", async () => {
+  initializeTheme();
+  await page.viewport(960, 720);
+  frame = document.createElement("div");
+  frame.style.cssText = "position:fixed;inset:0;width:640px;";
+  document.body.append(frame);
+  root = createRoot(frame);
+
+  const spec = { title: "Latency", unit: "ms" };
+  const series = [
+    {
+      name: "p99",
+      points: [
+        [1_700_000_000_000, 10] as const,
+        [1_700_000_060_000, 90] as const,
+        [1_700_000_120_000, 40] as const,
+      ],
+    },
+  ];
+
+  // Mount in loading state, then synchronously commit ready data: line must land
+  // immediately at its real Y coordinates with zero 1-frame placeholder flash.
+  root.render(<LineChart spec={spec} state="loading" />);
+  await expect.poll(() => frame!.querySelector("svg[data-chart-plot]")).not.toBeNull();
+
+  const readLinePath = () =>
+    [...frame!.querySelectorAll<SVGPathElement>("svg[data-chart-plot] g path")]
+      .find((p) => {
+        const d = p.getAttribute("d") ?? "";
+        return d.startsWith("M") && !d.endsWith("Z");
+      })
+      ?.getAttribute("d");
+
+  flushSync(() => {
+    root!.render(<LineChart spec={spec} series={series} state="ready" />);
+  });
+  const firstPath = readLinePath();
+  expect(firstPath).toBeTruthy();
+  await new Promise((done) => setTimeout(done, 150));
+  expect(firstPath).toBe(readLinePath());
+
+  // Subsequent user action (toggling Log scale) still animates smoothly to a new path.
+  await page.getByRole("button", { name: "Chart options" }).click();
+  await page.getByRole("menuitemcheckbox", { name: "Log scale" }).click();
+  await expect.poll(() => readLinePath()).not.toBe(firstPath);
+
+  // BarList renders bars immediately at full scaleX on mount (clamping negatives to 0).
+  root.render(
+    <BarList
+      title="Endpoints"
+      unit="ms"
+      bars={[
+        { label: "/checkout", value: 100, highlight: true },
+        { label: "/search", value: 50 },
+        { label: "/invalid", value: -20 },
+      ]}
+    />,
+  );
+  await expect.element(page.getByText("/checkout")).toBeVisible();
+  const barSpans = [...frame!.querySelectorAll<HTMLElement>("li > span[aria-hidden='true']")];
+  expect(barSpans).toHaveLength(3);
+  expect(barSpans[0]!.style.cssText).toContain("scaleX(1)");
+  expect(barSpans[1]!.style.cssText).toContain("scaleX(0.5)");
+  expect(barSpans[2]!.style.cssText).toContain("scaleX(0)");
+});

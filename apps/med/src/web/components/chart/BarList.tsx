@@ -1,8 +1,8 @@
 // Values to compare, one bar a row with its label inside, as Plausible lists
-// them: the row the chart is about takes the accent. The bars grow in once
-// they come into view, by transform.
+// them: the row the chart is about takes the accent. Initial load renders at
+// full width immediately; subsequent data updates ease smoothly by transform.
 import * as stylex from "@stylexjs/stylex";
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useState } from "react";
 import { tokens, ui } from "../../theme.stylex";
 import { CopyNoteText, copyFailure, useCopyNote } from "../DiagramCopy";
 import { Icon } from "../Icon";
@@ -23,31 +23,17 @@ export function BarList({
   bars: readonly Bar[];
   source?: string;
 }) {
-  const list = useRef<HTMLOListElement>(null);
-  const [shown, setShown] = useState(false);
   const [hover, setHover] = useState<number | null>(null);
   const [note, say] = useCopyNote();
-  const max = Math.max(...bars.map(({ value }) => value));
+  const max = Math.max(0, ...bars.map(({ value }) => value));
   const base = bars.find(({ highlight }) => highlight);
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry?.isIntersecting) return;
-        observer.disconnect();
-        requestAnimationFrame(() => setShown(true));
-      },
-      { rootMargin: "-40px" },
-    );
-    observer.observe(list.current!);
-    return () => observer.disconnect();
-  }, []);
   const board = useContext(OnBoard);
   const csv = ["label,value", ...bars.map(({ label, value }) => `${label},${value}`)].join("\n");
   return (
     <div {...stylex.props(styles.frame, board && styles.frameBoard, stylex.defaultMarker())}>
       <h3 {...stylex.props(styles.title)}>{title}</h3>
       {subtitle && <p {...stylex.props(styles.subtitle)}>{subtitle}</p>}
-      <ol ref={list} {...stylex.props(styles.list)} onPointerLeave={() => setHover(null)}>
+      <ol {...stylex.props(styles.list)} onPointerLeave={() => setHover(null)}>
         {bars.map((bar, index) => {
           const delta = base && bar !== base ? (bar.value - base.value) / base.value : null;
           return (
@@ -61,7 +47,7 @@ export function BarList({
                 {...stylex.props(
                   styles.bar,
                   bar.highlight && styles.barOn,
-                  styles.grow(shown ? bar.value / max : 0, index * 45),
+                  styles.grow(max > 0 ? Math.max(0, bar.value) / max : 0),
                 )}
               />
               <span {...stylex.props(styles.label, bar.highlight && styles.labelOn)}>
@@ -191,7 +177,7 @@ const styles = stylex.create({
     backgroundColor: tokens.fillStrong,
     transformOrigin: "left center",
     transitionProperty: "transform",
-    transitionDuration: { default: "700ms", "@media (prefers-reduced-motion: reduce)": "0ms" },
+    transitionDuration: { default: "320ms", "@media (prefers-reduced-motion: reduce)": "0ms" },
     transitionTimingFunction: tokens.easeOut,
   },
   barOn: { backgroundColor: `color-mix(in srgb, ${tokens.accent} 26%, transparent)` },
@@ -236,9 +222,8 @@ const styles = stylex.create({
     fontSize: 11.5,
   },
   spacer: { flex: "1" },
-  grow: (scale: number, delay: number) => ({
+  grow: (scale: number) => ({
     transform: `scaleX(${scale})`,
-    transitionDelay: `${delay}ms`,
   }),
   noteSpot: { position: "absolute", right: 34, top: "50%", transform: "translateY(-50%)" },
   tool: { minHeight: 26, height: 26, color: tokens.faint },

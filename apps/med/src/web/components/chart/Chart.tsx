@@ -1,7 +1,8 @@
 // A time chart in a thread: the lines an agent's block names, from Grafana,
 // a file, or its own rows. The plot is SVG on the theme's colors, so it copies
-// as a picture the way a diagram does. Motion runs only while something
-// changes (data arriving, the scale, a zoom) and stops; hover moves a line.
+// as a picture the way a diagram does. Initial data renders immediately without
+// entrance motion; motion runs only when an action changes the view (scale,
+// zoom, series selection, or range) and stops.
 import * as stylex from "@stylexjs/stylex";
 import { Dialog } from "@base-ui/react/dialog";
 import {
@@ -67,13 +68,12 @@ const BOTTOM = 26;
 const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
-const easeOut = (t: number) => 1 - (1 - t) ** 4;
 
 /**
  * Numbers that ease to their target over `duration` when it changes, from
  * where they are; nothing runs once they arrive. `jump` sets them at once,
- * and with `settle`, the first target after a jump lands at once too: data
- * that arrives sets the scales, and only its reveal moves.
+ * and with `settle`, the first target after a jump lands at once before paint:
+ * initial data draws immediately, and only subsequent actions animate.
  */
 function useTween<T extends Record<string, number>>(
   target: T,
@@ -85,7 +85,7 @@ function useTween<T extends Record<string, number>>(
   const [value, setValue] = useState(target);
   const state = useRef({ from: target, to: target, current: target, frame: 0, jumped: jump });
   const key = Object.values(target).join(" ");
-  useEffect(() => {
+  useLayoutEffect(() => {
     const tween = state.current;
     const land = jump || (settle && tween.jumped) || reduced();
     tween.jumped = jump;
@@ -270,7 +270,6 @@ export function LineChart({
     !drawn,
     true,
   );
-  const reveal = useTween({ shown: drawn ? 1 : 0 }, 900, easeOut, !drawn).shown;
 
   const right = Math.max(0, width - GUTTER);
   const bottom = height - BOTTOM;
@@ -287,9 +286,9 @@ export function LineChart({
       const exponent = Math.log10(Math.max(value, 10 ** view.logMin));
       const log =
         TOP + (1 - (exponent - view.logMin) / (view.logMax - view.logMin || 1)) * plotHeight;
-      return flat + (lin + (log - lin) * view.blend - flat) * reveal;
+      return lin + (log - lin) * view.blend;
     },
-    [view, plotHeight, flat, reveal],
+    [view, plotHeight],
   );
 
   const paths = useMemo(
@@ -657,8 +656,8 @@ export function LineChart({
             {/* Value grid and labels: the linear set fades as the log set comes. */}
             {drawn &&
               [
-                { domain: linear, opacity: linearOpacity * reveal },
-                { domain: log, opacity: view.blend * reveal },
+                { domain: linear, opacity: linearOpacity },
+                { domain: log, opacity: view.blend },
               ].map(({ domain, opacity }, set) =>
                 opacity < 0.01
                   ? null
@@ -710,7 +709,7 @@ export function LineChart({
 
             <g clipPath={`url(#${clip})`}>
               {spec.threshold && drawn && (
-                <g opacity={reveal}>
+                <g>
                   <line
                     x1={0}
                     x2={right}
@@ -779,7 +778,7 @@ export function LineChart({
                       {...stylex.props(
                         styles.series,
                         styles.paint(seriesColor(index, data.length, spec.ramp)),
-                        styles.fade(lit !== null && lit !== name ? 0.18 : reveal),
+                        styles.fade(lit !== null && lit !== name ? 0.18 : 1),
                       )}
                     >
                       {source?.live && !zoom && (
