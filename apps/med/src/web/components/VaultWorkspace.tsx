@@ -800,7 +800,12 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
             </main>
           </div>
         )}
-        <CommandDialog open={commandsOpen} onOpenChange={setCommandsOpen} commands={commands} />
+        <CommandDialog
+          open={commandsOpen}
+          onOpenChange={setCommandsOpen}
+          enablePalettes
+          commands={commands}
+        />
         <FilePicker
           key={locationState.id}
           open={pickerOpen}

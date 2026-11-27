@@ -134,6 +134,7 @@ import {
 import { loadShellEnvironment, shellEnvironment, withoutClaudeSession } from "./shell-environment";
 import { createChartSources, sourcesOf } from "./chart-sources";
 import { createDashboards } from "./dashboards";
+import { createPalettes } from "./palettes";
 import { createDashboardHistory } from "./dashboard-history";
 import { createAgentStatus } from "./agent-status";
 import { createSessionIndex } from "./session-index";
@@ -165,6 +166,7 @@ import { usageReportRoutes } from "../shared/usage-report";
 import { usageRoutes } from "../shared/model-usage";
 import { chartRoutes } from "../shared/charts";
 import { dashboardPath, dashboardRoutes, type ShownDashboard } from "../shared/dashboards";
+import { paletteRoutes } from "../shared/palettes";
 import { createGrafana, createGrafanaSettings, createGrafanaTokens } from "./grafana";
 import {
   foundUpdateSchema,
@@ -740,6 +742,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const dashboardHistory = createDashboardHistory(
     join(options.stateDir ?? temporaryState!, "dashboard-history.json"),
   );
+  // Custom palettes (`*.palette.yaml`): cached step sources + zoxide frecency.
+  const palettes = createPalettes({
+    folder: join(dirname(settingsFile.path), "palettes"),
+    cacheDir: join(options.stateDir ?? temporaryState!, "palette-cache"),
+    frecencyFile: join(options.stateDir ?? temporaryState!, "palette-frecency.json"),
+    repositories: () => visibleRepositories(),
+    env: () => ({ ...withoutClaudeSession(process.env), ...shellEnvironment() }),
+  });
   const pullRequestLinks = createPullRequestLinks({
     gh: options.gh ?? { command: "gh", args: [] },
     refs: (checkout) => checkoutState(checkout, false),
@@ -1402,6 +1412,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     })),
     route(dashboardRoutes.keep, async (input) => ({
       entries: await dashboardHistory.keep(input.id, input.values, input.by),
+    })),
+    route(paletteRoutes.list, () => palettes.list()),
+    route(paletteRoutes.items, (input, { signal }) => palettes.items(input, signal)),
+    route(paletteRoutes.frecency, async () => ({ entries: await palettes.listFrecency() })),
+    route(paletteRoutes.visit, async (input) => ({
+      entries: await palettes.recordVisit(input.paletteId, input.values, input.labels),
     })),
     route(chartRoutes.sites, async () => ({ sites: await grafanaSettings.list() })),
     route(chartRoutes.connect, (input, { signal }) =>

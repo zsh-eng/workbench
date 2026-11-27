@@ -22,7 +22,32 @@ import {
 import { ShortcutKeys } from "./ShortcutKeys";
 export { ShortcutKeys } from "./ShortcutKeys";
 import { Icon, type IconName } from "./Icon";
-import { Matched, matchRanges, PaletteKeys, PaletteTitle, usePaletteFade } from "./Palette";
+import {
+  Matched,
+  matchRanges,
+  PaletteActions,
+  PaletteKeys,
+  PaletteTitle,
+  usePaletteFade,
+} from "./Palette";
+import { PaletteScopeView, type ActivePaletteScope } from "./PaletteScopeView";
+import {
+  keptDashboard,
+  keptDashboards,
+  listDashboards,
+  openDashboards,
+  readDashboard,
+} from "../data/dashboards";
+import {
+  dashboardPaletteId,
+  dashboardToPalette,
+  keptPaletteFrecency,
+  keptPalettes,
+  listPaletteFrecency,
+  listPalettes,
+} from "../data/palettes";
+import type { DashboardEntry } from "../../shared/dashboards";
+import type { PaletteEntry, PaletteFrecencyEntry } from "../../shared/palettes";
 import { picked, tokens, ui } from "../theme.stylex";
 
 export interface Choice {
@@ -60,6 +85,7 @@ export type MenuEntry = MenuAction | MenuSubmenu;
  * last: it holds every Vim motion. */
 export const commandGroups = [
   "Go to",
+  "Palettes",
   "Review",
   "View",
   "Git",
@@ -78,10 +104,18 @@ export interface ReviewCommand {
   group: CommandGroup;
   /** Other words that find the command, such as an old name. */
   keywords?: string;
+  /** Short Raycast-style prefix alias (e.g. `deploy`), ranked above loose matches. */
+  exactKeyword?: string;
   shortcut?: string;
   disabled?: boolean;
   /** Why a command cannot run yet, in its tooltip. */
   hint?: string;
+  /** Keep the command dialog open after running (e.g. scoping into a palette). */
+  keepOpen?: boolean;
+  /** Optional Tab action (e.g. Tab-to-scope into a palette or dashboard). */
+  onTab?(): void;
+  /** Label for the Tab action when Enter does something else (e.g. Open ↵ / Scope Tab). */
+  tabLabel?: string;
   run(): void;
 }
 
@@ -96,11 +130,12 @@ const wordStart = (text: string, at: number) => at === 0 || /[\s\-/:(·]/.test(t
  * the query's letters in order from a word's start.
  */
 export function matchCommand(
-  command: Pick<ReviewCommand, "label" | "keywords">,
+  command: Pick<ReviewCommand, "label" | "keywords" | "exactKeyword">,
   query: string,
 ): { score: number; ranges: Ranges } | null {
   const wanted = query.trim().toLowerCase().replace(/\s+/g, " ");
   if (!wanted) return { score: 0, ranges: [] };
+  const exact = command.exactKeyword?.trim().toLowerCase();
   const text = command.label.toLowerCase();
   const at = text.indexOf(wanted);
   if (at >= 0) {
@@ -108,7 +143,11 @@ export function matchCommand(
     const start =
       at === 0 ? at : (words.find((index) => index >= at && text.startsWith(wanted, index)) ?? at);
     const score = start === 0 ? 1000 : wordStart(text, start) ? 900 : 800;
-    return { score: score - start, ranges: [[start, start + wanted.length]] };
+    const boosted = exact && exact.startsWith(wanted) ? Math.max(score, 960) : score;
+    return { score: boosted - start, ranges: [[start, start + wanted.length]] };
+  }
+  if (exact && exact.startsWith(wanted)) {
+    return { score: exact === wanted ? 980 : 960, ranges: [] };
   }
   const words = wanted.split(" ");
   if (words.length > 1) {
@@ -607,17 +646,29 @@ export function CommandDialog({
   commands,
   title = "Commands",
   searchLabel = "Search commands",
+  enablePalettes = false,
 }: {
   open: boolean;
   onOpenChange(open: boolean): void;
   title?: string;
   searchLabel?: string;
   commands: ReviewCommand[];
+  /** Include custom `*.palette.yaml` palettes and Tab-into-Dashboards in ⌘K. */
+  enablePalettes?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const commandManagesFocus = useRef(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  const [activeScope, setActiveScope] = useState<ActivePaletteScope | null>(null);
+  const [palettes, setPalettes] = useState<PaletteEntry[]>(() => keptPalettes()?.palettes ?? []);
+  const [dashboards, setDashboards] = useState<DashboardEntry[]>(
+    () => keptDashboards()?.dashboards ?? [],
+  );
+  const [frecency, setFrecency] = useState<PaletteFrecencyEntry[]>(
+    () => keptPaletteFrecency() ?? [],
+  );
+  const dashboardReadAbort = useRef<AbortController | null>(null);
   const resultList = useRef<HTMLDivElement>(null);
   const fade = usePaletteFade<HTMLDivElement>();
   const listRef = useCallback(
@@ -627,20 +678,152 @@ export function CommandDialog({
     },
     [fade],
   );
+
+  // Quietly refresh custom palettes, dashboards, and frecency whenever ⌘K opens.
+  useEffect(() => {
+    if (!enablePalettes || !open) return;
+    const abort = new AbortController();
+    const cachedPalettes = keptPalettes();
+    if (cachedPalettes) setPalettes(cachedPalettes.palettes);
+    const cachedDashboards = keptDashboards();
+    if (cachedDashboards) setDashboards(cachedDashboards.dashboards);
+    const cachedFrecency = keptPaletteFrecency();
+    if (cachedFrecency) setFrecency(cachedFrecency);
+
+    void listPalettes(abort.signal)
+      .then((res) => {
+        if (!abort.signal.aborted) setPalettes(res.palettes);
+      })
+      .catch(() => {});
+    void listDashboards(abort.signal)
+      .then((res) => {
+        if (!abort.signal.aborted) setDashboards(res.dashboards);
+      })
+      .catch(() => {});
+    void listPaletteFrecency(abort.signal)
+      .then((entries) => {
+        if (!abort.signal.aborted) setFrecency(entries);
+      })
+      .catch(() => {});
+
+    return () => {
+      abort.abort();
+      dashboardReadAbort.current?.abort();
+    };
+  }, [enablePalettes, open]);
+
+  const enterPalette = useCallback((entry: PaletteEntry) => {
+    dashboardReadAbort.current?.abort();
+    if (!entry.spec) return;
+    setActiveScope({
+      kind: "palette",
+      id: entry.id,
+      title: entry.title,
+      spec: entry.spec,
+    });
+  }, []);
+
+  const enterDashboard = useCallback((entry: DashboardEntry) => {
+    dashboardReadAbort.current?.abort();
+    const abort = new AbortController();
+    dashboardReadAbort.current = abort;
+    const scopeId = dashboardPaletteId(entry.id);
+    const cached = keptDashboard(entry.id);
+    setActiveScope({
+      kind: "dashboard",
+      id: scopeId,
+      title: entry.title,
+      spec: cached?.dashboard ? dashboardToPalette(entry, cached.dashboard) : undefined,
+      loading: !cached?.dashboard,
+    });
+    void readDashboard(entry.id, abort.signal)
+      .then((file) => {
+        if (abort.signal.aborted) return;
+        if (!file.dashboard) {
+          setActiveScope((prev) =>
+            prev?.id === scopeId
+              ? {
+                  ...prev,
+                  loading: false,
+                  error: file.problems[0]?.message ?? "Could not read dashboard.",
+                }
+              : prev,
+          );
+          return;
+        }
+        const spec = dashboardToPalette(entry, file.dashboard);
+        setActiveScope((prev) =>
+          prev?.id === scopeId ? { ...prev, spec, loading: false, error: undefined } : prev,
+        );
+      })
+      .catch((reason) => {
+        if (abort.signal.aborted) return;
+        setActiveScope((prev) =>
+          prev?.id === scopeId
+            ? {
+                ...prev,
+                loading: false,
+                error: reason instanceof Error ? reason.message : String(reason),
+              }
+            : prev,
+        );
+      });
+  }, []);
+
+  const allCommands = useMemo(() => {
+    if (!enablePalettes) return commands;
+    const extras: ReviewCommand[] = [];
+    for (const entry of palettes) {
+      if (!entry.spec) continue;
+      extras.push({
+        id: `palette:${entry.id}`,
+        icon: "jump",
+        group: "Palettes",
+        label: entry.title,
+        exactKeyword: entry.keyword,
+        keywords: [entry.keyword, entry.description, entry.where, "palette"]
+          .filter(Boolean)
+          .join(" "),
+        hint: entry.keyword || entry.where,
+        shortcut: "Tab",
+        keepOpen: true,
+        run: () => enterPalette(entry),
+        onTab: () => enterPalette(entry),
+      });
+    }
+    for (const entry of dashboards) {
+      if (entry.problem && entry.views === 0) continue;
+      extras.push({
+        id: `dashboard-palette:${entry.id}`,
+        icon: "display",
+        group: "Palettes",
+        label: entry.title,
+        keywords: [entry.description, entry.where, "dashboard"].filter(Boolean).join(" "),
+        hint: entry.where,
+        shortcut: "Tab",
+        tabLabel: "Scope",
+        managesFocus: true,
+        run: () => openDashboards(entry.id),
+        onTab: () => enterDashboard(entry),
+      });
+    }
+    return extras.length ? [...commands, ...extras] : commands;
+  }, [commands, dashboards, enablePalettes, enterDashboard, enterPalette, palettes]);
+
   const searching = query.trim().length > 0;
   // Without a query, the commands in their sections; with one, the matches
   // ranked, the best first. Commands that cannot run yet go last.
   const sections = useMemo(() => {
     if (!searching) {
       return commandGroups.flatMap((group) => {
-        const rows = commands
+        const rows = allCommands
           .filter((command) => command.group === group)
           .sort((a, b) => Number(!!a.disabled) - Number(!!b.disabled))
           .map((command) => ({ command, ranges: undefined }));
         return rows.length ? [{ group: group as CommandGroup | null, rows }] : [];
       });
     }
-    const rows = commands
+    const rows = allCommands
       .flatMap((command, index) => {
         const match = matchCommand(command, query);
         return match ? [{ command, index, ...match }] : [];
@@ -652,16 +835,21 @@ export function CommandDialog({
           a.index - b.index,
       );
     return rows.length ? [{ group: null, rows }] : [];
-  }, [commands, query, searching]);
+  }, [allCommands, query, searching]);
   const results = sections.flatMap((section) => section.rows.map((row) => row.command));
+  const safeActive = results.length ? Math.min(active, results.length - 1) : 0;
   useEffect(() => {
     resultList.current
       ?.querySelector('[aria-selected="true"]')
       ?.scrollIntoView({ block: "nearest" });
-  }, [active]);
+  }, [safeActive]);
   const run = (index: number) => {
     const command = results[index];
     if (command && !command.disabled) {
+      if (command.keepOpen) {
+        command.run();
+        return;
+      }
       commandManagesFocus.current = !!command.managesFocus;
       onOpenChange(false);
       setActive(0);
@@ -672,10 +860,14 @@ export function CommandDialog({
   return (
     <Dialog.Root
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(next) => {
+        if (!next) dashboardReadAbort.current?.abort();
+        onOpenChange(next);
+      }}
       onOpenChangeComplete={(next) => {
         if (!next) {
           setActive(0);
+          setActiveScope(null);
         }
       }}
     >
@@ -689,115 +881,163 @@ export function CommandDialog({
           finalFocus={() => !commandManagesFocus.current}
           {...stylex.props(ui.palette, ui.instant)}
         >
-          <PaletteTitle>{title}</PaletteTitle>
+          <PaletteTitle>{activeScope ? activeScope.title : title}</PaletteTitle>
           <Dialog.Description {...stylex.props(ui.srOnly)}>
-            Find and run a review command. Arrow keys select; Enter runs it.
+            {activeScope
+              ? `Choose values for ${activeScope.title}. Tab scopes; Enter runs the default action; Command+Enter shows all actions; Backspace goes back.`
+              : "Find and run a review command. Arrow keys select; Enter runs it; Tab scopes into a palette or dashboard."}
           </Dialog.Description>
-          <div {...stylex.props(ui.paletteInput)}>
-            <Icon name="search" />
-            <input
-              ref={inputRef}
-              value={query}
-              onFocus={(event) => event.currentTarget.select()}
-              onChange={(event) => {
-                setQuery(event.target.value);
+          {activeScope ? (
+            <PaletteScopeView
+              scope={activeScope}
+              frecency={frecency}
+              onExit={() => {
+                dashboardReadAbort.current?.abort();
+                setActiveScope(null);
+                setQuery("");
                 setActive(0);
+                requestAnimationFrame(() => focusPaletteInput(inputRef.current));
               }}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowDown") {
-                  event.preventDefault();
-                  setActive((index) => Math.min(index + 1, results.length - 1));
-                } else if (event.key === "ArrowUp") {
-                  event.preventDefault();
-                  setActive((index) => Math.max(0, index - 1));
-                } else if (event.key === "Enter") {
-                  event.preventDefault();
-                  run(active);
-                }
+              onClose={(navigated) => {
+                commandManagesFocus.current = navigated;
+                setActiveScope(null);
+                onOpenChange(false);
               }}
-              {...stylex.props(ui.paletteField)}
-              placeholder="Search commands…"
-              aria-label={searchLabel}
-              role="combobox"
-              aria-expanded="true"
-              aria-controls="command-results"
-              aria-activedescendant={results[active] ? `command-${results[active].id}` : undefined}
+              onFrecencyChange={setFrecency}
             />
-          </div>
-          <div
-            id="command-results"
-            ref={listRef}
-            role="listbox"
-            aria-label="Commands"
-            hidden={!results.length}
-            {...stylex.props(ui.paletteList)}
-          >
-            {sections.map((section) => {
-              const rows = section.rows.map(({ command, ranges }) => {
-                const index = position++;
-                const selected = index === active;
-                return (
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    id={`command-${command.id}`}
-                    key={command.id}
-                    role="option"
-                    aria-selected={selected}
-                    aria-disabled={command.disabled || undefined}
-                    aria-describedby={command.hint ? `command-${command.id}-hint` : undefined}
-                    onMouseMove={() => setActive(index)}
-                    onClick={() => run(index)}
-                    {...stylex.props(
-                      ui.paletteRow,
-                      selected && [ui.paletteRowOn, picked],
-                      command.disabled && styles.disabled,
-                    )}
-                  >
-                    <span {...stylex.props(ui.paletteRowIcon)}>
-                      <Icon name={command.icon} />
-                    </span>
-                    <span {...stylex.props(ui.paletteRowText)}>
-                      <Matched text={command.label} ranges={ranges} />
-                    </span>
-                    {/* Why it cannot run yet, such as Push… while Med reads the remotes. */}
-                    {command.hint && (
-                      <span
-                        id={`command-${command.id}-hint`}
-                        {...stylex.props(ui.paletteAside, styles.commandHint)}
+          ) : (
+            <>
+              <div {...stylex.props(ui.paletteInput)}>
+                <Icon name="search" />
+                <input
+                  ref={inputRef}
+                  value={query}
+                  onFocus={(event) => event.currentTarget.select()}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    setActive(0);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowDown") {
+                      event.preventDefault();
+                      setActive((index) => Math.min(index + 1, Math.max(0, results.length - 1)));
+                    } else if (event.key === "ArrowUp") {
+                      event.preventDefault();
+                      setActive((index) => Math.max(0, index - 1));
+                    } else if (event.key === "Tab") {
+                      const command = results[safeActive];
+                      if (command?.onTab && !command.disabled) {
+                        event.preventDefault();
+                        command.onTab();
+                      }
+                    } else if (event.key === "Enter") {
+                      event.preventDefault();
+                      run(safeActive);
+                    }
+                  }}
+                  {...stylex.props(ui.paletteField)}
+                  placeholder="Search commands…"
+                  aria-label={searchLabel}
+                  role="combobox"
+                  aria-expanded="true"
+                  aria-controls="command-results"
+                  aria-activedescendant={
+                    results[safeActive] ? `command-opt-${safeActive}` : undefined
+                  }
+                />
+              </div>
+              <div
+                id="command-results"
+                ref={listRef}
+                role="listbox"
+                aria-label="Commands"
+                hidden={!results.length}
+                {...stylex.props(ui.paletteList)}
+              >
+                {sections.map((section) => {
+                  const rows = section.rows.map(({ command, ranges }) => {
+                    const index = position++;
+                    const selected = index === safeActive;
+                    const showHint = Boolean(command.hint && !(selected && command.onTab));
+                    return (
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        id={`command-opt-${index}`}
+                        key={command.id}
+                        role="option"
+                        aria-selected={selected}
+                        aria-disabled={command.disabled || undefined}
+                        aria-describedby={showHint ? `command-opt-${index}-hint` : undefined}
+                        onMouseMove={() => setActive(index)}
+                        onClick={() => run(index)}
+                        {...stylex.props(
+                          ui.paletteRow,
+                          selected && [ui.paletteRowOn, picked],
+                          command.disabled && styles.disabled,
+                        )}
                       >
-                        {command.hint}
-                      </span>
-                    )}
-                    <PaletteKeys value={command.shortcut} />
-                  </button>
-                );
-              });
-              if (!section.group) return <Fragment key="matches">{rows}</Fragment>;
-              const labelId = `command-group-${section.group.replace(/\s+/g, "-")}`;
-              return (
-                <div
-                  key={section.group}
-                  role="group"
-                  aria-labelledby={labelId}
-                  {...stylex.props(ui.paletteGroup)}
-                >
-                  <div id={labelId} {...stylex.props(ui.label, ui.paletteSection)}>
-                    {section.group}
-                  </div>
-                  {rows}
-                </div>
-              );
-            })}
-          </div>
-          {/* Always present, so a screen reader hears its text change. */}
-          <p role="status" {...stylex.props(results.length ? ui.srOnly : ui.paletteEmpty)}>
-            {results.length
-              ? ""
-              : searching
-                ? `No commands match “${query.trim()}”`
-                : "No commands"}
-          </p>
+                        <span {...stylex.props(ui.paletteRowIcon)}>
+                          <Icon name={command.icon} />
+                        </span>
+                        <span {...stylex.props(ui.paletteRowText)}>
+                          <Matched text={command.label} ranges={ranges} />
+                        </span>
+                        {selected && command.onTab ? (
+                          <PaletteActions
+                            actions={
+                              command.tabLabel
+                                ? [
+                                    { label: "Open", keys: "↵" },
+                                    { label: command.tabLabel, keys: "Tab" },
+                                  ]
+                                : [{ label: "Scope", keys: "Tab" }]
+                            }
+                          />
+                        ) : (
+                          <>
+                            {/* Why it cannot run yet, such as Push… while Med reads the remotes. */}
+                            {showHint && (
+                              <span
+                                id={`command-opt-${index}-hint`}
+                                {...stylex.props(ui.paletteAside, styles.commandHint)}
+                              >
+                                {command.hint}
+                              </span>
+                            )}
+                            <PaletteKeys value={command.shortcut} />
+                          </>
+                        )}
+                      </button>
+                    );
+                  });
+                  if (!section.group) return <Fragment key="matches">{rows}</Fragment>;
+                  const labelId = `command-group-${section.group.replace(/\s+/g, "-")}`;
+                  return (
+                    <div
+                      key={section.group}
+                      role="group"
+                      aria-labelledby={labelId}
+                      {...stylex.props(ui.paletteGroup)}
+                    >
+                      <div id={labelId} {...stylex.props(ui.label, ui.paletteSection)}>
+                        {section.group}
+                      </div>
+                      {rows}
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Always present, so a screen reader hears its text change. */}
+              <p role="status" {...stylex.props(results.length ? ui.srOnly : ui.paletteEmpty)}>
+                {results.length
+                  ? ""
+                  : searching
+                    ? `No commands match “${query.trim()}”`
+                    : "No commands"}
+              </p>
+            </>
+          )}
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>

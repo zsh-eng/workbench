@@ -7458,6 +7458,7 @@ export function App({
         <CommandDialog
           open={commandsOpen}
           onOpenChange={setCommandsOpen}
+          enablePalettes
           commands={[...commands].sort((a, b) => commandRank(a.id) - commandRank(b.id))}
         />
         {addPull.add && (
