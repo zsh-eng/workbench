@@ -16,7 +16,7 @@ set -eu
 repo="zsh-eng/workbench"
 # The newest release. Each release commit sets it, so the script asks no API
 # for it (GitHub's API allows 60 calls an hour from one address).
-latest="0.26.0"
+latest="0.27.0"
 # Tests point this at a local server.
 downloads="${MED_INSTALL_DOWNLOADS:-https://github.com}"
 version="${MED_VERSION:-$latest}"
