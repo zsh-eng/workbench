@@ -40,6 +40,8 @@ interface PiState {
   sessionId?: string;
   sessionFile?: string;
   isStreaming?: boolean;
+  isCompacting?: boolean;
+  pendingMessageCount?: number;
 }
 type Json = Record<string, any>;
 
@@ -391,11 +393,31 @@ export function piBridge({
   let models: PiModel[] = [];
   let state: PiState = {};
   let session = "";
-  /** The turn in progress: its end, and whether Med stopped it. */
-  let turn: { done(result: Json): void; fail(error: Error): void; stopped: boolean } | undefined;
+  /** The turn currently running in Pi: its end, and whether Med stopped it. */
+  type Turn = { done(result: Json): void; fail(error: Error): void; stopped: boolean };
+  let turn: Turn | undefined;
+  /** Serializes `session/prompt` calls so each turn runs to settlement before the next starts. */
+  let promptChain: Promise<unknown> = Promise.resolve();
+  /** Cancels any active post-`agent_end` settle poll (e.g. when a retry starts a new run). */
+  let settleEpoch = 0;
+  let settleTimer: ReturnType<typeof setTimeout> | undefined;
+  let settleWake: (() => void) | undefined;
+  let retrying = false;
+  let compactionRetryUntil = 0;
   let lastAssistant: Json | undefined;
   let compactions = 0;
   const calls = new Map<string, Json>();
+
+  const cancelSettle = () => {
+    settleEpoch++;
+    if (settleTimer) {
+      clearTimeout(settleTimer);
+      settleTimer = undefined;
+    }
+    const wake = settleWake;
+    settleWake = undefined;
+    wake?.();
+  };
 
   // JSON.stringify leaves U+2028 and U+2029 raw; Med's reader may split on them.
   const send = (line: string) =>
@@ -405,12 +427,24 @@ export function piBridge({
 
   const options = () => configOptions(models, state);
   const refresh = async (pi: Pi) => {
-    state = await pi.command<PiState>("get_state");
+    const next = await pi.command<PiState>("get_state");
+    if (pi === process_) state = next;
     return options();
   };
 
   const onEvent = (event: Json) => {
     switch (event.type) {
+      case "agent_start":
+        // A retried or continued run started: stop any previous settle loop.
+        compactionRetryUntil = 0;
+        cancelSettle();
+        return;
+      case "auto_retry_start":
+        retrying = true;
+        return;
+      case "auto_retry_end":
+        retrying = false;
+        return;
       case "message_update": {
         const delta = event.assistantMessageEvent;
         if (delta?.type === "text_delta" && delta.delta)
@@ -434,6 +468,9 @@ export function piBridge({
         return;
       }
       case "compaction_end": {
+        // Pi schedules `agent.continue()` 100ms after `compaction_end` when
+        // `willRetry` is true; keep `settle()` waiting across that gap.
+        if (event.willRetry === true) compactionRetryUntil = Date.now() + 500;
         // Pi's own compaction, at its threshold or on an overflow, and /compact.
         const summary = event.result?.summary;
         update({
@@ -483,6 +520,9 @@ export function piBridge({
         void ask(event);
         return;
       case "agent_settled":
+        retrying = false;
+        compactionRetryUntil = 0;
+        cancelSettle();
         void finish();
         return;
       case "agent_end":
@@ -493,28 +533,57 @@ export function piBridge({
     }
   };
 
-  /** After agent_end: the turn ends once Pi neither streams nor compacts. */
+  /** After agent_end: the turn ends once Pi neither streams, compacts, nor retries. */
   const settle = async () => {
     const pi = process_;
-    for (let tries = 0; pi && turn && tries < 100; tries++) {
-      const now = await pi
-        .command<PiState & { isCompacting?: boolean }>("get_state")
-        .catch(() => undefined);
-      if (!now || (!now.isStreaming && !now.isCompacting)) break;
-      await new Promise((done) => setTimeout(done, 100));
+    if (!pi || !turn) return;
+    cancelSettle();
+    const epoch = settleEpoch;
+    for (let tries = 0; pi === process_ && turn && epoch === settleEpoch; tries++) {
+      let now: PiState;
+      try {
+        now = await pi.command<PiState>("get_state");
+      } catch {
+        // If Pi exited mid-poll, let `pi.exited` reject the turn with the crash reason.
+        return;
+      }
+      if (pi !== process_ || !turn || epoch !== settleEpoch) return;
+      state = { ...state, ...now };
+      const busy =
+        now.isStreaming ||
+        now.isCompacting ||
+        retrying ||
+        Date.now() < compactionRetryUntil ||
+        (now.pendingMessageCount ?? 0) > 0;
+      if (!busy) break;
+      await new Promise<void>((done) => {
+        settleWake = done;
+        settleTimer = setTimeout(
+          () => {
+            settleTimer = undefined;
+            settleWake = undefined;
+            done();
+          },
+          tries < 20 ? 50 : 250,
+        );
+        settleTimer.unref();
+      });
     }
-    await finish();
+    if (pi === process_ && turn && epoch === settleEpoch) await finish();
   };
-  /** Ends the turn, with the context that it fills. */
+  /** Ends the active turn, with the context that it fills. */
   const finish = async () => {
     const current = turn;
     if (!current) return;
     turn = undefined;
     const last = lastAssistant;
     lastAssistant = undefined;
-    const stats = await process_?.command<Json>("get_session_stats").catch(() => undefined);
+    const pi = process_;
+    const stats = pi
+      ? await pi.command<Json>("get_session_stats").catch(() => undefined)
+      : undefined;
     const usage = stats?.contextUsage;
-    if (typeof usage?.tokens === "number" && usage.contextWindow > 0)
+    if (pi === process_ && typeof usage?.tokens === "number" && usage.contextWindow > 0)
       update({ sessionUpdate: "usage_update", used: usage.tokens, size: usage.contextWindow });
     if (current.stopped || last?.stopReason === "aborted")
       current.done({ stopReason: "cancelled" });
@@ -577,6 +646,12 @@ export function piBridge({
   ];
   const open = async (folder: string, file?: string) => {
     process_?.stop();
+    cancelSettle();
+    retrying = false;
+    compactionRetryUntil = 0;
+    state = {};
+    turn?.fail(new RpcError("Pi started another session.", -32603));
+    turn = undefined;
     cwd = folder;
     const pi = new Pi(
       [...pi_, "--mode", "rpc", ...(file ? ["--session", file] : [])],
@@ -587,6 +662,9 @@ export function piBridge({
     void pi.exited.then((reason) => {
       if (process_ !== pi) return;
       process_ = undefined;
+      cancelSettle();
+      retrying = false;
+      compactionRetryUntil = 0;
       turn?.fail(new RpcError(reason, -32603));
       turn = undefined;
     });
@@ -688,6 +766,8 @@ export function piBridge({
           return { configOptions: await refresh(pi) };
         }
         case "session/prompt": {
+          // Capture the target Pi process now so a prompt never leaks into a
+          // later session opened while this prompt waits in the queue.
           const pi = running();
           const blocks = (Array.isArray(input.prompt) ? input.prompt : []) as Json[];
           const message = blocks
@@ -703,28 +783,40 @@ export function piBridge({
           const images = blocks
             .filter((block) => block.type === "image" && typeof block.data === "string")
             .map((block) => ({ type: "image", data: block.data, mimeType: block.mimeType }));
-          // `/compact`, from the reader or from Med past its autocompact:
-          // Pi summarizes the session's older messages.
-          const compact = /^\/compact(?:\s+([\s\S]*))?$/.exec(message.trim());
-          if (compact && !images.length) {
-            const instructions = compact[1]?.trim();
-            await pi
-              .command("compact", instructions ? { customInstructions: instructions } : {})
-              .catch((error: Error) => Promise.reject(new RpcError(error.message, -32603)));
-            return { stopReason: "end_turn" };
-          }
-          return new Promise((done, fail) => {
-            turn = { done, fail, stopped: false };
-            lastAssistant = undefined;
-            pi.command("prompt", {
-              message,
-              ...(images.length ? { images } : {}),
-              ...(state.isStreaming ? { streamingBehavior: "followUp" } : {}),
-            }).catch((error: Error) => {
-              turn = undefined;
-              fail(new RpcError(error.message, -32603));
+          const runPrompt = async () => {
+            if (process_ !== pi)
+              throw new RpcError("Pi is not running. Send again to start it.", -32603);
+            // `/compact`, from the reader or from Med past its autocompact:
+            // Pi summarizes the session's older messages.
+            const compact = /^\/compact(?:\s+([\s\S]*))?$/.exec(message.trim());
+            if (compact && !images.length) {
+              const instructions = compact[1]?.trim();
+              await pi
+                .command("compact", instructions ? { customInstructions: instructions } : {})
+                .catch((error: Error) => Promise.reject(new RpcError(error.message, -32603)));
+              return { stopReason: "end_turn" };
+            }
+            // Always pass `streamingBehavior: "followUp"`: Pi ignores it when
+            // idle and queues the prompt cleanly if Pi is still streaming (e.g.
+            // an extension-driven turn), avoiding the "Specify streamingBehavior
+            // ('steer' or 'followUp')" error.
+            return new Promise<Json>((done, fail) => {
+              const entry: Turn = { done, fail, stopped: false };
+              turn = entry;
+              lastAssistant = undefined;
+              pi.command("prompt", {
+                message,
+                ...(images.length ? { images } : {}),
+                streamingBehavior: "followUp",
+              }).catch((error: Error) => {
+                if (turn === entry) turn = undefined;
+                fail(new RpcError(error.message, -32603));
+              });
             });
-          });
+          };
+          const result = promptChain.then(runPrompt, runPrompt);
+          promptChain = result.catch(() => {});
+          return result;
         }
         default:
           throw new RpcError(`Pi's bridge does not offer ${method}.`, -32601);
@@ -741,6 +833,10 @@ export function piBridge({
   return {
     receive: (line: string) => rpc.receive(line),
     close() {
+      cancelSettle();
+      const active = turn;
+      turn = undefined;
+      active?.fail(new RpcError("Pi ended.", -32603));
       process_?.stop();
       process_ = undefined;
     },
